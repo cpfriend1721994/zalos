@@ -1,0 +1,72 @@
+Name:           zalos
+Version:        1.0.0
+Release:        1%{?dist}
+Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
+License:        MIT
+URL:            https://github.com/zalos/zalos
+Source0:        %{name}-%{version}.tar.gz
+
+BuildRequires:  cmake >= 3.22
+BuildRequires:  gcc-c++
+BuildRequires:  ninja-build
+BuildRequires:  qt6-qtbase-devel >= 6.4
+BuildRequires:  qt6-qtdeclarative-devel >= 6.4
+BuildRequires:  qt6-qtsvg-devel
+BuildRequires:  qt6-qtwayland-devel
+BuildRequires:  qt6-qtwebsockets-devel
+BuildRequires:  qt6-qtmultimedia-devel
+BuildRequires:  zlib-devel
+BuildRequires:  openssl-devel
+BuildRequires:  xz-devel
+BuildRequires:  sqlite-devel
+BuildRequires:  desktop-file-utils
+
+Requires:       qt6-qtbase >= 6.4
+Requires:       qt6-qtdeclarative >= 6.4
+Requires:       qt6-qtsvg
+Requires:       qt6-qtimageformats
+Requires:       qt6-qtwayland
+Requires:       qt6-qtwebsockets
+Requires:       qt6-qtmultimedia
+Requires:       python3
+# Bundled zcall-native call engine (zalo-for-linux, MIT) in %{_datadir}/%{name}/zcall-native: node + libopus.
+Requires:       nodejs
+Requires:       opus
+Recommends:     pulseaudio-utils
+Requires:       xcb-util-cursor
+Requires:       openssl
+Requires:       sqlite
+# Call video: OpenH264 is dlopen()ed, never bundled (fedora-cisco-openh264 repo).
+Recommends:     openh264
+
+%description
+Zalos is a high-performance native desktop client for Zalo built with Qt6
+(C++ and QML). It supports Wayland and Xorg seamlessly, integrates with GTK
+and Qt desktop environments, and includes native cryptographic verification
+for E2EE message synchronization.
+
+%prep
+%setup -q
+
+%build
+%cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DZALOS_QML_AOT=OFF
+%cmake_build
+
+%install
+%cmake_install
+
+%check
+desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
+
+%files
+%{_bindir}/%{name}
+%{_datadir}/applications/%{name}.desktop
+%{_datadir}/icons/hicolor/scalable/apps/%{name}.svg
+%{_datadir}/metainfo/com.github.zalos.Zalos.metainfo.xml
+%{_datadir}/%{name}/export_browser_cookies.py
+%{_datadir}/%{name}/zcall-native/
+
+%changelog
+* Sat Oct 31 2026 Zalos Team <dev@zalos.local> - 1.0.0-1
+- Initial Qt6 release with GTK/Qt theming, Wayland/X11 and E2EE support.
+

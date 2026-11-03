@@ -1,0 +1,39 @@
+# Maintainer: Zalos Developers <noreply@zalos.invalid>
+# Arch Linux / AUR recipe: builds Zalos from the release source tarball against the system Qt 6.
+# CI (packaging/arch/build-arch.sh) uses the same PKGBUILD with a tarball made from the checkout.
+
+pkgname=zalos
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Native Qt6 (C++/QML) desktop client for Zalo on Linux"
+arch=('x86_64')
+url="https://github.com/zalos/zalos"
+license=('MIT')
+depends=(
+  'qt6-base' 'qt6-declarative' 'qt6-svg' 'qt6-imageformats' 'qt6-websockets' 'qt6-multimedia' 'qt6-wayland'
+  'openssl' 'xz' 'zlib' 'sqlite' 'python' 'hicolor-icon-theme'
+  'nodejs' 'opus' # bundled zcall-native call engine (share/zalos/zcall-native)
+)
+# openh264: headers for call video at build time; the library is dlopen()ed at run time (never linked).
+makedepends=('cmake' 'ninja' 'qt6-shadertools' 'openh264')
+optdepends=(
+  'openh264: see the other person camera during video calls'
+  'libpulse: voice/video calls (parec/pacat/pactl)'
+  'libsecret: sign in with a browser session (GNOME keyring)'
+)
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/zalos/zalos/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cmake -B build -S "${pkgname}-${pkgver}" -G Ninja \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DBUILD_TESTING=OFF \
+    -DZALOS_QML_AOT=OFF # keeps working after Arch's next Qt update without a rebuild
+  cmake --build build
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build
+  install -Dm644 "${pkgname}-${pkgver}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

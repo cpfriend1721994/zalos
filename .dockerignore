@@ -1,0 +1,8 @@
+build/
+dist/
+.git/
+*.AppImage
+*.rpm
+*.flatpak
+.agents/
+

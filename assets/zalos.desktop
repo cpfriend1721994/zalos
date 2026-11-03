@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Zalos
+Comment=Zalo Desktop Client ported to Qt6 (C++/QML) for Linux
+Comment[vi]=Ứng dụng Zalo Desktop Native Qt6 (C++/QML) cho Linux
+Exec=zalos %u
+Icon=zalos
+Terminal=false
+Type=Application
+Categories=Network;InstantMessaging;Chat;
+Keywords=zalo;chat;messaging;e2ee;linux;
+StartupWMClass=zalos
+MimeType=x-scheme-handler/zalo;
+X-GNOME-UsesNotifications=true
+

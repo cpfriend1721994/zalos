@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zalos — Ứng dụng Zalo Native Qt6 cho Linux (Wayland & X11)</title>
+  <meta name="description" content="Khách hàng Zalo mã nguồn mở chạy native bằng Qt6 (C++/QML) trên Linux. Siêu nhẹ (~50MB RAM), hỗ trợ Wayland, GTK Theme, mã hóa E2EE và đóng gói AppImage, Flatpak, RPM.">
+  <link rel="icon" type="image/svg+xml" href="https://raw.githubusercontent.com/zalos/zalos/main/assets/icons/zalos.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            zalo: {
+              DEFAULT: '#0068FF',
+              dark: '#0052CC',
+              light: '#E5EFFF'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    code, pre { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-200">
+
+  <!-- Navigation -->
+  <nav class="sticky top-0 z-50 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-zalo flex items-center justify-center text-white font-bold text-lg shadow-sm">
+          Z
+        </div>
+        <span class="text-xl font-extrabold tracking-tight">Zalos</span>
+        <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 font-semibold border border-emerald-300 dark:border-emerald-800">v1.0.0</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <a href="#features" class="hidden md:inline-block text-sm font-medium hover:text-zalo transition-colors">Tính năng</a>
+        <a href="#install" class="hidden md:inline-block text-sm font-medium hover:text-zalo transition-colors">Cài đặt</a>
+        <a href="#architecture" class="hidden md:inline-block text-sm font-medium hover:text-zalo transition-colors">Kiến trúc</a>
+        <button id="themeToggle" class="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" title="Đổi giao diện Sáng / Tối">
+          <span class="dark:hidden">🌙</span>
+          <span class="hidden dark:inline">☀️</span>
+        </button>
+        <a href="https://github.com/zalos/zalos" target="_blank" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm font-semibold hover:opacity-90 transition-opacity">
+          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="max-w-6xl mx-auto px-4 sm:px-6 pt-16 pb-20 text-center">
+    <div class="inline-flex items-center gap-2 px-3 py-1 mb-6 rounded-full bg-zalo/10 dark:bg-zalo/20 text-zalo font-semibold text-xs border border-zalo/20">
+      🚀 Tái định nghĩa Zalo trên Linux với Qt6 & C++
+    </div>
+    <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight mb-6">
+      Trải nghiệm Zalo Native <br class="hidden sm:inline">
+      <span class="text-transparent bg-clip-text bg-gradient-to-r from-zalo via-blue-600 to-indigo-600">Siêu Nhẹ, Mượt Mà, Chuẩn Linux</span>
+    </h1>
+    <p class="max-w-2xl mx-auto text-lg text-slate-600 dark:text-slate-400 mb-10 leading-relaxed">
+      Nói lời tạm biệt với ứng dụng Electron ngốn hàng gigabyte RAM. <strong>Zalos</strong> được viết lại hoàn toàn bằng <strong>Qt6 & C++</strong>, tương thích 100% với giao diện GTK (GNOME) lẫn Qt (KDE), chạy Native trên cả <strong>Wayland và Xorg</strong>.
+    </p>
+
+    <!-- Download Buttons -->
+    <div class="flex flex-wrap items-center justify-center gap-4 mb-12">
+      <a href="https://github.com/zalos/zalos/releases/latest" class="px-6 py-3.5 rounded-xl bg-zalo hover:bg-zalo-dark text-white font-bold shadow-lg shadow-zalo/25 hover:shadow-zalo/40 transition-all flex items-center gap-2">
+        <span>📦 Tải AppImage (.AppImage)</span>
+      </a>
+      <a href="#install" class="px-6 py-3.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 font-semibold transition-all flex items-center gap-2">
+        <span>📥 Cài qua Flatpak / RPM</span>
+      </a>
+    </div>
+
+    <!-- Benchmark Badge -->
+    <div class="max-w-md mx-auto p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-around text-left">
+      <div>
+        <div class="text-xs uppercase tracking-wider text-slate-500 font-bold">Mức tiêu thụ RAM</div>
+        <div class="text-2xl font-black text-emerald-600 dark:text-emerald-400">~50 - 90 MB</div>
+        <div class="text-[11px] text-slate-400">Khởi động trong &lt; 0.2s</div>
+      </div>
+      <div class="w-px h-10 bg-slate-200 dark:bg-slate-800"></div>
+      <div>
+        <div class="text-xs uppercase tracking-wider text-slate-500 font-bold">Electron cũ</div>
+        <div class="text-2xl font-black text-rose-500 line-through">~800 - 1500 MB</div>
+        <div class="text-[11px] text-slate-400">Tiết kiệm hơn 90% RAM</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Features Grid -->
+  <section id="features" class="max-w-6xl mx-auto px-4 sm:px-6 py-16 border-t border-slate-200 dark:border-slate-800">
+    <div class="text-center mb-12">
+      <h2 class="text-3xl font-extrabold tracking-tight mb-3">Tính Năng Nổi Bật</h2>
+      <p class="text-slate-600 dark:text-slate-400">Được tối ưu riêng cho hệ sinh thái máy trạm Linux hiện đại.</p>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div class="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-zalo flex items-center justify-center text-2xl mb-4">
+          🖥️
+        </div>
+        <h3 class="text-lg font-bold mb-2">Hỗ Trợ Native Wayland & Xorg</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+          Sử dụng QPA <code>wayland;xcb</code> tự động nhận diện compositor. Tích hợp thanh tiêu đề CSD kéo thả mượt mà, không bao giờ mất nút điều khiển trên GNOME Wayland.
+        </p>
+      </div>
+
+      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div class="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 flex items-center justify-center text-2xl mb-4">
+          🎨
+        </div>
+        <h3 class="text-lg font-bold mb-2">Hòa Nhập Theme GTK & Qt</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+          Tự động đồng bộ chế độ Sáng / Tối thông qua D-Bus Portal và GNOME Settings. Sử dụng hộp thoại mở file chuẩn của GTK/GNOME và Breeze của KDE Plasma.
+        </p>
+      </div>
+
+      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div class="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center text-2xl mb-4">
+          🔒
+        </div>
+        <h3 class="text-lg font-bold mb-2">Mã Hóa Đầu Cuối (E2EE) C++</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+          Mô-đun <code>db-cross-v4</code> viết bằng C++ thuần túy, dùng OpenSSL AES-256-CBC và LZMA để giải mã tin nhắn E2EE và cơ sở dữ liệu SQLite offline an toàn tuyệt đối.
+        </p>
+      </div>
+
+      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div class="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center text-2xl mb-4">
+          🔔
+        </div>
+        <h3 class="text-lg font-bold mb-2">Khay Hệ Thống & Badge Đếm</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+          Tích hợp StatusNotifierItem vẽ trực tiếp số lượng tin nhắn chưa đọc lên icon khay hệ thống, không cần cài thêm extension phức tạp.
+        </p>
+      </div>
+
+      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div class="w-12 h-12 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center text-2xl mb-4">
+          📞
+        </div>
+        <h3 class="text-lg font-bold mb-2">Cuộc Gọi PipeWire & Opus</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+          Kế thừa giao thức tín hiệu <code>zcall-native</code> (ZRTP/SRTP), xử lý luồng âm thanh Opus và chia sẻ màn hình qua PipeWire portal hiện đại.
+        </p>
+      </div>
+
+      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div class="w-12 h-12 rounded-xl bg-cyan-100 dark:bg-cyan-950/60 text-cyan-600 flex items-center justify-center text-2xl mb-4">
+          📦
+        </div>
+        <h3 class="text-lg font-bold mb-2">Đóng Gói Đa Nền Tảng Chuẩn</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+          Hỗ trợ đầy đủ AppImage (chạy ngay), RPM (Fedora, openSUSE), NixOS (reproducible Flakes) và Flatpak được build tự động qua Docker container.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Installation Guide -->
+  <section id="install" class="max-w-4xl mx-auto px-4 sm:px-6 py-16 border-t border-slate-200 dark:border-slate-800">
+    <div class="text-center mb-12">
+      <h2 class="text-3xl font-extrabold tracking-tight mb-3">Hướng Dẫn Cài Đặt</h2>
+      <p class="text-slate-600 dark:text-slate-400">Chọn định dạng cài đặt phù hợp với bản phân phối Linux của bạn.</p>
+    </div>
+
+    <!-- Tabs Container -->
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+      <div class="flex border-b border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-800/50 text-sm font-semibold">
+        <button onclick="setTab('appimage')" id="tab-appimage" class="px-5 py-3 border-b-2 border-zalo text-zalo bg-white dark:bg-slate-900">AppImage (Khuyên dùng)</button>
+        <button onclick="setTab('rpm')" id="tab-rpm" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Fedora / RPM</button>
+        <button onclick="setTab('flatpak')" id="tab-flatpak" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Flatpak</button>
+        <button onclick="setTab('nixos')" id="tab-nixos" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">NixOS / Flakes</button>
+        <button onclick="setTab('docker')" id="tab-docker" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Build Source (Docker)</button>
+      </div>
+
+      <div class="p-6">
+        <!-- AppImage Tab -->
+        <div id="content-appimage" class="space-y-4">
+          <p class="text-sm text-slate-600 dark:text-slate-400">Tải file AppImage duy nhất, cấp quyền thực thi và sử dụng ngay trên Ubuntu, Debian, Fedora, Arch Linux:</p>
+          <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-sm overflow-x-auto"><code># 1. Tải bản phát hành mới nhất
+wget https://github.com/zalos/zalos/releases/latest/download/Zalos-1.0.0-x86_64.AppImage
+
+# 2. Cấp quyền thực thi
+chmod +x Zalos-1.0.0-x86_64.AppImage
+
+# 3. Khởi chạy Zalos
+./Zalos-1.0.0-x86_64.AppImage</code></pre>
+        </div>
+
+        <!-- RPM Tab -->
+        <div id="content-rpm" class="space-y-4 hidden">
+          <p class="text-sm text-slate-600 dark:text-slate-400">Dành cho Fedora, Red Hat Enterprise Linux hoặc openSUSE:</p>
+          <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-sm overflow-x-auto"><code># Cài đặt file RPM trực tiếp qua DNF
+sudo dnf install https://github.com/zalos/zalos/releases/latest/download/zalos-1.0.0-1.fc40.x86_64.rpm</code></pre>
+        </div>
+
+        <!-- Flatpak Tab -->
+        <div id="content-flatpak" class="space-y-4 hidden">
+          <p class="text-sm text-slate-600 dark:text-slate-400">Cài đặt bản Flatpak an toàn, chạy cách ly sandbox:</p>
+          <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-sm overflow-x-auto"><code># Cài đặt qua file bundle
+flatpak install zalos.flatpak
+
+# Hoặc khởi chạy
+flatpak run com.github.zalos.Zalos</code></pre>
+        </div>
+
+        <!-- NixOS Tab -->
+        <div id="content-nixos" class="space-y-4 hidden">
+          <p class="text-sm text-slate-600 dark:text-slate-400">Khởi chạy tức thì không làm ô nhiễm hệ thống, hoặc tích hợp vào NixOS <code>configuration.nix</code>:</p>
+          <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-sm overflow-x-auto"><code># Chạy trực tiếp qua Flake (không cần cài đặt)
+nix run github:zalos/zalos
+
+# Hoặc cài đặt vào user profile
+nix profile install github:zalos/zalos
+
+# Hoặc build từ mã nguồn
+nix build
+./result/bin/zalos</code></pre>
+        </div>
+
+        <!-- Docker Tab -->
+        <div id="content-docker" class="space-y-4 hidden">
+          <p class="text-sm text-slate-600 dark:text-slate-400">Tự build từ mã nguồn theo chính sách <strong>Docker-First</strong> (không cài compiler vào máy thật):</p>
+          <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-sm overflow-x-auto"><code>git clone https://github.com/zalos/zalos.git
+cd zalos
+
+# Build binary Release & chạy kiểm thử CTest
+docker compose run --rm build
+docker compose run --rm test
+
+# Tạo gói đóng gói AppImage, RPM & NixOS
+docker compose run --rm package-appimage
+docker compose run --rm package-rpm
+docker compose run --rm package-nix</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section id="architecture" class="max-w-4xl mx-auto px-4 sm:px-6 py-16 border-t border-slate-200 dark:border-slate-800">
+    <div class="text-center mb-8">
+      <h2 class="text-3xl font-extrabold tracking-tight mb-3">Kiến Trúc Kỹ Thuật</h2>
+      <p class="text-slate-600 dark:text-slate-400">Mô hình phân tầng tách biệt giữa Presentation QML và C++ Core Engine.</p>
+    </div>
+    <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto">
+      <pre class="text-xs sm:text-sm text-slate-700 dark:text-slate-300 font-mono leading-relaxed">
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Zalos Application Process                       │
+│                                                                        │
+│  ┌───────────────────────┐          ┌───────────────────────────────┐  │
+│  │   QML User Interface  │◀──Signal─│      Qt6 C++ Backend Core     │  │
+│  │ (Sidebar, Chat, CSD)  │───Slot──▶│ (ZaloClient, Models, Theming) │  │
+│  └───────────────────────┘          └───────────────┬───────────────┘  │
+│                                                     │                  │
+└─────────────────────────────────────────────────────┼──────────────────┘
+                                                      │
+                       ┌──────────────────────────────┼──────────────────────────────┐
+                       ▼                              ▼                              ▼
+             ┌───────────────────┐          ┌───────────────────┐          ┌───────────────────┐
+             │    OpenSSL/LZMA   │          │  XDG Desktop      │          │   Wayland / X11   │
+             │   db-cross-v4     │          │  Portal (GTK/D-Bus│          │   QPA Subsystem   │
+             │   E2EE Decryption │          │  Theming & Tray)  │          │   Compositor      │
+             └───────────────────┘          └───────────────────┘          └───────────────────┘
+      </pre>
+    </div>
+  </section>
+
+  <!-- Footer & Disclaimer -->
+  <footer class="max-w-6xl mx-auto px-4 sm:px-6 py-12 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
+    <p class="mb-3">
+      Phát hành dưới giấy phép <strong>MIT License</strong>. Dự án được bảo trì bởi cộng đồng mã nguồn mở Zalos.
+    </p>
+    <p class="max-w-xl mx-auto text-slate-400 dark:text-slate-600">
+      <strong>Miễn trừ trách nhiệm:</strong> Zalos là dự án độc lập của cộng đồng mã nguồn mở, không trực thuộc, không được tài trợ hay đại diện bởi VNG Corporation hoặc Zalo. Tất cả logo và nhãn hiệu thuộc quyền sở hữu của các chủ sở hữu tương ứng.
+    </p>
+  </footer>
+
+  <script>
+    // Tab switcher
+    function setTab(tab) {
+      const tabs = ['appimage', 'rpm', 'flatpak', 'nixos', 'docker'];
+      tabs.forEach(t => {
+        const btn = document.getElementById('tab-' + t);
+        const content = document.getElementById('content-' + t);
+        if (t === tab) {
+          btn.className = "px-5 py-3 border-b-2 border-zalo text-zalo bg-white dark:bg-slate-900";
+          content.classList.remove('hidden');
+        } else {
+          btn.className = "px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200";
+          content.classList.add('hidden');
+        }
+      });
+    }
+
+    // Theme toggle
+    const toggle = document.getElementById('themeToggle');
+    toggle.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+    });
+    if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark');
+    }
+  </script>
+</body>
+</html>
+

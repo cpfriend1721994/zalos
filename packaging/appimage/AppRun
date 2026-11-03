@@ -1,0 +1,41 @@
+#!/bin/sh
+set -e
+
+# AppDir Path Resolution
+APPDIR="$(dirname "$(readlink -f "$0")")"
+export APPDIR
+
+export PATH="${APPDIR}/usr/bin:${PATH}"
+
+# Only prepend bundled library and plugin paths if they exist
+# Qt, QML modules and OpenSSL come from the host. Only a host without libcrypto.so.3 (OpenSSL 4-only, e.g. Fedora
+# 45 without openssl3-libs) gets the bundled copy: a host copy is newer, and Qt's TLS plugin and child processes
+# (node of the call engine) must keep using it.
+if [ -d "${APPDIR}/usr/lib/openssl3-fallback" ] && ! /sbin/ldconfig -p 2>/dev/null | grep -q "libcrypto\.so\.3 "; then
+    export LD_LIBRARY_PATH="${APPDIR}/usr/lib/openssl3-fallback${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+fi
+
+if [ -d "${APPDIR}/usr/lib64/qt6/plugins" ]; then
+    export QT_PLUGIN_PATH="${APPDIR}/usr/lib64/qt6/plugins:${QT_PLUGIN_PATH}"
+fi
+
+if [ -d "${APPDIR}/usr/lib64/qt6/qml" ]; then
+    export QML2_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML2_IMPORT_PATH}"
+    export QML_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML_IMPORT_PATH}"
+fi
+
+export XDG_DATA_DIRS="${APPDIR}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# Smart display platform detection (Wayland with xcb fallback vs pure X11)
+if [ -z "${QT_QPA_PLATFORM}" ]; then
+    if [ -n "${WAYLAND_DISPLAY}" ] || [ "${XDG_SESSION_TYPE}" = "wayland" ]; then
+        export QT_QPA_PLATFORM="wayland;xcb"
+    elif [ -n "${DISPLAY}" ]; then
+        export QT_QPA_PLATFORM="xcb"
+    fi
+fi
+
+# Input method (IBus / Fcitx) selection is reconciled inside the application (see configureInputMethod in main.cpp).
+
+# Execute Zalos binary
+exec "${APPDIR}/usr/bin/zalos" "$@"

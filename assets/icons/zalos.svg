@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="zalosGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0080FF"/>
+      <stop offset="100%" stop-color="#0052CC"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect x="32" y="32" width="448" height="448" rx="112" ry="112" fill="url(#zalosGrad)" filter="url(#shadow)"/>
+
+  <!-- Chat bubble tail accent -->
+  <path d="M128 384 L96 432 L176 416 Z" fill="#0052CC" opacity="0.6"/>
+
+  <!-- Styled "Z" Logo -->
+  <path d="M160 160 L352 160 C364 160 372 172 364 182 L216 320 L352 320 C360 320 368 328 368 336 C368 344 360 352 352 352 L160 352 C148 352 140 340 148 330 L296 192 L160 192 C152 192 144 184 144 176 C144 168 152 160 160 160 Z" fill="#FFFFFF"/>
+
+  <!-- E2EE Shield Accent -->
+  <circle cx="368" cy="160" r="28" fill="#34A853"/>
+  <path d="M360 160 L366 166 L378 154" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+

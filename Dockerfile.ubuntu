@@ -1,0 +1,59 @@
+FROM docker.io/library/ubuntu:24.04
+
+LABEL maintainer="Zalos Developers"
+LABEL description="Ubuntu 24.04 (Qt 6.4, glibc 2.39) build of Zalos: the oldest supported Qt; builds the .deb and the AppImage"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV QT_QPA_PLATFORM=offscreen
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    ninja-build \
+    git \
+    ca-certificates \
+    pkg-config \
+    python3 \
+    file \
+    dpkg-dev \
+    curl \
+    librsvg2-bin \
+    # Qt 6.4 development libraries
+    qt6-base-dev \
+    qt6-base-dev-tools \
+    qt6-declarative-dev \
+    qt6-declarative-dev-tools \
+    qt6-svg-dev \
+    qt6-image-formats-plugins \
+    qt6-wayland-dev \
+    qt6-websockets-dev \
+    qt6-multimedia-dev \
+    qt6-shadertools-dev \
+    qt6-tools-dev-tools \
+    libgl-dev \
+    # QML modules the app imports (also needed by tests and the GUI check)
+    qml6-module-qtquick \
+    qml6-module-qtquick-controls \
+    qml6-module-qtquick-layouts \
+    qml6-module-qtquick-templates \
+    qml6-module-qtquick-window \
+    qml6-module-qtquick-shapes \
+    qml6-module-qtquick-dialogs \
+    qml6-module-qtqml-workerscript \
+    qml6-module-qtmultimedia \
+    qml6-module-qtcore \
+    # Crypto, compression, storage
+    libssl-dev \
+    liblzma-dev \
+    zlib1g-dev \
+    libsqlite3-dev \
+    # OpenH264 headers only (the library is dlopen()ed from the user's system, never bundled)
+    libopenh264-dev \
+    # Headless GUI check
+    xvfb \
+    xauth \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]

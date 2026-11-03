@@ -1,0 +1,248 @@
+services:
+  build:
+    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    command: >
+      bash -c "
+        mkdir -p build &&
+        cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON &&
+        cmake --build build --parallel $$(nproc)
+      "
+
+  test:
+    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace/build
+    environment:
+      - QT_QPA_PLATFORM=offscreen
+    command: >
+      bash -c "
+        if [ ! -f CTestTestfile.cmake ]; then
+          cmake -B /workspace/build -S /workspace -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON &&
+          cmake --build /workspace/build --parallel $$(nproc)
+        fi &&
+        ctest --output-on-failure
+      "
+
+  # Built on the Fedora base (43, the oldest Fedora still maintained): the RPM installs on 43 and newer releases.
+  package-rpm:
+    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    command: bash /workspace/packaging/rpm/build-rpm.sh
+
+  # Built on Ubuntu 24.04 (Qt 6.4, glibc 2.39): runs on hosts with Qt >= 6.4 and glibc >= 2.39.
+  package-appimage:
+    image: localhost/zalos-ubuntu:24.04 # shared by every Ubuntu-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - HOME=/tmp
+    command: bash /workspace/packaging/appimage/build-appimage.sh
+
+  # Arch Linux: makepkg from source (packaging/arch/PKGBUILD) in a clean, rolling archlinux image (no project image).
+  package-arch:
+    image: docker.io/library/archlinux:latest
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    command: bash /workspace/packaging/arch/build-arch.sh
+
+  test-arch:
+    image: docker.io/library/archlinux:latest
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    command: bash /workspace/scripts/test-arch.sh
+
+  package-nix:
+    image: docker.io/nixos/nix:latest
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - NIX_CONFIG=experimental-features = nix-command flakes
+    command: bash /workspace/packaging/nix/build-nix.sh
+
+  gui-check:
+    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - DISPLAY=:99
+      - QT_QPA_PLATFORM=offscreen
+    command: >
+      bash -c "
+        if [ ! -f /workspace/build/zalos ]; then
+          cmake -B /workspace/build -S /workspace -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF &&
+          cmake --build /workspace/build --parallel $$(nproc)
+        fi &&
+        xvfb-run -a /workspace/build/zalos --test-gui &&
+        echo '✅ Headless GUI execution sanity check passed.'
+      "
+
+  # Clean installs of the Fedora 43-built RPM: oldest (43) and newest (45, OpenSSL 4 + openssl3-libs) Fedora.
+  test-fedora-rpm:
+    image: docker.io/library/fedora:43
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    command: bash /workspace/scripts/test-fedora-rpm.sh
+
+  test-fedora-rpm-latest:
+    image: docker.io/library/fedora:45
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    command: bash /workspace/scripts/test-fedora-rpm.sh
+
+  test-fedora-gui:
+    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace:z
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      # Session bus of the host so IBus/Fcitx (Vietnamese input) is reachable through its D-Bus portal.
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}/bus:/run/host-session-bus:ro
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_QPA_PLATFORM=xcb
+      - DBUS_SESSION_BUS_ADDRESS=unix:path=/run/host-session-bus
+      - IBUS_USE_PORTAL=1
+      - QT_IM_MODULE=${QT_IM_MODULE:-ibus}
+      - XMODIFIERS=${XMODIFIERS:-@im=ibus}
+    command: >
+      bash -c "
+        if [ ! -f /workspace/build/zalos ]; then
+          cmake -B /workspace/build -S /workspace -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF &&
+          cmake --build /workspace/build --parallel $$(nproc)
+        fi &&
+        /workspace/build/zalos
+      "
+
+  test-appimage:
+    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    command: bash /workspace/scripts/test-appimage.sh
+
+  test-appimage-gui:
+    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace:z
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      # Session bus of the host so IBus/Fcitx (Vietnamese input) is reachable through its D-Bus portal.
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}/bus:/run/host-session-bus:ro
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_QPA_PLATFORM=xcb
+      - DBUS_SESSION_BUS_ADDRESS=unix:path=/run/host-session-bus
+      - IBUS_USE_PORTAL=1
+      - QT_IM_MODULE=${QT_IM_MODULE:-ibus}
+      - XMODIFIERS=${XMODIFIERS:-@im=ibus}
+    command: >
+      bash -c "
+        APPIMAGE_FILE=$$(ls /workspace/dist/Zalos-*.AppImage 2>/dev/null | head -n 1)
+        if [ -z \"$${APPIMAGE_FILE}\" ]; then
+          bash /workspace/packaging/appimage/build-appimage.sh
+          APPIMAGE_FILE=$$(ls /workspace/dist/Zalos-*.AppImage 2>/dev/null | head -n 1)
+        fi
+        \"$${APPIMAGE_FILE}\" --appimage-extract-and-run
+      "
+
+  test-nix:
+    image: docker.io/nixos/nix:latest
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - NIX_CONFIG=experimental-features = nix-command flakes
+    command: bash /workspace/scripts/test-nix.sh
+
+  test-nix-shell:
+    image: docker.io/nixos/nix:latest
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - NIX_CONFIG=experimental-features = nix-command flakes
+    command: nix develop --extra-experimental-features "nix-command flakes"
+
+  # Ubuntu 24.04 (Qt 6.4) is the oldest supported Qt: the .deb built here installs on 24.04 and newer.
+  build-ubuntu:
+    image: localhost/zalos-ubuntu:24.04 # shared by every Ubuntu-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - HOME=/tmp
+    command: >
+      bash -c "
+        cmake -B build-ubuntu -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON &&
+        cmake --build build-ubuntu --parallel $$(nproc) &&
+        cd build-ubuntu && ctest --output-on-failure
+      "
+
+  package-deb:
+    image: localhost/zalos-ubuntu:24.04 # shared by every Ubuntu-base service (one image)
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - HOME=/tmp
+    command: bash /workspace/packaging/deb/build-deb.sh
+
+  # Clean installs of the 24.04-built .deb: oldest (24.04) and newest Ubuntu.
+  test-deb-ubuntu2404:
+    image: docker.io/library/ubuntu:24.04
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    command: bash /workspace/scripts/test-deb.sh
+
+  test-deb-ubuntu-latest:
+    image: docker.io/library/ubuntu:rolling
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    command: bash /workspace/scripts/test-deb.sh
