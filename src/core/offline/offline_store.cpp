@@ -367,7 +367,24 @@ QVector<ZaloOfflineStore::SearchHit> ZaloOfflineStore::searchMessages(const QStr
                                                                       int limit) const {
     QVector<SearchHit> hits;
     const QString match = ftsQuery(query);
-    if (!m_db.isOpen() || !m_ftsAvailable || match.isEmpty()) return hits;
+    if (!m_db.isOpen() || match.isEmpty()) return hits;
+    if (!m_ftsAvailable) {
+        const QStringList terms = Models::foldTerms(query);
+        QSqlQuery s(m_db);
+        s.setForwardOnly(true);
+        s.prepare(QStringLiteral("SELECT id, conv_id, sender_name, text, ts FROM messages WHERE is_recalled = 0 "
+                                 "AND message_type <> 'system' AND length(text) > 0 %1 ORDER BY ts DESC LIMIT 20000;")
+                      .arg(convId.isEmpty() ? QString() : QStringLiteral("AND conv_id = :conv")));
+        if (!convId.isEmpty()) s.bindValue(":conv", convId);
+        if (!s.exec()) return hits;
+        while (s.next() && hits.size() < limit) {
+            const QString text = s.value(3).toString();
+            if (!Models::containsAllTerms(Models::foldForSearch(text), terms)) continue;
+            hits.append({s.value(0).toString(), s.value(1).toString(), s.value(2).toString(), text,
+                         s.value(4).toLongLong()});
+        }
+        return hits;
+    }
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("SELECT m.id, m.conv_id, m.sender_name, m.text, m.ts FROM messages_fts f "
                              "JOIN messages m ON m.rowid = f.rowid WHERE messages_fts MATCH :match %1 "

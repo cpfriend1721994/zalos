@@ -25,6 +25,7 @@ public:
     void setUnreadCount(int count, bool hasMentions = false);
     void setHasMentions(bool hasMentions);
     void setAntiPeeking(bool on);
+    void setLanguage(const QString& lang);
     bool isVisible() const;
 
 signals:
@@ -43,6 +44,8 @@ private:
     void setupMenu();
     QIcon createBadgeIcon(int count, bool hasMentions);
     void refreshIconAndTooltip();
+    void retranslate();
+    QString L(const QString& vi, const QString& en) const { return m_language == QLatin1String("en") ? en : vi; }
 
     QSystemTrayIcon* m_trayIcon{nullptr};
     QMenu* m_trayMenu{nullptr};
@@ -50,6 +53,10 @@ private:
     bool m_hasMentions{false};
     bool m_antiPeeking{false};
     QAction* m_antiPeekAction{nullptr};
+    QAction* m_openAction{nullptr};
+    QAction* m_themeAction{nullptr};
+    QAction* m_quitAction{nullptr};
+    QString m_language{QStringLiteral("vi")};
 };
 
 }

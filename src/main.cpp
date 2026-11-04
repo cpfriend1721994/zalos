@@ -229,6 +229,9 @@ int main(int argc, char* argv[]) {
     QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::settingsChanged, trayController,
                      [zaloClient, trayController]() { trayController->setAntiPeeking(zaloClient->antiPeeking()); });
     trayController->setAntiPeeking(zaloClient->antiPeeking());
+    QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::appLanguageChanged, trayController,
+                     [zaloClient, trayController]() { trayController->setLanguage(zaloClient->appLanguage()); });
+    trayController->setLanguage(zaloClient->appLanguage());
 
     QObject::connect(zaloClient->conversationModel(), &Zalos::Core::Models::ConversationModel::unreadCountChanged,
                      trayController, &Zalos::Core::Platform::SystemTrayController::setUnreadCount);

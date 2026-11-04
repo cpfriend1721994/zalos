@@ -16,9 +16,8 @@ SystemTrayController::SystemTrayController(QObject* parent)
     });
     m_trayIcon = new QSystemTrayIcon(this);
     m_trayIcon->setIcon(createBadgeIcon(0, false));
-    m_trayIcon->setToolTip("Zalos - Ứng dụng chat bảo mật cho Linux");
-
     setupMenu();
+    retranslate();
 
     connect(m_trayIcon, &QSystemTrayIcon::activated, this, &SystemTrayController::onTrayActivated);
     m_trayIcon->show();
@@ -33,22 +32,37 @@ SystemTrayController::~SystemTrayController() {
 void SystemTrayController::setupMenu() {
     m_trayMenu = new QMenu();
 
-    QAction* openAction = m_trayMenu->addAction("Mở Zalos");
-    connect(openAction, &QAction::triggered, this, &SystemTrayController::toggleWindowRequested);
+    m_openAction = m_trayMenu->addAction(QString());
+    connect(m_openAction, &QAction::triggered, this, &SystemTrayController::toggleWindowRequested);
 
-    QAction* themeAction = m_trayMenu->addAction("Chuyển chế độ Sáng / Tối");
-    connect(themeAction, &QAction::triggered, this, &SystemTrayController::toggleDarkModeRequested);
+    m_themeAction = m_trayMenu->addAction(QString());
+    connect(m_themeAction, &QAction::triggered, this, &SystemTrayController::toggleDarkModeRequested);
 
-    m_antiPeekAction = m_trayMenu->addAction("Chống nhìn lén");
+    m_antiPeekAction = m_trayMenu->addAction(QString());
     m_antiPeekAction->setCheckable(true);
     connect(m_antiPeekAction, &QAction::triggered, this, &SystemTrayController::antiPeekingToggled);
 
     m_trayMenu->addSeparator();
 
-    QAction* quitAction = m_trayMenu->addAction("Thoát hoàn toàn");
-    connect(quitAction, &QAction::triggered, this, &SystemTrayController::quitRequested);
+    m_quitAction = m_trayMenu->addAction(QString());
+    connect(m_quitAction, &QAction::triggered, this, &SystemTrayController::quitRequested);
 
     m_trayIcon->setContextMenu(m_trayMenu);
+}
+
+void SystemTrayController::setLanguage(const QString& lang) {
+    const QString next = lang == QLatin1String("en") ? QStringLiteral("en") : QStringLiteral("vi");
+    if (m_language == next) return;
+    m_language = next;
+    retranslate();
+}
+
+void SystemTrayController::retranslate() {
+    if (m_openAction) m_openAction->setText(L(QStringLiteral("Mở Zalos"), QStringLiteral("Open Zalos")));
+    if (m_themeAction) m_themeAction->setText(L(QStringLiteral("Chuyển chế độ Sáng / Tối"), QStringLiteral("Toggle light / dark mode")));
+    if (m_antiPeekAction) m_antiPeekAction->setText(L(QStringLiteral("Chống nhìn lén"), QStringLiteral("Anti-peeking")));
+    if (m_quitAction) m_quitAction->setText(L(QStringLiteral("Thoát hoàn toàn"), QStringLiteral("Quit")));
+    refreshIconAndTooltip();
 }
 
 void SystemTrayController::setUnreadCount(int count, bool hasMentions) {
@@ -73,10 +87,11 @@ void SystemTrayController::setAntiPeeking(bool on) {
 
 void SystemTrayController::refreshIconAndTooltip() {
     m_trayIcon->setIcon(createBadgeIcon(m_unreadCount, m_hasMentions));
-    QString tip = m_unreadCount > 0 ? QString("Zalos - Có %1 tin nhắn chưa đọc").arg(m_unreadCount)
-                                    : QStringLiteral("Zalos - Ứng dụng chat bảo mật cho Linux");
-    if (m_hasMentions) tip += QStringLiteral("\nCó tin nhắn nhắc tên bạn (@)");
-    if (m_antiPeeking) tip += QStringLiteral("\nĐang bật chống nhìn lén");
+    QString tip = m_unreadCount > 0
+        ? L(QStringLiteral("Zalos - Có %1 tin nhắn chưa đọc"), QStringLiteral("Zalos - %1 unread messages")).arg(m_unreadCount)
+        : L(QStringLiteral("Zalos - Ứng dụng chat bảo mật cho Linux"), QStringLiteral("Zalos - private chat for Linux"));
+    if (m_hasMentions) tip += L(QStringLiteral("\nCó tin nhắn nhắc tên bạn (@)"), QStringLiteral("\nYou were mentioned (@)"));
+    if (m_antiPeeking) tip += L(QStringLiteral("\nĐang bật chống nhìn lén"), QStringLiteral("\nAnti-peeking is on"));
     m_trayIcon->setToolTip(tip);
 }
 

@@ -116,7 +116,8 @@ void ConversationModel::applyFilter() {
     beginResetModel();
     m_filteredItems.clear();
 
-    const QString needle = foldForSearch(m_searchQuery.trimmed());
+    const QStringList terms = foldTerms(m_searchQuery);
+    const bool searching = !terms.isEmpty();
     const bool archivedView = m_viewMode == QLatin1String("archived");
     const bool hiddenView = m_viewMode == QLatin1String("hidden");
     for (const auto& item : m_allItems) {
@@ -127,16 +128,22 @@ void ConversationModel::applyFilter() {
         } else if (hiddenView) {
             if (!isHidden) continue;
         } else {
-            if (isArchived || isHidden) continue;
-            if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
-            if (!(m_activeCategory.isEmpty() ||
-                  (m_activeCategory == "unread" ? item.unreadCount > 0 : item.category == m_activeCategory)))
-                continue;
+            if (isHidden) continue;
+            if (!searching) {
+                if (isArchived) continue;
+                if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
+                if (!(m_activeCategory.isEmpty() ||
+                      (m_activeCategory == "unread" ? item.unreadCount > 0 : item.category == m_activeCategory)))
+                    continue;
+            }
         }
-        const bool matchesSearch = needle.isEmpty() ||
-                                   foldForSearch(item.name).contains(needle) ||
-                                   foldForSearch(item.lastMessage).contains(needle);
-        if (matchesSearch) m_filteredItems.append(item);
+        const QString shownName = !item.name.isEmpty() ? item.name
+                                  : (item.isGroup ? QStringLiteral("Nhóm chưa đặt tên Unnamed group")
+                                                  : QStringLiteral("Người dùng Zalo Zalo user"));
+        if (searching && !containsAllTerms(foldForSearch(shownName) + QLatin1Char(' ') + foldForSearch(item.lastMessage),
+                                           terms))
+            continue;
+        m_filteredItems.append(item);
     }
 
     std::stable_sort(m_filteredItems.begin(), m_filteredItems.end(), [](const ConversationItem& a, const ConversationItem& b) {

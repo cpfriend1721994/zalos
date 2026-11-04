@@ -6,10 +6,18 @@ import Zalos
 
 Rectangle {
     id: root
+    objectName: "sidebar"
     width: Theme.sidebarWidth
     color: ThemeManager.surfaceColor
 
     property var menuConv: ({})
+    property bool moreViewsOpen: false
+    readonly property bool searching: ZaloClient.conversationModel.searchQuery.trim().length > 0
+
+    function toggleMoreViews(): void {
+        root.moreViewsOpen = !root.moreViewsOpen;
+        if (!root.moreViewsOpen) ZaloClient.conversationModel.setViewMode("normal");
+    }
 
     function requestHiddenView(): void {
         if (ZaloClient.appLock.hasPasscode) hiddenPasscodeDialog.open();
@@ -94,6 +102,36 @@ Rectangle {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: lrow.triggered()
+        }
+    }
+
+    component ViewTab: Item {
+        id: vtab
+        property string viewKey: ""
+        property string title: ""
+        readonly property bool selected: ZaloClient.conversationModel.viewMode === vtab.viewKey
+        signal clicked()
+        height: parent ? parent.height : 32
+        width: vtabLabel.implicitWidth
+        Text {
+            id: vtabLabel
+            anchors.centerIn: parent
+            text: vtab.title
+            font.family: Theme.fontFamily
+            font.bold: vtab.selected
+            font.pixelSize: 13
+            color: vtab.selected ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+        }
+        Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 2
+            color: vtab.selected ? Theme.zaloBlue : "transparent"
+        }
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: vtab.clicked()
         }
     }
 
@@ -245,23 +283,6 @@ Rectangle {
                                 label: I18n.t("Tham gia nhóm bằng link", "Join a group by link")
                                 onTriggered: { groupMenu.close(); ZaloClient.groupAdmin.openJoin(""); }
                             }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 1
-                                Layout.topMargin: 3
-                                Layout.bottomMargin: 3
-                                color: ThemeManager.borderColor
-                            }
-                            ZMenuRow {
-                                icon: "archive"
-                                label: I18n.t("Hội thoại đã lưu trữ", "Archived conversations")
-                                onTriggered: { groupMenu.close(); ZaloClient.conversationModel.setViewMode("archived"); }
-                            }
-                            ZMenuRow {
-                                icon: "eye_off"
-                                label: I18n.t("Hội thoại đã ẩn", "Hidden conversations")
-                                onTriggered: { groupMenu.close(); root.requestHiddenView(); }
-                            }
                         }
                     }
                 }
@@ -287,7 +308,8 @@ Rectangle {
 
                     Item {
                         required property var modelData
-                        readonly property bool selected: ZaloClient.conversationModel.activeCategory === modelData.key
+                        readonly property bool selected: ZaloClient.conversationModel.viewMode === "normal"
+                                                         && ZaloClient.conversationModel.activeCategory === modelData.key
                         height: parent.height
                         width: tabLabel.implicitWidth
 
@@ -311,14 +333,49 @@ Rectangle {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: ZaloClient.conversationModel.setCategoryFilter(modelData.key)
+                            onClicked: {
+                                ZaloClient.conversationModel.setViewMode("normal");
+                                ZaloClient.conversationModel.setCategoryFilter(modelData.key);
+                            }
                         }
                     }
+                }
+
+                Item {
+                    height: parent.height
+                    width: 26
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 26
+                        height: 26
+                        radius: 13
+                        color: moreViewsMouse.containsMouse || root.moreViewsOpen ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                        ZIcon {
+                            anchors.centerIn: parent
+                            name: "chevron_down"
+                            size: 16
+                            rotation: root.moreViewsOpen ? 180 : 0
+                            color: ZaloClient.conversationModel.viewMode !== "normal" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                            Behavior on rotation { NumberAnimation { duration: 140 } }
+                        }
+                    }
+                    MouseArea {
+                        id: moreViewsMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.toggleMoreViews()
+                    }
+                    ToolTip.visible: moreViewsMouse.containsMouse
+                    ToolTip.delay: 400
+                    ToolTip.text: root.moreViewsOpen ? I18n.t("Thu gọn", "Collapse")
+                                                     : I18n.t("Hội thoại khác & đã ẩn", "Other & hidden conversations")
                 }
             }
 
             Rectangle {
                 id: labelFilterButton
+                visible: !root.moreViewsOpen
                 anchors.right: parent.right
                 anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
@@ -401,6 +458,31 @@ Rectangle {
             }
         }
 
+        Item {
+            visible: root.moreViewsOpen
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? 34 : 0
+
+            Row {
+                anchors.left: parent.left
+                anchors.leftMargin: 16
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                spacing: 18
+
+                ViewTab {
+                    viewKey: "archived"
+                    title: I18n.t("Hội thoại khác", "Other conversations")
+                    onClicked: ZaloClient.conversationModel.setViewMode("archived")
+                }
+                ViewTab {
+                    viewKey: "hidden"
+                    title: I18n.t("Hội thoại đã ẩn", "Hidden conversations")
+                    onClicked: root.requestHiddenView()
+                }
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 1
@@ -429,39 +511,17 @@ Rectangle {
             }
         }
 
-        RowLayout {
-            visible: ZaloClient.conversationModel.viewMode !== "normal"
+        Text {
+            visible: root.searching && convList.count > 0
             Layout.fillWidth: true
-            Layout.leftMargin: 8
-            Layout.rightMargin: 8
-            Layout.topMargin: 4
+            Layout.leftMargin: 16
+            Layout.topMargin: 8
             Layout.bottomMargin: 4
-            spacing: 8
-            Rectangle {
-                Layout.preferredWidth: 30
-                Layout.preferredHeight: 30
-                radius: 15
-                color: backViewMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                ZIcon { anchors.centerIn: parent; name: "arrow_left"; size: 18; color: ThemeManager.textColor }
-                MouseArea {
-                    id: backViewMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: ZaloClient.conversationModel.setViewMode("normal")
-                }
-            }
-            Text {
-                Layout.fillWidth: true
-                text: ZaloClient.conversationModel.viewMode === "archived"
-                      ? I18n.t("Hội thoại đã lưu trữ", "Archived conversations")
-                      : I18n.t("Hội thoại đã ẩn", "Hidden conversations")
-                font.family: Theme.fontFamily
-                font.pixelSize: 15
-                font.bold: true
-                color: ThemeManager.textColor
-                elide: Text.ElideRight
-            }
+            text: I18n.t("Trò chuyện (%1)", "Chats (%1)").arg(convList.count)
+            font.family: Theme.fontFamily
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+            color: ThemeManager.textColor
         }
 
         ListView {
@@ -469,6 +529,8 @@ Rectangle {
             visible: convList.count > 0
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.maximumHeight: root.searching && (ZaloClient.peopleSearch.count > 0 || ZaloClient.messageSearch.count > 0)
+                                  ? Math.min(convList.contentHeight, 72 * 4) : Number.POSITIVE_INFINITY
             clip: true
             model: ZaloClient.conversationModel
             spacing: 0
@@ -528,8 +590,9 @@ Rectangle {
                                               unread: model.unreadCount > 0, marked: ZaloClient.isMarkedUnread(model.id),
                                               labelId: model.labelId };
                             const p = mouseArea.mapToItem(root, mouse.x, mouse.y);
-                            convMenu.x = Math.min(p.x, root.width - convMenu.width - 4);
-                            convMenu.y = Math.min(p.y, root.height - convMenu.implicitHeight - 4);
+                            const h = Math.max(convMenu.height, convMenu.implicitHeight);
+                            convMenu.x = Math.max(8, Math.min(p.x, root.width - convMenu.width - 8));
+                            convMenu.y = Math.max(8, p.y + h > root.height - 8 ? p.y - h : p.y);
                             convMenu.open();
                             return;
                         }
@@ -681,7 +744,84 @@ Rectangle {
 
         Connections {
             target: searchInput
-            function onTextChanged() { ZaloClient.messageSearch.setQuery(searchInput.text); }
+            function onTextChanged() {
+                ZaloClient.messageSearch.setQuery(searchInput.text);
+                ZaloClient.peopleSearch.setQuery(searchInput.text);
+            }
+        }
+        Text {
+            visible: root.searching && ZaloClient.peopleSearch.count > 0
+            Layout.fillWidth: true
+            Layout.leftMargin: 16
+            Layout.topMargin: 8
+            Layout.bottomMargin: 4
+            text: I18n.t("Liên hệ & nhóm (%1)", "Contacts & groups (%1)").arg(ZaloClient.peopleSearch.count)
+            font.family: Theme.fontFamily
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+            color: ThemeManager.textColor
+        }
+        ListView {
+            id: peopleHitList
+            visible: root.searching && ZaloClient.peopleSearch.count > 0
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.maximumHeight: ZaloClient.messageSearch.count > 0 ? Math.min(peopleHitList.contentHeight, 56 * 4)
+                                                                     : Number.POSITIVE_INFINITY
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            model: ZaloClient.peopleSearch
+            delegate: Rectangle {
+                id: personRow
+                required property string convId
+                required property string convName
+                required property string avatar
+                required property bool isGroup
+                required property string text
+                width: ListView.view.width
+                height: 56
+                color: personHover.hovered ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                HoverHandler { id: personHover }
+                TapHandler {
+                    onTapped: {
+                        ZaloClient.openSearchResult(personRow.convId, personRow.convName, personRow.avatar, personRow.isGroup);
+                        searchInput.text = "";
+                    }
+                }
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 12
+                    spacing: 10
+                    ZAvatar {
+                        size: 36
+                        avatarUrl: personRow.avatar
+                        name: personRow.convName
+                        isGroup: personRow.isGroup
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Text {
+                            Layout.fillWidth: true
+                            text: personRow.convName
+                            elide: Text.ElideRight
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                            color: ThemeManager.textColor
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: personRow.text
+                            elide: Text.ElideRight
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            color: ThemeManager.secondaryTextColor
+                        }
+                    }
+                }
+            }
         }
         Text {
             visible: ZaloClient.messageSearch.count > 0
@@ -700,7 +840,6 @@ Rectangle {
             visible: ZaloClient.messageSearch.count > 0
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.preferredHeight: convList.count > 0 ? root.height * 0.4 : -1
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             model: ZaloClient.messageSearch
@@ -768,6 +907,7 @@ Rectangle {
 
         Item {
             visible: convList.count === 0 && ZaloClient.messageSearch.count === 0
+                     && !(root.searching && ZaloClient.peopleSearch.count > 0)
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -811,6 +951,7 @@ Rectangle {
 
     Popup {
         id: convMenu
+        margins: 8
         width: 240
         padding: 6
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -897,8 +1038,8 @@ Rectangle {
             ZMenuRow {
                 readonly property bool archived: ZaloClient.isConversationArchived(root.menuConv.id)
                 icon: "archive"
-                label: archived ? I18n.t("Bỏ lưu trữ", "Unarchive")
-                                : I18n.t("Lưu trữ hội thoại", "Archive conversation")
+                label: archived ? I18n.t("Đưa về hội thoại chính", "Move back to main chats")
+                                : I18n.t("Chuyển vào Hội thoại khác", "Move to Other conversations")
                 onTriggered: { ZaloClient.archiveConversation(root.menuConv.id, !archived); convMenu.close(); }
             }
             ZMenuRow {

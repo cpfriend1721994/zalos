@@ -21,7 +21,7 @@ Button {
             switch (control.variant) {
             case "danger": return control.hovered || control.pressed ? Qt.darker(Theme.badgeRed, 1.1) : Theme.badgeRed;
             case "secondary": return control.pressed ? ThemeManager.selectedColor
-                                   : control.hovered ? ThemeManager.hoverColor : ThemeManager.inputFillColor;
+                                   : control.hovered ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor;
             case "tonal": return control.hovered || control.pressed ? Qt.darker(Theme.zaloBlueLight, 1.06) : Theme.zaloBlueLight;
             }
             return control.hovered || control.pressed ? Theme.zaloBlueHover : Theme.zaloBlue;

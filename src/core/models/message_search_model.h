@@ -30,7 +30,7 @@ public:
                  TextRole, TsRole };
 
     using Provider = std::function<QVector<Hit>(const QString& query)>;
-    explicit MessageSearchModel(Provider provider, QObject* parent = nullptr);
+    explicit MessageSearchModel(Provider provider, QObject* parent = nullptr, int minLength = 2);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role) const override;
@@ -50,6 +50,7 @@ private:
     QVector<Hit> m_hits;
     QString m_query;
     QTimer m_debounce;
+    int m_minLength{2};
 };
 
 }

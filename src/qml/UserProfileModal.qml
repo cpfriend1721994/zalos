@@ -298,18 +298,133 @@ Item {
                         wrapMode: TextEdit.Wrap
                     }
 
-                    TextEdit {
-                        visible: (ZaloClient.profileBio || "").length > 0 && !root.isEditing
+                    Rectangle {
+                        id: statusCard
+                        property bool editingStatus: false
+                        readonly property bool hasStatus: ZaloClient.profileBio.length > 0
+                        visible: !root.isEditing && (ZaloClient.profileIsSelf || statusCard.hasStatus)
                         Layout.fillWidth: true
-                        readOnly: true
-                        selectByMouse: true
-                        text: "\"" + ZaloClient.profileBio + "\""
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 13
-                        font.italic: true
-                        color: ThemeManager.secondaryTextColor
-                        selectionColor: Theme.zaloBlueLight
-                        wrapMode: TextEdit.Wrap
+                        Layout.topMargin: 4
+                        implicitHeight: statusRow.implicitHeight + 16
+                        radius: 8
+                        color: ThemeManager.inputFillColor
+
+                        function startEdit(): void {
+                            statusField.text = ZaloClient.profileBio;
+                            statusCard.editingStatus = true;
+                            statusField.forceActiveFocus();
+                        }
+                        function save(): void {
+                            ZaloClient.updateMyStatus(statusField.text);
+                            statusCard.editingStatus = false;
+                        }
+
+                        Connections {
+                            target: ZaloClient
+                            function onCurrentProfileChanged() { statusCard.editingStatus = false; }
+                        }
+
+                        RowLayout {
+                            id: statusRow
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 6
+                            anchors.topMargin: 8
+                            anchors.bottomMargin: 8
+                            spacing: 8
+
+                            ZIcon {
+                                Layout.alignment: Qt.AlignTop
+                                Layout.topMargin: 2
+                                name: "chat"
+                                size: 14
+                                color: Theme.zaloBlue
+                            }
+
+                            TextEdit {
+                                visible: !statusCard.editingStatus
+                                Layout.fillWidth: true
+                                readOnly: true
+                                selectByMouse: statusCard.hasStatus
+                                text: statusCard.hasStatus ? ZaloClient.profileBio
+                                                           : I18n.t("Thêm trạng thái để bạn bè biết bạn đang thế nào…",
+                                                                    "Add a status so friends know how you're doing…")
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 13
+                                font.italic: !statusCard.hasStatus
+                                color: statusCard.hasStatus ? ThemeManager.textColor : ThemeManager.placeholderColor
+                                selectionColor: Theme.zaloBlueLight
+                                wrapMode: TextEdit.Wrap
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: ZaloClient.profileIsSelf && !statusCard.hasStatus
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: statusCard.startEdit()
+                                }
+                            }
+
+                            ZTextField {
+                                id: statusField
+                                visible: statusCard.editingStatus
+                                Layout.fillWidth: true
+                                maximumLength: 140
+                                placeholderText: I18n.t("Trạng thái của bạn", "Your status")
+                                onAccepted: statusCard.save()
+                                Keys.onEscapePressed: statusCard.editingStatus = false
+                            }
+
+                            Rectangle {
+                                visible: ZaloClient.profileIsSelf && !statusCard.editingStatus
+                                Layout.alignment: Qt.AlignTop
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                radius: 12
+                                color: statusEditMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor
+                                ZIcon { anchors.centerIn: parent; name: "edit"; size: 13; color: ThemeManager.secondaryTextColor }
+                                MouseArea {
+                                    id: statusEditMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: statusCard.startEdit()
+                                    ToolTip.visible: containsMouse
+                                    ToolTip.text: I18n.t("Sửa trạng thái", "Edit status")
+                                }
+                            }
+
+                            Rectangle {
+                                visible: statusCard.editingStatus
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                radius: 14
+                                color: statusSaveMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlue
+                                ZIcon { anchors.centerIn: parent; name: "check"; size: 14; color: "#FFFFFF" }
+                                MouseArea {
+                                    id: statusSaveMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: statusCard.save()
+                                }
+                            }
+
+                            Rectangle {
+                                visible: statusCard.editingStatus
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                radius: 14
+                                color: statusCancelMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor
+                                ZIcon { anchors.centerIn: parent; name: "close"; size: 12; color: ThemeManager.secondaryTextColor }
+                                MouseArea {
+                                    id: statusCancelMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: statusCard.editingStatus = false
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -555,7 +670,7 @@ Item {
                                 Layout.preferredWidth: 42
                                 Layout.preferredHeight: 38
                                 radius: 6
-                                color: voiceCallMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.inputFillColor
+                                color: voiceCallMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor
                                 border.color: ThemeManager.borderColor
                                 border.width: 1
 
@@ -579,7 +694,7 @@ Item {
                                 Layout.preferredWidth: 42
                                 Layout.preferredHeight: 38
                                 radius: 6
-                                color: videoCallMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.inputFillColor
+                                color: videoCallMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor
                                 border.color: ThemeManager.borderColor
                                 border.width: 1
 

@@ -599,13 +599,11 @@ QVariantList MessageModel::mediaItems() const {
 
 QList<int> MessageModel::searchMessages(const QString& query) const {
     QList<int> results;
-    const QString clean = foldForSearch(query.trimmed());
-    if (clean.isEmpty()) return results;
+    const QStringList terms = foldTerms(query);
+    if (terms.isEmpty()) return results;
     for (int i = 0; i < m_items.size(); ++i) {
         if (m_items.at(i).isRecalled) continue;
-        if (foldForSearch(m_items.at(i).text).contains(clean)) {
-            results.append(i);
-        }
+        if (containsAllTerms(foldForSearch(m_items.at(i).text), terms)) results.append(i);
     }
     return results;
 }

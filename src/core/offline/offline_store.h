@@ -72,6 +72,9 @@ public:
     QVector<SearchHit> searchMessages(const QString& query, const QString& convId = QString(), int limit = 200) const;
     static QString ftsQuery(const QString& input);
     bool ftsAvailable() const { return m_ftsAvailable; }
+#ifdef ZALOS_TESTING
+    void setFtsAvailableForTesting(bool available) { m_ftsAvailable = available; }
+#endif
     qint64 messageTs(const QString& msgId, QString* convId = nullptr) const;
     int countMessagesBetween(const QString& convId, qint64 fromTs, qint64 toTs) const;
     static QByteArray encodeRaw(const QJsonObject& raw);

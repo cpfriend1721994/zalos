@@ -11,7 +11,7 @@ Item {
     z: 998
 
     readonly property var systemSounds: ZaloClient.systemSounds()
-    readonly property var tabKeys: ["general", "language", "appearance", "notifications", "privacy", "storage", "sync"]
+    readonly property var tabKeys: ["general", "language", "appearance", "notifications", "privacy", "security", "storage", "sync"]
     property string currentTab: normalizeTab(ZaloClient.settingsInitialTab)
 
     readonly property bool compact: dialogCard.width < 560
@@ -511,6 +511,7 @@ Item {
                                     { key: "appearance", label: I18n.t("Giao diện", "Appearance"), icon: "palette" },
                                     { key: "notifications", label: I18n.t("Thông báo", "Notifications"), icon: "bell" },
                                     { key: "privacy", label: I18n.t("Quyền riêng tư", "Privacy"), icon: "lock" },
+                                    { key: "security", label: I18n.t("Bảo mật", "Security"), icon: "shield" },
                                     { key: "storage", label: I18n.t("Dữ liệu & bộ nhớ", "Data & storage"), icon: "download" },
                                     { key: "sync", label: I18n.t("Đồng bộ tin nhắn", "Sync messages"), icon: "refresh" }
                                 ]
@@ -590,6 +591,7 @@ Item {
                             case "appearance": return appearanceTab.implicitHeight;
                             case "notifications": return notificationsTab.implicitHeight;
                             case "privacy": return privacyTab.implicitHeight;
+                            case "security": return securityTab.implicitHeight;
                             case "storage": return storageTab.implicitHeight;
                             case "sync": return syncTab.implicitHeight;
                             default: return generalTab.implicitHeight;
@@ -1181,6 +1183,15 @@ Item {
                                 checked: ZaloClient.addFriendViaGroup
                                 onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_group", value ? 1 : 0)
                             }
+                        }
+
+                        ColumnLayout {
+                            id: securityTab
+                            visible: root.currentTab === "security"
+                            x: contentContainer.contentPadding
+                            y: contentContainer.contentPadding
+                            width: contentContainer.width - 2 * contentContainer.contentPadding
+                            spacing: 12
 
                             SectionTitle { text: I18n.t("Khóa ứng dụng bằng mã", "App passcode lock") }
                             SectionHint {

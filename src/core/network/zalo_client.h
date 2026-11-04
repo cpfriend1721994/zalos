@@ -60,6 +60,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(Zalos::Core::Network::StickerStore* stickers READ stickers CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Network::PinBoard* pins READ pins CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Models::MessageSearchModel* messageSearch READ messageSearch CONSTANT FINAL)
+    Q_PROPERTY(Zalos::Core::Models::MessageSearchModel* peopleSearch READ peopleSearch CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Models::RichComposer* composer READ composer CONSTANT FINAL)
     Q_PROPERTY(bool showSyncPrompt READ showSyncPrompt NOTIFY syncPromptChanged FINAL)
 
@@ -97,6 +98,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool isSendingAttachment READ isSendingAttachment NOTIFY attachmentStateChanged FINAL)
     Q_PROPERTY(bool isConnected READ isConnected NOTIFY connectionStateChanged FINAL)
     Q_PROPERTY(int brokenMediaRevision READ brokenMediaRevision NOTIFY brokenMediaChanged FINAL)
+    Q_PROPERTY(int stickerRevision READ stickerRevision NOTIFY stickerRevisionChanged FINAL)
     Q_PROPERTY(bool isE2EESupported READ isE2EESupported CONSTANT FINAL)
     Q_PROPERTY(bool isIncomingCallActive READ isIncomingCallActive NOTIFY incomingCallStateChanged FINAL)
     Q_PROPERTY(QString incomingCallerName READ incomingCallerName NOTIFY incomingCallStateChanged FINAL)
@@ -230,6 +232,7 @@ public:
     StickerStore* stickers() const { return m_stickerStore; }
     PinBoard* pins() const { return m_pinBoard; }
     Models::MessageSearchModel* messageSearch() const { return m_messageSearch; }
+    Models::MessageSearchModel* peopleSearch() const { return m_peopleSearch; }
     QString myUid() const { return m_myUid; }
     Models::RichComposer* composer() const { return m_composer; }
     bool showSyncPrompt() const { return m_showSyncPrompt; }
@@ -401,6 +404,7 @@ public:
         return deliveredCandidates(msgs, isGroup);
     }
     void setMyUidForTesting(const QString& uid) { m_myUid = uid; }
+    void setHiddenThreadsForTesting(const QSet<QString>& ids) { m_hiddenThreads = ids; m_conversationModel->setHiddenThreads(ids); }
     void handleReactionsForTesting(const QJsonArray& reactions, bool isGroup) { handleReactions(reactions, isGroup); }
     Platform::DesktopNotifications* notificationsForTesting() const { return m_notifications; }
     void reloadDraftsForTesting() { loadDrafts(); }
@@ -465,6 +469,7 @@ public:
     Q_INVOKABLE void viewProfile(const QString& userId);
     Q_INVOKABLE void closeUserProfile();
     Q_INVOKABLE void updateMyProfile(const QString& name, int gender, const QString& dob, const QString& bio);
+    Q_INVOKABLE void updateMyStatus(const QString& status);
     Q_INVOKABLE void blockUser(const QString& userId);
     Q_INVOKABLE void unblockUser(const QString& userId);
     Q_INVOKABLE void removeFriend(const QString& userId);
@@ -485,6 +490,9 @@ public:
     Q_INVOKABLE void sendFile(const QString& fileUrlOrPath, const QString& caption = QString());
     Q_INVOKABLE void searchStickers(const QString& keyword);
     Q_INVOKABLE void sendStickerItem(qint64 stickerId, qint64 cateId, int type);
+    Q_INVOKABLE QString stickerThumb(const QString& stickerId) const;
+    Q_INVOKABLE void prefetchStickers(const QVariantList& stickers);
+    int stickerRevision() const { return m_stickerRevision; }
     Q_INVOKABLE void reactToMessage(const QString& msgId, const QString& reactionKey);
     Q_INVOKABLE void changeMyAvatar(const QString& fileUrlOrPath);
     Q_INVOKABLE void changeGroupAvatar(const QString& groupId, const QString& fileUrlOrPath);
@@ -497,6 +505,7 @@ public:
     Q_INVOKABLE QStringList searchConversationMessages(const QString& query);
     Q_INVOKABLE bool revealMessage(const QString& msgId);
     Q_INVOKABLE void openMessageFromSearch(const QString& convId, const QString& msgId);
+    Q_INVOKABLE void openSearchResult(const QString& id, const QString& name, const QString& avatar, bool isGroup);
     Q_INVOKABLE void markMediaBroken(const QString& url);
     Q_INVOKABLE bool isMediaBroken(const QString& url) const { return !url.isEmpty() && m_brokenMedia.contains(url); }
     Q_INVOKABLE void retryMedia(const QString& url);
@@ -587,6 +596,7 @@ signals:
     void currentConversationChanged();
     void appLanguageChanged();
     void connectionStateChanged(bool connected);
+    void stickerRevisionChanged();
     void brokenMediaChanged();
     void revealRequested(const QString& msgId);
     void messageSent(const QString& text);
@@ -731,6 +741,8 @@ private:
     QStringList m_stickerQueue;
     QHash<QString, int> m_stickerAttempts;
     int m_stickerInFlight{0};
+    int m_stickerRevision{0};
+    QSet<QString> m_stickerPrefetching;
     bool m_userLookupInFlight{false};
     void pumpStickerQueue();
     qint64 m_currentLastOnline{0};
@@ -801,6 +813,7 @@ private:
     StickerStore* m_stickerStore{nullptr};
     PinBoard* m_pinBoard{nullptr};
     Models::MessageSearchModel* m_messageSearch{nullptr};
+    Models::MessageSearchModel* m_peopleSearch{nullptr};
     QString m_screenshotRequest;
     QString m_screenshotTarget;
     Models::RichComposer* m_composer{nullptr};

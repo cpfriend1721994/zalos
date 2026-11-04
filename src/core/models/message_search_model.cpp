@@ -2,8 +2,8 @@
 
 namespace Zalos::Core::Models {
 
-MessageSearchModel::MessageSearchModel(Provider provider, QObject* parent)
-    : QAbstractListModel(parent), m_provider(std::move(provider)) {
+MessageSearchModel::MessageSearchModel(Provider provider, QObject* parent, int minLength)
+    : QAbstractListModel(parent), m_provider(std::move(provider)), m_minLength(qMax(1, minLength)) {
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(250);
     connect(&m_debounce, &QTimer::timeout, this, &MessageSearchModel::run);
@@ -36,7 +36,7 @@ QHash<int, QByteArray> MessageSearchModel::roleNames() const {
 
 void MessageSearchModel::setQuery(const QString& query) {
     m_query = query.trimmed();
-    if (m_query.size() < 2) {
+    if (m_query.size() < m_minLength) {
         m_debounce.stop();
         clear();
         return;
@@ -58,7 +58,7 @@ void MessageSearchModel::runNow() {
 }
 
 void MessageSearchModel::run() {
-    QVector<Hit> hits = (m_provider && m_query.size() >= 2) ? m_provider(m_query) : QVector<Hit>();
+    QVector<Hit> hits = (m_provider && m_query.size() >= m_minLength) ? m_provider(m_query) : QVector<Hit>();
     beginResetModel();
     m_hits = std::move(hits);
     endResetModel();

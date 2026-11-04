@@ -284,6 +284,105 @@ private slots:
         // Reset search filter
         model.setSearchFilter("");
         QCOMPARE(model.rowCount(), 2);
+
+        // Diacritic/case-insensitive, word-order-free matching on names and last messages (đ/Đ fold to d).
+        model.addConversation({
+            "g-cl", "Fixture Nhóm Cầu Lông Đầm", "Mai đánh cầu nhé", "12:00", 0, true, false, "", "priority", ""
+        });
+        auto has = [&model](const QString& id) {
+            for (int r = 0; r < model.rowCount(); ++r)
+                if (model.data(model.index(r), ConversationModel::IdRole).toString() == id) return true;
+            return false;
+        };
+        for (const char* q : {"cau long", "cầu lông", "CAU LONG", "long cau", "dam", "Đầm", "danh cau"}) {
+            model.setSearchFilter(QString::fromUtf8(q));
+            QVERIFY2(has("g-cl"), q);
+        }
+        // A chat without a stored name is found by the fallback label the list shows for it.
+        model.addConversation({
+            "u-noname", "", "", "12:30", 0, false, false, "", "priority", ""
+        });
+        for (const char* q : {"nguoi dung zalo", "Người dùng", "zalo user"}) {
+            model.setSearchFilter(QString::fromUtf8(q));
+            QVERIFY2(has("u-noname"), q);
+        }
+        model.setSearchFilter("");
+        // A search covers every chat: the Unread tab and a label filter must not hide matches.
+        model.setCategoryFilter("unread");
+        model.setSearchFilter("cau long");
+        QVERIFY(has("g-cl"));
+        model.setSearchFilter("");
+        QVERIFY(!has("g-cl"));
+        model.setCategoryFilter("");
+        // Archived ("Hội thoại khác") chats are found by search; hidden chats never leak into it.
+        model.setArchivedThreads({"g-cl"});
+        model.setHiddenThreads({"ht-2"});
+        model.setSearchFilter("");
+        QVERIFY(!has("g-cl"));
+        model.setSearchFilter("cau long");
+        QVERIFY(has("g-cl"));
+        model.setSearchFilter("ban than");
+        QCOMPARE(model.rowCount(), 0);
+        model.setViewMode("hidden");
+        QVERIFY(has("ht-2"));
+        model.setViewMode("normal");
+        model.setSearchFilter("");
+        model.setArchivedThreads({});
+        model.setHiddenThreads({});
+    }
+
+    // Sidebar search: one word finds chats, groups/contacts without a chat, and messages (with or without accents).
+    void testGlobalSearchGroupsAndMessages() {
+        {
+            ZaloOfflineStore owner;
+            owner.bindOwner("u-search-owner");
+            owner.clearCache();
+            owner.bindOwner("u-search-owner");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-search-owner");
+        const qint64 base = 1700000000000LL;
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{
+            QJsonObject{{"msgId", "7701"}, {"cliMsgId", "7701"}, {"uidFrom", "u-search-a"}, {"idTo", "u-me"},
+                        {"msgType", "webchat"}, {"content", QString::fromUtf8("Tối nay đi đánh cầu lông không?")},
+                        {"ts", QString::number(base)}},
+            QJsonObject{{"msgId", "7702"}, {"cliMsgId", "7702"}, {"uidFrom", "u-search-b"}, {"idTo", "u-me"},
+                        {"msgType", "webchat"}, {"content", QString::fromUtf8("Bí mật trong chat đã ẩn: cầu lông")},
+                        {"ts", QString::number(base + 1)}}}, false, true);
+        client.applyGroupInfoForTesting(QJsonObject{{"g-search", QJsonObject{
+            {"name", QString::fromUtf8("Fixture Nhóm Cầu Lông")}, {"totalMember", 9}}}});
+        QVERIFY(!client.conversationModel()->contains("g-search"));
+
+        auto* people = client.peopleSearch();
+        people->setQuery("cau long");
+        people->runNow();
+        QCOMPARE(people->count(), 1);
+        QCOMPARE(people->data(people->index(0), MessageSearchModel::ConvIdRole).toString(), QString("g-search"));
+        QVERIFY(people->data(people->index(0), MessageSearchModel::IsGroupRole).toBool());
+
+        auto* msgs = client.messageSearch();
+        for (const char* q : {"cau long", "cầu lông", "CAU LONG", "danh cau"}) {
+            msgs->setQuery(QString::fromUtf8(q));
+            msgs->runNow();
+            QVERIFY2(msgs->count() >= 1, q);
+        }
+        // A hidden chat's messages stay out of the sidebar search.
+        client.setHiddenThreadsForTesting({"u-search-b"});
+        msgs->setQuery("cau long");
+        msgs->runNow();
+        QCOMPARE(msgs->count(), 1);
+        QCOMPARE(msgs->data(msgs->index(0), MessageSearchModel::ConvIdRole).toString(), QString("u-search-a"));
+
+        // Hosts whose SQLite has no FTS5 still find messages (folded substring fallback).
+        client.offlineStore()->setFtsAvailableForTesting(false);
+        QCOMPARE(client.offlineStore()->searchMessages(QString::fromUtf8("đánh cầu")).size(), 1);
+        QCOMPARE(client.offlineStore()->searchMessages("cau long", "u-search-a").size(), 1);
+        client.offlineStore()->setFtsAvailableForTesting(true);
+
+        // Opening a directory hit creates the chat and selects it.
+        client.openSearchResult("g-search", QString::fromUtf8("Fixture Nhóm Cầu Lông"), "", true);
+        QVERIFY(client.conversationModel()->contains("g-search"));
+        QCOMPARE(client.currentConversationId(), QString("g-search"));
     }
 
     // 3. Feature: Unread Message Calculation & Notification Clearing
@@ -1229,7 +1328,7 @@ private slots:
                 client.pins()->applyListForTesting(conv, QJsonObject{{"version", 4}, {"data", QJsonArray{}}}, false);
                 QVERIFY(!bar->property("visible").toBool());
             }
-            for (const char* tab : {"general", "language", "appearance", "notifications", "privacy", "storage", "sync"}) {
+            for (const char* tab : {"general", "language", "appearance", "notifications", "privacy", "security", "storage", "sync"}) {
                 client.openSettings(tab);
                 shot(QString("settings_%1_%2").arg(tab, suffix));
                 client.setShowSettingsModal(false);
@@ -1309,6 +1408,25 @@ private slots:
         }
         client.setShowConversationInfo(false);
         window->resize(1280, 800);
+
+        // Sidebar: the "Hội thoại khác" chevron row, and one query finding chats + groups + messages.
+        if (QObject* side = window->findChild<QObject*>("sidebar")) {
+            themeMgr.setThemeMode(1);
+            window->resize(1100, 760);
+            side->setProperty("moreViewsOpen", true);
+            shot("sidebar_more_views_dark");
+            side->setProperty("moreViewsOpen", false);
+            client.applyGroupInfoForTesting(QJsonObject{{"g-dir", QJsonObject{{"name", "Fixture Directory Group"}, {"totalMember", 4}}}});
+            client.conversationModel()->setSearchFilter("fixture");
+            client.peopleSearch()->setQuery("fixture");
+            client.peopleSearch()->runNow();
+            client.messageSearch()->setQuery("fixture");
+            client.messageSearch()->runNow();
+            shot("sidebar_search_dark");
+            client.conversationModel()->setSearchFilter("");
+            client.peopleSearch()->clear();
+            client.messageSearch()->clear();
+        }
 
         // Rail tonal legibility check: label folders on, in dark (near-black rail) and light (blue rail).
         client.setShowLabelFolders(true);

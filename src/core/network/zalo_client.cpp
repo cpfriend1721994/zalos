@@ -6,6 +6,7 @@
 #include "media/media_utils.h"
 #include "call/zcall_engine.h"
 #include "offline/offline_store.h"
+#include "models/text_fold.h"
 #include "network/zalo_api_client.h"
 #include "network/zalo_session.h"
 #include "network/message_scheduler.h"
@@ -314,13 +315,38 @@ ZaloClient::ZaloClient(QObject* parent)
         m_messageSearch = new Models::MessageSearchModel([this](const QString& query) {
             QVector<Models::MessageSearchModel::Hit> out;
             if (!cacheUsable()) return out;
-            for (const auto& h : m_offlineStore->searchMessages(query, QString(), 50)) {
+            const bool hiddenView = m_conversationModel->viewMode() == QLatin1String("hidden");
+            for (const auto& h : m_offlineStore->searchMessages(query, QString(), 80)) {
+                if (m_hiddenThreads.contains(h.convId) != hiddenView) continue;
                 const Models::ConversationItem conv = m_conversationModel->conversation(h.convId);
                 if (conv.id.isEmpty()) continue;
                 out.append({h.msgId, h.convId, conv.name, conv.avatarUrl, conv.isGroup, h.senderName, h.text, h.ts});
+                if (out.size() >= 50) break;
             }
             return out;
         }, this);
+        m_peopleSearch = new Models::MessageSearchModel([this](const QString& query) {
+            QVector<Models::MessageSearchModel::Hit> out;
+            const QStringList terms = Models::foldTerms(query);
+            if (terms.isEmpty()) return out;
+            auto add = [&](const QString& id, const Profile& p, bool isGroup) {
+                if (id.isEmpty() || p.name.isEmpty() || m_hiddenThreads.contains(id)) return;
+                if (!m_conversationModel->conversation(id).id.isEmpty()) return;
+                if (!Models::containsAllTerms(Models::foldForSearch(p.name), terms)) return;
+                const QString sub = isGroup ? (p.memberCount > 0 ? L("Nhóm · %1 thành viên", "Group · %1 members").arg(p.memberCount)
+                                                                 : L("Nhóm", "Group"))
+                                            : L("Bạn bè", "Friend");
+                out.append({QString(), id, p.name, p.avatar, isGroup, QString(), sub, 0});
+            };
+            for (auto it = m_groups.cbegin(); it != m_groups.cend(); ++it) add(it.key(), it.value(), true);
+            for (const QString& uid : std::as_const(m_friendIds)) add(uid, m_users.value(uid), false);
+            std::stable_sort(out.begin(), out.end(), [](const auto& a, const auto& b) {
+                if (a.isGroup != b.isGroup) return a.isGroup;
+                return QString::localeAwareCompare(a.convName, b.convName) < 0;
+            });
+            if (out.size() > 30) out.resize(30);
+            return out;
+        }, this, 1);
         connect(m_pinBoard, &PinBoard::pinsChanged, this, &ZaloClient::pinnedMessageChanged);
         connect(this, &ZaloClient::currentConversationChanged, this, [this]() { m_pinBoard->setCurrent(m_currentConvId); loadReminders(); });
         connect(this, &ZaloClient::loginStateChanged, this, [this]() {
@@ -1584,6 +1610,45 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
     } else if (type == "chat.location.new") {
         item.text = L("[Vị trí]", "[Location]");
         label = item.text;
+    } else if (type == "chat.ecard") {
+        item.messageType = "ecard";
+        const QJsonValue rawParams = obj.value("params");
+        const QJsonObject params = rawParams.isString()
+                                       ? QJsonDocument::fromJson(rawParams.toString().toUtf8()).object()
+                                       : rawParams.toObject();
+        const QString ecardType = obj.value("type").toVariant().toString();
+        QVariantList stickers;
+        const QJsonArray actions = params.value("actions").toArray();
+        if (!actions.isEmpty()) {
+            const QJsonValue rawData = actions.first().toObject().value("data");
+            const QJsonObject data = rawData.isString()
+                                         ? QJsonDocument::fromJson(rawData.toString().toUtf8()).object()
+                                         : rawData.toObject();
+            for (const QJsonValue& v : data.value("stickerList").toArray()) {
+                const QJsonObject s = v.toObject();
+                const QString sid = idOf(s.value("id"));
+                if (sid.isEmpty()) continue;
+                stickers.append(QVariantMap{{"id", sid},
+                                            {"cateId", s.value("catId").toVariant().toLongLong()},
+                                            {"type", s.value("type").toInt(7)}});
+            }
+        }
+        const QString title = obj.value("title").toString();
+        const QString who = item.senderName;
+        if (ecardType == QLatin1String("1") && !who.isEmpty()) {
+            item.text = L("Hôm nay là sinh nhật của %1", "Today is %1's birthday").arg(who);
+        } else {
+            item.text = title.isEmpty() ? L("Thiệp", "Card") : title;
+        }
+        const QString desc = obj.value("description").toString();
+        item.extra = {{"ecardType", ecardType},
+                      {"desc", ecardType == QLatin1String("1") && !stickers.isEmpty()
+                                   ? L("Gửi ngay sticker dưới đây thay lời chúc mừng",
+                                       "Send one of these stickers as your wishes")
+                                   : (desc == title ? QString() : desc)},
+                      {"thumb", obj.value("thumb").toString()},
+                      {"stickers", stickers}};
+        label = L("[Thiệp] ", "[Card] ") + item.text;
     } else if (type == "chat.list.action") {
         const QJsonArray cards = content.toArray();
         const QJsonObject first = cards.isEmpty() ? obj : cards.first().toObject();
@@ -3080,6 +3145,7 @@ void ZaloClient::updateMyProfile(const QString& name, int gender, const QString&
     }
     const QString cleanName = name.trimmed();
     const QString cleanBio = bio.trimmed();
+    const bool bioChanged = cleanBio != m_myProfile.status;
 
     m_myProfile.displayName = cleanName;
     m_myProfile.gender = gender;
@@ -3097,10 +3163,35 @@ void ZaloClient::updateMyProfile(const QString& name, int gender, const QString&
         m_apiClient->session()->updateProfile(cleanName, gender, dob, [this](bool ok, const QJsonValue&, const QString& err, int) {
             if (!ok) emit notice(L("Không thể cập nhật hồ sơ: ", "Failed to update profile: ") + friendlyError(err));
         });
-        if (!cleanBio.isEmpty()) {
-            m_apiClient->session()->updateProfileBio(cleanBio, [](bool, const QJsonValue&, const QString&, int) {});
+        if (bioChanged) {
+            m_apiClient->session()->updateProfileBio(cleanBio, [this](bool ok, const QJsonValue&, const QString& err, int) {
+                if (!ok) emit notice(L("Không thể cập nhật trạng thái: ", "Failed to update status: ") + friendlyError(err));
+            });
         }
     }
+}
+
+void ZaloClient::updateMyStatus(const QString& status) {
+    const QString clean = status.trimmed();
+    if (clean == m_myProfile.status) return;
+    const QString previous = m_myProfile.status;
+    m_myProfile.status = clean;
+    if (m_activeProfile.userId == m_myUid || m_activeProfile.userId.isEmpty()) m_activeProfile.status = clean;
+    emit userProfileChanged();
+    emit currentProfileChanged();
+    saveSession();
+    if (!m_isLoggedIn || !m_apiClient->session()) return;
+    m_apiClient->session()->updateProfileBio(clean, [this, previous](bool ok, const QJsonValue&, const QString& err, int) {
+        if (ok) {
+            emit notice(L("Đã cập nhật trạng thái", "Status updated"));
+            return;
+        }
+        m_myProfile.status = previous;
+        if (m_activeProfile.userId == m_myUid || m_activeProfile.userId.isEmpty()) m_activeProfile.status = previous;
+        emit userProfileChanged();
+        emit currentProfileChanged();
+        emit notice(L("Không thể cập nhật trạng thái: ", "Failed to update status: ") + friendlyError(err));
+    });
 }
 
 void ZaloClient::blockUser(const QString& userId) {
@@ -4087,6 +4178,27 @@ void ZaloClient::sendStickerItem(qint64 stickerId, qint64 cateId, int type) {
         });
 }
 
+QString ZaloClient::stickerThumb(const QString& stickerId) const {
+    return m_stickerStore->info(stickerId).value("url").toString();
+}
+
+void ZaloClient::prefetchStickers(const QVariantList& stickers) {
+    if (!m_isLoggedIn) return;
+    for (const QVariant& v : stickers) {
+        const QString id = v.toMap().value("id").toString();
+        if (id.isEmpty() || !stickerThumb(id).isEmpty() || m_stickerPrefetching.contains(id)) continue;
+        m_stickerPrefetching.insert(id);
+        m_apiClient->session()->fetchStickerDetail(id.toLongLong(), [this, id](bool ok, const QJsonValue& d, const QString&, int) {
+            m_stickerPrefetching.remove(id);
+            const QVariantMap info = ok ? StickerStore::describe(d.toObject()) : QVariantMap();
+            if (info.value("url").toString().isEmpty()) return;
+            m_stickerStore->remember(info);
+            ++m_stickerRevision;
+            emit stickerRevisionChanged();
+        });
+    }
+}
+
 void ZaloClient::resolveSticker(const QString& convId, const QString& msgId, qint64 stickerId) {
     if (stickerId <= 0) return;
     const QString key = QString::number(stickerId);
@@ -4595,6 +4707,16 @@ bool ZaloClient::revealMessage(const QString& msgId) {
     const auto rows = m_offlineStore->loadMessages(convId, &raws, between + 20, oldest);
     mergeCacheRows(convId, rows, raws);
     return m_messageModel->rowOfMessage(msgId) >= 0;
+}
+
+void ZaloClient::openSearchResult(const QString& id, const QString& name, const QString& avatar, bool isGroup) {
+    if (id.isEmpty()) return;
+    if (!m_conversationModel->contains(id)) {
+        ensureConversation(id, isGroup);
+        m_conversationModel->updateProfile(id, name, avatar);
+    }
+    setCurrentNavigationTab("messages");
+    selectConversation(id, name, avatar);
 }
 
 void ZaloClient::openMessageFromSearch(const QString& convId, const QString& msgId) {

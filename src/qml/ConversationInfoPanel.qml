@@ -373,7 +373,7 @@ Rectangle {
                             width: 26
                             height: 26
                             radius: 13
-                            color: groupPhotoMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.inputFillColor
+                            color: groupPhotoMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor
                             border.color: ThemeManager.surfaceColor
                             border.width: 2
                             ZIcon { anchors.centerIn: parent; name: "camera"; size: 14; color: ThemeManager.textColor }

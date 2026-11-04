@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 namespace Zalos::Core::Models {
 
@@ -14,6 +15,18 @@ inline QString foldForSearch(const QString& text) {
         else out.append(c.toLower());
     }
     return out;
+}
+
+inline QStringList foldTerms(const QString& query) {
+    return foldForSearch(query).simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+}
+
+inline bool containsAllTerms(const QString& foldedHaystack, const QStringList& terms) {
+    if (terms.isEmpty()) return false;
+    for (const QString& t : terms) {
+        if (!foldedHaystack.contains(t)) return false;
+    }
+    return true;
 }
 
 }
