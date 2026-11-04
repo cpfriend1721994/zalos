@@ -32,18 +32,13 @@ struct DirectoryTreeNode {
 
 class FileUtils {
 public:
-    // Replaces nativelibs/file-utils get_disk_usage using Linux statvfs
     static DiskUsage getDiskUsage(const QString& path);
 
-    // Replaces nativelibs/file-utilities directory_size
     static DirectorySizeResult getDirectorySize(const QString& path, int workers = 4);
 
-    // Replaces nativelibs/file-utilities directory_tree
     static DirectoryTreeNode getDirectoryTree(const QString& path, int maxDepth = -1);
 
-    // Cleans files in directory older than maxAgeSeconds
     static qint64 cleanCacheDirectory(const QString& dirPath, qint64 maxAgeSeconds);
 };
 
-} // namespace Zalos::Core::Fs
-
+}

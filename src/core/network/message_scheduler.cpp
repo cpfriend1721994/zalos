@@ -18,7 +18,7 @@ constexpr qint64 kMinLeadMs = 30000;
 
 QString settingsKey(const QString& uid) { return QStringLiteral("scheduler/") + uid; }
 
-} // namespace
+}
 
 MessageScheduler::MessageScheduler(QObject* parent) : QObject(parent) {
     m_timer = new QTimer(this);
@@ -105,7 +105,6 @@ void MessageScheduler::runDue(qint64 nowMs) {
         started = true;
         e.state = QStringLiteral("sending");
         const QString id = e.id;
-        // The sender may answer later; `this` outlives it only while the client lives, so guard by pointer.
         QPointer<MessageScheduler> self(this);
         m_sender(e.convId, e.isGroup, e.text, [self, id](bool ok, const QString& error) {
             if (!self) return;
@@ -122,11 +121,10 @@ void MessageScheduler::runDue(qint64 nowMs) {
 }
 
 void MessageScheduler::save() const {
-    if (m_uid.isEmpty()) return; // stored per account
+    if (m_uid.isEmpty()) return;
     QJsonArray arr;
     for (const auto& e : m_entries) {
         if (e.state == "sent" || e.state == "cancelled") continue;
-        // "sending" is persisted as pending so a crash mid-send retries instead of losing it.
         arr.append(QJsonObject{{"id", e.id}, {"convId", e.convId}, {"isGroup", e.isGroup}, {"text", e.text},
                                {"sendAt", e.sendAt}, {"state", e.state == "sending" ? "pending" : e.state}});
     }
@@ -134,4 +132,4 @@ void MessageScheduler::save() const {
     settings.setValue(settingsKey(m_uid), QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
 }
 
-} // namespace Zalos::Core::Network
+}

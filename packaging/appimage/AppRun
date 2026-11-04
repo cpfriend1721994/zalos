@@ -19,6 +19,16 @@ if [ -d "${APPDIR}/usr/lib64/qt6/plugins" ]; then
     export QT_PLUGIN_PATH="${APPDIR}/usr/lib64/qt6/plugins:${QT_PLUGIN_PATH}"
 fi
 
+# Animated stickers need Qt's WebP image plugin. Use the bundled fallback only when the host Qt has no WebP plugin
+# (searching the host plugin dirs), so a host plugin that matches the host Qt is always preferred.
+if [ -d "${APPDIR}/usr/lib/webp-fallback/imageformats" ]; then
+    _host_webp=""
+    for _d in ${QT_PLUGIN_PATH} /usr/lib/qt6/plugins /usr/lib64/qt6/plugins /usr/lib/*/qt6/plugins; do
+        [ -f "${_d}/imageformats/libqwebp.so" ] && _host_webp="1" && break
+    done
+    [ -z "${_host_webp}" ] && export QT_PLUGIN_PATH="${APPDIR}/usr/lib/webp-fallback:${QT_PLUGIN_PATH}"
+fi
+
 if [ -d "${APPDIR}/usr/lib64/qt6/qml" ]; then
     export QML2_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML2_IMPORT_PATH}"
     export QML_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML_IMPORT_PATH}"
@@ -36,6 +46,21 @@ if [ -z "${QT_QPA_PLATFORM}" ]; then
 fi
 
 # Input method (IBus / Fcitx) selection is reconciled inside the application (see configureInputMethod in main.cpp).
+
+# Launched from a terminal for normal use: relaunch the AppImage in its own session (setsid) and return the
+# prompt, so Ctrl+C or closing the terminal does not reach the app. Debug/test runs, non-terminal launches
+# (.desktop) and hosts without setsid run in place. --debug / --test-gui / --screenshot / --help / --version stay
+# in the foreground.
+case " $* " in
+    *" --debug "*|*" --test-gui "*|*" --screenshot "*|*" --help "*|*" --version "*|*" -v "*|*" -h "*) ;;
+    *)
+        if [ -z "${ZALOS_NO_DETACH}" ] && [ -z "${ZALOS_DEBUG}" ] && [ -n "${APPIMAGE}" ] \
+           && command -v setsid >/dev/null 2>&1 && { [ -t 0 ] || [ -t 1 ]; }; then
+            ZALOS_NO_DETACH=1 setsid "${APPIMAGE}" "$@" </dev/null >/dev/null 2>&1 &
+            exit 0
+        fi
+        ;;
+esac
 
 # Execute Zalos binary
 exec "${APPDIR}/usr/bin/zalos" "$@"

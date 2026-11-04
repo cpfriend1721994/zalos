@@ -1,117 +1,75 @@
 # Contributing to Zalos
 
-Thank you for your interest in contributing to **Zalos**! We welcome contributions from the community to make Zalos the best native desktop messaging experience on Linux.
-
----
-
-## 📋 Table of Contents
-
-- [Code of Conduct](#code-of-conduct)
-- [Zero Host Execution Policy](#zero-host-execution-policy)
-- [Development Environment Setup](#development-environment-setup)
-- [How to Contribute](#how-to-contribute)
-  - [Reporting Bugs](#reporting-bugs)
-  - [Suggesting Features](#suggesting-features)
-  - [Submitting Pull Requests](#submitting-pull-requests)
-- [Coding Guidelines](#coding-guidelines)
-  - [Modern C++ Standards](#modern-c-standards)
-  - [QML Presentation Rules](#qml-presentation-rules)
-  - [Commit Message Format](#commit-message-format)
+Thank you for your interest in contributing to **Zalos**! Contributions from the community are welcome.
 
 ---
 
 ## 📜 Code of Conduct
 
-Please review our [Code of Conduct](CODE_OF_CONDUCT.md). By participating in this project, you agree to abide by its terms.
+Please review our [Code of Conduct](CODE_OF_CONDUCT.md). By participating in this project, you agree to abide by
+its terms.
 
 ---
 
-## 🛡️ Zero Host Execution Policy
+## 🛠️ Development setup
 
-To ensure uniform toolchains, prevent host library collisions, and guarantee reproducibility across distributions, **all development, testing, and packaging MUST be executed inside Docker or Podman containers**:
+Builds and tests run inside containers, so you do not install a toolchain on your host — this keeps results
+reproducible across distributions. You only need `docker` (or `podman`) with Compose, and Git.
 
-* ❌ **Do NOT** run `cmake`, `ninja`, `make`, `ctest`, `gcc`, `g++`, or launch binaries directly on your host machine.
-* ✅ **Always** use `docker compose` or `podman compose`.
+```bash
+git clone https://github.com/zalos/zalos.git
+cd zalos
 
----
+docker compose run --rm build       # compile
+docker compose run --rm test        # unit tests
+docker compose run --rm gui-check   # headless GUI sanity check
+```
 
-## 🛠️ Development Environment Setup
-
-1. **Prerequisites**:
-   - `docker` & `docker compose` (or `podman` & `podman compose`).
-   - Git.
-
-2. **Clone the repository**:
-   ```bash
-   git clone https://github.com/zalos/zalos.git
-   cd zalos
-   ```
-
-3. **Build the container image & project**:
-   ```bash
-   docker compose run --rm build
-   ```
-
-4. **Run unit tests**:
-   ```bash
-   docker compose run --rm test
-   ```
-
-5. **Headless GUI verification**:
-   ```bash
-   docker compose run --rm gui-check
-   ```
+Please run builds and tests through `docker compose` / `podman compose` rather than on the host directly.
 
 ---
 
-## 🚀 How to Contribute
+## 🚀 How to contribute
 
-### Reporting Bugs
-Before filing an issue, check existing GitHub issues. When creating a bug report, please include:
-- Operating system, kernel version, and Desktop Environment (GNOME, KDE Plasma, XFCE).
-- Display Server (Wayland or X11/Xorg via `echo $XDG_SESSION_TYPE`).
-- Distribution package used (AppImage, Flatpak, or RPM).
-- Steps to reproduce and terminal/container logs.
+### Reporting bugs
+Before filing an issue, check the existing GitHub issues. A good bug report includes:
 
-### Submitting Pull Requests
-1. Fork the repository and create your feature branch:
+- Operating system, kernel version, and desktop environment (GNOME, KDE Plasma, XFCE…).
+- Display server (Wayland or X11 — `echo $XDG_SESSION_TYPE`).
+- Which package you installed (AppImage, `.deb`, `.rpm`, Arch, Nix).
+- Steps to reproduce, and any terminal logs.
+
+### Suggesting features
+Open a feature request issue describing the problem you want solved and how you imagine it working.
+
+### Submitting pull requests
+1. Fork the repository and create a feature branch:
    ```bash
    git checkout -b feat/your-feature-name
    ```
-2. Keep your changes focused. Do not combine unrelated refactorings.
-3. Add unit tests in `tests/` if you add new cryptographic, network, or model logic.
-4. Verify that all tests pass:
+2. Keep changes focused — don't mix unrelated refactors into one PR.
+3. Add unit tests under `tests/` when you add or change behaviour.
+4. Make sure the suite and the GUI check pass:
    ```bash
    docker compose run --rm test
-   ```
-5. Ensure headless GUI sanity check passes:
-   ```bash
    docker compose run --rm gui-check
    ```
-6. Commit using **Conventional Commits**:
+5. Use [Conventional Commits](https://www.conventionalcommits.org/):
    ```text
-   feat: add MPRIS media player controls integration
-   fix: handle fractional scaling on Wayland CSD titlebar
-   docs: update Flatpak permission checklist
+   feat: add media player controls
+   fix: handle fractional scaling on the Wayland titlebar
+   docs: update the installation guide
    ```
-7. Push to your fork and submit a Pull Request.
+6. Push to your fork and open a Pull Request.
 
 ---
 
-## 📐 Coding Guidelines
+## 📐 Coding guidelines
 
-### Modern C++ Standards
-- Follow modern **C++17** practices (or C++20 where supported).
-- Use RAII for resource management (`std::unique_ptr`, `EVP_CIPHER_CTX_free`, `sqlite3_finalize`).
-- Keep controllers decoupled from presentation: expose data via `Q_PROPERTY` and `QAbstractListModel`.
-- Threading: Offload heavy I/O or crypto decryption to background worker threads.
-
-### QML Presentation Rules
-- Follow Qt Quick best practices: use declarative bindings and responsive layouts (`RowLayout`, `ColumnLayout`).
-- Avoid putting complex business logic or string parsing in JavaScript inside `.qml` files.
-- Ensure all components support both Dark and Light themes via `ThemeManager`.
-
-### Language Rules
-- End-user UI strings, status toasts, and dialogs must strictly be in **Vietnamese (Tiếng Việt)**.
-- Code comments, commit messages, docs, and pull request discussions must be in **English**.
-
+- **C++:** modern C++17 (or C++20 where available); use RAII for resource management; keep logic out of the
+  presentation layer and expose data to QML through `Q_PROPERTY` and item models; move heavy work off the UI
+  thread.
+- **QML:** declarative bindings and responsive layouts; avoid complex logic inside `.qml` files; every component
+  must support both light and dark themes.
+- **Language:** end-user UI strings must be in **Vietnamese (Tiếng Việt)**; code, comments, commit messages, docs
+  and pull-request discussions must be in **English**.

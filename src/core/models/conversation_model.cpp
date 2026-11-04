@@ -41,6 +41,7 @@ QVariant ConversationModel::data(const QModelIndex& index, int role) const {
         case IsTypingRole: return item.isTyping;
         case DraftRole: return m_drafts.value(item.id);
         case MemberAvatarsRole: return m_memberAvatars.value(item.id);
+        case HasUnreadMentionRole: return item.hasUnreadMention;
         default: return {};
     }
 }
@@ -66,7 +67,8 @@ QHash<int, QByteArray> ConversationModel::roleNames() const {
         {LastTsRole, "lastTs"},
         {IsTypingRole, "isTyping"},
         {DraftRole, "draft"},
-        {MemberAvatarsRole, "memberAvatars"}
+        {MemberAvatarsRole, "memberAvatars"},
+        {HasUnreadMentionRole, "hasUnreadMention"}
     };
 }
 
@@ -102,7 +104,7 @@ void ConversationModel::emitUnreadChanged() {
         return;
     }
     m_unreadDirty = false;
-    emit unreadCountChanged(totalUnreadCount());
+    emit unreadCountChanged(totalUnreadCount(), hasAnyUnreadMention());
 }
 
 void ConversationModel::applyFilter() {
@@ -115,20 +117,28 @@ void ConversationModel::applyFilter() {
     m_filteredItems.clear();
 
     const QString needle = foldForSearch(m_searchQuery.trimmed());
+    const bool archivedView = m_viewMode == QLatin1String("archived");
+    const bool hiddenView = m_viewMode == QLatin1String("hidden");
     for (const auto& item : m_allItems) {
-        bool matchesCategory = m_activeCategory.isEmpty() ||
-                               (m_activeCategory == "unread" ? item.unreadCount > 0 : item.category == m_activeCategory);
-        if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
-        bool matchesSearch = needle.isEmpty() ||
-                             foldForSearch(item.name).contains(needle) ||
-                             foldForSearch(item.lastMessage).contains(needle);
-
-        if (matchesCategory && matchesSearch) {
-            m_filteredItems.append(item);
+        const bool isArchived = m_archivedIds.contains(item.id);
+        const bool isHidden = m_hiddenIds.contains(item.id);
+        if (archivedView) {
+            if (!isArchived) continue;
+        } else if (hiddenView) {
+            if (!isHidden) continue;
+        } else {
+            if (isArchived || isHidden) continue;
+            if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
+            if (!(m_activeCategory.isEmpty() ||
+                  (m_activeCategory == "unread" ? item.unreadCount > 0 : item.category == m_activeCategory)))
+                continue;
         }
+        const bool matchesSearch = needle.isEmpty() ||
+                                   foldForSearch(item.name).contains(needle) ||
+                                   foldForSearch(item.lastMessage).contains(needle);
+        if (matchesSearch) m_filteredItems.append(item);
     }
 
-    // Pinned conversations first, then newest activity first.
     std::stable_sort(m_filteredItems.begin(), m_filteredItems.end(), [](const ConversationItem& a, const ConversationItem& b) {
         if (a.isPinned != b.isPinned) {
             return a.isPinned > b.isPinned;
@@ -205,7 +215,7 @@ void ConversationModel::updateProfile(const QString& convId, const QString& name
 }
 
 void ConversationModel::recordMessage(const QString& convId, const QString& preview, const QString& senderPrefix,
-                                      qint64 ts, bool incrementUnread) {
+                                      qint64 ts, bool incrementUnread, bool hasMention) {
     for (auto& item : m_allItems) {
         if (item.id != convId) continue;
         if (ts >= item.lastTs) {
@@ -213,7 +223,10 @@ void ConversationModel::recordMessage(const QString& convId, const QString& prev
             item.senderPrefix = senderPrefix;
             item.lastTs = ts;
         }
-        if (incrementUnread) item.unreadCount++;
+        if (incrementUnread) {
+            item.unreadCount++;
+            if (hasMention) item.hasUnreadMention = true;
+        }
         applyFilter();
         if (incrementUnread) emitUnreadChanged();
         return;
@@ -241,7 +254,6 @@ void ConversationModel::setMuted(const QString& convId, bool muted) {
 }
 
 namespace {
-// Updates matching rows in place (no re-sort needed for these roles).
 template <typename Fn>
 void patchRows(QVector<ConversationItem>& all, QVector<ConversationItem>& filtered, ConversationModel* model,
                const QList<int>& roles, Fn fn) {
@@ -255,7 +267,7 @@ void patchRows(QVector<ConversationItem>& all, QVector<ConversationItem>& filter
         }
     }
 }
-} // namespace
+}
 
 void ConversationModel::setTag(const QString& convId, const QString& tag, const QString& color) {
     patchRows(m_allItems, m_filteredItems, this, {TagRole, TagColorRole}, [&](ConversationItem& item) {
@@ -270,6 +282,28 @@ void ConversationModel::setLabelFilter(int labelId) {
     emit filterChanged();
 }
 
+void ConversationModel::setViewMode(const QString& mode) {
+    const QString next = mode.isEmpty() ? QStringLiteral("normal") : mode;
+    if (next == m_viewMode) return;
+    m_viewMode = next;
+    applyFilter();
+    emit filterChanged();
+}
+
+void ConversationModel::setHiddenThreads(const QSet<QString>& ids) {
+    if (ids == m_hiddenIds) return;
+    m_hiddenIds = ids;
+    applyFilter();
+    emit filterChanged();
+}
+
+void ConversationModel::setArchivedThreads(const QSet<QString>& ids) {
+    if (ids == m_archivedIds) return;
+    m_archivedIds = ids;
+    applyFilter();
+    emit filterChanged();
+}
+
 void ConversationModel::applyLabels(const QHash<QString, QVariantMap>& labels) {
     m_labels = labels;
     patchRows(m_allItems, m_filteredItems, this, {TagRole, TagColorRole, LabelIdRole}, [&](ConversationItem& item) {
@@ -278,7 +312,7 @@ void ConversationModel::applyLabels(const QHash<QString, QVariantMap>& labels) {
         item.tag = l.value("text").toString();
         item.tagColor = l.value("color").toString();
     });
-    if (m_labelFilter > 0) applyFilter(); // membership of the filtered list changed
+    if (m_labelFilter > 0) applyFilter();
 }
 
 void ConversationModel::setOnlineIds(const QSet<QString>& ids) {
@@ -358,8 +392,9 @@ void ConversationModel::updateLastMessage(const QString& convId, const QString& 
 
 void ConversationModel::clearUnread(const QString& convId) {
     for (int i = 0; i < m_allItems.size(); ++i) {
-        if (m_allItems[i].id == convId && m_allItems[i].unreadCount > 0) {
+        if (m_allItems[i].id == convId && (m_allItems[i].unreadCount > 0 || m_allItems[i].hasUnreadMention)) {
             m_allItems[i].unreadCount = 0;
+            m_allItems[i].hasUnreadMention = false;
             break;
         }
     }
@@ -370,6 +405,7 @@ void ConversationModel::clearUnread(const QString& convId) {
 void ConversationModel::setUnreadCount(const QString& convId, int count) {
     for (auto& item : m_allItems) {
         if (item.id != convId) continue;
+        if (count == 0) item.hasUnreadMention = false;
         if (item.unreadCount == qMax(0, count)) return;
         item.unreadCount = qMax(0, count);
         applyFilter();
@@ -395,13 +431,19 @@ int ConversationModel::totalUnreadCount() const {
     return total;
 }
 
+bool ConversationModel::hasAnyUnreadMention() const {
+    for (const auto& item : m_allItems) {
+        if (item.unreadCount > 0 && item.hasUnreadMention) return true;
+    }
+    return false;
+}
+
 void ConversationModel::clearAll() {
     beginResetModel();
     m_allItems.clear();
     m_filteredItems.clear();
     endResetModel();
-    emit unreadCountChanged(0);
+    emit unreadCountChanged(0, false);
 }
 
-} // namespace Zalos::Core::Models
-
+}

@@ -10,8 +10,6 @@ namespace Zalos::Core::Call {
 
 class H264Decoder;
 
-// Decodes the peers' H.264 (one stream per sender `src`; 0 in a 1-1 call) on a worker thread.
-// CallBridge moves it to its video thread and talks to it through queued signals only.
 class PeerVideoDecoder : public QObject {
     Q_OBJECT
 public:
@@ -24,7 +22,6 @@ public slots:
 
 signals:
     void frameDecoded(const QVideoFrame& frame, int src);
-    // The stream cannot be decoded until the next key frame (start without one, or damage).
     void keyFrameNeeded(const QString& why, int src);
 
 private:
@@ -35,4 +32,4 @@ private:
     std::map<int, Stream> m_streams;
 };
 
-} // namespace Zalos::Core::Call
+}

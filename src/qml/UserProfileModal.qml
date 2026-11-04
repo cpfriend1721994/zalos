@@ -13,7 +13,30 @@ Item {
     property bool isEditing: false
     property int editGender: ZaloClient.profileGender
 
-    // Created on demand by a Loader in Main.qml, already visible: run the same init.
+    function formatPhone(raw: string): string {
+        var digits = "";
+        for (var i = 0; i < raw.length; i++) {
+            var c = raw.charAt(i);
+            if (c >= "0" && c <= "9") digits += c;
+        }
+        if (digits.length === 0) return raw;
+        var national = digits;
+        var prefix = "";
+        if (digits.substring(0, 2) === "84") {
+            prefix = "+84 ";
+            national = digits.substring(2);
+        } else if (digits.charAt(0) === "0") {
+            national = digits.substring(1);
+            prefix = "0";
+        }
+        var grouped = "";
+        for (var j = 0; j < national.length; j++) {
+            if (j > 0 && (national.length - j) % 3 === 0) grouped += " ";
+            grouped += national.charAt(j);
+        }
+        return prefix + grouped;
+    }
+
     Component.onCompleted: visibleChanged()
     onVisibleChanged: {
         if (!visible) {
@@ -23,6 +46,7 @@ Item {
             if (nameEdit) nameEdit.text = ZaloClient.profileDisplayName;
             if (dobEdit) dobEdit.text = ZaloClient.profileDob;
             if (bioEdit) bioEdit.text = ZaloClient.profileBio;
+            if (ZaloClient.profileIsSelf) ZaloClient.loadMyAvatarHistory();
         }
     }
 
@@ -38,7 +62,6 @@ Item {
         }
     }
 
-    // Backdrop
     Rectangle {
         anchors.fill: parent
         color: "#000000"
@@ -55,7 +78,8 @@ Item {
         id: card
         anchors.centerIn: parent
         width: Math.max(0, Math.min(parent.width - 32, 380))
-        height: Math.max(0, Math.min(parent.height - 40, root.isEditing ? 560 : 520))
+        height: Math.max(0, Math.min(parent.height - 40,
+                avatarBorder.y + avatarBorder.height + 8 + bodyColumn.implicitHeight + 16))
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
         scale: root.visible ? 1.0 : 0.92
         opacity: root.visible ? 1.0 : 0.0
@@ -67,10 +91,8 @@ Item {
         border.width: 1
         clip: true
 
-        // Swallow clicks
         MouseArea { anchors.fill: parent }
 
-        // Top Cover Image / Gradient
         Item {
             id: coverArea
             anchors.top: parent.top
@@ -96,7 +118,6 @@ Item {
                 smooth: true
             }
 
-            // Close button pinned to the top-right
             Rectangle {
                 anchors.top: parent.top
                 anchors.right: parent.right
@@ -104,14 +125,15 @@ Item {
                 width: 30
                 height: 30
                 radius: 15
-                color: "#000000"
-                opacity: closeMouse.containsMouse ? 0.75 : 0.45
+                color: closeMouse.containsMouse ? Qt.rgba(1, 1, 1, 1.0) : Qt.rgba(1, 1, 1, 0.85)
+                border.color: Qt.rgba(0, 0, 0, 0.08)
+                border.width: 1
 
                 ZIcon {
                     anchors.centerIn: parent
                     name: "close"
                     size: 14
-                    color: "#FFFFFF"
+                    color: "#1F2937"
                 }
 
                 MouseArea {
@@ -124,7 +146,6 @@ Item {
             }
         }
 
-        // The cover photo has no desktop API (Zalo PC cannot change it either): say where it can be changed.
         Rectangle {
             visible: ZaloClient.profileIsSelf
             anchors.right: coverArea.right
@@ -148,7 +169,6 @@ Item {
             }
         }
 
-        // Avatar overlapping the cover area
         Rectangle {
             id: avatarBorder
             anchors.left: parent.left
@@ -172,7 +192,6 @@ Item {
                 isOnline: !ZaloClient.isOfflineMode
             }
 
-            // Own profile: change the avatar (/api/profile/upavatar).
             Rectangle {
                 visible: ZaloClient.profileIsSelf
                 anchors.right: parent.right
@@ -180,7 +199,7 @@ Item {
                 width: 28
                 height: 28
                 radius: 14
-                color: avatarEditMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.inputFillColor
+                color: avatarEditMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor
                 border.color: ThemeManager.surfaceColor
                 border.width: 2
                 ZIcon { anchors.centerIn: parent; name: "camera"; size: 15; color: ThemeManager.textColor }
@@ -203,7 +222,6 @@ Item {
             onAccepted: ZaloClient.changeMyAvatar(selectedFile.toString())
         }
 
-        // Scrollable content body
         ScrollView {
             id: bodyScroll
             anchors.top: avatarBorder.bottom
@@ -218,10 +236,10 @@ Item {
             contentWidth: availableWidth
 
             ColumnLayout {
+                id: bodyColumn
                 width: bodyScroll.availableWidth
                 spacing: 12
 
-                // Header info (Name, alias, bio)
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 4
@@ -230,8 +248,10 @@ Item {
                         Layout.fillWidth: true
                         spacing: 8
 
-                        Text {
+                        TextEdit {
                             Layout.fillWidth: true
+                            readOnly: true
+                            selectByMouse: true
                             text: ZaloClient.profileDisplayName.length > 0
                                   ? ZaloClient.profileDisplayName
                                   : I18n.t("Người dùng Zalo", "Zalo User")
@@ -239,10 +259,10 @@ Item {
                             font.bold: true
                             font.pixelSize: 18
                             color: ThemeManager.textColor
-                            elide: Text.ElideRight
+                            selectionColor: Theme.zaloBlueLight
+                            wrapMode: TextEdit.Wrap
                         }
 
-                        // Badge
                         Rectangle {
                             Layout.preferredHeight: 22
                             Layout.preferredWidth: badgeTxt.implicitWidth + 12
@@ -265,27 +285,31 @@ Item {
                         }
                     }
 
-                    Text {
+                    TextEdit {
                         visible: ZaloClient.profileZaloName.length > 0 && ZaloClient.profileZaloName !== ZaloClient.profileDisplayName
                         Layout.fillWidth: true
+                        readOnly: true
+                        selectByMouse: true
                         text: I18n.t("Tên Zalo: ", "Zalo Name: ") + ZaloClient.profileZaloName
                         font.family: Theme.fontFamily
                         font.pixelSize: 12
                         color: ThemeManager.secondaryTextColor
-                        elide: Text.ElideRight
+                        selectionColor: Theme.zaloBlueLight
+                        wrapMode: TextEdit.Wrap
                     }
 
-                    Text {
+                    TextEdit {
                         visible: (ZaloClient.profileBio || "").length > 0 && !root.isEditing
                         Layout.fillWidth: true
+                        readOnly: true
+                        selectByMouse: true
                         text: "\"" + ZaloClient.profileBio + "\""
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
                         font.italic: true
                         color: ThemeManager.secondaryTextColor
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 3
-                        elide: Text.ElideRight
+                        selectionColor: Theme.zaloBlueLight
+                        wrapMode: TextEdit.Wrap
                     }
                 }
 
@@ -295,9 +319,6 @@ Item {
                     color: ThemeManager.borderColor
                 }
 
-                // ==========================================
-                // VIEW MODE
-                // ==========================================
                 ColumnLayout {
                     visible: !root.isEditing
                     Layout.fillWidth: true
@@ -311,7 +332,6 @@ Item {
                         color: ThemeManager.textColor
                     }
 
-                    // Phone
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
@@ -326,19 +346,21 @@ Item {
                             Layout.preferredWidth: 80
                         }
 
-                        Text {
+                        TextEdit {
                             Layout.fillWidth: true
+                            readOnly: true
+                            selectByMouse: true
                             text: (ZaloClient.profilePhone || "").length > 0
-                                  ? ZaloClient.profilePhone
+                                  ? root.formatPhone(ZaloClient.profilePhone)
                                   : I18n.t("Không công khai", "Private")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
                             color: ThemeManager.textColor
-                            elide: Text.ElideRight
+                            selectionColor: Theme.zaloBlueLight
+                            wrapMode: TextEdit.Wrap
                         }
                     }
 
-                    // Gender
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
@@ -353,18 +375,21 @@ Item {
                             Layout.preferredWidth: 80
                         }
 
-                        Text {
+                        TextEdit {
                             Layout.fillWidth: true
+                            readOnly: true
+                            selectByMouse: true
                             text: ZaloClient.profileGender === 1
                                   ? I18n.t("Nữ", "Female")
                                   : I18n.t("Nam", "Male")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
                             color: ThemeManager.textColor
+                            selectionColor: Theme.zaloBlueLight
+                            wrapMode: TextEdit.Wrap
                         }
                     }
 
-                    // DOB
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
@@ -379,20 +404,23 @@ Item {
                             Layout.preferredWidth: 80
                         }
 
-                        Text {
+                        TextEdit {
                             Layout.fillWidth: true
+                            readOnly: true
+                            selectByMouse: true
                             text: (ZaloClient.profileDob || "").length > 0
                                   ? ZaloClient.profileDob
                                   : I18n.t("Chưa cập nhật", "Not updated")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
                             color: ThemeManager.textColor
+                            selectionColor: Theme.zaloBlueLight
+                            wrapMode: TextEdit.Wrap
                         }
                     }
 
                     Item { Layout.preferredHeight: 8 }
 
-                    // ACTION BUTTONS FOR SELF
                     ColumnLayout {
                         visible: ZaloClient.profileIsSelf
                         Layout.fillWidth: true
@@ -431,9 +459,60 @@ Item {
                                 }
                             }
                         }
+
+                        Text {
+                            visible: ZaloClient.myAvatarHistory.length > 0
+                            text: I18n.t("Ảnh đại diện trước đây", "Previous avatars")
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            color: ThemeManager.secondaryTextColor
+                            Layout.topMargin: 4
+                        }
+
+                        ListView {
+                            visible: ZaloClient.myAvatarHistory.length > 0
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 64
+                            orientation: ListView.Horizontal
+                            spacing: 8
+                            clip: true
+                            model: ZaloClient.myAvatarHistory
+                            delegate: Item {
+                                id: avatarCell
+                                required property var modelData
+                                width: 60
+                                height: 60
+                                ZRoundedImage {
+                                    anchors.fill: parent
+                                    radius: 8
+                                    source: avatarCell.modelData.thumb.length > 0 ? avatarCell.modelData.thumb : avatarCell.modelData.url
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: ZaloClient.reuseMyAvatar(avatarCell.modelData.photoId)
+                                    ToolTip.visible: containsMouse
+                                    ToolTip.text: I18n.t("Dùng lại ảnh này", "Use this avatar again")
+                                }
+                                Rectangle {
+                                    anchors.top: parent.top
+                                    anchors.right: parent.right
+                                    width: 18
+                                    height: 18
+                                    radius: 9
+                                    color: Qt.rgba(0, 0, 0, 0.6)
+                                    ZIcon { anchors.centerIn: parent; name: "close"; size: 10; color: "#FFFFFF" }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: ZaloClient.deleteMyAvatar(avatarCell.modelData.photoId)
+                                    }
+                                }
+                            }
+                        }
                     }
 
-                    // ACTION BUTTONS FOR OTHER USER
                     ColumnLayout {
                         visible: !ZaloClient.profileIsSelf
                         Layout.fillWidth: true
@@ -476,7 +555,6 @@ Item {
                                 Layout.preferredWidth: 42
                                 Layout.preferredHeight: 38
                                 radius: 6
-                                // Secondary button look: visible on the card in light and dark (hoverColor alone was not).
                                 color: voiceCallMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.inputFillColor
                                 border.color: ThemeManager.borderColor
                                 border.width: 1
@@ -501,7 +579,6 @@ Item {
                                 Layout.preferredWidth: 42
                                 Layout.preferredHeight: 38
                                 radius: 6
-                                // Secondary button look: visible on the card in light and dark (hoverColor alone was not).
                                 color: videoCallMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.inputFillColor
                                 border.color: ThemeManager.borderColor
                                 border.width: 1
@@ -538,7 +615,6 @@ Item {
                             }
                         }
 
-                        // Invite this person to several groups at once (/api/group/invite/multi).
                         ZButton {
                             visible: ZaloClient.isLoggedIn && !ZaloClient.profileIsSelf && ZaloClient.profileUserId.length > 0
                             Layout.fillWidth: true
@@ -548,7 +624,6 @@ Item {
                             onClicked: groupPicker.open()
                         }
 
-                        // Relationship management (Remove friend / Block)
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
@@ -611,9 +686,6 @@ Item {
                     }
                 }
 
-                // ==========================================
-                // EDIT MODE (Chỉ cho tài khoản cá nhân)
-                // ==========================================
                 ColumnLayout {
                     visible: root.isEditing
                     Layout.fillWidth: true
@@ -627,7 +699,6 @@ Item {
                         color: ThemeManager.textColor
                     }
 
-                    // Tên hiển thị
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 4
@@ -653,7 +724,6 @@ Item {
                         }
                     }
 
-                    // Giới tính
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 4
@@ -715,7 +785,6 @@ Item {
                         }
                     }
 
-                    // Ngày sinh
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 4
@@ -742,7 +811,6 @@ Item {
                         }
                     }
 
-                    // Tiểu sử / Bio
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 4
@@ -771,7 +839,6 @@ Item {
 
                     Item { Layout.preferredHeight: 6 }
 
-                    // Save / Cancel buttons
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
@@ -825,7 +892,6 @@ Item {
         }
     }
 
-    // Group picker for "Add to groups": groups the person is already in are shown but not selectable.
     Popup {
         id: groupPicker
         parent: root

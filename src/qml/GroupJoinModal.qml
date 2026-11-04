@@ -3,8 +3,6 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Zalos
 
-// Join a group through a https://zalo.me/g/<code> link (ZaloClient.groupAdmin preview/join). Opened from chat
-// links or from the sidebar's group menu with an empty field to paste a link into.
 Item {
     id: root
     anchors.fill: parent
@@ -103,7 +101,6 @@ Item {
                 color: Theme.badgeRed
             }
 
-            // Group card
             ColumnLayout {
                 visible: root.hasGroup
                 Layout.fillWidth: true

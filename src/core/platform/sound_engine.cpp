@@ -22,14 +22,13 @@ namespace {
 
 constexpr int kSampleRate = 44100;
 
-// One synthesised note: sine with a few harmonics and an exponential decay.
 struct Note {
-    double freq;     // Hz
+    double freq;
     double startMs;
     double durMs;
-    double gain;     // 0..1
-    double decay;    // higher = shorter tail
-    double harmonic; // weight of the 2nd/3rd harmonics (0 = pure sine)
+    double gain;
+    double decay;
+    double harmonic;
 };
 
 struct Recipe {
@@ -40,7 +39,6 @@ struct Recipe {
 
 const std::vector<Recipe>& recipes() {
     static const std::vector<Recipe> all = {
-        // Notifications
         {"pop", 220, {{880, 0, 160, 0.8, 18, 0.1}, {1320, 20, 140, 0.4, 22, 0.0}}},
         {"bubble", 300, {{520, 0, 110, 0.6, 14, 0.0}, {780, 90, 110, 0.6, 14, 0.0}, {1040, 180, 120, 0.5, 14, 0.0}}},
         {"chime", 900, {{1046.5, 0, 800, 0.6, 4, 0.3}, {1568, 120, 700, 0.4, 4, 0.3}}},
@@ -50,7 +48,6 @@ const std::vector<Recipe>& recipes() {
         {"confirm", 380, {{784, 0, 160, 0.6, 10, 0.2}, {1046.5, 160, 220, 0.6, 9, 0.2}}},
         {"magic", 800, {{1318.5, 0, 300, 0.4, 7, 0.1}, {1568, 120, 300, 0.4, 7, 0.1},
                         {1975.5, 240, 300, 0.4, 7, 0.1}, {2637, 360, 420, 0.3, 6, 0.1}}},
-        // Ringtones (played looped)
         {"classic", 3000, {{440, 0, 400, 0.5, 1, 0.5}, {480, 0, 400, 0.5, 1, 0.5},
                            {440, 600, 400, 0.5, 1, 0.5}, {480, 600, 400, 0.5, 1, 0.5}}},
         {"marimba", 2400, {{784, 0, 260, 0.7, 9, 0.3}, {1046.5, 200, 260, 0.7, 9, 0.3}, {1318.5, 400, 260, 0.7, 9, 0.3},
@@ -77,7 +74,7 @@ QByteArray renderWav(const Recipe& recipe) {
         const int len = int(n.durMs * kSampleRate / 1000.0);
         for (int i = 0; i < len && start + i < frames; ++i) {
             const double t = double(i) / kSampleRate;
-            const double attack = std::min(1.0, i / (0.004 * kSampleRate)); // 4 ms fade-in avoids clicks
+            const double attack = std::min(1.0, i / (0.004 * kSampleRate));
             const double release = std::min(1.0, double(len - i) / (0.01 * kSampleRate));
             const double env = attack * release * std::exp(-n.decay * t);
             const double w = 2.0 * M_PI * n.freq * t;
@@ -104,11 +101,10 @@ QByteArray renderWav(const Recipe& recipe) {
     return wav;
 }
 
-} // namespace
+}
 
 SoundEngine::SoundEngine(QObject* parent)
     : QObject(parent) {
-    // The audio backend (PipeWire/PulseAudio) is only loaded on the first sound (see ensureEffect).
 }
 
 QSoundEffect* SoundEngine::ensureEffect() {
@@ -168,11 +164,10 @@ QVariantList SoundEngine::systemSounds() {
     };
     for (const QString& root : roots) {
         const QDir rootDir(root);
-        // Loose files (user sounds in ~/.local/share/sounds).
         for (const QString& f : rootDir.entryList(extensions, QDir::Files, QDir::Name)) add(rootDir.filePath(f), "Của bạn");
         for (const QString& themeName : rootDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
             const QDir themeDir(rootDir.filePath(themeName));
-            if (!themeDir.exists("index.theme")) continue; // e.g. alsa/ speaker tests, not a sound theme
+            if (!themeDir.exists("index.theme")) continue;
             const QString title = QSettings(themeDir.filePath("index.theme"), QSettings::IniFormat)
                                       .value("Sound Theme/Name", themeName).toString();
             QDirIterator it(themeDir.path(), extensions, QDir::Files, QDirIterator::Subdirectories);
@@ -219,7 +214,7 @@ void SoundEngine::startExternal() {
         m_process->setStandardOutputFile(QProcess::nullDevice());
         connect(m_process, &QProcess::finished, this, [this]() {
             if (m_externalLoop && !m_externalFile.isEmpty()) {
-                startExternal(); // ringtone: play again until stop()
+                startExternal();
                 return;
             }
             emit playingChanged(false);
@@ -285,4 +280,4 @@ bool SoundEngine::isPlaying() const {
            || (m_process && m_process->state() != QProcess::NotRunning);
 }
 
-} // namespace Zalos::Core::Platform
+}

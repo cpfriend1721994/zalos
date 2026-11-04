@@ -15,8 +15,6 @@ Item {
     property int memberCount: 0
     property bool isGroup: memberCount > 0
     property bool showStatusDot: false
-    // Group without a photo: its first members [{avatar, name}] drawn 2×2 like Zalo (ConversationModel
-    // memberAvatars). With more than 4 members the 4th cell shows the member count.
     property var memberAvatars: []
 
     readonly property bool hasImage: avatarImage.status === Image.Ready
@@ -38,7 +36,6 @@ Item {
         return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
     }
 
-    // Fallback: colored circle with initials (or a group glyph) while no picture is available.
     Rectangle {
         anchors.fill: parent
         radius: width / 2
@@ -64,7 +61,6 @@ Item {
         }
     }
 
-    // Circular picture rendered by the native avatar provider (download + disk cache + round crop).
     Image {
         id: avatarImage
         anchors.fill: parent
@@ -81,7 +77,6 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 150 } }
     }
 
-    // Online status dot
     Rectangle {
         visible: root.showStatusDot && root.isOnline && !root.isGroup
         width: Math.max(8, Math.floor(root.size * 0.26))
@@ -94,7 +89,6 @@ Item {
         anchors.right: parent.right
     }
 
-    // Composite of a group without a photo: 2 members diagonal, 3 as a triangle, 4 (or 3 + count) as a 2×2 grid.
     Item {
         id: compositeBox
         anchors.fill: parent
@@ -124,7 +118,6 @@ Item {
                 height: compositeBox.cell
                 readonly property bool unnamed: (memberCell.modelData.name || "").length === 0
                 radius: width / 2
-                // Unknown members (profile not loaded yet) get Zalo's grey default avatar.
                 color: memberCell.unnamed ? (ThemeManager.isDarkMode ? "#4A5361" : "#B8C1CC")
                                           : root.paletteColor(memberCell.modelData.name)
                 border.color: ThemeManager.surfaceColor
@@ -161,7 +154,6 @@ Item {
                 }
             }
         }
-        // Member count cell (more than 4 members), Zalo's grey circle.
         Rectangle {
             visible: root.countCell
             x: compositeBox.cellX(3)

@@ -1,30 +1,28 @@
-name: Zalos CI/CD Pipeline
+name: Zalos CD Pipeline
 
-# Release matrix (keep in sync with .agents/skills/04-packaging-infrastructure, "Release matrix"):
-#   Fedora base   (Dockerfile, FEDORA_VERSION=43, oldest maintained Fedora)  -> tests, RPM for Fedora 43+
-#   Ubuntu base   (Dockerfile.ubuntu, Ubuntu 24.04 = Qt 6.4, oldest Qt)       -> Qt 6.4 tests, .deb and AppImage
-#   nixos/nix     (Nix's own toolchain, newest nixos-unstable)                 -> Nix package
-#   archlinux     (clean rolling image, makepkg from source with PKGBUILD)     -> Arch package + PKGBUILD
-# Every package is installed on the oldest and the newest release it targets before it is published.
-# Jobs run strictly one after another (each `needs` the previous one, one global concurrency group) so the
-# self-hosted runner never builds two images or trees at once; each job deletes its build tree when done.
+# Release matrix (tests are NOT run here — the test suite runs locally; see the agent skills):
+#   Fedora base (Dockerfile, FEDORA_VERSION=43)        -> RPM for Fedora 43+        (x86_64 + aarch64)
+#   Ubuntu base (Dockerfile.ubuntu, 24.04 = Qt 6.4)    -> .deb (24.04+) and AppImage (x86_64 + aarch64)
+#   nixos/nix   (newest nixos-unstable)                 -> Nix package              (x86_64 + aarch64)
+#
+# Each release ships SEPARATE x86_64 and aarch64 files (never a fat binary). aarch64 is built under QEMU/binfmt
+# emulation on the x86_64 self-hosted runner, so it is slow: jobs run strictly one after another (each `needs`
+# the previous, one global concurrency group) and within a job the x86_64 build finishes before the aarch64 one
+# starts, so the runner never builds two trees at once.
 
 on:
   push:
     branches: [ main ]
     tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       force_release:
-        description: 'Build and test every package without a tag (no GitHub release)'
+        description: 'Build every package without a tag (no GitHub release is published)'
         required: false
         type: boolean
         default: false
 
 concurrency:
-  # One run at a time on the runner (disk/CPU); a newer push of the same ref cancels the older run.
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
@@ -32,55 +30,8 @@ permissions:
   contents: write
 
 jobs:
-  # ---------------------------------------------------------------------------------------------------------------
-  # Tests on both bases: the newest supported Qt we build with (Fedora) and the oldest one (Ubuntu 24.04, Qt 6.4).
-  # ---------------------------------------------------------------------------------------------------------------
-  test-fedora:
-    name: Tests (Fedora base, Qt 6.10)
-    runs-on: [self-hosted, Linux, X64, tunnm-cicd]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          clean: true
-      - name: Build Fedora toolchain image
-        run: docker compose build test gui-check
-      - name: CTest (unit, system, QML AOT gate)
-        run: |
-          rm -rf build
-          docker compose run --rm -w /workspace test bash -c \
-            "cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON && cmake --build build --parallel \$(nproc) && cd build && ctest --output-on-failure"
-      - name: Headless GUI check (Xvfb)
-        run: docker compose run --rm gui-check
-      - name: Free disk (build trees)
-        if: always()
-        run: docker compose run --rm --entrypoint rm package-rpm -rf /workspace/build || true
-
-
-  test-ubuntu:
-    name: Tests (Ubuntu 24.04 base, Qt 6.4)
-    needs: [test-fedora]
-    runs-on: [self-hosted, Linux, X64, tunnm-cicd]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          clean: true
-      - name: Build Ubuntu toolchain image
-        run: docker compose build build-ubuntu
-      - name: CTest on the oldest supported Qt
-        run: |
-          rm -rf build-ubuntu
-          docker compose run --rm build-ubuntu
-      - name: Free disk (build trees)
-        if: always()
-        run: docker compose run --rm --entrypoint rm package-rpm -rf /workspace/build-ubuntu || true
-      - name: Drop dangling image layers
-        if: always()
-        run: docker image prune -f || true
-
-
   release-gate:
     name: Release gate
-    needs: [test-ubuntu]
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
     outputs:
       is_release: ${{ steps.gate.outputs.is_release }}
@@ -92,14 +43,14 @@ jobs:
             echo "🚀 Packaging enabled for ${{ github.ref_name }}"
           else
             echo "is_release=false" >> "$GITHUB_OUTPUT"
-            echo "ℹ️ Not a release: packages are skipped"
+            echo "ℹ️ Not a release: packaging is skipped"
           fi
 
   # ---------------------------------------------------------------------------------------------------------------
-  # Packages (one job per base), each installed on the oldest and newest release it targets.
+  # RPM (Fedora 43+), x86_64 then aarch64.
   # ---------------------------------------------------------------------------------------------------------------
   package-fedora:
-    name: RPM (Fedora 43+)
+    name: RPM (Fedora 43+, x86_64 + aarch64)
     needs: [release-gate]
     if: needs.release-gate.outputs.is_release == 'true'
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
@@ -108,12 +59,14 @@ jobs:
         with:
           clean: true
       - run: rm -rf dist /tmp/rpmbuild && docker compose build package-rpm
-      - name: Build RPM
+      - name: Build RPM (x86_64)
         run: docker compose run --rm package-rpm
-      - name: Clean install on the oldest and newest Fedora
-        run: |
-          docker compose run --rm test-fedora-rpm
-          docker compose run --rm test-fedora-rpm-latest
+      - name: Enable aarch64 emulation (binfmt)
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
+      - name: Clean build trees before the aarch64 build
+        run: docker compose run --rm --entrypoint rm package-rpm -rf /workspace/build /tmp/rpmbuild || true
+      - name: Build RPM (aarch64, emulated)
+        run: docker compose build package-rpm-arm64 && docker compose run --rm package-rpm-arm64
       - name: Fix artifact ownership
         run: docker compose run --rm --entrypoint chown package-rpm -R "$(id -u):$(id -g)" /workspace/dist || true
       - uses: actions/upload-artifact@v4
@@ -121,12 +74,20 @@ jobs:
           name: zalos-rpm
           path: |
             dist/zalos-*.x86_64.rpm
+            dist/zalos-*.aarch64.rpm
             dist/zalos-*.src.rpm
           if-no-files-found: error
+      - name: Reclaim disk (unused images + layer/build cache)
+        if: always()
+        run: |
+          docker image prune -f || true
+          docker builder prune -af || true
 
-
+  # ---------------------------------------------------------------------------------------------------------------
+  # .deb (Ubuntu 24.04+) and AppImage, x86_64 then aarch64.
+  # ---------------------------------------------------------------------------------------------------------------
   package-ubuntu:
-    name: .deb (Ubuntu 24.04+) and AppImage
+    name: .deb + AppImage (x86_64 + aarch64)
     needs: [release-gate, package-fedora]
     if: needs.release-gate.outputs.is_release == 'true'
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
@@ -134,17 +95,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           clean: true
-      - run: rm -rf dist build-deb build-appimage && docker compose build package-deb package-appimage test-appimage
-      - name: Build .deb
-        run: docker compose run --rm package-deb
-      - name: Clean install of the .deb on the oldest and newest Ubuntu
+      - run: rm -rf dist build-deb build-appimage && docker compose build package-deb package-appimage
+      - name: Build .deb + AppImage (x86_64)
         run: |
-          docker compose run --rm test-deb-ubuntu2404
-          docker compose run --rm test-deb-ubuntu-latest
-      - name: Build AppImage
-        run: docker compose run --rm package-appimage
-      - name: Run the AppImage on the Fedora base (different distro, newer Qt)
-        run: docker compose run --rm test-appimage
+          docker compose run --rm package-deb
+          docker compose run --rm package-appimage
+      - name: Enable aarch64 emulation (binfmt)
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
+      - name: Clean build trees before the aarch64 build
+        run: docker compose run --rm --entrypoint rm package-deb -rf /workspace/build-deb /workspace/build-appimage || true
+      - name: Build .deb + AppImage (aarch64, emulated)
+        run: |
+          docker compose build package-deb-arm64 package-appimage-arm64
+          docker compose run --rm package-deb-arm64
+          docker compose run --rm package-appimage-arm64
       - name: Fix artifact ownership
         run: docker compose run --rm --entrypoint chown package-deb -R "$(id -u):$(id -g)" /workspace/dist || true
       - uses: actions/upload-artifact@v4
@@ -154,13 +118,17 @@ jobs:
             dist/zalos_*.deb
             dist/Zalos-*.AppImage
           if-no-files-found: error
-      - name: Free disk (build trees)
+      - name: Reclaim disk (unused images + layer/build cache)
         if: always()
-        run: docker compose run --rm --entrypoint rm package-rpm -rf /workspace/build-deb /workspace/build-appimage || true
+        run: |
+          docker image prune -f || true
+          docker builder prune -af || true
 
-
-  package-arch:
-    name: Arch Linux (makepkg from source)
+  # ---------------------------------------------------------------------------------------------------------------
+  # Nix (nixos-unstable), x86_64 then aarch64.
+  # ---------------------------------------------------------------------------------------------------------------
+  package-nix:
+    name: Nix (x86_64 + aarch64)
     needs: [release-gate, package-ubuntu]
     if: needs.release-gate.outputs.is_release == 'true'
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
@@ -168,35 +136,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           clean: true
-      - run: rm -rf dist && docker compose pull package-arch
-      - name: Build with makepkg (packaging/arch/PKGBUILD)
-        run: docker compose run --rm package-arch
-      - name: Clean install with pacman and GUI check
-        run: docker compose run --rm test-arch
-      - name: Fix artifact ownership
-        run: docker compose run --rm --entrypoint chown package-arch -R "$(id -u):$(id -g)" /workspace/dist || true
-      - name: Ship the PKGBUILD next to the package
-        run: cp packaging/arch/PKGBUILD dist/PKGBUILD
-      - uses: actions/upload-artifact@v4
-        with:
-          name: zalos-arch
-          path: |
-            dist/zalos-*-x86_64.pkg.tar.zst
-            dist/PKGBUILD
-          if-no-files-found: error
-
-  package-nix:
-    name: Nix (nixos-unstable)
-    needs: [release-gate, package-arch]
-    if: needs.release-gate.outputs.is_release == 'true'
-    runs-on: [self-hosted, Linux, X64, tunnm-cicd]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          clean: true
       - run: rm -rf dist
-      - name: Build Nix package (updates flake.lock to the newest nixos-unstable)
+      - name: Build Nix package (x86_64, updates flake.lock to the newest nixos-unstable)
         run: docker compose run --rm package-nix
+      - name: Enable aarch64 emulation (binfmt)
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
+      - name: Build Nix package (aarch64, emulated)
+        run: docker compose run --rm package-nix-arm64
       - name: Fix artifact ownership
         run: docker compose run --rm --entrypoint chown package-nix -R "$(id -u):$(id -g)" /workspace/dist || true
       - uses: actions/upload-artifact@v4
@@ -204,12 +150,14 @@ jobs:
           name: zalos-nix
           path: dist/zalos-*-nixos.tar.gz
           if-no-files-found: error
-      - name: Drop dangling image layers
+      - name: Reclaim disk (unused images + layer/build cache)
         if: always()
-        run: docker image prune -f || true
+        run: |
+          docker image prune -f || true
+          docker builder prune -af || true
 
   # ---------------------------------------------------------------------------------------------------------------
-  # GitHub release (tags only): all packages + SHA256SUMS.
+  # GitHub release (tags only): every package (x86_64 + aarch64) + SHA256SUMS.
   # ---------------------------------------------------------------------------------------------------------------
   release:
     name: GitHub release
@@ -233,4 +181,3 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

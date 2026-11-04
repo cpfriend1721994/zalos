@@ -4,7 +4,7 @@ import QtQuick
 QtObject {
     id: root
 
-    property string currentLanguage: "vi" // "vi" or "en"
+    property string currentLanguage: "vi"
     property var s: translations[currentLanguage] || translations["vi"]
     property int _rev: 0
 
@@ -21,7 +21,6 @@ QtObject {
 
     readonly property var translations: ({
         "vi": {
-            // General & App
             "app_title": "Zalo",
             "search": "Tìm kiếm",
             "priority": "Ưu tiên",
@@ -54,15 +53,12 @@ QtObject {
             "delivered": "Đã nhận",
             "seen": "Đã xem",
 
-            // Navigation Rail
             "nav_messages": "Tin nhắn",
             "nav_contacts": "Danh bạ",
-            "nav_todo": "To-Do / Giao việc",
             "nav_cloud": "zCloud Lưu trữ",
             "nav_tools": "Công cụ doanh nghiệp",
             "nav_settings": "Cài đặt Zalos",
 
-            // Settings Menu in Rail
             "menu_account_info": "Thông tin tài khoản",
             "menu_settings": "Cài đặt",
             "menu_data": "Quản lý dữ liệu",
@@ -70,7 +66,6 @@ QtObject {
             "menu_about": "Giới thiệu Zalo",
             "menu_logout": "Đăng xuất",
 
-            // Contacts
             "contacts_title": "Danh bạ",
             "friend_list": "Danh sách bạn bè",
             "group_list": "Danh sách nhóm",
@@ -86,7 +81,6 @@ QtObject {
             "friend_count_label": "Bạn bè",
             "group_count_label": "Nhóm",
 
-            // Settings Modal
             "settings_title": "Cài đặt",
             "general_settings": "Cài đặt chung",
             "appearance_settings": "Giao diện",
@@ -113,12 +107,10 @@ QtObject {
             "start_with_system": "Tự khởi động cùng hệ thống",
             "start_hidden": "Khởi động thu nhỏ dưới khay hệ thống",
 
-            // Welcome
-            "welcome_title": "Chào mừng bạn đến với Zalo PC", // STR_WELCOME_TO_ZALO_PC
+            "welcome_title": "Chào mừng bạn đến với Zalo PC",
             "welcome_desc": "Khám phá những tiện ích hỗ trợ làm việc và trò chuyện cùng người thân, bạn bè được tối ưu hóa cho máy tính của bạn."
         },
         "en": {
-            // General & App
             "app_title": "Zalo",
             "search": "Search",
             "priority": "Priority",
@@ -151,15 +143,12 @@ QtObject {
             "delivered": "Delivered",
             "seen": "Seen",
 
-            // Navigation Rail
             "nav_messages": "Messages",
             "nav_contacts": "Contacts",
-            "nav_todo": "To-Do / Tasks",
             "nav_cloud": "zCloud Storage",
             "nav_tools": "Business Tools",
             "nav_settings": "Zalos Settings",
 
-            // Settings Menu in Rail
             "menu_account_info": "Account Info",
             "menu_settings": "Settings",
             "menu_data": "Data Management",
@@ -167,7 +156,6 @@ QtObject {
             "menu_about": "About Zalo",
             "menu_logout": "Log Out",
 
-            // Contacts
             "contacts_title": "Contacts",
             "friend_list": "Friend List",
             "group_list": "Group List",
@@ -183,7 +171,6 @@ QtObject {
             "friend_count_label": "Friends",
             "group_count_label": "Groups",
 
-            // Settings Modal
             "settings_title": "Settings",
             "general_settings": "General",
             "appearance_settings": "Appearance",
@@ -210,7 +197,6 @@ QtObject {
             "start_with_system": "Launch on system startup",
             "start_hidden": "Start minimized to tray",
 
-            // Welcome
             "welcome_title": "Welcome to Zalo PC",
             "welcome_desc": "Discover productivity and messaging features optimized for your desktop with family, friends, and colleagues."
         }
@@ -221,10 +207,7 @@ QtObject {
         return (langDict && langDict[key] !== undefined) ? langDict[key] : key;
     }
 
-    // Inline bilingual lookup: I18n.t("Tin nhắn", "Messages").
-    // Bindings re-evaluate on language switch because currentLanguage is read here.
     function t(vi: string, en: string): string {
         return currentLanguage === "en" ? en : vi;
     }
 }
-

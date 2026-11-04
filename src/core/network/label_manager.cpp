@@ -13,7 +13,7 @@ namespace Zalos::Core::Network {
 
 namespace {
 
-constexpr int kVersionConflict = 230; // Zalo PC: reload and try again
+constexpr int kVersionConflict = 230;
 
 int idOf(const QJsonObject& label) {
     return label.value("id").toVariant().toInt();
@@ -25,10 +25,9 @@ QString colorOf(const QJsonObject& label) {
     return c;
 }
 
-} // namespace
+}
 
 const QStringList& LabelManager::defaultPalette() {
-    // Zalo PC chat_label color_palette preset.
     static const QStringList palette{"#D91B1B", "#F31BC8", "#FF6905", "#FAC000",
                                      "#4BC377", "#2AC5BB", "#0068FF", "#6F3FCF"};
     return palette;
@@ -37,8 +36,6 @@ const QStringList& LabelManager::defaultPalette() {
 LabelManager::LabelManager(Hooks hooks, QObject* parent) : QObject(parent), m_hooks(std::move(hooks)) {}
 
 QString LabelManager::decodeConvId(const QString& raw) {
-    // Groups are "g<id>"; some lists also prefix users with "u". Zalo ids are numeric, so only a letter followed by
-    // digits is a prefix.
     if (raw.size() > 1 && (raw.startsWith('g') || raw.startsWith('u'))) {
         bool digits = true;
         for (int i = 1; i < raw.size() && digits; ++i) digits = raw.at(i).isDigit();
@@ -51,7 +48,7 @@ QJsonArray LabelManager::parseLabelData(const QJsonValue& raw) {
     QJsonArray list;
     if (raw.isString()) list = QJsonDocument::fromJson(raw.toString().toUtf8()).array();
     else if (raw.isArray()) list = raw.toArray();
-    else if (raw.isObject()) { // older shape: {id: label}
+    else if (raw.isObject()) {
         const QJsonObject o = raw.toObject();
         for (auto it = o.begin(); it != o.end(); ++it) list.append(it.value());
     }
@@ -115,7 +112,7 @@ void LabelManager::publish() {
         const QVariantMap info{{"id", idOf(l)}, {"text", text}, {"color", colorOf(l)}};
         for (const QJsonValue& c : l.value("conversations").toArray()) {
             const QString id = decodeConvId(c.toVariant().toString());
-            if (!id.isEmpty() && !map.contains(id)) map.insert(id, info); // first label wins, like Zalo PC
+            if (!id.isEmpty() && !map.contains(id)) map.insert(id, info);
         }
     }
     if (m_hooks.apply) m_hooks.apply(map);
@@ -191,7 +188,7 @@ QString LabelManager::create(const QString& text, const QString& color) {
     const QString why = validateName(text, -1);
     if (!why.isEmpty()) return why;
     int nextId = 1;
-    for (const QJsonValue& v : std::as_const(m_data)) nextId = qMax(nextId, idOf(v.toObject()) + 1); // Zalo PC genId
+    for (const QJsonValue& v : std::as_const(m_data)) nextId = qMax(nextId, idOf(v.toObject()) + 1);
     QJsonArray next = m_data;
     next.append(QJsonObject{{"id", nextId},
                             {"text", text.trimmed()},
@@ -214,7 +211,7 @@ QString LabelManager::edit(int labelId, const QString& text, const QString& colo
         QJsonObject l = v.toObject();
         if (idOf(l) == labelId) {
             found = true;
-            if (l.value("text").toString() != text.trimmed()) l.remove("textKey"); // a renamed default label
+            if (l.value("text").toString() != text.trimmed()) l.remove("textKey");
             l.insert("text", text.trimmed());
             if (!color.isEmpty()) l.insert("color", color);
         }
@@ -284,11 +281,11 @@ void LabelManager::submit(const QJsonArray& next, const QString& okNotice) {
             return;
         }
         QJsonObject reply = data.toObject();
-        if (!reply.contains("labelData")) reply.insert("labelData", next); // keep what we sent
+        if (!reply.contains("labelData")) reply.insert("labelData", next);
         if (!reply.contains("version")) reply.insert("version", self->m_version + 1);
         self->applyServer(reply);
         if (!okNotice.isEmpty()) self->notice(okNotice);
     });
 }
 
-} // namespace Zalos::Core::Network
+}

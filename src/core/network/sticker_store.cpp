@@ -24,7 +24,7 @@ QString idText(const QJsonValue& v) {
     return {};
 }
 
-} // namespace
+}
 
 QVariantMap StickerStore::describe(const QJsonObject& d) {
     const QString id = idText(d.value("id").isUndefined() ? d.value("sticker_id") : d.value("id"));
@@ -35,7 +35,7 @@ QVariantMap StickerStore::describe(const QJsonObject& d) {
     const int ext = d.value("ext").toInt();
     const int frames = d.value("totalFrames").toInt();
     QString animated;
-    if (ext == kExtWebp && !sprite.isEmpty()) animated = sprite; // the "sprite" is an animated WebP
+    if (ext == kExtWebp && !sprite.isEmpty()) animated = sprite;
     else if (!webp.isEmpty()) animated = webp;
     const bool useSprite = animated.isEmpty() && frames > 1 && !sprite.isEmpty();
     return {{"id", id},
@@ -127,7 +127,6 @@ QVariantList StickerStore::categories() const {
     for (int id : m_personal) {
         QVariantMap c = m_catalog.value(id);
         if (c.isEmpty()) c = {{"id", id}, {"name", QString()}, {"iconUrl", QString()}};
-        // A pack without an icon in the catalog shows its first sticker once loaded.
         if (c.value("iconUrl").toString().isEmpty() && !m_byCategory.value(id).isEmpty())
             c.insert("iconUrl", m_byCategory.value(id).first().toMap().value("url"));
         out.append(c);
@@ -176,7 +175,6 @@ void StickerStore::load() {
             self->busy(-1);
             return;
         }
-        // Zalo PC _handleGetCatesData: the list is a JSON file at dataUrl; `data` is the fallback.
         self->m_hooks.fetchBytes(url, [self, fallback](const QByteArray& bytes, const QString& error) {
             if (!self) return;
             const QJsonArray cates = error.isEmpty() ? QJsonDocument::fromJson(bytes).array() : QJsonArray();
@@ -193,7 +191,6 @@ void StickerStore::applyPersonal(const QJsonObject& data) {
         if (id > 0 && !m_personal.contains(id)) m_personal.append(id);
     }
     emit categoriesChanged();
-    // Nothing recent yet: open the first pack.
     if (m_current == kRecentId && m_stickers.isEmpty() && !m_personal.isEmpty()) selectCategory(m_personal.first());
 }
 
@@ -239,7 +236,7 @@ void StickerStore::applyCategory(int cateId, const QJsonValue& data) {
     }
     m_byCategory.insert(cateId, list);
     if (m_current == cateId && m_query.isEmpty()) setStickers(cateId, list);
-    emit categoriesChanged(); // icon fallback
+    emit categoriesChanged();
 }
 
 void StickerStore::search(const QString& keyword) {
@@ -255,7 +252,6 @@ void StickerStore::search(const QString& keyword) {
     if (!s) return;
     busy(1);
     QPointer<StickerStore> self(this);
-    // Results in order, details from the cache or sticker_detail.
     auto finish = [self, seq, q](const QList<qint64>& ids) {
         if (!self || seq != self->m_searchSeq) return;
         auto results = std::make_shared<QHash<qint64, QVariantMap>>();
@@ -306,7 +302,6 @@ void StickerStore::search(const QString& keyword) {
             finish(ids);
             return;
         }
-        // No suggestion: the keyword search (zca-js searchSticker).
         session->searchStickerIds(q, kMaxSearch, [finish](bool ok2, const QJsonValue& d2, const QString&, int) {
             QList<qint64> found;
             for (const QJsonValue& v : (ok2 ? stickerArray(d2) : QJsonArray())) {
@@ -345,4 +340,4 @@ void StickerStore::reset() {
     emit categoriesChanged();
 }
 
-} // namespace Zalos::Core::Network
+}

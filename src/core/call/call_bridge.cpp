@@ -31,7 +31,7 @@ namespace Zalos::Core::Call {
 
 namespace {
 
-constexpr int kMaxHexPerFrame = 4000; // call-v2 splits longer messages
+constexpr int kMaxHexPerFrame = 4000;
 
 QString randomToken() {
     return "zcall-" + QUuid::createUuid().toString(QUuid::Id128);
@@ -41,16 +41,16 @@ QStringList candidateRoots() {
     QStringList roots;
     const QString env = qEnvironmentVariable("ZALOS_ZCALL_DIR");
     if (!env.isEmpty()) roots << env;
-    const QString override = QSettings().value("calls/zcallDir").toString(); // Settings › Cuộc gọi
+    const QString override = QSettings().value("calls/zcallDir").toString();
     if (!override.isEmpty()) roots << override;
     roots << CallBridge::bundledEngineRoot();
 #ifdef ZALOS_SOURCE_DIR
-    roots << QStringLiteral(ZALOS_SOURCE_DIR) + "/third_party/zcall-native"; // dev build run from the tree
+    roots << QStringLiteral(ZALOS_SOURCE_DIR) + "/third_party/zcall-native";
 #endif
     return roots;
 }
 
-} // namespace
+}
 
 CallBridge::CallBridge(Network::ZaloSession* session, QObject* parent)
     : QObject(parent), m_session(session) {
@@ -69,12 +69,11 @@ CallBridge::~CallBridge() {
 
 bool CallBridge::videoSupported() { return OpenH264::instance().available(); }
 
-// Received pictures: UI-socket frames -> decoder thread -> the QML sink (main thread).
 void CallBridge::startVideoPipeline() {
     if (m_videoThread || !videoSupported()) return;
     m_videoThread = new QThread(this);
     m_videoThread->setObjectName(QStringLiteral("zalos-video"));
-    m_videoDecoder = new PeerVideoDecoder; // no parent: deleted after the thread stops
+    m_videoDecoder = new PeerVideoDecoder;
     m_videoDecoder->moveToThread(m_videoThread);
     connect(this, &CallBridge::videoFrameReceived, m_videoDecoder, &PeerVideoDecoder::decode, Qt::QueuedConnection);
     connect(this, &CallBridge::peerVideoResetRequested, m_videoDecoder, &PeerVideoDecoder::reset, Qt::QueuedConnection);
@@ -93,7 +92,7 @@ void CallBridge::startVideoPipeline() {
 void CallBridge::setPeerVideoSink(QVideoSink* sink) { m_peerSink = sink; }
 
 void CallBridge::onPeerFrame(const QVideoFrame& frame, int src) {
-    if (src != 0 || phase().isEmpty() || phase() == "ended") return; // group tiles: not yet
+    if (src != 0 || phase().isEmpty() || phase() == "ended") return;
     if (m_peerSink) m_peerSink->setVideoFrame(frame);
     m_peerVideoIdle->start();
     if (!m_peerVideoActive) {
@@ -102,7 +101,6 @@ void CallBridge::onPeerFrame(const QVideoFrame& frame, int src) {
     }
 }
 
-// The engine turns {action:"needkey"} into a PLI to that sender; at most one ask per second.
 void CallBridge::requestKeyFrame(const QString& why, int src) {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (now - m_lastKeyRequestMs < 1000) return;
@@ -121,8 +119,6 @@ void CallBridge::refreshAvailability() {
         m_key = overrideKey;
         m_mainJsPath = overridePath;
     } else if (!m_keyFile) {
-        // Session key for the loopback transport (see class comment); generated once so a
-        // running engine keeps the key it was started with.
         QByteArray key(16, '\0');
         QRandomGenerator::system()->generate(reinterpret_cast<quint32*>(key.data()),
                                              reinterpret_cast<quint32*>(key.data() + key.size()));
@@ -167,7 +163,7 @@ QString CallBridge::findEngine() {
 }
 
 bool CallBridge::setEngineDirectory(const QString& urlOrPath) {
-    if (urlOrPath.isEmpty()) { // back to the bundled engine
+    if (urlOrPath.isEmpty()) {
         QSettings().remove("calls/zcallDir");
         refreshAvailability();
         emit availabilityChanged();
@@ -177,7 +173,6 @@ bool CallBridge::setEngineDirectory(const QString& urlOrPath) {
     const QString folder = url.isLocalFile() ? url.toLocalFile() : urlOrPath;
     const QString engine = engineIn(folder);
     if (engine.isEmpty()) return false;
-    // Store the zcall-native folder (…/native-engine/zcall-native.js minus two levels).
     QSettings().setValue("calls/zcallDir", QFileInfo(engine).dir().absolutePath().section('/', 0, -2));
     refreshAvailability();
     emit availabilityChanged();
@@ -208,7 +203,6 @@ QByteArray CallBridge::findTransportKey(QString* mainJsPath) {
 
 bool CallBridge::writeKeyFile(QTemporaryFile* file, const QByteArray& key) {
     if (!file || key.size() != 16) return false;
-    // QTemporaryFile creates the file 0600; keep it that way and rewrite it in place.
     if (!file->isOpen() && !file->open()) return false;
     file->setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     file->resize(0);
@@ -223,14 +217,13 @@ QString CallBridge::findNode() {
         const QString path = QStandardPaths::findExecutable(QString::fromLatin1(name));
         if (!path.isEmpty()) return path;
     }
-    // Per-user installs that are often missing from a desktop session's PATH (launcher, AppImage, autostart).
     const QString home = QDir::homePath();
     QStringList candidates{home + "/.bun/bin/node", home + "/.volta/bin/node",
                            home + "/.local/share/fnm/aliases/default/bin/node", home + "/.local/bin/node",
                            "/usr/local/bin/node"};
     QStringList nvm = QDir(home + "/.nvm/versions/node").entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
     std::sort(nvm.begin(), nvm.end(), [](const QString& a, const QString& b) {
-        return QVersionNumber::fromString(a.mid(1)) > QVersionNumber::fromString(b.mid(1)); // newest first
+        return QVersionNumber::fromString(a.mid(1)) > QVersionNumber::fromString(b.mid(1));
     });
     for (const QString& v : nvm) candidates << home + "/.nvm/versions/node/" + v + "/bin/node";
     for (const QString& path : candidates) {
@@ -238,10 +231,6 @@ QString CallBridge::findNode() {
     }
     return {};
 }
-
-// ---------------------------------------------------------------------------
-// Framing
-// ---------------------------------------------------------------------------
 
 QByteArray CallBridge::encodeFrame(const QJsonObject& frame, const QByteArray& key) {
     const QByteArray hex = Network::ZaloCrypto::aesCbcEncrypt(key, QJsonDocument(frame).toJson(QJsonDocument::Compact)).toHex();
@@ -266,7 +255,6 @@ QList<QJsonObject> CallBridge::decodeFrames(QByteArray& buffer, const QByteArray
 
         QByteArray hex = token;
         if (token.contains('#')) {
-            // "<part>#<msgId>#<total>#<index>#"
             const QList<QByteArray> f = token.split('#');
             if (f.size() < 4 || !chunks) continue;
             const QString id = QString::fromLatin1(f.at(1));
@@ -287,10 +275,6 @@ QList<QJsonObject> CallBridge::decodeFrames(QByteArray& buffer, const QByteArray
     }
     return frames;
 }
-
-// ---------------------------------------------------------------------------
-// Engine process
-// ---------------------------------------------------------------------------
 
 void CallBridge::setLocalUser(const QString& uid, const QString& name, const QString& avatar) {
     m_local = QJsonObject{{"id", uid}, {"name", name}, {"avatar", avatar}};
@@ -323,7 +307,6 @@ bool CallBridge::ensureEngine() {
         return false;
     }
 
-    // Every socket starts with the token line; anything else is dropped.
     auto acceptOn = [this](QTcpServer* server, int role) {
         connect(server, &QTcpServer::newConnection, this, [this, server, role]() {
             while (QTcpSocket* sock = server->nextPendingConnection()) {
@@ -375,7 +358,7 @@ bool CallBridge::ensureEngine() {
     env.insert("ZCALL_LOG_DIR", logDir);
     env.insert("ZCALL_UI_PORT", QString::number(m_uiServer->serverPort()));
     env.insert("ZCALL_UI_TOKEN", m_uiToken);
-    env.insert("ZCALL_GROUP", "0"); // group calls need the group signalling not bridged here
+    env.insert("ZCALL_GROUP", "0");
 
     m_process = new QProcess(this);
     m_process->setProcessEnvironment(env);
@@ -389,7 +372,7 @@ bool CallBridge::ensureEngine() {
         }
     });
     connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
-        if (error != QProcess::FailedToStart) return; // other errors also emit finished()
+        if (error != QProcess::FailedToStart) return;
         shutdown();
         m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}};
         emit stateChanged();
@@ -444,10 +427,6 @@ void CallBridge::flushPending() {
     for (const QJsonObject& f : pending) m_sendSocket->write(encodeFrame(f, m_key));
 }
 
-// ---------------------------------------------------------------------------
-// Engine -> host
-// ---------------------------------------------------------------------------
-
 void CallBridge::onEngineFrame(const QJsonObject& frame) {
     const QString type = frame.value("type").toString();
     const QString command = frame.value("command").toVariant().toString();
@@ -456,8 +435,6 @@ void CallBridge::onEngineFrame(const QJsonObject& frame) {
     if (type == "update") {
         if (command == "native-ready") {
             m_engineReady = true;
-            // init must reach the engine before anything queued. The send socket's token line may not have
-            // been processed yet, so queue it at the front instead of writing to a possibly null socket.
             m_pending.prepend(QJsonObject{{"type", "update"}, {"command", "init"},
                                           {"data", QJsonObject{{"local", m_local}}}});
             flushPending();
@@ -483,7 +460,6 @@ void CallBridge::onEngineFrame(const QJsonObject& frame) {
         } else if (command == "killMe") {
             shutdown();
         }
-        // "action" (bring the app to front) and log uploads need nothing here.
     }
 }
 
@@ -500,7 +476,6 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
         return p;
     };
 
-    // Shapes match Zalo PC's fetcher (requestCall, sendRequestCall, sendAnswerCall, ...).
     switch (command) {
         case 401:
             path = "/api/voicecall/requestcall";
@@ -554,7 +529,7 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
                       {"isOnMic", d.value("isOnMic")}, {"data", d.value("data")}};
             break;
         default:
-            return; // hold / screen share / group signalling are not bridged
+            return;
     }
 
     const QJsonValue callId = d.value("callId");
@@ -563,17 +538,11 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
             if (ok) {
                 sendToEngine({{"type", "recvSignal"}, {"command", command}, {"data", data}});
             } else if (command == 401) {
-                // engine-core.js _onRecvSignal('401') ends the call at once when data.status != 0;
-                // it has no handler for a separate error frame type.
                 sendToEngine({{"type", "recvSignal"}, {"command", command},
                               {"data", QJsonObject{{"status", code != 0 ? code : -1}, {"msg", error}, {"callId", callId}}}});
             }
         });
 }
-
-// ---------------------------------------------------------------------------
-// Host -> engine
-// ---------------------------------------------------------------------------
 
 void CallBridge::startVoiceCall(const QString& peerId, const QString& peerName, const QString& peerAvatar) {
     if (!m_activePeer.isEmpty() || !ensureEngine()) return;
@@ -593,7 +562,6 @@ void CallBridge::startVideoCall(const QString& peerId, const QString& peerName, 
     m_activePeer = peerId;
     m_activeOutgoing = true;
     m_isVideoMode = true;
-    // Camera on by default like Zalo when one can be sent; announced with the first state (onUiLine).
     m_cameraError.clear();
     m_cameraOn = cameraAvailable();
     m_ui = QJsonObject{{"phase", "outgoing"}, {"name", peerName}, {"avatar", peerAvatar}, {"video", true}};
@@ -614,7 +582,6 @@ CameraSender* CallBridge::cameraSender() {
         m_cameraSender = new CameraSender(this);
         m_cameraSender->setPreviewSink(m_localSink);
         connect(m_cameraSender, &CameraSender::frameEncoded, this, [this](bool key, const QByteArray& au, int w, int h) {
-            // The engine only sends while connected; before that the frames would be dropped anyway.
             if (phase() != QLatin1String("connected") || !m_cameraOn) return;
             sendUi({{"action", "videoFrame"}, {"key", key}, {"data", QString::fromLatin1(au.toBase64())},
                     {"screen", false}, {"w", w}, {"h", h}});
@@ -633,7 +600,6 @@ void CallBridge::setLocalVideoSink(QVideoSink* sink) {
     if (m_cameraSender) m_cameraSender->setPreviewSink(sink);
 }
 
-// Starts / stops the capture and tells the engine (12006 isOnCam to the peer).
 void CallBridge::applyCamera(bool on) {
     if (on) {
         QString error;
@@ -662,24 +628,23 @@ void CallBridge::handleVoipControl(const QJsonObject& rawContent) {
         content["data"] = QJsonDocument::fromJson(content.value("data").toString().toUtf8()).object();
     }
     const QString act = content.value("act").toString();
-    if (act.startsWith("group_")) return; // group calls are not bridged
+    if (act.startsWith("group_")) return;
     const qint64 ts = content.value("data").toObject().value("ts").toVariant().toLongLong();
-    if (ts > 0 && QDateTime::currentMSecsSinceEpoch() - ts > 60000) return; // stale, like the PC client
+    if (ts > 0 && QDateTime::currentMSecsSinceEpoch() - ts > 60000) return;
 
     const bool incoming = act == "request";
     if (incoming) {
         content["inCallStatus"] = m_activePeer.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue("zalo");
     }
-    if (!m_process && !incoming) return; // nothing to update without a running call
+    if (!m_process && !incoming) return;
     if (!ensureEngine()) return;
     sendToEngine({{"type", "control"}, {"data", content}});
 }
 
 void CallBridge::drainUiBuffer() {
     for (;;) {
-        // Read the payload of a binary frame announced by a header line ({type:"video", bin:N}).
         if (m_uiSkipBytes > 0) {
-            if (m_uiBuffer.size() < m_uiSkipBytes) return; // wait for full payload
+            if (m_uiBuffer.size() < m_uiSkipBytes) return;
             const QByteArray payload = m_uiBuffer.left(m_uiSkipBytes);
             m_uiBuffer.remove(0, m_uiSkipBytes);
             m_uiSkipBytes = 0;
@@ -714,13 +679,11 @@ void CallBridge::onUiLine(const QByteArray& line) {
         m_ui = msg;
         if (msg.contains("video")) {
             m_isVideoMode = msg.value("video").toBool();
-            // First state of a video call: start our camera (or say it is off) — see startVideoCall/accept.
             if (m_isVideoMode && !m_cameraOffAnnounced && msg.value("phase").toString() != QLatin1String("incoming")) {
                 m_cameraOffAnnounced = true;
                 applyCamera(m_cameraOn);
             }
         }
-        // The engine's send-rate rung for our camera (1-1 ladder / group layer).
         const QJsonObject enc = msg.value("cameraEncode").toObject();
         if (!enc.isEmpty() && m_cameraSender) {
             m_cameraSender->setProfile(QSize(enc.value("width").toInt(), enc.value("height").toInt()),
@@ -731,7 +694,7 @@ void CallBridge::onUiLine(const QByteArray& line) {
         }
         emit stateChanged();
     } else if (type == "keyframe") {
-        if (m_cameraSender) m_cameraSender->requestKeyFrame(); // start, PLI or FIR from the peer
+        if (m_cameraSender) m_cameraSender->requestKeyFrame();
     } else if (type == "close") {
         m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()},
                            {"text", msg.value("text")}};
@@ -759,10 +722,9 @@ void CallBridge::resetUi() {
 }
 
 void CallBridge::accept() {
-    // Video call: answer with our camera when one can be sent (Zalo answers video with the camera on).
     const bool cam = m_isVideoMode && cameraAvailable();
     m_cameraOn = cam;
-    m_cameraOffAnnounced = false; // the next (connecting) state starts or announces the camera
+    m_cameraOffAnnounced = false;
     sendUi({{"action", "accept"}, {"camStartOff", !cam}});
     emit cameraStateChanged();
 }
@@ -776,7 +738,6 @@ void CallBridge::hangup() {
     sendUi({{"action", "hangup"}});
 }
 
-// The engine applies these without echoing a new state, so mirror them locally.
 void CallBridge::setMuted(bool muted) {
     sendUi({{"action", "mute"}, {"on", muted}});
     m_ui["muted"] = muted;
@@ -789,4 +750,4 @@ void CallBridge::setSpeakerOff(bool off) {
     emit stateChanged();
 }
 
-} // namespace Zalos::Core::Call
+}

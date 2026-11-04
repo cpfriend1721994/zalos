@@ -19,7 +19,6 @@ Item {
         multiChoice = false
     }
 
-    // Created on demand by a Loader in Main.qml, already visible: run the same init.
     Component.onCompleted: visibleChanged()
     onVisibleChanged: {
         if (visible) {
@@ -30,7 +29,6 @@ Item {
         }
     }
 
-    // Backdrop Dim
     Rectangle {
         anchors.fill: parent
         color: "#000000"
@@ -43,7 +41,6 @@ Item {
         }
     }
 
-    // Modal Card
     Rectangle {
         id: card
         anchors.centerIn: parent
@@ -65,7 +62,6 @@ Item {
             anchors.margins: 20
             spacing: 14
 
-            // Header
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -115,7 +111,6 @@ Item {
                 color: ThemeManager.dividerColor
             }
 
-            // Question Input
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 6
@@ -153,7 +148,6 @@ Item {
                 }
             }
 
-            // Options List
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -247,7 +241,6 @@ Item {
                             }
                         }
 
-                        // Add Option Button
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 34
@@ -290,7 +283,6 @@ Item {
                 }
             }
 
-            // Options settings
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -316,7 +308,6 @@ Item {
                 }
             }
 
-            // Footer Buttons
             RowLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: 4
@@ -394,4 +385,3 @@ Item {
         }
     }
 }
-

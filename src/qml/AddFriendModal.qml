@@ -9,8 +9,8 @@ Item {
     anchors.fill: parent
     z: 200
 
-    // Search / request state
     property bool searching: false
+    property string searchMode: "phone"
     property bool hasResult: false
     property var foundProfile: ({})
     property string searchError: ""
@@ -40,9 +40,21 @@ Item {
     }
 
     function triggerSearch() {
-        var digits = phoneInput.text.replace(/[^0-9+]/g, "");
         root.hasResult = false;
         root.requestMessage = "";
+        if (root.searchMode === "username") {
+            var uname = phoneInput.text.trim();
+            if (uname.length === 0) {
+                root.searchError = I18n.t("Vui lòng nhập tên người dùng để tìm kiếm.",
+                                          "Please enter a username to search.");
+                return;
+            }
+            root.searchError = "";
+            root.searching = true;
+            ZaloClient.findUserByUsername(uname);
+            return;
+        }
+        var digits = phoneInput.text.replace(/[^0-9+]/g, "");
         if (digits.length === 0) {
             root.searchError = I18n.t("Vui lòng nhập số điện thoại để tìm kiếm.",
                                       "Please enter a phone number to search.");
@@ -58,7 +70,6 @@ Item {
         ZaloClient.findUserByPhone(digits);
     }
 
-    // Created on demand by a Loader in Main.qml, already visible: run the same init.
     Component.onCompleted: visibleChanged()
     onVisibleChanged: {
         if (visible) {
@@ -99,7 +110,6 @@ Item {
         }
     }
 
-    // Backdrop Dim
     Rectangle {
         anchors.fill: parent
         color: "#000000"
@@ -112,7 +122,6 @@ Item {
         }
     }
 
-    // Modal Card
     Rectangle {
         id: card
         anchors.centerIn: parent
@@ -127,7 +136,6 @@ Item {
         border.color: ThemeManager.borderColor
         border.width: 1
 
-        // Swallow clicks so the backdrop does not close the modal
         MouseArea { anchors.fill: parent }
 
         ColumnLayout {
@@ -136,7 +144,6 @@ Item {
             anchors.margins: 20
             spacing: 14
 
-            // Header Row
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -181,7 +188,6 @@ Item {
                 color: ThemeManager.borderColor
             }
 
-            // Scrollable body
             ScrollView {
                 id: bodyScroll
                 Layout.fillWidth: true
@@ -195,13 +201,54 @@ Item {
                     width: bodyScroll.availableWidth
                     spacing: 14
 
-                    // Input Row: Country Code + Phone Number Input + Search
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Repeater {
+                            model: [
+                                { key: "phone", vi: "Số điện thoại", en: "Phone" },
+                                { key: "username", vi: "Tên người dùng", en: "Username" }
+                            ]
+                            Rectangle {
+                                required property var modelData
+                                readonly property bool on: root.searchMode === modelData.key
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 34
+                                radius: 8
+                                color: on ? Theme.zaloBlueLight : ThemeManager.hoverColor
+                                border.color: on ? Theme.zaloBlue : ThemeManager.borderColor
+                                border.width: 1
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: I18n.t(parent.modelData.vi, parent.modelData.en)
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 13
+                                    font.bold: parent.on
+                                    color: parent.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.searchMode = parent.modelData.key;
+                                        root.hasResult = false;
+                                        root.searchError = "";
+                                        phoneInput.text = "";
+                                        phoneInput.forceActiveFocus();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
 
                         Rectangle {
-                            Layout.preferredWidth: 64
+                            visible: root.searchMode === "phone"
+                            Layout.preferredWidth: root.searchMode === "phone" ? 64 : 0
                             Layout.preferredHeight: 38
                             radius: 8
                             color: (ThemeManager.hoverColor)
@@ -236,7 +283,7 @@ Item {
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
                                 verticalAlignment: TextInput.AlignVCenter
-                                inputMethodHints: Qt.ImhDialableCharactersOnly
+                                inputMethodHints: root.searchMode === "username" ? Qt.ImhNone : Qt.ImhDialableCharactersOnly
                                 selectByMouse: true
                                 clip: true
                                 enabled: !root.searching
@@ -244,7 +291,8 @@ Item {
                                 Text {
                                     anchors.fill: parent
                                     verticalAlignment: Text.AlignVCenter
-                                    text: I18n.t("Số điện thoại", "Phone number")
+                                    text: root.searchMode === "username" ? I18n.t("Tên người dùng", "Username")
+                                                                          : I18n.t("Số điện thoại", "Phone number")
                                     color: ThemeManager.secondaryTextColor
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 13
@@ -257,7 +305,6 @@ Item {
                             }
                         }
 
-                        // Search Button
                         Rectangle {
                             Layout.preferredWidth: searchLabel.implicitWidth + 28
                             Layout.preferredHeight: 38
@@ -287,7 +334,6 @@ Item {
                         }
                     }
 
-                    // Busy indicator while searching
                     RowLayout {
                         visible: root.searching
                         Layout.fillWidth: true
@@ -309,7 +355,6 @@ Item {
                         }
                     }
 
-                    // Error Banner
                     Rectangle {
                         visible: root.searchError.length > 0
                         Layout.fillWidth: true
@@ -332,7 +377,6 @@ Item {
                         }
                     }
 
-                    // Search Result Card
                     Rectangle {
                         visible: root.hasResult
                         Layout.fillWidth: true
@@ -369,7 +413,6 @@ Item {
                                 }
                             }
 
-                            // Greeting message
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 38
@@ -402,7 +445,6 @@ Item {
                                 }
                             }
 
-                            // Inline request result
                             Text {
                                 visible: root.requestMessage.length > 0
                                 Layout.fillWidth: true
@@ -413,7 +455,6 @@ Item {
                                 wrapMode: Text.WordWrap
                             }
 
-                            // Action buttons (flush right)
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 8

@@ -57,23 +57,6 @@ services:
       - HOME=/tmp
     command: bash /workspace/packaging/appimage/build-appimage.sh
 
-  # Arch Linux: makepkg from source (packaging/arch/PKGBUILD) in a clean, rolling archlinux image (no project image).
-  package-arch:
-    image: docker.io/library/archlinux:latest
-    user: "0:0"
-    volumes:
-      - .:/workspace:z
-    working_dir: /workspace
-    command: bash /workspace/packaging/arch/build-arch.sh
-
-  test-arch:
-    image: docker.io/library/archlinux:latest
-    user: "0:0"
-    volumes:
-      - .:/workspace:z
-    working_dir: /workspace
-    command: bash /workspace/scripts/test-arch.sh
-
   package-nix:
     image: docker.io/nixos/nix:latest
     volumes:
@@ -246,3 +229,61 @@ services:
     volumes:
       - .:/workspace:z
     command: bash /workspace/scripts/test-deb.sh
+
+  # ---------------------------------------------------------------------------------------------------------------
+  # ARM64 (aarch64) release builds. The host runner is x86_64, so these run under QEMU/binfmt emulation (slow).
+  # Separate image tags keep the amd64 and arm64 images from colliding in the local image store. Register binfmt
+  # once per host before building:  docker run --privileged --rm tonistiigi/binfmt --install arm64
+  # ---------------------------------------------------------------------------------------------------------------
+  package-rpm-arm64:
+    image: localhost/zalos-fedora-arm64:43
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/arm64
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    command: bash /workspace/packaging/rpm/build-rpm.sh
+
+  package-appimage-arm64:
+    image: localhost/zalos-ubuntu-arm64:24.04
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+      platforms:
+        - linux/arm64
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - HOME=/tmp
+    command: bash /workspace/packaging/appimage/build-appimage.sh
+
+  package-deb-arm64:
+    image: localhost/zalos-ubuntu-arm64:24.04
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+      platforms:
+        - linux/arm64
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - HOME=/tmp
+    command: bash /workspace/packaging/deb/build-deb.sh
+
+  package-nix-arm64:
+    image: docker.io/nixos/nix:latest
+    platform: linux/arm64
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - NIX_CONFIG=experimental-features = nix-command flakes
+    command: bash /workspace/packaging/nix/build-nix.sh

@@ -4,8 +4,6 @@
 
 namespace Zalos::Core::Models {
 
-// Accent-insensitive search key: lower case, NFD with combining marks removed, đ -> d.
-// "Nguyễn Đức" and "nguyen duc" fold to the same string.
 inline QString foldForSearch(const QString& text) {
     const QString decomposed = text.normalized(QString::NormalizationForm_D);
     QString out;
@@ -18,4 +16,4 @@ inline QString foldForSearch(const QString& text) {
     return out;
 }
 
-} // namespace Zalos::Core::Models
+}

@@ -6,6 +6,8 @@ echo "📦 Building Zalos AppImage"
 echo "=========================================================="
 
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
+# Target architecture = the container's architecture (x86_64 natively, aarch64 under an arm64/QEMU container).
+ARCH="$(uname -m)"
 # Own build tree: a Release, tests-off configure must not replace the test build in build/.
 BUILD_DIR="${WORKSPACE_DIR}/build-appimage"
 APP_DIR="${BUILD_DIR}/AppDir"
@@ -45,6 +47,28 @@ if [ -n "${CRYPTO_LIB}" ]; then
     echo "==> Bundled $(basename "${CRYPTO_LIB}")"
 fi
 
+# Animated-sticker WebP image plugin (libqwebp) + its libwebp chain, as a fallback for a host whose Qt has no WebP
+# support (e.g. no qt6-image-formats-plugins). Kept out of the global plugin path: AppRun adds it only then, so a
+# host plugin (matching the host Qt) always wins. The plugin's RUNPATH points at the bundled libwebp beside it, so
+# it never pulls a mismatched system libwebp.
+echo "==> Bundling WebP image plugin (animated stickers fallback)..."
+WEBP_DIR="${APP_DIR}/usr/lib/webp-fallback"
+QT_PLUGIN_SRC=$(find /usr/lib -type d -name imageformats -path "*qt6*" 2>/dev/null | head -1)
+WEBP_PLUGIN="${QT_PLUGIN_SRC}/libqwebp.so"
+if [ -f "${WEBP_PLUGIN}" ]; then
+    mkdir -p "${WEBP_DIR}/imageformats"
+    cp -L "${WEBP_PLUGIN}" "${WEBP_DIR}/imageformats/"
+    # Copy the libwebp chain the plugin needs (not Qt/system-universal libraries).
+    ldd "${WEBP_PLUGIN}" | awk '/libwebp|libsharpyuv/ {print $3}' | while read -r lib; do
+        [ -n "${lib}" ] && cp -L "${lib}" "${WEBP_DIR}/"
+    done
+    # The plugin loads its libwebp from beside it, never a mismatched system copy.
+    patchelf --set-rpath '$ORIGIN/..' "${WEBP_DIR}/imageformats/libqwebp.so"
+    echo "==> Bundled libqwebp.so + $(ls "${WEBP_DIR}"/*.so* 2>/dev/null | wc -l) libwebp libraries"
+else
+    echo "==> libqwebp.so not found in the build image; skipping (host Qt must provide WebP)"
+fi
+
 # 2. Setup AppDir skeleton
 echo "==> Preparing AppDir metadata..."
 cp "${WORKSPACE_DIR}/packaging/appimage/AppRun" "${APP_DIR}/AppRun"
@@ -59,25 +83,26 @@ if command -v rsvg-convert &>/dev/null; then
     cp "${APP_DIR}/zalos.png" "${APP_DIR}/.DirIcon"
 fi
 
-# 3. Download appimagetool if not present
+# 3. Download appimagetool if not present (architecture-matched: x86_64 or aarch64)
 mkdir -p /tmp/tools
-if [ ! -f /tmp/tools/appimagetool ]; then
-    echo "==> Downloading appimagetool..."
-    curl -sSL -o /tmp/tools/appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" || true
-    chmod +x /tmp/tools/appimagetool || true
+TOOL="/tmp/tools/appimagetool-${ARCH}"
+if [ ! -f "${TOOL}" ]; then
+    echo "==> Downloading appimagetool (${ARCH})..."
+    curl -sSL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage" || true
+    chmod +x "${TOOL}" || true
 fi
 
 # 4. Generate AppImage or fallback archive
-rm -f "${OUTPUT_DIR}/Zalos-1.0.0-x86_64.AppImage"
-if [ -f /tmp/tools/appimagetool ] && [ -x /tmp/tools/appimagetool ]; then
+rm -f "${OUTPUT_DIR}/Zalos-1.0.0-${ARCH}.AppImage"
+if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
     echo "==> Generating AppImage via appimagetool..."
-    ARCH=x86_64 /tmp/tools/appimagetool --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_DIR}/Zalos-1.0.0-x86_64.AppImage" || {
+    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_DIR}/Zalos-1.0.0-${ARCH}.AppImage" || {
         echo "Fallback to portable archive..."
-        tar -czf "${OUTPUT_DIR}/Zalos-1.0.0-AppDir.tar.gz" -C "${APP_DIR}" .
+        tar -czf "${OUTPUT_DIR}/Zalos-1.0.0-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
     }
 else
     echo "==> Packaging portable AppDir bundle..."
-    tar -czf "${OUTPUT_DIR}/Zalos-1.0.0-AppDir.tar.gz" -C "${APP_DIR}" .
+    tar -czf "${OUTPUT_DIR}/Zalos-1.0.0-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
 fi
 
 echo "✅ AppImage build step completed. Artifacts saved in dist/"

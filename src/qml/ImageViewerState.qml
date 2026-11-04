@@ -1,10 +1,9 @@
 pragma Singleton
 import QtQuick
 
-// Which photos the image viewer shows. ChatArea calls show(); Main.qml creates ImageViewer only while open.
 QtObject {
     property bool open: false
-    property var items: []   // [{msgId, url, thumb, senderName, isMine, ts}] from MessageModel.mediaItems()
+    property var items: []
     property int index: 0
 
     function show(list: var, start: int): void {

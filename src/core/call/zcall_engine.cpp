@@ -65,15 +65,12 @@ void ZCallEngine::startCall(const QString& peerId, const QString& peerName, bool
     emit callTypeChanged(m_callType == CallType::Voice);
     emit cameraStateChanged();
 
-    // Local state only. Real calls run through Call::CallBridge + zcall-native; this legacy model never
-    // pretends a peer answered (no timed "Connecting"/"Connected" transitions).
     setState(CallState::CallingOutgoing);
 }
 
 void ZCallEngine::answerCall(bool withVideo) {
     m_isCameraActive = withVideo;
     emit cameraStateChanged();
-    // Stays "Connecting": only a real media session (CallBridge) can report a connected call.
     setState(CallState::Connecting);
 }
 
@@ -131,7 +128,7 @@ QByteArray ZCallEngine::deriveSrtpMasterKey(const QByteArray& zrtpSecret, const 
          reinterpret_cast<const unsigned char*>(salt.constData()), salt.size(),
          key, &keyLen);
 
-    return QByteArray(reinterpret_cast<const char*>(key), 16); // 128-bit SRTP master key
+    return QByteArray(reinterpret_cast<const char*>(key), 16);
 }
 
 namespace {
@@ -171,7 +168,7 @@ static QByteArray srtpKdf(const QByteArray& mk, const QByteArray& ms, quint8 lab
     x[7] = static_cast<char>(static_cast<quint8>(x[7]) ^ label);
     return aesCmExpandKdf(mk, x, outLen);
 }
-} // anonymous namespace
+}
 
 ZCallEngine::SrtpSessionKeys ZCallEngine::deriveSrtpSessionKeys(const QByteArray& master30) {
     SrtpSessionKeys keys;
@@ -180,16 +177,15 @@ ZCallEngine::SrtpSessionKeys ZCallEngine::deriveSrtpSessionKeys(const QByteArray
     QByteArray mk = master30.left(16);
     QByteArray ms = master30.mid(16, 14);
 
-    keys.encKey  = srtpKdf(mk, ms, 0x00, 16); // AES-128
-    keys.authKey = srtpKdf(mk, ms, 0x01, 20); // HMAC-SHA1
-    keys.saltKey = srtpKdf(mk, ms, 0x02, 14); // Salt
+    keys.encKey  = srtpKdf(mk, ms, 0x00, 16);
+    keys.authKey = srtpKdf(mk, ms, 0x01, 20);
+    keys.saltKey = srtpKdf(mk, ms, 0x02, 14);
     return keys;
 }
 
 QVector<AudioDevice> ZCallEngine::getAudioDevices(bool input) {
     QVector<AudioDevice> devices;
 
-    // Standard fallback default device
     AudioDevice def;
     def.id = "default";
     def.name = input ? "Mặc định (Microphone Hệ thống)" : "Mặc định (Loa / Tai nghe)";
@@ -197,7 +193,6 @@ QVector<AudioDevice> ZCallEngine::getAudioDevices(bool input) {
     def.isInput = input;
     devices.append(def);
 
-    // Try pactl parsing
     QProcess proc;
     QString cmd = input ? "sources" : "sinks";
     proc.start("pactl", QStringList() << "list" << cmd << "short");
@@ -219,5 +214,4 @@ QVector<AudioDevice> ZCallEngine::getAudioDevices(bool input) {
     return devices;
 }
 
-} // namespace Zalos::Core::Call
-
+}

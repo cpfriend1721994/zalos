@@ -311,7 +311,7 @@ static bool aes256cbc_decrypt_nopad(
     return true;
 }
 
-} // anonymous namespace
+}
 
 std::vector<uint8_t> DbCross::deriveAes256Key(const std::string& privateKeyStr) {
     std::vector<uint8_t> key(32, 0);
@@ -366,7 +366,7 @@ bool DbCross::decryptAes256CbcChunkedResetIv(
     const std::vector<uint8_t>& key32,
     std::vector<uint8_t>& plaintextOut
 ) {
-    const size_t chunk = 0x10000; // 65536 bytes
+    const size_t chunk = 0x10000;
     if ((ciphertext.size() % 16) != 0 || key32.size() != 32) return false;
 
     plaintextOut.clear();
@@ -421,7 +421,6 @@ bool DbCross::decompressAndDecryptZdb4(
     const std::string& privateKeyStr,
     std::string* error
 ) {
-    // Algorithm per zalo-for-linux nativelibs/db-cross-v4 (process_zdb4_v2), re-implemented.
     auto fail = [&](const std::string& why) {
         if (error) *error = why;
         return false;
@@ -434,7 +433,6 @@ bool DbCross::decompressAndDecryptZdb4(
     if (!f.read(reinterpret_cast<char*>(full.data()), static_cast<std::streamsize>(size))) return fail("cannot read backup file");
     if (size < 32) return fail("backup file too small");
 
-    // Observed layouts: aligned at 0; 4-byte prefix; 4 trailing bytes.
     struct Span { size_t off; size_t len; };
     std::vector<Span> spans;
     if (size % 16 == 0) spans.push_back({0, size});
@@ -452,7 +450,7 @@ bool DbCross::decompressAndDecryptZdb4(
                                 full.begin() + static_cast<ptrdiff_t>(sp.off + sp.len));
         std::vector<uint8_t> tmp;
         if (!decryptAes256CbcChunkedResetIv(ct, key, tmp)) {
-            const uint8_t iv0[16] = {0}; // older variant: one CBC chain
+            const uint8_t iv0[16] = {0};
             aes256cbc_decrypt_nopad(ct, key, iv0, tmp);
         }
         if (tmp.size() >= 18 && std::memcmp(tmp.data(), "ZDB4.0", 6) == 0) {
@@ -476,12 +474,10 @@ bool DbCross::decompressAndDecryptZdb4(
         off += nlen;
         const uint32_t fsize = read_u32_be(pt.data() + off);
         off += 4;
-        // Never let a name escape the output directory.
         if (name.empty() || name.find("..") != std::string::npos || name.front() == '/') return fail("unsafe file name");
         files.push_back({name, fsize});
     }
 
-    // The payload after the table is one XZ stream (trailing bytes after it are ignored).
     lzma_stream strm = LZMA_STREAM_INIT;
     if (lzma_stream_decoder(&strm, UINT64_MAX, 0) != LZMA_OK) return fail("cannot init LZMA decoder");
     strm.next_in = pt.data() + off;
@@ -500,7 +496,6 @@ bool DbCross::decompressAndDecryptZdb4(
         return out.is_open();
     };
     if (!files.empty() && !openNext()) { lzma_end(&strm); return fail("cannot write extracted file"); }
-    // Zero-length entries complete immediately.
     auto skipEmpty = [&]() -> bool {
         while (idx < files.size() && files[idx].size == 0) {
             out.close();
@@ -562,7 +557,7 @@ BinNetMessage DbCross::parseBinNet(const uint8_t* buf, size_t len) {
         if (it == tlv.values.end() || it->second.empty()) continue;
 
         switch (k) {
-            case 0x06: { // attachs[]
+            case 0x06: {
                 for (const auto& v : it->second) {
                     if (v.size() < 8) continue;
                     AttachmentData att;
@@ -571,12 +566,12 @@ BinNetMessage DbCross::parseBinNet(const uint8_t* buf, size_t len) {
                 }
                 break;
             }
-            case 0x07: { // quote
+            case 0x07: {
                 const auto& v = it->second[0];
                 ParseReferenceOrQuoteLite(v.data(), v.size(), result.quote);
                 break;
             }
-            case 0x08: { // mentions[]
+            case 0x08: {
                 for (const auto& v : it->second) {
                     MentionData m;
                     ParseMentionLite(v.data(), v.size(), m);
@@ -584,18 +579,18 @@ BinNetMessage DbCross::parseBinNet(const uint8_t* buf, size_t len) {
                 }
                 break;
             }
-            case 0x09: { // quoteStatus
+            case 0x09: {
                 int qst = 0;
                 if (tlv.GetIntValue(0x09, qst)) result.quoteStatus = qst;
                 break;
             }
-            case 0x0a: { // dataSource
+            case 0x0a: {
                 const auto& v = it->second[0];
                 std::string s;
                 if (TryDecodeTextSmart(v, s)) result.dataSource = s;
                 break;
             }
-            case 0x0b: { // data (message text)
+            case 0x0b: {
                 const auto& v = it->second[0];
                 std::string s;
                 if (TryDecodeTextSmart(v, s)) result.text = s;
@@ -632,5 +627,4 @@ bool DbCross::verifyCryptoSelfTest() {
     }
 }
 
-} // namespace Zalos::Core::Crypto
-
+}

@@ -10,8 +10,6 @@ Item {
     z: 220
 
     property string filterText: ""
-    // Modes (ZaloClient.forwardMode): "message" forward, "card" share a contact card, "pickContact" choose a friend
-    // whose card goes to the open conversation.
     readonly property string mode: ZaloClient.forwardMode
     property var sentIds: ({})
     property var friends: []
@@ -33,10 +31,9 @@ Item {
         const next = Object.assign({}, root.sentIds);
         next[id] = true;
         root.sentIds = next;
-        if (root.mode === "pickContact") root.closeModal(); // one card per pick
+        if (root.mode === "pickContact") root.closeModal();
     }
 
-    // Created on demand by a Loader in Main.qml, already visible: run the same init.
     Component.onCompleted: visibleChanged()
     onVisibleChanged: {
         if (visible) {
@@ -47,7 +44,6 @@ Item {
         }
     }
 
-    // Backdrop Dim
     Rectangle {
         anchors.fill: parent
         color: "#000000"
@@ -60,7 +56,6 @@ Item {
         }
     }
 
-    // Modal Card
     Rectangle {
         id: card
         anchors.centerIn: parent
@@ -82,7 +77,6 @@ Item {
             anchors.margins: 20
             spacing: 12
 
-            // Header
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -122,7 +116,6 @@ Item {
                 }
             }
 
-            // Message Preview Box
             Rectangle {
                 Layout.fillWidth: true
                 height: Math.min(68, previewCol.implicitHeight + 16)
@@ -172,7 +165,6 @@ Item {
                 }
             }
 
-            // Search Filter
             Rectangle {
                 Layout.fillWidth: true
                 height: 36
@@ -249,7 +241,6 @@ Item {
                 Layout.topMargin: 4
             }
 
-            // One row of either list: avatar, name, subtitle, Gửi / Đã gửi.
             component TargetRow: Rectangle {
                 id: rowItem
                 property string rowId: ""
@@ -316,7 +307,6 @@ Item {
                 }
             }
 
-            // Conversations (forward / share a card). ConversationModel roles: id, name, avatarUrl, isGroup, …
             ListView {
                 id: targetList
                 visible: root.mode !== "pickContact"
@@ -339,7 +329,6 @@ Item {
                 }
             }
 
-            // Friends (send a contact card into the open conversation).
             ListView {
                 id: friendList
                 visible: root.mode === "pickContact"
@@ -366,7 +355,6 @@ Item {
                 }
             }
 
-            // Footer
             RowLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: 8

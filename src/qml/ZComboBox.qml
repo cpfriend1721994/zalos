@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Zalos
 
-// Zalo-styled drop-down (field, arrow, popup and rows in theme colours). `model` is a list of strings, or of
-// objects with `textRole`.
 ComboBox {
     id: control
     implicitHeight: 34

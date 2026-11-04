@@ -15,7 +15,7 @@ SystemTrayController::SystemTrayController(QObject* parent)
         if (static_cast<QObject*>(s_instance) == gone) s_instance = nullptr;
     });
     m_trayIcon = new QSystemTrayIcon(this);
-    m_trayIcon->setIcon(createBadgeIcon(0));
+    m_trayIcon->setIcon(createBadgeIcon(0, false));
     m_trayIcon->setToolTip("Zalos - Ứng dụng chat bảo mật cho Linux");
 
     setupMenu();
@@ -39,7 +39,6 @@ void SystemTrayController::setupMenu() {
     QAction* themeAction = m_trayMenu->addAction("Chuyển chế độ Sáng / Tối");
     connect(themeAction, &QAction::triggered, this, &SystemTrayController::toggleDarkModeRequested);
 
-    // Quick switch for anti-peeking (also Ctrl+Shift+H in the window and Settings > Privacy).
     m_antiPeekAction = m_trayMenu->addAction("Chống nhìn lén");
     m_antiPeekAction->setCheckable(true);
     connect(m_antiPeekAction, &QAction::triggered, this, &SystemTrayController::antiPeekingToggled);
@@ -52,9 +51,16 @@ void SystemTrayController::setupMenu() {
     m_trayIcon->setContextMenu(m_trayMenu);
 }
 
-void SystemTrayController::setUnreadCount(int count) {
-    if (m_unreadCount == count) return;
+void SystemTrayController::setUnreadCount(int count, bool hasMentions) {
+    if (m_unreadCount == count && m_hasMentions == hasMentions) return;
     m_unreadCount = count;
+    m_hasMentions = hasMentions;
+    refreshIconAndTooltip();
+}
+
+void SystemTrayController::setHasMentions(bool hasMentions) {
+    if (m_hasMentions == hasMentions) return;
+    m_hasMentions = hasMentions;
     refreshIconAndTooltip();
 }
 
@@ -66,9 +72,10 @@ void SystemTrayController::setAntiPeeking(bool on) {
 }
 
 void SystemTrayController::refreshIconAndTooltip() {
-    m_trayIcon->setIcon(createBadgeIcon(m_unreadCount));
+    m_trayIcon->setIcon(createBadgeIcon(m_unreadCount, m_hasMentions));
     QString tip = m_unreadCount > 0 ? QString("Zalos - Có %1 tin nhắn chưa đọc").arg(m_unreadCount)
                                     : QStringLiteral("Zalos - Ứng dụng chat bảo mật cho Linux");
+    if (m_hasMentions) tip += QStringLiteral("\nCó tin nhắn nhắc tên bạn (@)");
     if (m_antiPeeking) tip += QStringLiteral("\nĐang bật chống nhìn lén");
     m_trayIcon->setToolTip(tip);
 }
@@ -89,56 +96,69 @@ void SystemTrayController::onTrayActivated(QSystemTrayIcon::ActivationReason rea
     }
 }
 
-QIcon SystemTrayController::createBadgeIcon(int count) {
-    QPixmap pixmap(64, 64);
-    pixmap.fill(Qt::transparent);
+QIcon SystemTrayController::createBadgeIcon(int count, bool hasMentions) {
+    QIcon baseIcon(":/Zalos/assets/icons/zalos.svg");
+    QPixmap pixmap = baseIcon.pixmap(64, 64);
+    if (pixmap.isNull()) {
+        pixmap = QPixmap(64, 64);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setBrush(QColor("#0068FF"));
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(4, 4, 56, 56);
+        p.setPen(Qt::white);
+        QFont f = p.font();
+        f.setPixelSize(34);
+        f.setBold(true);
+        p.setFont(f);
+        p.drawText(QRect(4, 4, 56, 56), Qt::AlignCenter, "Z");
+    }
 
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // Draw main circle / app logo
-    painter.setBrush(QColor("#0068FF"));
-    painter.setPen(Qt::NoPen);
-    painter.drawRoundedRect(4, 4, 56, 56, 16, 16);
-
-    // Draw "Z" letter in center
-    painter.setPen(Qt::white);
-    QFont font = painter.font();
-    font.setPixelSize(34);
-    font.setBold(true);
-    painter.setFont(font);
-    painter.drawText(QRect(4, 4, 56, 56), Qt::AlignCenter, "Z");
-
-    // Draw red badge circle if count > 0
     if (count > 0) {
-        painter.setBrush(QColor("#FF3B30"));
-        painter.setPen(QPen(Qt::white, 2));
-        painter.drawEllipse(36, 4, 24, 24);
+        QString badgeText = count > 99 ? QStringLiteral("99+") : QString::number(count);
 
-        painter.setPen(Qt::white);
         QFont badgeFont = painter.font();
-        badgeFont.setPixelSize(12);
+        badgeFont.setPixelSize(18);
         badgeFont.setBold(true);
         painter.setFont(badgeFont);
 
-        QString badgeText = count > 99 ? "99+" : QString::number(count);
-        painter.drawText(QRect(36, 4, 24, 24), Qt::AlignCenter, badgeText);
+        QFontMetrics fm(badgeFont);
+        int textWidth = fm.horizontalAdvance(badgeText);
+        int badgeHeight = 28;
+        int badgeWidth = qMax(badgeHeight, textWidth + 14);
+
+        int badgeRight = 64;
+        int badgeBottom = 64;
+        int badgeX = badgeRight - badgeWidth;
+        int badgeY = badgeBottom - badgeHeight;
+        QRect badgeRect(badgeX, badgeY, badgeWidth, badgeHeight);
+
+        QColor badgeColor = hasMentions ? QColor("#EF4444") : QColor("#707984");
+
+        painter.setBrush(badgeColor);
+        painter.setPen(QPen(QColor(10, 25, 47, 180), 1.5));
+        painter.drawRoundedRect(badgeRect, badgeHeight / 2.0, badgeHeight / 2.0);
+
+        painter.setPen(Qt::white);
+        painter.drawText(badgeRect, Qt::AlignCenter, badgeText);
     }
 
-    // Anti-peeking on: dark disc with a crossed eye at the bottom-left corner.
     if (m_antiPeeking) {
         painter.setBrush(QColor("#081B3A"));
         painter.setPen(QPen(Qt::white, 2));
         painter.drawEllipse(2, 36, 26, 26);
         painter.setPen(QPen(Qt::white, 2.2));
         painter.setBrush(Qt::NoBrush);
-        painter.drawEllipse(QRectF(8, 44.5, 14, 9));    // eye outline
-        painter.drawEllipse(QRectF(13, 47, 4, 4));      // pupil
-        painter.drawLine(QPointF(7, 56), QPointF(23, 42)); // slash
+        painter.drawEllipse(QRectF(8, 44.5, 14, 9));
+        painter.drawEllipse(QRectF(13, 47, 4, 4));
+        painter.drawLine(QPointF(7, 56), QPointF(23, 42));
     }
 
     return QIcon(pixmap);
 }
 
-} // namespace Zalos::Core::Platform
-
+}

@@ -27,13 +27,13 @@ const QSet<QString>& pinActs() {
     return acts;
 }
 
-} // namespace
+}
 
 PinBoard::PinBoard(Hooks hooks, QObject* parent) : QObject(parent), m_hooks(std::move(hooks)) {}
 
 QVariantMap PinBoard::normalizeTopic(const QJsonValue& raw) {
     QJsonObject o = asObject(raw);
-    if (o.contains("data") && !o.contains("params")) o = asObject(o.value("data")); // wrapped items
+    if (o.contains("data") && !o.contains("params")) o = asObject(o.value("data"));
     const QString id = idString(o.contains("id") ? o.value("id") : o.value("topicId"));
     if (id.isEmpty()) return {};
     const int type = (o.contains("type") ? o.value("type") : o.value("topicType")).toVariant().toInt();
@@ -48,7 +48,39 @@ QVariantMap PinBoard::normalizeTopic(const QJsonValue& raw) {
             {"msgId", idString(p.value("global_msg_id"))},
             {"cliMsgId", idString(p.value("client_msg_id"))},
             {"msgType", p.value("msg_type").toVariant().toInt()},
-            {"thumb", p.value("thumb").toString()}};
+            {"thumb", p.value("thumb").toString()},
+            {"href", p.value("href").toString()}};
+}
+
+QVariantMap PinBoard::detail(const QString& topicId) const {
+    QVariantMap out;
+    for (const QVariant& v : m_boards.value(m_current).topics) {
+        if (v.toMap().value("id").toString() == topicId) out = v.toMap();
+    }
+    if (out.isEmpty()) return out;
+    QString text = out.value("title").toString();
+    QString image = out.value("thumb").toString();
+    QString href = out.value("href").toString();
+    const QString msgId = out.value("msgId").toString();
+    const QJsonObject raw = (m_hooks.rawMessage && !msgId.isEmpty()) ? m_hooks.rawMessage(msgId) : QJsonObject();
+    if (!raw.isEmpty()) {
+        const QJsonValue content = raw.value("content");
+        if (content.isString()) {
+            if (!content.toString().isEmpty()) text = content.toString();
+        } else {
+            const QJsonObject c = content.toObject();
+            if (!c.value("title").toString().isEmpty()) text = c.value("title").toString();
+            if (!c.value("href").toString().isEmpty()) href = c.value("href").toString();
+            const int type = out.value("msgType").toInt();
+            if ((type == 32 || type == 37) && !href.isEmpty()) image = href;
+            else if (image.isEmpty()) image = c.value("thumb").toString();
+        }
+    }
+    out.insert("text", text);
+    out.insert("image", image);
+    out.insert("href", href);
+    out.insert("local", !raw.isEmpty());
+    return out;
 }
 
 QVariantList PinBoard::parseList(const QJsonObject& data, bool isGroup, qint64* version, int* limit) {
@@ -59,7 +91,7 @@ QVariantList PinBoard::parseList(const QJsonObject& data, bool isGroup, qint64* 
         if (version) *version = data.value("boardVersion").toVariant().toLongLong();
         if (limit) *limit = data.value("pinLimit").toInt();
     } else {
-        items = data.value("data").toArray(); // JSON strings (zca-js GetFriendBoardListResponse)
+        items = data.value("data").toArray();
         if (items.isEmpty()) items = data.value("topics").toArray();
         if (version) *version = data.value("version").toVariant().toLongLong();
         if (limit) *limit = data.value("pinLimit").toInt();
@@ -121,7 +153,6 @@ void PinBoard::load(const QString& convId) {
     auto done = [self, convId, group](bool ok, const QJsonValue& data, const QString&, int) {
         if (self && ok) self->applyList(convId, data.toObject(), group);
     };
-    // Full list (version 0): the server's answer is the truth.
     if (group) s->fetchGroupPins(convId, 0, done);
     else s->fetchFriendPins(convId, 0, done);
 }
@@ -203,7 +234,7 @@ void PinBoard::unpin(const QString& topicId) {
         if (!self) return;
         if (!ok) {
             self->notice(self->t("Không bỏ ghim được: ", "Could not unpin: ") + self->err(e, code));
-            self->load(convId); // maybe changed elsewhere (version)
+            self->load(convId);
             return;
         }
         self->notice(self->t("Đã bỏ ghim", "Unpinned"));
@@ -254,10 +285,9 @@ bool PinBoard::handleControl(const QString& act, const QJsonValue& data) {
         if (!convId.isEmpty()) break;
     }
     if (convId.startsWith('g') && convId.size() > 1 && convId.at(1).isDigit()) convId = convId.mid(1);
-    // Unknown target: refresh the open conversation, the one the user looks at.
     if (convId.isEmpty() || !m_boards.contains(convId)) convId = m_current;
     if (!convId.isEmpty()) load(convId);
     return true;
 }
 
-} // namespace Zalos::Core::Network
+}

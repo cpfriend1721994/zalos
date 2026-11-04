@@ -6,9 +6,9 @@ import Zalos
 Rectangle {
     id: root
     objectName: "loginViewRoot"
-    color: ThemeManager.isDarkMode ? "#121416" : "#E8F3FF" // Zalo login page: --surface-background (dark), light blue (light)
+    color: ThemeManager.isDarkMode ? "#121416" : "#E8F3FF"
 
-    property int activeTab: 0 // 0: QR Code, 1: Phone & Password
+    property int activeTab: 0
     property bool showPassword: false
     property bool rememberLogin: true
 
@@ -19,7 +19,6 @@ Rectangle {
         ZaloClient.clearLoginError();
     }
 
-    // Reusable promotion banner (matching official Zalo Web)
     component PromoBanner: Rectangle {
         Layout.fillWidth: true
         Layout.preferredHeight: 64
@@ -98,7 +97,6 @@ Rectangle {
         }
     }
 
-    // Reusable text link
     component LinkText: Text {
         signal activated()
         Layout.fillWidth: true
@@ -127,8 +125,6 @@ Rectangle {
         contentWidth: availableWidth
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-        // The ScrollView derives contentHeight from this implicit height; binding the child to
-        // scroll.contentHeight (or availableHeight) creates a binding loop.
         Item {
             implicitWidth: root.width
             width: scroll.availableWidth
@@ -142,7 +138,6 @@ Rectangle {
                 y: Math.max(20, Math.floor((parent.height - implicitHeight) / 2))
                 spacing: 16
 
-                // Zalo Brand Header (matching official Zalo Web & PC)
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 4
@@ -179,7 +174,6 @@ Rectangle {
                     }
                 }
 
-                // Login Card Container
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: cardContent.implicitHeight + 36
@@ -196,13 +190,11 @@ Rectangle {
                         anchors.margins: 18
                         spacing: 14
 
-                        // Card Header with Title and Menu Toggle Button
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 36
                             spacing: 8
 
-                            // Spacer mirroring the menu button so the title stays centred
                             Item {
                                 Layout.preferredWidth: 32
                                 Layout.preferredHeight: 32
@@ -251,7 +243,6 @@ Rectangle {
 
                                 Menu {
                                     id: menuPopup
-                                    // Right-align with the button so the menu never leaves the window
                                     x: btnMenu.width - width
                                     y: btnMenu.height + 4
 
@@ -272,34 +263,29 @@ Rectangle {
                             }
                         }
 
-                        // Divider
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 1
                             color: ThemeManager.borderColor
                         }
 
-                        // Tab content: StackLayout sized to the active tab only (inactive tab adds 0px)
                         StackLayout {
                             id: tabStack
                             currentIndex: root.activeTab
                             Layout.fillWidth: true
                             Layout.preferredHeight: root.activeTab === 0 ? tab0Layout.implicitHeight : tab1Layout.implicitHeight
 
-                            // ==================== TAB 0: QR CODE ====================
                             ColumnLayout {
                                 id: tab0Layout
                                 Layout.fillWidth: true
                                 spacing: 12
 
-                                // Normal QR State (Step 0)
                                 ColumnLayout {
                                     visible: ZaloClient.qrLoginStep === 0
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: visible ? implicitHeight : 0
                                     spacing: 12
 
-                                    // QR Code Card (official card design)
                                     Rectangle {
                                         Layout.alignment: Qt.AlignHCenter
                                         Layout.preferredWidth: 236
@@ -317,13 +303,11 @@ Rectangle {
                                             anchors.margins: 10
                                             spacing: 6
 
-                                            // QR Image Container
                                             Item {
                                                 Layout.alignment: Qt.AlignHCenter
                                                 Layout.preferredWidth: 216
                                                 Layout.preferredHeight: 216
 
-                                                // Official Zalo server PNG image when loaded
                                                 Image {
                                                     id: qrServerImage
                                                     anchors.fill: parent
@@ -426,7 +410,6 @@ Rectangle {
                                                     }
                                                 }
 
-                                                // Loading hint while no QR code has arrived yet
                                                 Text {
                                                     anchors.centerIn: parent
                                                     width: parent.width - 24
@@ -448,7 +431,6 @@ Rectangle {
                                                     ToolTip.text: I18n.t("Mở Zalo trên điện thoại và quét mã này", "Open Zalo on your phone and scan this code")
                                                 }
 
-                                                // Expired QR Overlay
                                                 Rectangle {
                                                     anchors.fill: parent
                                                     visible: ZaloClient.qrSecondsRemaining <= 0
@@ -529,7 +511,6 @@ Rectangle {
                                         }
                                     }
 
-                                    // Countdown Timer
                                     Text {
                                         Layout.fillWidth: true
                                         horizontalAlignment: Text.AlignHCenter
@@ -543,7 +524,6 @@ Rectangle {
                                         color: ZaloClient.qrSecondsRemaining > 0 ? ThemeManager.secondaryTextColor : Theme.badgeRed
                                     }
 
-                                    // Status Message (sign-in progress or error)
                                     Rectangle {
                                         visible: ZaloClient.isLoggingIn || (root.activeTab === 0 && ZaloClient.hasLoginError)
                                         Layout.fillWidth: true
@@ -581,14 +561,12 @@ Rectangle {
                                         }
                                     }
 
-                                    // Alternative sign-in path using the desktop browser's Zalo session
                                     LinkText {
                                         text: I18n.t("Đăng nhập bằng phiên trình duyệt", "Sign in with browser session")
                                         onActivated: ZaloClient.syncFromBrowserSession()
                                     }
                                 }
 
-                                // Scanned State (Step 1: waiting for confirmation on the phone)
                                 ColumnLayout {
                                     visible: ZaloClient.qrLoginStep === 1
                                     Layout.fillWidth: true
@@ -652,13 +630,11 @@ Rectangle {
                                 PromoBanner {}
                             }
 
-                            // ==================== TAB 1: PHONE NUMBER ====================
                             ColumnLayout {
                                 id: tab1Layout
                                 Layout.fillWidth: true
                                 spacing: 12
 
-                                // Phone Number Input
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 42
@@ -709,7 +685,6 @@ Rectangle {
                                     }
                                 }
 
-                                // Password Input
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 42
@@ -745,7 +720,6 @@ Rectangle {
                                             Keys.onReturnPressed: btnSubmitPhone.clicked()
                                         }
 
-                                        // Eye Toggle Icon
                                         Item {
                                             Layout.preferredWidth: 24
                                             Layout.preferredHeight: 24
@@ -770,7 +744,6 @@ Rectangle {
                                     }
                                 }
 
-                                // Remember Login Checkbox
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: 8
@@ -816,7 +789,6 @@ Rectangle {
                                     }
                                 }
 
-                                // Error Message Banner (only shown on error)
                                 Rectangle {
                                     visible: root.activeTab === 1 && ZaloClient.hasLoginError
                                     Layout.fillWidth: true
@@ -855,7 +827,6 @@ Rectangle {
                                     }
                                 }
 
-                                // Submit Button
                                 Rectangle {
                                     id: btnSubmitPhone
                                     Layout.fillWidth: true
@@ -896,7 +867,6 @@ Rectangle {
                                     }
                                 }
 
-                                // Honest capability hint: password sign-in is not available on Zalo Web
                                 Text {
                                     Layout.fillWidth: true
                                     horizontalAlignment: Text.AlignHCenter
@@ -909,7 +879,6 @@ Rectangle {
 
                                 PromoBanner {}
 
-                                // Back to QR link
                                 LinkText {
                                     text: I18n.t("Đăng nhập không dùng mật khẩu (quét mã QR)", "Sign in without a password (scan QR code)")
                                     onActivated: root.switchTab(0)
@@ -919,7 +888,6 @@ Rectangle {
                     }
                 }
 
-                // Footer Language Selector (matching official Zalo Web)
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 16

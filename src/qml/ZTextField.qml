@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Zalos
 
-// Zalo-styled single-line input (skill 03 "Zero bare controls"): input fill, border that turns accent on focus,
-// theme text/placeholder colours in light, dark and system modes.
 TextField {
     id: control
     implicitHeight: 36

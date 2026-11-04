@@ -10,21 +10,16 @@ Item {
     visible: ZaloClient.showSettingsModal
     z: 998
 
-    // Known tab keys; unknown initial-tab values fall back to "general".
-    // Sounds of the desktop's sound theme (KDE Ocean, freedesktop, ~/.local/share/sounds), listed after the
-    // built-in ones in both pickers; read once per opening of the dialog.
     readonly property var systemSounds: ZaloClient.systemSounds()
     readonly property var tabKeys: ["general", "language", "appearance", "notifications", "privacy", "storage", "sync"]
     property string currentTab: normalizeTab(ZaloClient.settingsInitialTab)
 
-    // Collapse the tab list to icons when the dialog is narrow.
     readonly property bool compact: dialogCard.width < 560
 
     function normalizeTab(key: string): string {
         return tabKeys.indexOf(key) >= 0 ? key : "general";
     }
 
-    // Created on demand by a Loader in Main.qml, already visible: run the same init.
     Component.onCompleted: visibleChanged()
     onVisibleChanged: {
         if (visible)
@@ -38,8 +33,6 @@ Item {
                 root.currentTab = root.normalizeTab(ZaloClient.settingsInitialTab);
         }
     }
-
-    // ── Reusable building blocks ─────────────────────────────────────
 
     component SectionTitle: Text {
         Layout.fillWidth: true
@@ -58,7 +51,6 @@ Item {
         wrapMode: Text.WordWrap
     }
 
-    // Card row with a title, optional subtitle and a trailing switch.
     component ToggleRow: Rectangle {
         id: toggleRow
         property string title: ""
@@ -107,14 +99,13 @@ Item {
 
             ZSwitch {
                 Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                Layout.leftMargin: 12 // .setting-section-content__item .z-toggle{padding-left:12px}
+                Layout.leftMargin: 12
                 checked: toggleRow.checked
                 onToggled: function(value) { toggleRow.toggled(value); }
             }
         }
     }
 
-    // Selectable preview card with a radio button and caption underneath.
     component PreviewOption: ColumnLayout {
         id: previewOption
         property bool selected: false
@@ -171,7 +162,6 @@ Item {
         }
     }
 
-    // Language choice row. Calls the backend and the UI singleton directly.
     component LanguageOption: Rectangle {
         id: langOption
         property string code: "vi"
@@ -227,13 +217,12 @@ Item {
         }
     }
 
-    // Sound picker card: title, description, selector and preview button.
     component SoundPicker: Rectangle {
         id: soundPicker
         property string title: ""
         property string subtitle: ""
         property string soundType: ""
-        property var options: []          // [{ key, label }]
+        property var options: []
         property string selectedKey: ""
         signal picked(string key)
 
@@ -388,8 +377,6 @@ Item {
         }
     }
 
-    // ── Backdrop ─────────────────────────────────────────────────────
-
     Rectangle {
         anchors.fill: parent
         color: "#000000"
@@ -402,14 +389,10 @@ Item {
         }
     }
 
-    // ── Dialog card ──────────────────────────────────────────────────
-
     Rectangle {
         id: dialogCard
         anchors.centerIn: parent
         width: Math.max(0, Math.min(parent.width - 32, 820))
-        // Fits the open tab without scrolling (52 px header + 1 px divider + the tab), at least the height of the
-        // tab rail; only a window too small for that scrolls.
         height: Math.max(0, Math.min(parent.height - 32,
                                      Math.max(520, 53 + contentContainer.implicitHeight + 8)))
         Behavior on height { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
@@ -423,7 +406,6 @@ Item {
         border.width: 1
         clip: true
 
-        // Swallow clicks so they don't reach the backdrop and close the dialog.
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.AllButtons
@@ -434,7 +416,6 @@ Item {
             anchors.fill: parent
             spacing: 0
 
-            // Header: title on the left, close button flush top-right.
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 52
@@ -490,13 +471,11 @@ Item {
                 color: ThemeManager.borderColor
             }
 
-            // Body: tab list + content
             RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: 0
 
-                // Tab list (icons only in compact mode)
                 Rectangle {
                     Layout.fillHeight: true
                     Layout.preferredWidth: root.compact ? 56 : 196
@@ -590,7 +569,6 @@ Item {
                     }
                 }
 
-                // Content panel
                 ScrollView {
                     id: settingsScroll
                     Layout.fillWidth: true
@@ -618,7 +596,6 @@ Item {
                             }
                         }
 
-                        // ── TAB: General ──
                         ColumnLayout {
                             id: generalTab
                             visible: root.currentTab === "general"
@@ -666,7 +643,6 @@ Item {
                                 color: ThemeManager.secondaryTextColor
                             }
 
-                            // Call engine: zcall-native (zalo-for-linux, MIT) ships with Zalos; a newer checkout can override it.
                             SectionTitle { text: I18n.t("Cuộc gọi", "Calls") }
                             Rectangle {
                                 Layout.fillWidth: true
@@ -723,7 +699,6 @@ Item {
                             }
                         }
 
-                        // ── TAB: Language ──
                         ColumnLayout {
                             id: languageTab
                             visible: root.currentTab === "language"
@@ -746,7 +721,6 @@ Item {
                             LanguageOption { code: "en"; label: "English" }
                         }
 
-                        // ── TAB: Appearance ──
                         ColumnLayout {
                             id: appearanceTab
                             visible: root.currentTab === "appearance"
@@ -761,7 +735,6 @@ Item {
                                 Layout.fillWidth: true
                                 spacing: 12
 
-                                // Zalo Light (Standard Zalo Light Theme, independent of OS)
                                 PreviewOption {
                                     label: I18n.t("Zalo Sáng", "Zalo Light")
                                     selected: ThemeManager.themeMode === 0
@@ -802,7 +775,6 @@ Item {
                                     }
                                 }
 
-                                // Zalo Dark (Standard Zalo Dark Theme, independent of OS)
                                 PreviewOption {
                                     label: I18n.t("Zalo Tối", "Zalo Dark")
                                     selected: ThemeManager.themeMode === 1
@@ -843,7 +815,6 @@ Item {
                                     }
                                 }
 
-                                // System Theme (Inherits styles, colors & dark/light mode from Linux Desktop)
                                 PreviewOption {
                                     label: I18n.t("Theo hệ thống", "System Theme")
                                     selected: ThemeManager.themeMode === 2
@@ -926,9 +897,29 @@ Item {
                                 checked: ZaloClient.useAvatarAsChatBackground
                                 onToggled: (value) => ZaloClient.useAvatarAsChatBackground = value
                             }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 1
+                                color: ThemeManager.borderColor
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: I18n.t("Thanh điều hướng", "Navigation bar")
+                                font.family: Theme.fontFamily
+                                font.bold: true
+                                font.pixelSize: 14
+                                color: ThemeManager.textColor
+                            }
+
+                            ToggleRow {
+                                title: I18n.t("Hiển thị thẻ phân loại như thư mục", "Show labels as folders")
+                                checked: ZaloClient.showLabelFolders
+                                onToggled: (value) => ZaloClient.showLabelFolders = value
+                            }
                         }
 
-                        // ── TAB: Notifications ──
                         ColumnLayout {
                             id: notificationsTab
                             visible: root.currentTab === "notifications"
@@ -972,7 +963,6 @@ Item {
                                             border.color: ZaloClient.notifyNewMessage ? Theme.zaloBlue : (ThemeManager.dividerColor)
                                             border.width: 1.5
 
-                                            // Notification banner
                                             Rectangle {
                                                 anchors.top: parent.top
                                                 anchors.topMargin: 4
@@ -1099,7 +1089,6 @@ Item {
                             }
                         }
 
-                        // ── TAB: Privacy ──
                         ColumnLayout {
                             id: privacyTab
                             visible: root.currentTab === "privacy"
@@ -1142,7 +1131,57 @@ Item {
                                 onToggled: (value) => ZaloClient.setAntiPeeking(value)
                             }
 
-                            // Passcode lock (ZaloClient.appLock)
+                            SectionTitle { text: I18n.t("Quyền riêng tư (đồng bộ máy chủ)", "Privacy (synced with server)") }
+                            SectionHint {
+                                text: I18n.t("Các thiết lập này được lưu trên máy chủ Zalo và áp dụng cho mọi thiết bị của bạn.",
+                                             "These are stored on Zalo's servers and apply across all your devices.")
+                            }
+
+                            ToggleRow {
+                                title: I18n.t("Hiển thị trạng thái hoạt động", "Show active status")
+                                subtitle: I18n.t("Cho bạn bè thấy khi bạn đang hoạt động", "Let friends see when you're active")
+                                checked: ZaloClient.showOnlineStatus
+                                onToggled: (value) => ZaloClient.setServerSetting("show_online_status", value ? 1 : 0)
+                            }
+                            ToggleRow {
+                                title: I18n.t("Hiển thị trạng thái đã xem", "Show seen status")
+                                subtitle: I18n.t("Người gửi thấy “Đã xem” khi bạn đọc tin nhắn", "Senders see “Seen” when you read their message")
+                                checked: ZaloClient.displaySeenStatus
+                                onToggled: (value) => ZaloClient.setServerSetting("display_seen_status", value ? 1 : 0)
+                            }
+                            ToggleRow {
+                                title: I18n.t("Nhận tin nhắn từ người lạ", "Receive messages from strangers")
+                                subtitle: I18n.t("Tắt để chỉ bạn bè mới nhắn được cho bạn", "Off: only friends can message you")
+                                checked: ZaloClient.receiveStrangerMessage
+                                onToggled: (value) => ZaloClient.setServerSetting("receive_message", value ? 1 : 2)
+                            }
+                            ToggleRow {
+                                title: I18n.t("Nhận cuộc gọi từ người lạ", "Accept calls from strangers")
+                                subtitle: I18n.t("Tắt để chỉ bạn bè mới gọi được cho bạn", "Off: only friends can call you")
+                                checked: ZaloClient.acceptStrangerCall
+                                onToggled: (value) => ZaloClient.setServerSetting("accept_stranger_call", value ? 3 : 2)
+                            }
+                            ToggleRow {
+                                title: I18n.t("Hiện tôi trong gợi ý kết bạn", "Show me in friend suggestions")
+                                checked: ZaloClient.displayOnRecommendFriend
+                                onToggled: (value) => ZaloClient.setServerSetting("display_on_recommend_friend", value ? 1 : 0)
+                            }
+                            ToggleRow {
+                                title: I18n.t("Cho phép kết bạn qua số điện thoại", "Allow friend requests via phone number")
+                                checked: ZaloClient.addFriendViaPhone
+                                onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_phone", value ? 1 : 0)
+                            }
+                            ToggleRow {
+                                title: I18n.t("Cho phép kết bạn qua mã QR", "Allow friend requests via QR code")
+                                checked: ZaloClient.addFriendViaQr
+                                onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_qr", value ? 1 : 0)
+                            }
+                            ToggleRow {
+                                title: I18n.t("Cho phép kết bạn qua nhóm chung", "Allow friend requests via common groups")
+                                checked: ZaloClient.addFriendViaGroup
+                                onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_group", value ? 1 : 0)
+                            }
+
                             SectionTitle { text: I18n.t("Khóa ứng dụng bằng mã", "App passcode lock") }
                             SectionHint {
                                 text: I18n.t("Khi đã đặt mã, Zalos tự khóa lúc mở, khi bạn nhấn Ctrl+L và sau thời gian không dùng; thông báo sẽ ẩn nội dung khi đang khóa. Mã chỉ khóa giao diện: tin nhắn lưu trên máy không được mã hóa thêm.",
@@ -1239,7 +1278,6 @@ Item {
                             }
                         }
 
-                        // ── TAB: Data & storage (ZaloClient.storage) ──
                         ColumnLayout {
                             id: storageTab
                             visible: root.currentTab === "storage"
@@ -1266,7 +1304,7 @@ Item {
                                 return key;
                             }
                             onVisibleChanged: if (visible) refresh()
-                            Component.onCompleted: if (visible) refresh() // opened straight on this tab
+                            Component.onCompleted: if (visible) refresh()
                             Connections {
                                 target: ZaloClient.storage
                                 function onUsageChanged() { if (storageTab.visible) storageTab.refresh(); }
@@ -1362,7 +1400,6 @@ Item {
                             }
                         }
 
-                        // ── TAB: Mobile Sync ──
                         ColumnLayout {
                             id: syncTab
                             visible: root.currentTab === "sync"
@@ -1444,7 +1481,6 @@ Item {
                                         }
                                     }
 
-                                    // Progress bar when syncing
                                     ProgressBar {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 6
@@ -1452,14 +1488,12 @@ Item {
                                         value: ZaloClient.mobileSyncProgress / 100.0
                                     }
 
-                                    // Action buttons
                                     RowLayout {
                                         Layout.fillWidth: true
                                         spacing: 10
 
                                         Item { Layout.fillWidth: true }
 
-                                        // Cancel button
                                         Rectangle {
                                             visible: ZaloClient.mobileSyncState === 1 || ZaloClient.mobileSyncState === 2
                                             width: 80
@@ -1485,7 +1519,6 @@ Item {
                                             }
                                         }
 
-                                        // Trigger button
                                         Rectangle {
                                             visible: ZaloClient.mobileSyncState === 0 || ZaloClient.mobileSyncState === 4 || ZaloClient.mobileSyncState === 5
                                             width: syncBtnText.implicitWidth + 24

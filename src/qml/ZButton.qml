@@ -2,9 +2,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Zalos
 
-// Zalo-styled button (never use a bare Button: its Basic style paints QPalette colours that ignore the Zalo theme).
-// variant: "primary" (accent, white text), "secondary" (input fill + border, text colour), "tonal" (accent tonal
-// background + accentTonalTextColor — the only readable pair in dark mode), "danger" (red, white text).
 Button {
     id: control
     property string variant: "primary"

@@ -5,7 +5,7 @@ import Zalos
 
 ApplicationWindow {
     id: mainWindow
-    visible: !ZaloClient.launchHidden // autostart minimized to the tray (main.cpp)
+    visible: !ZaloClient.launchHidden
     width: 1040
     height: 680
     minimumWidth: 380
@@ -13,15 +13,12 @@ ApplicationWindow {
     title: "Zalo"
     color: ThemeManager.backgroundColor
 
-    // Responsive State Standard across 1 màn, 1/2 màn, and 1/4 màn
     readonly property bool isCompactMode: width < 680
 
-    // Native Window Framing: Use standard system window decorations (decorations, titlebar, borders)
     flags: Qt.Window
 
     Component.onCompleted: I18n.setLanguage(ZaloClient.appLanguage)
 
-    // Keep the backend (persisted) language and the QML singleton in sync both ways.
     Connections {
         target: ZaloClient
         function onAppLanguageChanged() {
@@ -45,7 +42,6 @@ ApplicationWindow {
         }
     }
 
-    // Closing the window keeps Zalos running in the tray (Zalo PC behaviour) unless turned off in Settings.
     onClosing: (close) => {
         if (ZaloClient.closeToTray && ZaloClient.trayAvailable) {
             close.accepted = false;
@@ -53,7 +49,6 @@ ApplicationWindow {
         }
     }
 
-    // Second launch (SingleInstance) or a click on a desktop notification.
     function showAndActivate(): void {
         if (mainWindow.visibility === Window.Minimized) mainWindow.showNormal();
         else mainWindow.show();
@@ -65,7 +60,6 @@ ApplicationWindow {
         ThemeManager.toggleTheme();
     }
 
-    // View 1: Startup Session Restoration Splash (seamless startup without QR screen flash)
     Rectangle {
         id: startupSplash
         anchors.fill: parent
@@ -80,7 +74,6 @@ ApplicationWindow {
             Image {
                 Layout.alignment: Qt.AlignHCenter
                 source: "qrc:/Zalos/assets/icons/zalos.svg"
-                // Rasterised at the screen's pixel density (crisp on HiDPI).
                 sourceSize.width: Math.ceil(80 * Screen.devicePixelRatio)
                 sourceSize.height: Math.ceil(80 * Screen.devicePixelRatio)
                 width: 80
@@ -139,7 +132,6 @@ ApplicationWindow {
                 }
             }
 
-            // Offline at startup keeps the saved session and retries; this is the way out.
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 visible: ZaloClient.hasLoginError
@@ -159,39 +151,32 @@ ApplicationWindow {
         }
     }
 
-    // View 2: Login View (shown ONLY when no session exists or session expired)
-    // Views and modals below are created only while shown (Loader) and destroyed afterwards, so a
-    // session never pays for screens it does not open (QR login, settings, profile, calls, ...).
     Loader {
         active: !ZaloClient.isLoggedIn && !ZaloClient.isRestoringSession && !ZaloClient.isOfflineMode
         anchors.fill: parent
         sourceComponent: LoginView {}
     }
 
-    // View 3: Authentic Zalo Desktop Layout (signed in, or offline showing the account's cached history)
     RowLayout {
         visible: ZaloClient.isLoggedIn || ZaloClient.isOfflineMode
         anchors.fill: parent
         spacing: 0
 
-        // 1. Navigation Rail (Far left, spans 100% full height)
         NavigationRail {
             id: navigationRail
             Layout.preferredWidth: mainWindow.isCompactMode ? 52 : Theme.railWidth
-            z: 10 // keep rail popups above the panes
+            z: 10
             Layout.minimumWidth: mainWindow.isCompactMode ? 52 : Theme.railWidth
             Layout.maximumWidth: mainWindow.isCompactMode ? 52 : Theme.railWidth
             Layout.fillHeight: true
         }
 
-        // 2. View Mode: Messages (Chat)
         RowLayout {
             visible: ZaloClient.currentNavigationTab === "messages"
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 0
 
-            // 2a. Conversation List (Sidebar)
             Sidebar {
                 id: sidebar
                 visible: !mainWindow.isCompactMode || ZaloClient.currentConversationId === ""
@@ -202,7 +187,6 @@ ApplicationWindow {
                 Layout.fillHeight: true
             }
 
-            // 2b. Welcome Area (when no conversation is active)
             WelcomeArea {
                 visible: !mainWindow.isCompactMode && ZaloClient.currentConversationId === ""
                 Layout.fillWidth: true
@@ -210,7 +194,6 @@ ApplicationWindow {
                 Layout.minimumWidth: 260
             }
 
-            // 2c. Chat Area (when a conversation is open)
             ChatArea {
                 visible: ZaloClient.currentConversationId !== ""
                 Layout.fillWidth: true
@@ -219,7 +202,6 @@ ApplicationWindow {
             }
         }
 
-        // 3. View Mode: Contacts (Danh bạ)
         Loader {
             active: ZaloClient.currentNavigationTab === "contacts"
             visible: active
@@ -227,21 +209,10 @@ ApplicationWindow {
             Layout.fillHeight: true
             sourceComponent: ContactsView {}
         }
-
-        // 4. View Mode: To-Do
-        Loader {
-            active: ZaloClient.currentNavigationTab === "todo"
-            visible: active
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            sourceComponent: ToDoView {}
-        }
     }
 
-    // ---- Keyboard shortcuts: one table (ZaloClient.shortcuts, user overrides in shortcuts-custom.json) ----
     readonly property bool shortcutsLive: (ZaloClient.isLoggedIn || ZaloClient.isOfflineMode) && !ZaloClient.appLock.locked
 
-    // Quick switch for anti-peeking (also in the tray icon menu and Settings > Privacy).
     Shortcut {
         sequences: ZaloClient.shortcuts.keys("privacy.antiPeeking")
         enabled: mainWindow.shortcutsLive
@@ -291,7 +262,6 @@ ApplicationWindow {
         onActivated: Qt.quit()
     }
 
-    // Global notices raised by the backend (send failures, unsupported actions, ...)
     Connections {
         target: ZaloClient
         function onNotice(message) {
@@ -311,7 +281,7 @@ ApplicationWindow {
         width: Math.min(parent.width - 32, noticeText.implicitWidth + 32)
         height: noticeText.implicitHeight + 20
         radius: 8
-        color: ThemeManager.isDarkMode ? "#38404A" : "#E6081B3A" // inverse layer: readable in both themes
+        color: ThemeManager.isDarkMode ? "#38404A" : "#E6081B3A"
 
         Text {
             id: noticeText
@@ -330,7 +300,6 @@ ApplicationWindow {
         }
     }
 
-    // Modal Overlays (each one exists only while open)
     component LazyOverlay: Loader {
         anchors.fill: parent
         z: 900
@@ -345,28 +314,24 @@ ApplicationWindow {
     LazyOverlay { active: ZaloClient.groupAdmin.joinOpen; sourceComponent: GroupJoinModal {} }
     LazyOverlay { active: ZaloClient.labels.manageOpen; sourceComponent: LabelManageModal {} }
 
-    // Photo viewer (opened from photo messages)
     LazyOverlay {
         z: 1500
         active: ImageViewerState.open
         sourceComponent: ImageViewer {}
     }
 
-    // Voice and Video call window (zcall-native engine via CallBridge)
     LazyOverlay {
-        z: 2000 // above notices, like the call window always was
+        z: 2000
         active: !!(ZaloClient.calls && ZaloClient.calls.phase.length > 0)
         sourceComponent: CallOverlay {}
     }
 
-    // First sign-in without phone history: offer the sync once (ZaloClient.showSyncPrompt).
     LazyOverlay {
         z: 950
         active: ZaloClient.showSyncPrompt && !ZaloClient.appLock.locked
         sourceComponent: SyncPromptDialog {}
     }
 
-    // Passcode lock (ZaloClient.appLock): above everything, calls included.
     LazyOverlay {
         z: 3000
         active: ZaloClient.appLock.locked

@@ -40,12 +40,11 @@ void setOk(bool* ok, bool value) {
 }
 
 QByteArray fromBase64Lenient(const QString& data) {
-    // decodeURIComponent() first, as zca-js does for every server payload.
     const QString decoded = data.contains('%') ? QUrl::fromPercentEncoding(data.toLatin1()) : data;
     return QByteArray::fromBase64(decoded.toLatin1());
 }
 
-} // namespace
+}
 
 QByteArray aesCbcEncrypt(const QByteArray& key, const QByteArray& plain) {
     const EVP_CIPHER* cipher = cbcCipherForKey(key.size());
@@ -142,7 +141,6 @@ QByteArray zlibInflate(const QByteArray& compressed, bool* ok) {
     if (compressed.isEmpty()) return {};
 
     z_stream stream{};
-    // 15 + 32: auto-detect zlib or gzip headers.
     if (inflateInit2(&stream, 15 + 32) != Z_OK) return {};
 
     stream.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(compressed.constData()));
@@ -186,7 +184,6 @@ QByteArray decodeRespAES(const QByteArray& utf8Key, const QString& dataB64, bool
 }
 
 QString signKey(const QString& type, const QMap<QString, QString>& params) {
-    // QMap iterates in ascending key order, matching Array.prototype.sort on keys.
     QString material = QStringLiteral("zsecure") + type;
     for (auto it = params.cbegin(); it != params.cend(); ++it) {
         material += it.value();
@@ -230,7 +227,6 @@ ParamsEncryptor::ParamsEncryptor(int apiType, const QString& imei, qint64 firstL
     const QByteArray msg = QStringLiteral("%1,%2,%3").arg(apiType).arg(imei).arg(firstLaunchTime).toUtf8();
     m_zcid = QString::fromLatin1(aesCbcEncrypt(kZcidKey, msg).toHex().toUpper());
 
-    // Even/odd character split as in ParamsEncryptor.processStr.
     auto split = [](const QString& s, QString& even, QString& odd) {
         for (int i = 0; i < s.size(); ++i) {
             (i % 2 == 0 ? even : odd).append(s.at(i));
@@ -258,4 +254,4 @@ QString ParamsEncryptor::randomHex(int minLen, int maxLen) {
     return out;
 }
 
-} // namespace Zalos::Core::Network::ZaloCrypto
+}

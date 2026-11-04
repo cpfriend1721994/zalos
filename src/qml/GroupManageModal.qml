@@ -3,15 +3,12 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Zalos
 
-// Group administration (ZaloClient.groupAdmin): invite link, member permissions (GroupSetting), join requests
-// and the blocked list of one group. Members see the link and the permissions read-only; owner and deputies edit.
 Item {
     id: root
     anchors.fill: parent
     readonly property bool canEdit: ZaloClient.groupAdmin.canAdminister
     readonly property bool settingsKnown: Object.keys(ZaloClient.groupAdmin.settings).length > 0
 
-    // Permission rows. `inverted`: the switch shows "members may …" while the server flag says "locked".
     readonly property var memberRights: [
         { key: "blockName", inverted: true, vi: "Thay đổi tên và ảnh đại diện nhóm", en: "Change the group name and photo" },
         { key: "setTopicOnly", inverted: true, vi: "Ghim tin nhắn, ghi chú, bình chọn lên đầu hội thoại", en: "Pin messages, notes and polls" },
@@ -175,7 +172,6 @@ Item {
                     width: scroll.availableWidth
                     spacing: 10
 
-                    // ---- Invite link
                     SectionTitle { text: I18n.t("Link tham gia nhóm", "Group invite link") }
                     Hint {
                         visible: !ZaloClient.groupAdmin.link.loaded
@@ -236,7 +232,6 @@ Item {
 
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: ThemeManager.dividerColor }
 
-                    // ---- Permissions
                     SectionTitle { text: I18n.t("Cho phép thành viên", "Members can") }
                     Hint {
                         visible: !root.settingsKnown
@@ -252,7 +247,6 @@ Item {
                     SectionTitle { text: I18n.t("Chế độ nhóm", "Group mode") }
                     Repeater { model: root.groupModes; delegate: SettingRow {} }
 
-                    // ---- Join requests
                     Rectangle { visible: root.canEdit; Layout.fillWidth: true; Layout.preferredHeight: 1; color: ThemeManager.dividerColor }
                     RowLayout {
                         visible: root.canEdit
@@ -291,7 +285,6 @@ Item {
                         }
                     }
 
-                    // ---- Blocked members
                     Rectangle { visible: root.canEdit; Layout.fillWidth: true; Layout.preferredHeight: 1; color: ThemeManager.dividerColor }
                     SectionTitle {
                         visible: root.canEdit

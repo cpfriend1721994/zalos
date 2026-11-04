@@ -112,5 +112,4 @@ qint64 FileUtils::cleanCacheDirectory(const QString& dirPath, qint64 maxAgeSecon
     return removedBytes;
 }
 
-} // namespace Zalos::Core::Fs
-
+}

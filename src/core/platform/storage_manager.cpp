@@ -37,13 +37,12 @@ DirStats stats(const QString& dir) {
     return s;
 }
 
-} // namespace
+}
 
 StorageManager::StorageManager(QObject* parent) : QObject(parent) {
     QSettings settings;
     m_avatarLimitMb = qBound(50, settings.value("storage/avatarLimitMb", 300).toInt(), 10240);
     m_maxAgeDays = qBound(1, settings.value("storage/maxAgeDays", 31).toInt(), 3650);
-    // First pass a little after start (not on the startup path), then daily.
     QTimer::singleShot(30000, this, [this]() { prune(); });
     m_daily.setInterval(int(kDayMs));
     connect(&m_daily, &QTimer::timeout, this, [this]() { prune(); });
@@ -70,7 +69,7 @@ void StorageManager::setMaxAgeDays(int days) {
 
 QString StorageManager::directory(const QString& key) {
     const QString cache = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
-    if (key == "avatars") return cache + "/avatars"; // AvatarImageProvider::cacheDirectory()
+    if (key == "avatars") return cache + "/avatars";
     if (key == "voice") return cache + "/voice";
     if (key == "sounds") return cache + "/sounds";
     if (key == "qmlcache") return cache + "/qmlcache";
@@ -93,7 +92,6 @@ qint64 StorageManager::clear(const QString& key) {
     if (key == "downloads" || !kKeys.contains(key)) return 0;
     const QString dir = directory(key);
     const qint64 before = stats(dir).bytes;
-    // Remove the contents, keep the directory (providers write into it without re-creating it).
     QDir d(dir);
     for (const QFileInfo& fi : d.entryInfoList(QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot)) {
         if (fi.isDir()) QDir(fi.absoluteFilePath()).removeRecursively();
@@ -132,7 +130,7 @@ qint64 StorageManager::pruneDirectory(const QString& dir, qint64 limitBytes, qin
     for (const Entry& e : std::as_const(entries)) {
         const bool tooOld = maxAgeMs > 0 && now - e.mtime > maxAgeMs;
         const bool overLimit = limitBytes >= 0 && total > limitBytes;
-        if (!tooOld && !overLimit) break; // sorted oldest first: the rest is newer and within the limit
+        if (!tooOld && !overLimit) break;
         if (QFile::remove(e.path)) {
             total -= e.size;
             freed += e.size;
@@ -148,4 +146,4 @@ qint64 StorageManager::prune() {
     return freed;
 }
 
-} // namespace Zalos::Core::Platform
+}

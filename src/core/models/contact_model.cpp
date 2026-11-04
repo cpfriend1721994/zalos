@@ -109,7 +109,6 @@ void ContactModel::applyFilter() {
         }
     }
 
-    // Sort alphabetically by name
     std::stable_sort(m_filteredItems.begin(), m_filteredItems.end(), [](const ContactItem& a, const ContactItem& b) {
         return a.name.localeAwareCompare(b.name) < 0;
     });
@@ -165,5 +164,4 @@ void ContactModel::clearAll() {
     emit countChanged();
 }
 
-} // namespace Zalos::Core::Models
-
+}

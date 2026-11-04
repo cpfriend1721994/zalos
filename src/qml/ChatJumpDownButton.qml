@@ -2,9 +2,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Zalos
 
-// The one "jump to latest" button over the message list (it replaced the older scrollBottomFab): 38 px, surface
-// colour, accent arrow, pop-in animation, and a red badge counting new incoming messages below (tdesktop-style
-// corner button). ChatArea owns the logic; this file only the look.
 Rectangle {
     id: root
     property int newCount: 0

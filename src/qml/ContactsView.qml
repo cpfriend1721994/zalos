@@ -3,19 +3,19 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Zalos
 
-// Contacts ("Danh bạ"): friends from getfriends and groups from getlg/getmg, as on chat.zalo.me.
 Rectangle {
     id: root
     color: ThemeManager.backgroundColor
 
     readonly property string activeCategory: ZaloClient.contactModel.activeCategory
     readonly property bool compact: width < 620
+    property string invitesTab: "received"
+    readonly property bool showingSentRequests: root.activeCategory === "invites" && root.invitesTab === "sent"
 
     function hoverColor(): color {
         return (ThemeManager.hoverColor);
     }
 
-    // Category entry of the left panel (or the chips row in compact mode).
     component CategoryItem: Rectangle {
         id: cat
         property string key: ""
@@ -72,7 +72,6 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // Left panel: search + categories (hidden in compact mode)
         Rectangle {
             visible: !root.compact
             Layout.preferredWidth: Theme.sidebarWidth
@@ -178,7 +177,6 @@ Rectangle {
             }
         }
 
-        // Right panel: list
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -188,7 +186,6 @@ Rectangle {
                 anchors.fill: parent
                 spacing: 0
 
-                // Header
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 64
@@ -224,7 +221,6 @@ Rectangle {
                             color: ThemeManager.textColor
                         }
 
-                        // Compact mode category switch
                         Row {
                             visible: root.compact
                             spacing: 4
@@ -260,7 +256,6 @@ Rectangle {
                     }
                 }
 
-                // Count + compact search
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 44
@@ -270,14 +265,52 @@ Rectangle {
 
                     Text {
                         text: (root.activeCategory === "groups" ? I18n.t("Nhóm", "Groups")
-                               : root.activeCategory === "invites" ? I18n.t("Lời mời đã nhận", "Received")
+                               : root.activeCategory === "invites" ? (root.showingSentRequests ? I18n.t("Đã gửi", "Sent")
+                                                                                               : I18n.t("Lời mời đã nhận", "Received"))
                                : I18n.t("Bạn bè", "Friends"))
-                              + " (" + ZaloClient.contactModel.count + ")"
+                              + " (" + (root.showingSentRequests ? ZaloClient.sentFriendRequests.length : ZaloClient.contactModel.count) + ")"
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
                         font.bold: true
                         color: ThemeManager.textColor
                     }
+
+                    RowLayout {
+                        visible: root.activeCategory === "invites"
+                        spacing: 6
+                        Repeater {
+                            model: [
+                                { k: "received", vi: "Đã nhận", en: "Received" },
+                                { k: "sent", vi: "Đã gửi", en: "Sent" }
+                            ]
+                            Rectangle {
+                                required property var modelData
+                                readonly property bool on: root.invitesTab === modelData.k
+                                Layout.preferredHeight: 28
+                                Layout.preferredWidth: subTabText.implicitWidth + 20
+                                radius: 14
+                                color: on ? Theme.zaloBlueLight : ThemeManager.hoverColor
+                                Text {
+                                    id: subTabText
+                                    anchors.centerIn: parent
+                                    text: I18n.t(parent.modelData.vi, parent.modelData.en)
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    font.bold: parent.on
+                                    color: parent.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.invitesTab = parent.modelData.k;
+                                        if (parent.modelData.k === "sent") ZaloClient.refreshSentFriendRequests();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Item { Layout.fillWidth: true }
                     TextField {
                         visible: root.compact
@@ -306,7 +339,95 @@ Rectangle {
                     Layout.fillHeight: true
 
                     ListView {
+                        id: sentList
+                        visible: root.showingSentRequests
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        clip: true
+                        spacing: 4
+                        model: ZaloClient.sentFriendRequests
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollBar.vertical: ScrollBar {}
+                        delegate: Rectangle {
+                            id: sentRow
+                            required property var modelData
+                            width: sentList.width
+                            height: 60
+                            radius: 8
+                            color: sentRowMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                            MouseArea { id: sentRowMouse; anchors.fill: parent; hoverEnabled: true }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 10
+                                anchors.rightMargin: 10
+                                spacing: 10
+                                ZAvatar {
+                                    Layout.preferredWidth: 40
+                                    Layout.preferredHeight: 40
+                                    size: 40
+                                    avatarUrl: sentRow.modelData.avatar
+                                    name: sentRow.modelData.name
+                                    showStatusDot: false
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: sentRow.modelData.name
+                                        elide: Text.ElideRight
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 13
+                                        font.bold: true
+                                        color: ThemeManager.textColor
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: sentRow.modelData.message.length > 0
+                                        text: sentRow.modelData.message
+                                        elide: Text.ElideRight
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: cancelReqText.implicitWidth + 20
+                                    Layout.preferredHeight: 30
+                                    radius: 6
+                                    color: "transparent"
+                                    border.color: ThemeManager.borderColor
+                                    border.width: 1
+                                    Text {
+                                        id: cancelReqText
+                                        anchors.centerIn: parent
+                                        text: I18n.t("Thu hồi", "Cancel")
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.badgeRed
+                                    }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: ZaloClient.cancelSentFriendRequest(sentRow.modelData.uid)
+                                    }
+                                }
+                            }
+                        }
+                        Text {
+                            anchors.centerIn: parent
+                            visible: sentList.count === 0
+                            text: I18n.t("Bạn chưa gửi lời mời kết bạn nào", "You haven't sent any friend requests")
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            color: ThemeManager.secondaryTextColor
+                        }
+                    }
+
+                    ListView {
                         id: contactsList
+                        visible: !root.showingSentRequests
                         anchors.fill: parent
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
@@ -420,7 +541,6 @@ Rectangle {
                                     }
                                 }
 
-                                // Friend request actions
                                 Row {
                                     visible: contactRow.isInvite
                                     spacing: 6
@@ -476,7 +596,6 @@ Rectangle {
                         }
                     }
 
-                    // Empty / loading state
                     ColumnLayout {
                         anchors.centerIn: parent
                         width: Math.min(parent.width - 48, 360)

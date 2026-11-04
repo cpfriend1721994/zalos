@@ -18,13 +18,12 @@ class SystemTrayController : public QObject {
     Q_OBJECT
 
 public:
-    // The instance main() (or a test) created; QML's "TrayController" singleton resolves to it.
     static inline SystemTrayController* s_instance = nullptr;
     explicit SystemTrayController(QObject* parent = nullptr);
     ~SystemTrayController() override;
 
-    void setUnreadCount(int count);
-    // Reflects the anti-peeking state: checked menu item, eye mark on the icon, tooltip line.
+    void setUnreadCount(int count, bool hasMentions = false);
+    void setHasMentions(bool hasMentions);
     void setAntiPeeking(bool on);
     bool isVisible() const;
 
@@ -42,15 +41,15 @@ private slots:
 
 private:
     void setupMenu();
-    QIcon createBadgeIcon(int count);
+    QIcon createBadgeIcon(int count, bool hasMentions);
     void refreshIconAndTooltip();
 
     QSystemTrayIcon* m_trayIcon{nullptr};
     QMenu* m_trayMenu{nullptr};
     int m_unreadCount{0};
+    bool m_hasMentions{false};
     bool m_antiPeeking{false};
     QAction* m_antiPeekAction{nullptr};
 };
 
-} // namespace Zalos::Core::Platform
-
+}

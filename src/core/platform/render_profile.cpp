@@ -22,7 +22,7 @@ bool envSet(const char* name) {
     return !qEnvironmentVariableIsEmpty(name);
 }
 
-} // namespace
+}
 
 QString RenderProfile::backendName(Backend b) {
     switch (b) {
@@ -53,7 +53,6 @@ RenderProfile RenderProfile::decide(const Inputs& in) {
     }
     const bool smallMachine = (in.memTotalKb > 0 && in.memTotalKb < 4LL * 1024 * 1024)
                               || (in.cpuCores > 0 && in.cpuCores < 4);
-    // The software renderer has its own loop; the basic loop only matters for GPU backends.
     p.basicRenderLoop = smallMachine && p.backend != Backend::Software;
     if (p.basicRenderLoop) p.reason += QStringLiteral(", small machine: basic render loop");
     return p;
@@ -70,7 +69,6 @@ RenderProfile::Inputs RenderProfile::probeSystem() {
         in.gpuVendor = readTrimmed(QStringLiteral("/sys/class/drm/%1/device/vendor").arg(node));
         break;
     }
-    // Mesa ICD manifests: radeon_icd.*.json (RADV), intel_icd.*.json (ANV).
     const QString icdPrefix = in.gpuVendor == "0x1002" ? QStringLiteral("radeon_icd")
                             : in.gpuVendor == "0x8086" ? QStringLiteral("intel_icd") : QString();
     if (!icdPrefix.isEmpty()) {
@@ -104,11 +102,9 @@ void RenderProfile::apply() const {
         else if (backend == Backend::Vulkan) qputenv("QSG_RHI_BACKEND", "vulkan");
         else if (backend == Backend::OpenGL) qputenv("QSG_RHI_BACKEND", "opengl");
     }
-    // The Vulkan loader opens every installed driver; lavapipe (CPU Vulkan) drags in libLLVM (~30 MiB mapped) for
-    // nothing when a GPU driver was chosen (memory review 2026-11-03). Vulkan loader >= 1.3.234; older ones ignore it.
     if (backend == Backend::Vulkan && !envSet("VK_LOADER_DRIVERS_DISABLE") && !envSet("VK_ICD_FILENAMES")
         && !envSet("VK_DRIVER_FILES")) {
-        qputenv("VK_LOADER_DRIVERS_DISABLE", "*lvp_icd*");
+        qputenv("VK_LOADER_DRIVERS_DISABLE", "*lvp_icd*,*dzn_icd*");
     }
     if (basicRenderLoop && !envSet("QSG_RENDER_LOOP")) qputenv("QSG_RENDER_LOOP", "basic");
 }
@@ -117,7 +113,6 @@ namespace RenderGuard {
 
 bool vulkanFailedBefore() {
     QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
-    // A pending Vulkan attempt that never reached its first frame means that launch crashed or hung.
     if (s.value("render/pending").toString() == QLatin1String("vulkan")) {
         s.setValue("render/vulkanBroken", true);
         s.remove("render/pending");
@@ -138,6 +133,6 @@ void markFirstFrame() {
     s.sync();
 }
 
-} // namespace RenderGuard
+}
 
-} // namespace Zalos::Core::Platform
+}

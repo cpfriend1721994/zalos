@@ -3,18 +3,16 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Zalos
 
-// Left navigation rail mirroring chat.zalo.me: account avatar, Messages, Contacts, To-Do,
-// then My Cloud and the Settings menu pinned to the bottom.
 Rectangle {
     id: root
     color: ThemeManager.railBackgroundColor
 
     readonly property string currentTab: ZaloClient.currentNavigationTab
     readonly property bool compact: width < Theme.railWidth
-    readonly property int buttonSize: compact ? 40 : 48 // 64px rail minus 2x8px, like Zalo PC
+    readonly property int buttonSize: compact ? 40 : 48
     readonly property int iconSize: compact ? 22 : 24
+    readonly property bool foldersShown: ZaloClient.showLabelFolders && ZaloClient.labels.labels.length > 0
 
-    // A single rail button: circular round button matching modern Zalo PC / Web.
     component RailButton: Rectangle {
         id: btn
         property string icon: ""
@@ -27,8 +25,13 @@ Rectangle {
         Layout.preferredWidth: root.compact ? 40 : 44
         Layout.preferredHeight: root.compact ? 40 : 44
         radius: width / 2
-        color: active ? (ThemeManager.railSelectedColor)
-                      : (btnMouse.containsMouse ? (ThemeManager.railHoverColor) : ThemeManager.railHoverClearColor)
+        // Theme-aware: the rail is near-black in dark mode (a faint accent tint reads well) but a saturated
+        // blue bar in light mode (an accent tint would vanish — a bright white highlight stands out instead).
+        color: active
+               ? (ThemeManager.isDarkMode ? Qt.rgba(Theme.zaloBlue.r, Theme.zaloBlue.g, Theme.zaloBlue.b, 0.26)
+                                          : Qt.rgba(1, 1, 1, 0.95))
+               : (btnMouse.containsMouse ? Qt.rgba(1, 1, 1, ThemeManager.isDarkMode ? 0.10 : 0.20)
+                                         : ThemeManager.railHoverClearColor)
         Behavior on color { ColorAnimation { duration: 140 } }
         scale: btnMouse.pressed ? 0.93 : (btnMouse.containsMouse ? 1.05 : 1.0)
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
@@ -37,7 +40,8 @@ Rectangle {
             anchors.centerIn: parent
             name: btn.icon
             size: root.iconSize
-            color: "#FFFFFF" // --icon-navbar-normal
+            // Dark: white glyph on the faint accent tint. Light: accent-blue glyph on the white highlight.
+            color: btn.active ? (ThemeManager.isDarkMode ? "#FFFFFF" : Theme.zaloBlue) : "#FFFFFF"
             opacity: ThemeManager.isDarkMode && !btn.active && !btnMouse.containsMouse ? 0.75 : 1.0
         }
 
@@ -80,7 +84,79 @@ Rectangle {
         ToolTip.text: btn.tip
     }
 
-    // Menu row used by the account and settings popups.
+    component LabelFolder: Item {
+        id: folder
+        property int labelId: 0
+        property string labelName: ""
+        property color dot: "transparent"
+        property bool active: false
+        signal clicked()
+
+        function initials(text: string): string {
+            var t = text.trim();
+            if (t.length === 0) return "#";
+            if (t.indexOf(" ") < 0) return t.substring(0, 2).toUpperCase();
+            var last = t.substring(t.lastIndexOf(" ") + 1);
+            if (last.length === 0) return t.charAt(0).toUpperCase();
+            return (t.charAt(0) + last.charAt(0)).toUpperCase();
+        }
+
+        Layout.alignment: Qt.AlignHCenter
+        Layout.preferredWidth: root.compact ? 40 : 44
+        Layout.preferredHeight: root.compact ? 40 : 44
+        scale: folderMouse.pressed ? 0.93 : (folderMouse.containsMouse ? 1.05 : 1.0)
+        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+
+        Rectangle {
+            id: folderDisc
+            anchors.centerIn: parent
+            width: root.compact ? 40 : 44
+            height: width
+            radius: width / 2
+            // Same principle as the nav buttons: faint colored tint on the dark rail; a solid label-colour disc
+            // on the saturated-blue light rail (a faint tint would vanish there), so colour identity stays clear.
+            color: ThemeManager.isDarkMode
+                   ? (folder.active ? Qt.rgba(folder.dot.r, folder.dot.g, folder.dot.b, 0.42)
+                      : (folderMouse.containsMouse ? Qt.rgba(folder.dot.r, folder.dot.g, folder.dot.b, 0.28)
+                                                   : "transparent"))
+                   : (folderMouse.containsMouse ? Qt.lighter(folder.dot, 1.12) : folder.dot)
+            Behavior on color { ColorAnimation { duration: 140 } }
+
+            Text {
+                anchors.centerIn: parent
+                text: folder.initials(folder.labelName)
+                // Dark: colored glyph on the faint/transparent tint. Light: white glyph on the solid disc.
+                color: ThemeManager.isDarkMode ? folder.dot : "#FFFFFF"
+                font.family: Theme.fontFamily
+                font.pixelSize: Math.max(11, Math.floor(folderDisc.width * 0.36))
+                font.bold: true
+            }
+        }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: folderDisc.width
+            height: width
+            radius: width / 2
+            color: "transparent"
+            visible: folder.active
+            border.color: "#FFFFFF"
+            border.width: 2
+        }
+
+        MouseArea {
+            id: folderMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: folder.clicked()
+        }
+
+        ToolTip.visible: folderMouse.containsMouse
+        ToolTip.delay: 400
+        ToolTip.text: folder.labelName
+    }
+
     component MenuRow: Rectangle {
         id: row
         property string icon: ""
@@ -146,7 +222,6 @@ Rectangle {
         anchors.bottomMargin: 12
         spacing: 4
 
-        // Account avatar
         Item {
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: root.buttonSize
@@ -177,9 +252,12 @@ Rectangle {
         RailButton {
             icon: "chat"
             tip: I18n.t("Tin nhắn", "Messages")
-            active: root.currentTab === "messages"
+            active: root.currentTab === "messages" && (!root.foldersShown || ZaloClient.conversationModel.labelFilter === 0)
             badge: ZaloClient.conversationModel.totalUnreadCount
-            onClicked: ZaloClient.setCurrentNavigationTab("messages")
+            onClicked: {
+                ZaloClient.setCurrentNavigationTab("messages");
+                if (root.foldersShown) ZaloClient.conversationModel.setLabelFilter(0);
+            }
         }
 
         RailButton {
@@ -192,29 +270,57 @@ Rectangle {
             }
         }
 
-        RailButton {
-            icon: "todo"
-            tip: I18n.t("To-Do", "To-Do")
-            active: root.currentTab === "todo"
-            onClicked: ZaloClient.setCurrentNavigationTab("todo")
+        MenuDivider { visible: root.foldersShown; Layout.leftMargin: 10; Layout.rightMargin: 10 }
+
+        Flickable {
+            id: folderFlick
+            visible: root.foldersShown
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            contentWidth: width
+            contentHeight: folderColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickDeceleration: 6000
+            maximumFlickVelocity: 2500
+            ScrollBar.vertical: ScrollBar {
+                id: folderScroll
+                policy: ScrollBar.AsNeeded
+                width: 4
+                contentItem: Rectangle {
+                    radius: 2
+                    color: ThemeManager.railSelectedColor
+                    opacity: folderScroll.pressed ? 0.9 : 0.5
+                }
+            }
+
+            ColumnLayout {
+                id: folderColumn
+                width: parent.width
+                spacing: 4
+                Repeater {
+                    model: ZaloClient.labels.labels
+                    LabelFolder {
+                        required property var modelData
+                        labelId: modelData.id
+                        labelName: modelData.text
+                        dot: modelData.color
+                        active: ZaloClient.currentNavigationTab === "messages" && ZaloClient.conversationModel.labelFilter === labelId
+                        onClicked: {
+                            ZaloClient.setCurrentNavigationTab("messages");
+                            ZaloClient.conversationModel.setLabelFilter(labelId);
+                        }
+                    }
+                }
+            }
         }
 
-        Item { Layout.fillHeight: true }
-
-        // "Cloud của tôi" is not offered in the rail (removed at the user's request, 2026-11-03).
-
-        RailButton {
-            objectName: "btnSettings"
-            icon: "settings"
-            tip: settingsMenu.opened ? "" : I18n.t("Cài đặt", "Settings")
-            active: settingsMenu.opened
-            onClicked: settingsMenu.opened ? settingsMenu.close() : settingsMenu.open()
-        }
+        Item { visible: !root.foldersShown; Layout.fillHeight: true }
     }
 
-    // Account popup (avatar click), like the web client's profile menu.
     Popup {
         id: accountMenu
+        objectName: "accountMenu"
         x: root.width + 6
         y: 12
         width: 260
@@ -255,6 +361,11 @@ Rectangle {
                 label: I18n.t("Cài đặt", "Settings")
                 onTriggered: { accountMenu.close(); ZaloClient.openSettings("general"); }
             }
+            MenuRow {
+                icon: "help"
+                label: I18n.t("Hỗ trợ", "Help")
+                onTriggered: { accountMenu.close(); Qt.openUrlExternally("https://help.zalo.me/"); }
+            }
 
             MenuDivider {}
 
@@ -263,100 +374,6 @@ Rectangle {
                 label: I18n.t("Đăng xuất", "Log out")
                 danger: true
                 onTriggered: { accountMenu.close(); ZaloClient.logout(); }
-            }
-        }
-    }
-
-    // Settings popup (gear), anchored to the bottom of the rail.
-    Popup {
-        id: settingsMenu
-        objectName: "settingsMenu"
-        x: root.width + 6
-        y: Math.max(8, root.height - height - 12)
-        width: 248
-        padding: 6
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        onClosed: languageMenu.close()
-        background: Rectangle {
-            color: ThemeManager.surfaceColor
-            radius: 10
-            border.color: ThemeManager.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 2
-
-            MenuRow {
-                icon: "user"
-                label: I18n.t("Thông tin tài khoản", "Account information")
-                onTriggered: { settingsMenu.close(); ZaloClient.openUserProfile(); }
-            }
-            MenuRow {
-                icon: "settings"
-                label: I18n.t("Cài đặt", "Settings")
-                onTriggered: { settingsMenu.close(); ZaloClient.openSettings("general"); }
-            }
-
-            MenuDivider {}
-
-            MenuRow {
-                id: languageRow
-                icon: "globe"
-                label: I18n.t("Ngôn ngữ", "Language")
-                hasSubmenu: true
-                onTriggered: languageMenu.opened ? languageMenu.close() : languageMenu.open()
-            }
-            MenuRow {
-                icon: "help"
-                label: I18n.t("Hỗ trợ", "Help")
-                onTriggered: { settingsMenu.close(); Qt.openUrlExternally("https://help.zalo.me/"); }
-            }
-
-            MenuDivider {}
-
-            MenuRow {
-                icon: "logout"
-                label: I18n.t("Đăng xuất", "Log out")
-                danger: true
-                onTriggered: { settingsMenu.close(); ZaloClient.logout(); }
-            }
-        }
-
-        // Language submenu opens beside the settings menu.
-        Popup {
-            id: languageMenu
-            x: settingsMenu.width - 4
-            y: languageRow.y
-            width: 180
-            padding: 6
-            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
-            background: Rectangle {
-                color: ThemeManager.surfaceColor
-                radius: 10
-                border.color: ThemeManager.borderColor
-            }
-
-            contentItem: ColumnLayout {
-                spacing: 2
-
-                Repeater {
-                    model: [
-                        { code: "vi", label: "Tiếng Việt" },
-                        { code: "en", label: "English" }
-                    ]
-
-                    MenuRow {
-                        required property var modelData
-                        label: modelData.label
-                        icon: I18n.currentLanguage === modelData.code ? "check" : ""
-                        onTriggered: {
-                            ZaloClient.setAppLanguage(modelData.code);
-                            I18n.setLanguage(modelData.code);
-                            languageMenu.close();
-                            settingsMenu.close();
-                        }
-                    }
-                }
             }
         }
     }

@@ -80,7 +80,9 @@ set(ZALOS_SOURCES
     src/core/network/sticker_store.h
     src/core/network/sticker_store.cpp
     src/core/network/pin_board.h
+    src/core/models/message_search_model.h
     src/core/network/pin_board.cpp
+    src/core/models/message_search_model.cpp
     src/core/models/rich_composer.h
     src/core/models/rich_composer.cpp
     src/core/sync/mobile_history_sync.cpp
@@ -146,7 +148,6 @@ qt_add_qml_module(zalos
         src/qml/ContactsView.qml
         src/qml/ZIcon.qml
         src/qml/ZAvatar.qml
-        src/qml/ToDoView.qml
         src/qml/CallOverlay.qml
         src/qml/ZMaskEffect.qml
         src/qml/ZBlurEffect.qml
@@ -171,6 +172,9 @@ qt_add_qml_module(zalos
         src/qml/ZRadio.qml
         src/qml/ZRoundedImage.qml
         src/qml/ZSticker.qml
+        src/qml/PopupHost.qml
+        src/qml/PinDetailHost.qml
+        src/qml/PinMenuHost.qml
     RESOURCES
         assets/icons/zalos.svg
 )
@@ -311,6 +315,7 @@ if(BUILD_TESTING)
         src/core/network/label_manager.cpp
         src/core/network/sticker_store.cpp
         src/core/network/pin_board.cpp
+        src/core/models/message_search_model.cpp
         src/core/models/rich_composer.cpp
         src/core/sync/mobile_history_sync.cpp
         src/core/offline/offline_store.cpp
@@ -375,6 +380,7 @@ if(BUILD_TESTING)
         src/core/network/label_manager.cpp
         src/core/network/sticker_store.cpp
         src/core/network/pin_board.cpp
+        src/core/models/message_search_model.cpp
         src/core/models/rich_composer.cpp
         src/core/sync/mobile_history_sync.cpp
         src/core/offline/offline_store.cpp

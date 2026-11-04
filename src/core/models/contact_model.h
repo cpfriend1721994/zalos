@@ -16,13 +16,13 @@ struct ContactItem {
     bool isOnline{false};
     bool isGroup{false};
     int memberCount{0};
-    QString category{"friends"}; // "friends", "groups", "invites"
-    QString subtitle;            // e.g. the greeting attached to a friend request
+    QString category{"friends"};
+    QString subtitle;
 };
 
 class ContactModel : public QAbstractListModel {
     Q_OBJECT
-    QML_ANONYMOUS // typed for the QML compiler (reached through ZaloClient properties)
+    QML_ANONYMOUS
 
     Q_PROPERTY(QString activeCategory READ activeCategory WRITE setCategoryFilter NOTIFY filterChanged FINAL)
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchFilter NOTIFY filterChanged FINAL)
@@ -77,5 +77,4 @@ private:
     QString m_searchQuery{""};
 };
 
-} // namespace Zalos::Core::Models
-
+}

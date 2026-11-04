@@ -22,13 +22,12 @@ QString idString(const QJsonValue& v) {
     return v.isString() ? v.toString() : (v.isDouble() ? QString::number(qint64(v.toDouble())) : QString());
 }
 
-// Server time stamps arrive in seconds or milliseconds.
 qint64 toMs(const QJsonValue& v) {
     const qint64 t = qint64(v.toDouble());
     return t > 0 && t < 100000000000LL ? t * 1000 : t;
 }
 
-} // namespace
+}
 
 const QStringList& GroupAdmin::settingKeys() {
     static const QStringList keys{"blockName",      "signAdminMsg",   "setTopicOnly", "enableMsgHistory",
@@ -104,7 +103,7 @@ void GroupAdmin::closeManage() {
 
 void GroupAdmin::reload() {
     if (m_groupId.isEmpty()) return;
-    if (m_hooks.groupChanged) m_hooks.groupChanged(m_groupId); // fresh settings + roster
+    if (m_hooks.groupChanged) m_hooks.groupChanged(m_groupId);
     loadLink();
     if (canAdminister()) {
         loadPending();
@@ -119,7 +118,6 @@ void GroupAdmin::loadLink() {
     QPointer<GroupAdmin> self(this);
     s->fetchGroupLink(m_groupId, [self, gen](bool ok, const QJsonValue& data, const QString&, int) {
         if (!self || gen != self->m_generation) return;
-        // A group without a link answers with an error code; show it as "disabled".
         self->applyLink(ok ? data.toObject() : QJsonObject{{"enabled", 0}});
     });
 }
@@ -181,7 +179,7 @@ void GroupAdmin::setSetting(const QString& key, bool value) {
     ZaloSession* s = session();
     if (!s || !canAdminister() || !settingKeys().contains(key)) return;
     const auto it = m_settings.constFind(m_groupId);
-    if (it == m_settings.cend()) return; // never send defaults over settings we have not seen
+    if (it == m_settings.cend()) return;
     QJsonObject next = *it;
     next.insert(key, value ? 1 : 0);
     const QString groupId = m_groupId;
@@ -190,7 +188,7 @@ void GroupAdmin::setSetting(const QString& key, bool value) {
         if (!self) return;
         if (!ok) {
             self->notice(self->t("Không đổi được cài đặt nhóm: ", "Could not change the group setting: ") + self->err(e, code));
-            if (groupId == self->m_groupId) emit self->settingsChanged(); // switches snap back
+            if (groupId == self->m_groupId) emit self->settingsChanged();
             return;
         }
         self->m_settings.insert(groupId, next);
@@ -263,7 +261,7 @@ void GroupAdmin::reviewAll(bool approve) {
             return;
         }
         if (approve && self->m_hooks.groupChanged) self->m_hooks.groupChanged(groupId);
-        if (groupId == self->m_groupId) self->loadPending(); // the server tells which ones went through
+        if (groupId == self->m_groupId) self->loadPending();
     });
 }
 
@@ -307,7 +305,7 @@ void GroupAdmin::setBlocked(const QString& groupId, const QString& memberId, boo
             }
             self->notice(blocked ? self->t("Đã chặn khỏi nhóm", "Blocked from the group")
                                  : self->t("Đã bỏ chặn", "Unblocked"));
-            if (self->m_hooks.groupChanged) self->m_hooks.groupChanged(groupId); // blocking also removes the member
+            if (self->m_hooks.groupChanged) self->m_hooks.groupChanged(groupId);
             if (groupId == self->m_groupId) self->loadBlocked();
         });
 }
@@ -396,7 +394,7 @@ void GroupAdmin::join() {
         if (!self) return;
         const QVariantMap p = self->m_preview;
         const bool current = p.value("link").toString() == link;
-        if (!ok && code != 178) { // 178: already a member
+        if (!ok && code != 178) {
             if (current) {
                 self->m_preview.remove("joining");
                 self->m_preview.insert("error", self->t("Không tham gia được nhóm: ", "Could not join the group: ") + self->err(e, code));
@@ -451,4 +449,4 @@ void GroupAdmin::inviteToGroups(const QString& userId, const QStringList& groupI
     });
 }
 
-} // namespace Zalos::Core::Network
+}

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import Zalos
 
-// One row of a Zalo-style popup menu (message and conversation context menus).
 Rectangle {
     id: row
     property string icon: ""

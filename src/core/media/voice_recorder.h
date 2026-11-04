@@ -12,9 +12,6 @@ class QMediaRecorder;
 
 namespace Zalos::Core::Media {
 
-// Voice message recorder: default microphone -> AAC (ADTS, the format Zalo PC uploads as fileType "aac") in a
-// temporary file. QML drives it through ZaloClient.voiceRecorder; ZaloClient sends the finished file.
-// `available` is false (and the UI says so) without a microphone or an AAC encoder in Qt Multimedia.
 class VoiceRecorder : public QObject {
     Q_OBJECT
     QML_ANONYMOUS
@@ -24,8 +21,8 @@ class VoiceRecorder : public QObject {
     Q_PROPERTY(QString unavailableReason READ unavailableReason NOTIFY availabilityChanged FINAL)
 
 public:
-    static constexpr int kMaxDurationMs = 5 * 60 * 1000; // stops by itself after 5 minutes
-    static constexpr int kMinDurationMs = 700;            // shorter takes are discarded (accidental clicks)
+    static constexpr int kMaxDurationMs = 5 * 60 * 1000;
+    static constexpr int kMinDurationMs = 700;
 
     explicit VoiceRecorder(QObject* parent = nullptr);
     ~VoiceRecorder() override;
@@ -37,9 +34,7 @@ public:
 
     Q_INVOKABLE void refreshAvailability();
     Q_INVOKABLE bool start();
-    // Stops and emits finished(path, durationMs); a take shorter than kMinDurationMs is discarded instead.
     Q_INVOKABLE void stop();
-    // Stops and deletes the take.
     Q_INVOKABLE void cancel();
 
 signals:
@@ -64,4 +59,4 @@ private:
     bool m_keepOnStop{true};
 };
 
-} // namespace Zalos::Core::Media
+}

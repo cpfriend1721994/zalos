@@ -9,10 +9,6 @@
 
 namespace Zalos::Core::Platform {
 
-// Desktop notifications over org.freedesktop.Notifications (D-Bus), with actions: one popup per `key` (a newer
-// one replaces it instead of stacking), clicks and buttons come back as actionInvoked(key, action), and an
-// inline reply (when the server advertises the "inline-reply" capability, e.g. KDE Plasma) as replied(key, text).
-// Without a notification server every call is a no-op.
 class DesktopNotifications : public QObject {
     Q_OBJECT
 public:
@@ -20,12 +16,12 @@ public:
         QString title;
         QString body;
         QString icon = QStringLiteral("zalos");
-        QString category;                       // e.g. "im.received", "call.incoming"
-        QList<QPair<QString, QString>> actions; // (id, label); "default" is the click on the popup itself
-        bool inlineReply = false;               // add a reply field when the server supports it
+        QString category;
+        QList<QPair<QString, QString>> actions;
+        bool inlineReply = false;
         QString replyPlaceholder;
-        int urgency = 1;                        // 0 low, 1 normal, 2 critical
-        int timeoutMs = -1;                     // -1 server default, 0 never expires
+        int urgency = 1;
+        int timeoutMs = -1;
     };
 
     explicit DesktopNotifications(QObject* parent = nullptr);
@@ -35,7 +31,6 @@ public:
     void closeAll();
     bool supportsInlineReply() const { return m_capabilities.contains(QStringLiteral("inline-reply")); }
 
-    // Builds the D-Bus `actions` argument (id, label pairs; inline reply only when supported).
     QStringList actionList(const Request& request) const;
 
 #ifdef ZALOS_TESTING
@@ -49,7 +44,6 @@ public:
 #endif
 
 signals:
-    // `activationToken` (xdg-activation, Wayland) lets the window take focus; may be empty.
     void actionInvoked(const QString& key, const QString& action, const QString& activationToken);
     void replied(const QString& key, const QString& text);
 
@@ -64,9 +58,9 @@ private:
     void forget(uint id);
 
     QStringList m_capabilities;
-    QHash<QString, uint> m_ids;   // key -> notification id
-    QHash<uint, QString> m_keys;  // notification id -> key
-    QHash<uint, QString> m_tokens; // activation token received just before ActionInvoked
+    QHash<QString, uint> m_ids;
+    QHash<uint, QString> m_keys;
+    QHash<uint, QString> m_tokens;
 };
 
-} // namespace Zalos::Core::Platform
+}

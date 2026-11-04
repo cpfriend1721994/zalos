@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import QtQuick.Templates as T // Overlay lives in Templates; Qt 6.4's Basic does not re-export it
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import Zalos
@@ -15,15 +15,12 @@ Rectangle {
     border.color: ThemeManager.borderColor
     border.width: 1
 
-    // Pin/mute state comes from the backend when it exposes it; otherwise
-    // the buttons still act as toggles with neutral labels.
     readonly property bool hasPinState: typeof ZaloClient.currentConversationPinned === "boolean"
     readonly property bool hasMuteState: typeof ZaloClient.currentConversationMuted === "boolean"
     readonly property bool isPinned: hasPinState && ZaloClient.currentConversationPinned
     readonly property bool isMuted: hasMuteState && ZaloClient.currentConversationMuted
     readonly property bool hasConversation: ZaloClient.currentConversationId.length > 0
 
-    // Group roster and shared content, refreshed on demand (not bound: both are computed lists).
     property var members: []
     property string myRole: ""
     property bool showAllMembers: false
@@ -58,8 +55,7 @@ Rectangle {
         ImageViewerState.show(list, start);
     }
 
-    // Destructive group actions ask first.
-    property string confirmAction: ""   // "kick", "block", "owner", "disperse"
+    property string confirmAction: ""
     property string confirmTarget: ""
     property string confirmName: ""
     function askConfirm(action: string, target: string, name: string): void {
@@ -67,6 +63,14 @@ Rectangle {
         root.confirmTarget = target;
         root.confirmName = name;
         confirmDialog.open();
+    }
+
+    function dueLabel(ms: real): string {
+        if (!ms || ms <= 0) return "";
+        var d = new Date(ms);
+        var p = (n) => ("0" + n).slice(-2);
+        var text = p(d.getDate()) + "/" + p(d.getMonth() + 1) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+        return (ms < Date.now() ? I18n.t("Quá hạn ", "Overdue ") : I18n.t("Hạn ", "Due ")) + text;
     }
 
     onVisibleChanged: { root.refreshMembers(); root.refreshShared(); }
@@ -94,37 +98,116 @@ Rectangle {
         anchors.centerIn: parent
         modal: true
         width: 340
+        onAboutToShow: leaveSilentCheck.checked = false
         title: root.confirmAction === "disperse" ? I18n.t("Giải tán nhóm?", "Disband group?")
              : root.confirmAction === "owner" ? I18n.t("Chuyển quyền trưởng nhóm?", "Transfer ownership?")
              : root.confirmAction === "block" ? I18n.t("Chặn khỏi nhóm?", "Block from group?")
+             : root.confirmAction === "leave" ? I18n.t("Rời nhóm?", "Leave group?")
              : I18n.t("Xóa thành viên?", "Remove member?")
         standardButtons: Dialog.Ok | Dialog.Cancel
-        Text {
+
+        ColumnLayout {
             width: parent.width
-            wrapMode: Text.Wrap
-            color: ThemeManager.textColor
-            font.family: Theme.fontFamily
-            font.pixelSize: 13
-            text: root.confirmAction === "disperse"
-                  ? I18n.t("Tất cả thành viên sẽ bị xóa khỏi nhóm và tin nhắn nhóm sẽ không còn. Không thể hoàn tác.",
-                           "Everyone is removed and the group's messages are gone. This cannot be undone.")
-                  : root.confirmAction === "owner"
-                    ? I18n.t("%1 sẽ trở thành trưởng nhóm, bạn trở thành thành viên.", "%1 becomes the owner; you become a member.").arg(root.confirmName)
-                    : root.confirmAction === "block"
-                      ? I18n.t("%1 sẽ bị xóa khỏi nhóm và không thể tự tham gia lại cho đến khi được bỏ chặn.",
-                               "%1 is removed and cannot join again until unblocked.").arg(root.confirmName)
-                    : I18n.t("Xóa %1 khỏi nhóm?", "Remove %1 from the group?").arg(root.confirmName)
+            spacing: 12
+
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                color: ThemeManager.textColor
+                font.family: Theme.fontFamily
+                font.pixelSize: 13
+                text: root.confirmAction === "disperse"
+                      ? I18n.t("Tất cả thành viên sẽ bị xóa khỏi nhóm và tin nhắn nhóm sẽ không còn. Không thể hoàn tác.",
+                               "Everyone is removed and the group's messages are gone. This cannot be undone.")
+                      : root.confirmAction === "owner"
+                        ? I18n.t("%1 sẽ trở thành trưởng nhóm, bạn trở thành thành viên.", "%1 becomes the owner; you become a member.").arg(root.confirmName)
+                        : root.confirmAction === "block"
+                          ? I18n.t("%1 sẽ bị xóa khỏi nhóm và không thể tự tham gia lại cho đến khi được bỏ chặn.",
+                                   "%1 is removed and cannot join again until unblocked.").arg(root.confirmName)
+                          : root.confirmAction === "leave"
+                            ? I18n.t("Bạn sẽ rời khỏi nhóm này và không còn nhận được tin nhắn của nhóm.",
+                                     "You will leave this group and stop receiving its messages.")
+                            : I18n.t("Xóa %1 khỏi nhóm?", "Remove %1 from the group?").arg(root.confirmName)
+            }
+
+            ZCheckBox {
+                id: leaveSilentCheck
+                visible: root.confirmAction === "leave"
+                Layout.fillWidth: true
+                checked: false
+                text: I18n.t("Rời nhóm trong im lặng (không thông báo cho thành viên khác)",
+                             "Leave quietly (don't notify other members)")
+                onToggled: (value) => leaveSilentCheck.checked = value
+            }
         }
+
         onAccepted: {
             const gid = ZaloClient.currentConversationId;
             if (root.confirmAction === "disperse") ZaloClient.disperseGroup(gid);
             else if (root.confirmAction === "owner") ZaloClient.transferGroupOwner(gid, root.confirmTarget);
             else if (root.confirmAction === "kick") ZaloClient.removeMemberFromGroup(gid, root.confirmTarget);
             else if (root.confirmAction === "block") ZaloClient.groupAdmin.setBlocked(gid, root.confirmTarget, true);
+            else if (root.confirmAction === "leave") ZaloClient.leaveGroup(gid, leaveSilentCheck.checked);
         }
     }
 
-    // Reusable round quick-action button with caption
+    Dialog {
+        id: reminderDialog
+        parent: T.Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        width: 320
+        title: I18n.t("Thêm nhắc hẹn", "Add reminder")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAboutToShow: {
+            const d = new Date(Date.now() + 3600000);
+            const p = (n) => ("0" + n).slice(-2);
+            remTitle.text = "";
+            remEmoji.text = "⏰";
+            remDate.text = p(d.getDate()) + "/" + p(d.getMonth() + 1) + "/" + d.getFullYear();
+            remTime.text = p(d.getHours()) + ":" + p(d.getMinutes());
+            remRepeat.currentIndex = 0;
+        }
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+            ZTextField {
+                id: remTitle
+                Layout.fillWidth: true
+                placeholderText: I18n.t("Nội dung nhắc hẹn", "Reminder title")
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                ZTextField { id: remDate; Layout.fillWidth: true; placeholderText: "dd/MM/yyyy" }
+                ZTextField { id: remTime; Layout.preferredWidth: 90; placeholderText: "HH:mm" }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                ZTextField { id: remEmoji; Layout.preferredWidth: 70; placeholderText: "⏰" }
+                ZComboBox {
+                    id: remRepeat
+                    Layout.fillWidth: true
+                    model: [I18n.t("Không lặp", "No repeat"), I18n.t("Hàng ngày", "Daily"),
+                            I18n.t("Hàng tuần", "Weekly"), I18n.t("Hàng tháng", "Monthly")]
+                }
+            }
+        }
+        onAccepted: {
+            const t = remTitle.text.trim();
+            if (t.length === 0) return;
+            const dm = remDate.text.split("/");
+            const tm = remTime.text.split(":");
+            let ms = Date.now() + 3600000;
+            if (dm.length === 3 && tm.length >= 2) {
+                const dd = new Date(parseInt(dm[2]), parseInt(dm[1]) - 1, parseInt(dm[0]), parseInt(tm[0]), parseInt(tm[1]));
+                if (!isNaN(dd.getTime())) ms = dd.getTime();
+            }
+            ZaloClient.createReminder(t, ms, remEmoji.text.trim(), remRepeat.currentIndex);
+        }
+    }
+
     component QuickAction: ColumnLayout {
         id: qa
         property string iconName: ""
@@ -182,7 +265,6 @@ Rectangle {
         anchors.margins: 1
         spacing: 0
 
-        // Header
         Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 56
@@ -236,7 +318,6 @@ Rectangle {
             }
         }
 
-        // Scrollable Body
         ScrollView {
             id: bodyScroll
             Layout.fillWidth: true
@@ -250,7 +331,6 @@ Rectangle {
 
                 Item { Layout.preferredHeight: 4 }
 
-                // Avatar & Name
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: 16
@@ -284,7 +364,6 @@ Rectangle {
                             ToolTip.text: I18n.t("Xem thông tin cá nhân", "View profile")
                         }
 
-                        // Change the group photo (owner / deputy): /api/group/upavatar.
                         Rectangle {
                             visible: ZaloClient.currentConversationIsGroup && (root.myRole === "owner" || root.myRole === "admin")
                             anchors.right: parent.right
@@ -373,7 +452,7 @@ Rectangle {
                                 border.width: 1
                             }
                             onAccepted: {
-                                if (text.trim().length > 0 || !ZaloClient.currentConversationIsGroup) { // empty alias = remove
+                                if (text.trim().length > 0 || !ZaloClient.currentConversationIsGroup) {
                                     if (ZaloClient.currentConversationIsGroup) {
                                         ZaloClient.changeGroupName(ZaloClient.currentConversationId, text.trim())
                                     } else {
@@ -409,7 +488,6 @@ Rectangle {
                     }
                 }
 
-                // Quick Actions
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 8
@@ -455,7 +533,6 @@ Rectangle {
                         actionEnabled: root.hasConversation
                         iconName: "contacts"
                         caption: I18n.t("Chia sẻ danh thiếp", "Share card")
-                        // Share this person's card to other conversations (not into their own chat).
                         onTriggered: ZaloClient.openShareCard(ZaloClient.currentConversationId, ZaloClient.currentConversationName)
                     }
 
@@ -467,7 +544,6 @@ Rectangle {
                     }
                 }
 
-                // Group management actions
                 ColumnLayout {
                     visible: ZaloClient.currentConversationIsGroup
                     Layout.fillWidth: true
@@ -489,7 +565,6 @@ Rectangle {
                         color: ThemeManager.textColor
                     }
 
-                    // Link, permissions, join requests, blocked list (GroupManageModal).
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 36
@@ -554,9 +629,7 @@ Rectangle {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                ZaloClient.leaveGroup(ZaloClient.currentConversationId, false)
-                            }
+                            onClicked: root.askConfirm("leave", "", "")
                         }
                     }
 
@@ -596,7 +669,196 @@ Rectangle {
                     color: ThemeManager.borderColor
                 }
 
-                // Group members (getmg-v2 roster; non-friend names from /api/social/group/members)
+                ColumnLayout {
+                    id: autoDeleteSection
+                    visible: root.hasConversation
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 16
+                    Layout.rightMargin: 16
+                    spacing: 6
+
+                    property double curTtl: 0
+                    readonly property list<int> ttlOptions: [0, 86400000, 604800000, 1209600000]
+                    function refreshTtl(): void {
+                        autoDeleteSection.curTtl = ZaloClient.conversationAutoDelete(ZaloClient.currentConversationId);
+                    }
+                    function ttlLabel(ms: int): string {
+                        if (ms <= 0) return I18n.t("Tắt", "Off");
+                        if (ms < 604800000) return I18n.t("1 ngày", "1 day");
+                        if (ms < 1209600000) return I18n.t("7 ngày", "7 days");
+                        return I18n.t("14 ngày", "14 days");
+                    }
+                    Component.onCompleted: autoDeleteSection.refreshTtl()
+                    Connections {
+                        target: ZaloClient
+                        function onConversationFlagsChanged() { autoDeleteSection.refreshTtl(); }
+                        function onCurrentConversationChanged() { autoDeleteSection.refreshTtl(); }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        ZIcon { name: "clock"; size: 16; color: Theme.zaloBlue }
+                        Text {
+                            Layout.fillWidth: true
+                            text: I18n.t("Tin nhắn tự xóa", "Disappearing messages")
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            font.bold: true
+                            color: ThemeManager.textColor
+                        }
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Repeater {
+                            model: autoDeleteSection.ttlOptions
+                            delegate: Rectangle {
+                                id: ttlChip
+                                required property int modelData
+                                readonly property bool active: autoDeleteSection.curTtl === modelData
+                                implicitWidth: ttlChipText.implicitWidth + 20
+                                implicitHeight: 28
+                                radius: 14
+                                color: ttlChip.active ? Theme.zaloBlueLight : ThemeManager.inputFillColor
+                                border.color: ttlChip.active ? Theme.zaloBlue : ThemeManager.borderColor
+                                border.width: 1
+                                Text {
+                                    id: ttlChipText
+                                    anchors.centerIn: parent
+                                    text: autoDeleteSection.ttlLabel(ttlChip.modelData)
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    color: ttlChip.active ? Theme.zaloBlueTonalText : ThemeManager.textColor
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: ZaloClient.setConversationAutoDelete(ZaloClient.currentConversationId, ttlChip.modelData)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: root.hasConversation
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: ThemeManager.borderColor
+                }
+
+                ColumnLayout {
+                    visible: root.hasConversation
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 16
+                    Layout.rightMargin: 16
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        ZIcon { name: "reminder"; size: 16; color: Theme.zaloBlue }
+                        Text {
+                            Layout.fillWidth: true
+                            text: I18n.t("Nhắc hẹn", "Reminders")
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            font.bold: true
+                            color: ThemeManager.textColor
+                        }
+                        Rectangle {
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 26
+                            radius: 13
+                            color: addReminderMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                            ZIcon { anchors.centerIn: parent; name: "plus"; size: 15; color: Theme.zaloBlue }
+                            MouseArea {
+                                id: addReminderMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: reminderDialog.open()
+                                ToolTip.visible: containsMouse
+                                ToolTip.text: I18n.t("Thêm nhắc hẹn", "Add reminder")
+                            }
+                        }
+                    }
+
+                    Text {
+                        visible: ZaloClient.reminders.length === 0
+                        Layout.fillWidth: true
+                        text: ZaloClient.isLoadingReminders ? I18n.t("Đang tải…", "Loading…")
+                                                            : I18n.t("Chưa có nhắc hẹn nào", "No reminders yet")
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        color: ThemeManager.secondaryTextColor
+                    }
+
+                    Repeater {
+                        model: ZaloClient.reminders
+                        delegate: Rectangle {
+                            id: remRow
+                            required property var modelData
+                            Layout.fillWidth: true
+                            implicitHeight: 42
+                            radius: 6
+                            color: remRowMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                            MouseArea { id: remRowMouse; anchors.fill: parent; hoverEnabled: true }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 4
+                                spacing: 8
+                                Text {
+                                    text: remRow.modelData.emoji && remRow.modelData.emoji.length > 0 ? remRow.modelData.emoji : "⏰"
+                                    font.pixelSize: 16
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: remRow.modelData.title
+                                        elide: Text.ElideRight
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 13
+                                        color: ThemeManager.textColor
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: text.length > 0
+                                        text: root.dueLabel(remRow.modelData.startTime)
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 11
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: 26
+                                    Layout.preferredHeight: 26
+                                    radius: 13
+                                    color: remDelMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                                    ZIcon { anchors.centerIn: parent; name: "trash"; size: 14; color: Theme.badgeRed }
+                                    MouseArea {
+                                        id: remDelMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: ZaloClient.removeReminder(remRow.modelData.id)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: ThemeManager.borderColor
+                }
+
                 ColumnLayout {
                     visible: ZaloClient.currentConversationIsGroup && root.hasConversation
                     Layout.fillWidth: true
@@ -739,7 +1001,6 @@ Rectangle {
                     }
                 }
 
-                // Shared content of the loaded messages (newest first). Older history: scroll up in the chat.
                 ColumnLayout {
                     visible: root.hasConversation
                     Layout.fillWidth: true

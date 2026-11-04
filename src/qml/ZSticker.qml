@@ -1,11 +1,6 @@
 import QtQuick
 import Zalos
 
-// One Zalo sticker from its render info (StickerStore::describe / MessageItem extra.sticker):
-//   animatedUrl            → animated WebP (AnimatedImage; Qt's qwebp plugin)
-//   spriteUrl + frames     → horizontal strip of square frames, one every `duration` ms (Zalo PC _playSticker)
-//   url                    → still image (also the placeholder underneath while the animation loads)
-// `fallbackUrl` is used when no info is known yet (older cached messages).
 Item {
     id: root
     property var info: ({})
@@ -18,7 +13,6 @@ Item {
     readonly property int frames: (root.info && root.info.frames) ? root.info.frames : 1
     readonly property int duration: (root.info && root.info.duration) ? root.info.duration : 100
     readonly property bool spriteMode: root.animatedUrl.length === 0 && root.spriteUrl.length > 0 && root.frames > 1
-    // Image.Status of what is on screen (placeholders in callers).
     readonly property int status: animLoader.item && animLoader.item.status === Image.Ready ? Image.Ready
                                   : spriteImage.status === Image.Ready ? Image.Ready : stillImage.status
     property int frame: 0
@@ -49,7 +43,6 @@ Item {
         }
     }
 
-    // Sprite strip: a square window over the strip, moved one frame per tick.
     Item {
         anchors.centerIn: parent
         width: root.side

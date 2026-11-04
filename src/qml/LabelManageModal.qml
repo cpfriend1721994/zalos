@@ -4,8 +4,6 @@ import QtQuick.Templates as T
 import QtQuick.Layouts
 import Zalos
 
-// "Quản lý thẻ phân loại" (Zalo PC label manager): add, rename, recolour, reorder and delete labels
-// (ZaloClient.labels → /api/convlabel/update). Assigning labels happens from the conversation menu.
 Item {
     id: root
     anchors.fill: parent
@@ -252,7 +250,6 @@ Item {
 
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: ThemeManager.dividerColor }
 
-            // New label
             Text {
                 text: I18n.t("Thêm thẻ phân loại", "Add a label")
                       + " (" + root.labelList.length + "/" + ZaloClient.labels.maxLabels + ")"

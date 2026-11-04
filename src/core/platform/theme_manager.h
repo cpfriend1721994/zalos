@@ -32,37 +32,32 @@ class ThemeManager : public QObject {
     Q_PROPERTY(QColor borderColor READ borderColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor chatBubbleMine READ chatBubbleMine NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor chatBubbleTheir READ chatBubbleTheir NOTIFY themeColorsChanged FINAL)
-    // Zalo PC design tokens (pc-dist compact-app-pc.css, ":root .light" / ":root .dark").
-    Q_PROPERTY(QColor hoverColor READ hoverColor NOTIFY themeColorsChanged FINAL)            // --layer-background-hover
-    // Fully transparent versions of the hover colours: the "not hovered" end of a hover colour. An animated
-    // change between "transparent" (= #00000000, black) and a light hover colour passes through dark grey
-    // frames and flickers in the light theme; between these and the hover colour only the alpha moves.
+    Q_PROPERTY(QColor hoverColor READ hoverColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor hoverClearColor READ hoverClearColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor railHoverClearColor READ railHoverClearColor NOTIFY themeColorsChanged FINAL)
-    Q_PROPERTY(QColor selectedColor READ selectedColor NOTIFY themeColorsChanged FINAL)      // --layer-background-selected
-    Q_PROPERTY(QColor pinnedColor READ pinnedColor NOTIFY themeColorsChanged FINAL)          // --layer-background-pinned
-    Q_PROPERTY(QColor inputFillColor READ inputFillColor NOTIFY themeColorsChanged FINAL)    // --input-field-bg-filled
+    Q_PROPERTY(QColor selectedColor READ selectedColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor pinnedColor READ pinnedColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor inputFillColor READ inputFillColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor inputFillHoverColor READ inputFillHoverColor NOTIFY themeColorsChanged FINAL)
-    Q_PROPERTY(QColor dividerColor READ dividerColor NOTIFY themeColorsChanged FINAL)        // --divider
-    Q_PROPERTY(QColor placeholderColor READ placeholderColor NOTIFY themeColorsChanged FINAL)// --text-placeholder
-    Q_PROPERTY(QColor iconColor READ iconColor NOTIFY themeColorsChanged FINAL)              // --icon-secondary
-    Q_PROPERTY(QColor accentColor READ accentColor NOTIFY themeColorsChanged FINAL)          // --button-primary-normal
+    Q_PROPERTY(QColor dividerColor READ dividerColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor placeholderColor READ placeholderColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor iconColor READ iconColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor accentColor READ accentColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor accentHoverColor READ accentHoverColor NOTIFY themeColorsChanged FINAL)
-    Q_PROPERTY(QColor accentTonalColor READ accentTonalColor NOTIFY themeColorsChanged FINAL)// --button-primary-tonal-normal
+    Q_PROPERTY(QColor accentTonalColor READ accentTonalColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor accentTonalTextColor READ accentTonalTextColor NOTIFY themeColorsChanged FINAL)
-    Q_PROPERTY(QColor linkColor READ linkColor NOTIFY themeColorsChanged FINAL)              // --text-information
-    Q_PROPERTY(QColor badgeColor READ badgeColor NOTIFY themeColorsChanged FINAL)            // --icon-count-noti-enable-bg
-    Q_PROPERTY(QColor successColor READ successColor NOTIFY themeColorsChanged FINAL)        // --success
+    Q_PROPERTY(QColor linkColor READ linkColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor badgeColor READ badgeColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor successColor READ successColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor errorBackgroundColor READ errorBackgroundColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor warningBackgroundColor READ warningBackgroundColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor infoBackgroundColor READ infoBackgroundColor NOTIFY themeColorsChanged FINAL)
-    Q_PROPERTY(QColor railHoverColor READ railHoverColor NOTIFY themeColorsChanged FINAL)    // --layer-background-navbar-hover
+    Q_PROPERTY(QColor railHoverColor READ railHoverColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor railSelectedColor READ railSelectedColor NOTIFY themeColorsChanged FINAL)
-    Q_PROPERTY(QColor timestampColor READ timestampColor NOTIFY themeColorsChanged FINAL)    // --timestamp (date pill)
+    Q_PROPERTY(QColor timestampColor READ timestampColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor reactionBackgroundColor READ reactionBackgroundColor NOTIFY themeColorsChanged FINAL)
 
 public:
-    // The instance main() (or a test) created; QML's "ThemeManager" singleton resolves to it.
     static inline ThemeManager* s_instance = nullptr;
     enum ThemeMode {
         ZaloLight = 0,
@@ -81,6 +76,7 @@ public:
 
     QString systemFontFamily() const { return m_systemFontFamily; }
     Q_INVOKABLE void setSystemFontFamily(const QString& family);
+    static QString familyFromFontSpec(const QString& spec);
 
     QColor systemAccentColor() const { return m_systemAccentColor; }
 
@@ -143,7 +139,7 @@ private:
     void syncApplicationPalette();
     QColor resolveColor(const QString& lightZalo, const QString& darkZalo, const QColor& systemColor = QColor()) const;
 
-    int m_themeMode{2}; // 0: Zalo Sáng, 1: Zalo Tối, 2: Theo hệ thống
+    int m_themeMode{2};
     bool m_isDarkMode{false};
     bool m_systemIsDark{false};
     QColor m_systemAccentColor;
@@ -151,5 +147,4 @@ private:
     QFileSystemWatcher* m_kdeWatcher{nullptr};
 };
 
-} // namespace Zalos::Core::Platform
-
+}

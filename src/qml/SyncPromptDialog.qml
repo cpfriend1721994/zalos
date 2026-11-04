@@ -2,14 +2,11 @@ import QtQuick
 import QtQuick.Layouts
 import Zalos
 
-// Shown once on the first sign-in of an account whose phone history was never synced to this computer.
-// "Đồng bộ ngay" starts the phone sync (progress in Settings > Đồng bộ tin nhắn), "Để sau" asks again at the
-// next sign-in, "Không hỏi lại" never asks for this account.
 Rectangle {
     id: root
     color: Qt.rgba(0, 0, 0, 0.45)
 
-    MouseArea { anchors.fill: parent } // modal
+    MouseArea { anchors.fill: parent }
 
     Rectangle {
         anchors.centerIn: parent

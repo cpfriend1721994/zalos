@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QJSEngine>
-#include <QtQml/qqml.h> // Qt 6.4: QML_FOREIGN needs QQmlPrivate::QmlResolved from here
+#include <QtQml/qqml.h>
 #include <QtQml/qqmlregistration.h>
 
 #include "network/zalo_client.h"
@@ -10,14 +10,11 @@
 
 class QQmlEngine;
 
-// Typed QML singletons for the app-wide C++ objects (so qmlcachegen can compile bindings that use them).
-// QML_FOREIGN wrappers are required: for a default-constructible QObject, Qt prefers `new T` over T::create(),
-// which would give QML a second, empty ZaloClient next to the one main() signed in with.
 namespace Zalos::QmlSingletons {
 
 template <typename T>
 T* existingInstance() {
-    if (!T::s_instance) new T(); // only when QML is loaded without an app-created instance (tools, tests)
+    if (!T::s_instance) new T();
     QJSEngine::setObjectOwnership(T::s_instance, QJSEngine::CppOwnership);
     return T::s_instance;
 }
@@ -55,4 +52,4 @@ public:
     }
 };
 
-} // namespace Zalos::QmlSingletons
+}

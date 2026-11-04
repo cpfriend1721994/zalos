@@ -61,7 +61,6 @@ void CameraSender::stop() {
         disconnect(m_camera, nullptr, this, nullptr);
         m_camera->stop();
     }
-    // deleteLater: stop() also runs from the camera's own errorOccurred signal.
     if (m_capture) m_capture->deleteLater();
     m_capture = nullptr;
     if (m_camera) m_camera->deleteLater();
@@ -81,14 +80,13 @@ void CameraSender::setProfile(QSize size, int fps, int bitrate) {
     m_size = size;
     m_fps = fps;
     m_bitrate = bitrate;
-    m_reopen = true; // new parameters start with a key frame
+    m_reopen = true;
 }
 
 void CameraSender::processFrame(const QVideoFrame& frame) {
     if (!frame.isValid()) return;
     if (m_preview) m_preview->setVideoFrame(frame);
     const qint64 now = m_clock.elapsed();
-    // Throttle to the rung's frame rate (cameras deliver 30 fps).
     if (m_lastFrameMs >= 0 && now - m_lastFrameMs < 1000 / m_fps - 2) return;
     m_lastFrameMs = now;
     if (m_reopen || !m_encoder.isOpen()) {
@@ -104,7 +102,7 @@ void CameraSender::processFrame(const QVideoFrame& frame) {
     if (m_lastKeyMs < 0 || now - m_lastKeyMs >= kKeyIntervalMs) m_forceKey = true;
     bool key = false;
     const QByteArray au = m_encoder.encodeI420(i420, now, m_forceKey, &key);
-    if (au.isEmpty()) return; // skipped by rate control
+    if (au.isEmpty()) return;
     if (key) {
         m_forceKey = false;
         m_lastKeyMs = now;
@@ -112,4 +110,4 @@ void CameraSender::processFrame(const QVideoFrame& frame) {
     emit frameEncoded(key, au, m_size.width(), m_size.height());
 }
 
-} // namespace Zalos::Core::Call
+}

@@ -4,8 +4,6 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import Zalos
 
-// Full-window photo viewer (Zalo PC media viewer): zoom (wheel, +/-, double click), drag to pan, rotate,
-// previous/next with a thumbnail strip, copy, save, open original. Esc or a click on the backdrop closes.
 Rectangle {
     id: root
     color: Qt.rgba(0, 0, 0, 0.92)
@@ -52,13 +50,11 @@ Rectangle {
         else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_S) { saveDialog.open(); event.accepted = true; }
     }
 
-    // Backdrop: a click outside the picture closes the viewer.
     MouseArea {
         anchors.fill: parent
         onClicked: ImageViewerState.close()
     }
 
-    // ---- Picture area -------------------------------------------------------------------------
     Item {
         id: stage
         anchors.top: topBar.bottom
@@ -85,7 +81,6 @@ Rectangle {
             Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
             Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-            // Only the painted picture swallows clicks; empty letterbox space still closes the viewer.
             MouseArea {
                 anchors.centerIn: parent
                 width: photo.paintedWidth
@@ -120,7 +115,6 @@ Rectangle {
             font.pixelSize: 14
         }
 
-        // Previous / next
         Repeater {
             model: [ { step: -1, icon: "chevron_left", left: true }, { step: 1, icon: "chevron_right", left: false } ]
             Rectangle {
@@ -145,7 +139,6 @@ Rectangle {
         }
     }
 
-    // ---- Top bar: who/when, counter, actions ----------------------------------------------------
     Rectangle {
         id: topBar
         anchors.top: parent.top
@@ -153,7 +146,7 @@ Rectangle {
         anchors.right: parent.right
         height: 56
         color: Qt.rgba(0, 0, 0, 0.35)
-        MouseArea { anchors.fill: parent } // clicks on the bar do not close the viewer
+        MouseArea { anchors.fill: parent }
 
         RowLayout {
             anchors.fill: parent
@@ -238,7 +231,6 @@ Rectangle {
         }
     }
 
-    // ---- Thumbnail strip --------------------------------------------------------------------------
     ListView {
         id: strip
         visible: root.count > 1

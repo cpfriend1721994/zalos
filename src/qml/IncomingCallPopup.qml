@@ -14,7 +14,6 @@ Rectangle {
     border.width: 2
     visible: ZaloClient.isIncomingCallActive
 
-    // Drop shadow effect simulation
     Rectangle {
         anchors.fill: parent
         anchors.margins: -4
@@ -33,7 +32,6 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 12
 
-            // Pulsing ringing avatar
             ZAvatar {
                 size: 48
                 name: ZaloClient.incomingCallerName
@@ -80,7 +78,6 @@ Rectangle {
             }
         }
 
-        // Action Buttons: Answer and Decline
         RowLayout {
             Layout.fillWidth: true
             spacing: 12
@@ -131,4 +128,3 @@ Rectangle {
         }
     }
 }
-

@@ -36,14 +36,14 @@ void applyIdHeaders(QNetworkRequest& req, const QString& referer, bool navigate 
     req.setRawHeader("Referer", referer.toUtf8());
 }
 
-} // namespace
+}
 
 ZaloApiClient::ZaloApiClient(QObject* parent)
     : QObject(parent) {
     m_netManager = new QNetworkAccessManager(this);
     m_jar = new SessionCookieJar(this);
     m_netManager->setCookieJar(m_jar);
-    m_jar->setParent(this); // setCookieJar re-parents; keep ownership explicit.
+    m_jar->setParent(this);
     m_session = new ZaloSession(m_netManager, m_jar, this);
     connect(m_netManager, &QNetworkAccessManager::finished, this, &ZaloApiClient::onReplyFinished);
 }
@@ -78,10 +78,6 @@ void ZaloApiClient::pingConnectivity() {
     request.setAttribute(kTagAttr, "ping");
     m_netManager->head(request);
 }
-
-// ---------------------------------------------------------------------------
-// QR login
-// ---------------------------------------------------------------------------
 
 void ZaloApiClient::generateQrToken() {
     cancelQrLogin();
@@ -133,16 +129,11 @@ void ZaloApiClient::pollWaitingConfirm() {
 void ZaloApiClient::checkSession() {
     QNetworkRequest req(QUrl("https://id.zalo.me/account/checksession?continue=https%3A%2F%2Fchat.zalo.me%2Findex.html"));
     applyIdHeaders(req, kRefererChat, true);
-    // Redirects carry the zpw_sek / zpsid cookies; the cookie jar stores them on every hop.
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setAttribute(kTagAttr, "qr_step7_check_session");
     req.setAttribute(kGenAttr, m_qrGeneration);
     m_netManager->get(req);
 }
-
-// ---------------------------------------------------------------------------
-// Session sources
-// ---------------------------------------------------------------------------
 
 void ZaloApiClient::startSessionLogin(const QString& imei, const QString& userAgent, const QString& language) {
     m_language = language;
@@ -192,7 +183,6 @@ void ZaloApiClient::syncFromBrowserSession() {
         emit credentialsObtained();
         startSessionLogin(imei, root.value("userAgent").toString(ZaloSession::kDefaultUserAgent), m_language);
     });
-    // Only a start failure ends here; crashes/timeouts also emit finished(), which reports them once.
     connect(proc, &QProcess::errorOccurred, this, [this, proc](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;
         proc->deleteLater();
@@ -201,13 +191,9 @@ void ZaloApiClient::syncFromBrowserSession() {
     proc->start("python3", {"-I", scriptPath});
 }
 
-// ---------------------------------------------------------------------------
-// Reply dispatch for the QR state machine
-// ---------------------------------------------------------------------------
-
 void ZaloApiClient::onReplyFinished(QNetworkReply* reply) {
     const QString tag = reply->request().attribute(kTagAttr).toString();
-    if (tag.isEmpty()) return; // Session requests are handled by their own lambdas.
+    if (tag.isEmpty()) return;
     reply->deleteLater();
 
     if (tag == "ping") {
@@ -216,12 +202,10 @@ void ZaloApiClient::onReplyFinished(QNetworkReply* reply) {
         return;
     }
 
-    // Ignore replies that belong to an older QR code.
     if (reply->request().attribute(kGenAttr).toInt() != m_qrGeneration) return;
 
     if (tag == "qr_step7_check_session") {
         if (reply->error() == QNetworkReply::NoError || reply->error() == QNetworkReply::UnknownContentError) {
-            // The account cookies are now in the jar. A fresh device id is bound to our user agent.
             emit credentialsObtained();
             startSessionLogin(ZaloCrypto::generateImei(ZaloSession::kDefaultUserAgent), ZaloSession::kDefaultUserAgent,
                               m_language);
@@ -233,7 +217,6 @@ void ZaloApiClient::onReplyFinished(QNetworkReply* reply) {
 
     if (reply->error() != QNetworkReply::NoError) {
         if (tag == "qr_step5_waiting_scan" || tag == "qr_step6_waiting_confirm") {
-            // Long-poll dropped by the network; let the QR timer regenerate the code.
             cancelQrLogin();
         }
         emit qrFailed(reply->errorString());
@@ -295,7 +278,7 @@ void ZaloApiClient::onReplyFinished(QNetworkReply* reply) {
 
     if (tag == "qr_step5_waiting_scan") {
         if (!m_isPollingScan) return;
-        if (errorCode == 8) { // Long-poll keep-alive.
+        if (errorCode == 8) {
             pollWaitingScan();
             return;
         }
@@ -330,4 +313,4 @@ void ZaloApiClient::onReplyFinished(QNetworkReply* reply) {
     }
 }
 
-} // namespace Zalos::Core::Network
+}

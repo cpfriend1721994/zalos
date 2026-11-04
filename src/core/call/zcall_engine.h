@@ -35,7 +35,7 @@ struct AudioDevice {
 
 class ZCallEngine : public QObject {
     Q_OBJECT
-    QML_ANONYMOUS // typed for the QML compiler (reached through ZaloClient properties)
+    QML_ANONYMOUS
 
     Q_PROPERTY(int callState READ callStateInt NOTIFY callStateChanged FINAL)
     Q_PROPERTY(QString currentCaller READ currentCaller NOTIFY currentCallerChanged FINAL)
@@ -64,7 +64,6 @@ public:
     bool isScreenSharing() const { return m_isScreenSharing; }
     int callDurationSeconds() const { return m_durationSeconds; }
 
-    // Invokable Call-v2 APIs
     Q_INVOKABLE void startCall(const QString& peerId, const QString& peerName, bool isVideo = false);
     Q_INVOKABLE void answerCall(bool withVideo = true);
     Q_INVOKABLE void declineCall();
@@ -76,16 +75,14 @@ public:
     Q_INVOKABLE void stopScreenShare();
 
     struct SrtpSessionKeys {
-        QByteArray encKey;   // 16 bytes (AES-128-CM)
-        QByteArray authKey;  // 20 bytes (HMAC-SHA1-80)
-        QByteArray saltKey;  // 14 bytes
+        QByteArray encKey;
+        QByteArray authKey;
+        QByteArray saltKey;
     };
 
-    // Replaces zcall-native SRTP key derivation
     static QByteArray deriveSrtpMasterKey(const QByteArray& zrtpSecret, const QByteArray& salt);
     static SrtpSessionKeys deriveSrtpSessionKeys(const QByteArray& master30);
 
-    // Audio Devices (PulseAudio / PipeWire)
     QVector<AudioDevice> getAudioDevices(bool input = true);
 
 signals:
@@ -118,5 +115,4 @@ private:
     QTimer* m_durationTimer{nullptr};
 };
 
-} // namespace Zalos::Core::Call
-
+}

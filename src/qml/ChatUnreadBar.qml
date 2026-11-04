@@ -1,8 +1,6 @@
 import QtQuick
 import Zalos
 
-// "Tin nhắn chưa đọc" separator drawn above the first unread message when a thread is opened
-// (MessageModel::UnreadMarkerRole). Part of the ChatArea split.
 Item {
     implicitHeight: visible ? 28 : 0
 

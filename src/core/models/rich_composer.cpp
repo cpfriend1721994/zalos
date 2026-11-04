@@ -15,9 +15,8 @@ namespace Zalos::Core::Models {
 
 namespace {
 
-// Markers kept in the char format so export never has to guess from rendering properties.
-constexpr int kColorProp = QTextFormat::UserProperty + 1; // "c_db342e"
-constexpr int kSizeProp = QTextFormat::UserProperty + 2;  // "f_13" | "f_18"
+constexpr int kColorProp = QTextFormat::UserProperty + 1;
+constexpr int kSizeProp = QTextFormat::UserProperty + 2;
 constexpr int kSmallPx = 12;
 constexpr int kBigPx = 18;
 
@@ -58,7 +57,6 @@ void setKey(QTextCharFormat& f, const QString& st, bool on) {
     }
 }
 
-// Calls fn on every fragment piece inside [start, end).
 void forEachPiece(QTextDocument* doc, int start, int end,
                   const std::function<void(int from, int to, const QTextCharFormat&)>& fn) {
     for (QTextBlock b = doc->findBlock(start); b.isValid() && b.position() < end; b = b.next()) {
@@ -86,7 +84,7 @@ QString listKey(const QTextBlock& b) {
     return list->format().style() == QTextListFormat::ListDecimal ? QStringLiteral("lst_2") : QStringLiteral("lst_1");
 }
 
-} // namespace
+}
 
 const QStringList& RichComposer::colorStyles() {
     static const QStringList colors{"c_db342e", "c_f27806", "c_f7b503", "c_15a85f"};
@@ -119,7 +117,7 @@ bool RichComposer::apply(const QString& st, int start, int end) {
     if (start == end) {
         c.setPosition(start);
         c.select(QTextCursor::WordUnderCursor);
-        if (!c.hasSelection() && start > 0) { // cursor right after a word
+        if (!c.hasSelection() && start > 0) {
             c.setPosition(start - 1);
             c.select(QTextCursor::WordUnderCursor);
         }
@@ -127,7 +125,6 @@ bool RichComposer::apply(const QString& st, int start, int end) {
         start = c.selectionStart();
         end = c.selectionEnd();
     }
-    // Toggle for b/i/u/s and for a colour/size already on the whole range; otherwise set it.
     bool on = true;
     if (st == QLatin1String("c_") || st == QLatin1String("f_")) on = false;
     else if (allHave(doc, start, end, st)) on = false;
@@ -142,7 +139,7 @@ bool RichComposer::apply(const QString& st, int start, int end) {
         if (on || (!exclusiveColor && !exclusiveSize)) setKey(next, st, on);
         pieces.append({{from, to}, next});
     });
-    c.beginEditBlock(); // one undo step
+    c.beginEditBlock();
     for (const auto& p : std::as_const(pieces)) {
         QTextCursor pc(doc);
         pc.setPosition(p.first.first);
@@ -221,7 +218,7 @@ void RichComposer::refresh(int start, int end) {
         const int max = doc->characterCount() - 1;
         int s = qBound(0, qMin(start, end), max);
         int e = qBound(0, qMax(start, end), max);
-        if (s == e && s > 0) s -= 1; // caret: the character before it decides, like any editor
+        if (s == e && s > 0) s -= 1;
         if (s < e) {
             for (const QString& key : {QStringLiteral("b"), QStringLiteral("i"), QStringLiteral("u"), QStringLiteral("s")})
                 state.insert(key, allHave(doc, s, e, key));
@@ -248,7 +245,7 @@ QVariantList RichComposer::styles() const {
 QVariantList RichComposer::exportStyles(const QTextDocument* document) {
     QVariantList out;
     if (!document) return out;
-    QHash<QString, std::pair<int, int>> open; // style -> [start, end)
+    QHash<QString, std::pair<int, int>> open;
     auto flush = [&out](const QString& st, const std::pair<int, int>& r) {
         if (r.second > r.first) out.append(QVariantMap{{"start", r.first}, {"len", r.second - r.first}, {"st", st}});
     };
@@ -260,7 +257,6 @@ QVariantList RichComposer::exportStyles(const QTextDocument* document) {
             const int from = frag.position();
             const int to = from + frag.length();
             const QStringList keys = keysOf(frag.charFormat());
-            // Close ranges that do not continue into this fragment.
             for (auto o = open.begin(); o != open.end();) {
                 if (!keys.contains(o.key()) || o->second != from) {
                     flush(o.key(), *o);
@@ -298,7 +294,6 @@ void RichComposer::applyStyles(QTextDocument* document, const QVariantList& styl
         if (st.startsWith(QLatin1String("lst_"))) {
             helper.toggleList(st, start, end);
         } else {
-            // Set (not toggle): only where it is missing.
             QTextCursor c(document);
             QList<std::pair<std::pair<int, int>, QTextCharFormat>> pieces;
             forEachPiece(document, start, end, [&](int from, int to, const QTextCharFormat& f) {
@@ -315,4 +310,4 @@ void RichComposer::applyStyles(QTextDocument* document, const QVariantList& styl
     }
 }
 
-} // namespace Zalos::Core::Models
+}

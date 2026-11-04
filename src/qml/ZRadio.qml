@@ -1,8 +1,6 @@
 import QtQuick
 import Zalos
 
-// Zalo PC radio (.z-radio): 24px; unchecked ring in --background-inactiveness-subtle, checked ring and dot in
-// --background-activeness; hover tints the ring. Emits clicked() — the owner decides the selection.
 Item {
     id: root
     property bool checked: false

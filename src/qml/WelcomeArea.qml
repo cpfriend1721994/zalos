@@ -9,9 +9,8 @@ Rectangle {
     color: ThemeManager.chatBackgroundColor
 
     property int currentSlide: 0
-    readonly property int totalSlides: 5
+    readonly property int totalSlides: 4
 
-    // Chevrons are only shown when there is room for them beside the content
     readonly property bool showChevrons: width >= 480
     readonly property int sideMargin: showChevrons ? 80 : 16
 
@@ -23,7 +22,6 @@ Rectangle {
         currentSlide = (currentSlide - 1 + totalSlides) % totalSlides;
     }
 
-    // Auto-advance timer every 6 seconds
     Timer {
         interval: 6000
         running: root.visible
@@ -51,7 +49,6 @@ Rectangle {
             y: Math.max(20, Math.floor((flick.contentHeight - implicitHeight) / 2))
             spacing: 28
 
-            // Welcome Header
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -80,7 +77,6 @@ Rectangle {
                 }
             }
 
-            // Center illustration: drawn at 320x180 and scaled down to fit narrow panes
             Item {
                 id: illustrationFrame
                 readonly property real scaleFactor: Math.min(1, mainCol.width / 320)
@@ -95,12 +91,10 @@ Rectangle {
                     scale: illustrationFrame.scaleFactor
                     transformOrigin: Item.TopLeft
 
-                    // Slide 0: Text-from-image graphic (photo with scan frame and document card)
                     Item {
                         visible: root.currentSlide === 0
                         anchors.fill: parent
 
-                        // Photo Preview Card
                         Rectangle {
                             anchors.centerIn: parent
                             anchors.horizontalCenterOffset: -28
@@ -112,7 +106,6 @@ Rectangle {
                             border.color: Theme.zaloBlue
                             border.width: 2
 
-                            // Mountains inside photo
                             Rectangle {
                                 anchors.bottom: parent.bottom
                                 anchors.bottomMargin: 8
@@ -136,7 +129,6 @@ Rectangle {
                                 rotation: 45
                             }
 
-                            // Sun
                             Rectangle {
                                 width: 20
                                 height: 20
@@ -149,7 +141,6 @@ Rectangle {
                             }
                         }
 
-                        // Scan frame around photo
                         Rectangle {
                             anchors.centerIn: parent
                             anchors.horizontalCenterOffset: -28
@@ -161,7 +152,6 @@ Rectangle {
                             radius: 16
                         }
 
-                        // Overlapping document card with "Copy" button
                         Rectangle {
                             anchors.right: parent.right
                             anchors.rightMargin: 12
@@ -216,7 +206,6 @@ Rectangle {
                             }
                         }
 
-                        // Scan Icon Pill
                         Rectangle {
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
@@ -236,12 +225,10 @@ Rectangle {
                         }
                     }
 
-                    // Slide 1: Cloud sync (cloud, folder, floating cards)
                     Item {
                         visible: root.currentSlide === 1
                         anchors.fill: parent
 
-                        // Floating purple media card
                         Rectangle {
                             anchors.top: parent.top
                             anchors.topMargin: 10
@@ -260,7 +247,6 @@ Rectangle {
                             }
                         }
 
-                        // Floating yellow chat bubble
                         Rectangle {
                             anchors.top: parent.top
                             anchors.topMargin: 20
@@ -272,7 +258,6 @@ Rectangle {
                             color: "#FCD34D"
                         }
 
-                        // Blue cloud with down arrow
                         Rectangle {
                             anchors.centerIn: parent
                             anchors.horizontalCenterOffset: -30
@@ -289,7 +274,6 @@ Rectangle {
                             }
                         }
 
-                        // Yellow file folder
                         Rectangle {
                             anchors.centerIn: parent
                             anchors.horizontalCenterOffset: 30
@@ -318,7 +302,6 @@ Rectangle {
                         }
                     }
 
-                    // Slide 2: Fast file sharing (1 GB)
                     Item {
                         visible: root.currentSlide === 2
                         anchors.fill: parent
@@ -341,7 +324,6 @@ Rectangle {
                         }
                     }
 
-                    // Slide 3: Quick messages
                     Item {
                         visible: root.currentSlide === 3
                         anchors.fill: parent
@@ -374,42 +356,9 @@ Rectangle {
                         }
                     }
 
-                    // Slide 4: Task management
-                    Item {
-                        visible: root.currentSlide === 4
-                        anchors.fill: parent
-
-                        Rectangle {
-                            anchors.centerIn: parent
-                            width: 160
-                            height: 120
-                            radius: 16
-                            color: (ThemeManager.cardBackgroundColor)
-                            border.color: Theme.onlineGreen
-                            border.width: 1.5
-
-                            ColumnLayout {
-                                anchors.centerIn: parent
-                                width: parent.width - 16
-                                spacing: 8
-                                ZIcon { Layout.alignment: Qt.AlignHCenter; name: "todo"; size: 36; color: Theme.onlineGreen }
-                                Text {
-                                    Layout.fillWidth: true
-                                    horizontalAlignment: Text.AlignHCenter
-                                    elide: Text.ElideRight
-                                    text: I18n.t("Giao việc", "To-do")
-                                    font.family: Theme.fontFamily
-                                    font.bold: true
-                                    font.pixelSize: 14
-                                    color: Theme.onlineGreen
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
-            // Slide Title
             Text {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
@@ -420,7 +369,6 @@ Rectangle {
                         case 1: return I18n.t("Trải nghiệm xuyên suốt", "A seamless experience");
                         case 2: return I18n.t("Gửi file nhanh chóng", "Send files fast");
                         case 3: return I18n.t("Nhắn tin nhiều hơn, soạn thảo ít hơn", "Message more, type less");
-                        case 4: return I18n.t("Quản lý công việc hiệu quả", "Manage tasks efficiently");
                         default: return "";
                     }
                 }
@@ -430,7 +378,6 @@ Rectangle {
                 color: Theme.zaloBlue
             }
 
-            // Slide Description
             Text {
                 Layout.fillWidth: true
                 Layout.maximumWidth: 420
@@ -447,8 +394,6 @@ Rectangle {
                                               "Share files and documents up to 1 GB without losing quality");
                         case 3: return I18n.t("Lưu và gửi nhanh các tin nhắn thường dùng với tính năng Tin nhắn nhanh",
                                               "Save and quickly send frequently used messages with Quick Messages");
-                        case 4: return I18n.t("Giao việc, nhắc nhở và theo dõi tiến độ công việc ngay trong cửa sổ trò chuyện",
-                                              "Assign tasks, set reminders and track progress right inside your chats");
                         default: return "";
                     }
                 }
@@ -457,7 +402,6 @@ Rectangle {
                 color: ThemeManager.secondaryTextColor
             }
 
-            // Pagination Dots Indicator
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: 8
@@ -483,7 +427,6 @@ Rectangle {
         }
     }
 
-    // Chevron navigation buttons (declared after the Flickable so they stay on top and receive input)
     Item {
         visible: root.showChevrons
         anchors.left: parent.left

@@ -14,12 +14,11 @@ constexpr auto kService = "org.freedesktop.Notifications";
 constexpr auto kPath = "/org/freedesktop/Notifications";
 constexpr auto kInterface = "org.freedesktop.Notifications";
 
-} // namespace
+}
 
 DesktopNotifications::DesktopNotifications(QObject* parent) : QObject(parent) {
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) return;
-    // Signals come from the server's unique name; an empty service matches it.
     bus.connect(QString(), kPath, kInterface, "ActionInvoked", this, SLOT(onActionInvoked(uint, QString)));
     bus.connect(QString(), kPath, kInterface, "NotificationReplied", this, SLOT(onReplied(uint, QString)));
     bus.connect(QString(), kPath, kInterface, "ActivationToken", this, SLOT(onActivationToken(uint, QString)));
@@ -96,7 +95,7 @@ void DesktopNotifications::forget(uint id) {
 
 void DesktopNotifications::onActionInvoked(uint id, const QString& action) {
     const QString key = m_keys.value(id);
-    if (key.isEmpty() || action == QLatin1String("inline-reply")) return; // not ours / reply comes separately
+    if (key.isEmpty() || action == QLatin1String("inline-reply")) return;
     const QString token = m_tokens.take(id);
     emit actionInvoked(key, action, token);
 }
@@ -116,4 +115,4 @@ void DesktopNotifications::onClosed(uint id, uint reason) {
     forget(id);
 }
 
-} // namespace Zalos::Core::Platform
+}

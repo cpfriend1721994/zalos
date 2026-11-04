@@ -9,14 +9,12 @@ Item {
     anchors.fill: parent
     z: 200
 
-    // Selected friend ids (map id -> true) and derived count
     property var selectedMembers: ({})
     property int selectedCount: 0
     property string filterText: ""
     property bool creating: false
     property string resultMessage: ""
     property bool resultOk: false
-    // Zalo requires at least 3 people including the current user
     readonly property int minMembers: 2
     readonly property bool canCreate: root.selectedCount >= root.minMembers && !root.creating
 
@@ -66,7 +64,6 @@ Item {
         ZaloClient.createGroup(groupNameInput.text.trim(), Object.keys(root.selectedMembers));
     }
 
-    // Created on demand by a Loader in Main.qml, already visible: run the same init.
     Component.onCompleted: visibleChanged()
     onVisibleChanged: {
         if (visible)
@@ -91,7 +88,6 @@ Item {
         }
     }
 
-    // Backdrop Dim
     Rectangle {
         anchors.fill: parent
         color: "#000000"
@@ -104,7 +100,6 @@ Item {
         }
     }
 
-    // Modal Card
     Rectangle {
         id: modalCard
         anchors.centerIn: parent
@@ -119,7 +114,6 @@ Item {
         border.color: ThemeManager.borderColor
         border.width: 1
 
-        // Swallow clicks so the backdrop does not close the modal
         MouseArea { anchors.fill: parent }
 
         ColumnLayout {
@@ -127,7 +121,6 @@ Item {
             anchors.margins: 20
             spacing: 12
 
-            // Header Row
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -172,7 +165,6 @@ Item {
                 color: ThemeManager.borderColor
             }
 
-            // Group Name Row
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
@@ -227,7 +219,6 @@ Item {
                 }
             }
 
-            // Member Search Field
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
@@ -274,7 +265,6 @@ Item {
                 }
             }
 
-            // Friend list with checkboxes (friends only, filtered by name)
             ListView {
                 id: memberListView
                 Layout.fillWidth: true
@@ -285,7 +275,6 @@ Item {
                 model: ZaloClient.contactModel
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-                // Count of delegates actually shown (after friend/name filtering)
                 property int shownCount: 0
                 function recountShown() {
                     var n = 0;
@@ -319,7 +308,6 @@ Item {
                         anchors.rightMargin: 8
                         spacing: 12
 
-                        // Checkbox
                         Rectangle {
                             Layout.preferredWidth: 20
                             Layout.preferredHeight: 20
@@ -363,7 +351,6 @@ Item {
                     }
                 }
 
-                // Empty State
                 ColumnLayout {
                     visible: memberListView.shownCount === 0
                     anchors.centerIn: parent
@@ -396,7 +383,6 @@ Item {
                 }
             }
 
-            // Inline error from the server
             Text {
                 visible: root.resultMessage.length > 0
                 Layout.fillWidth: true
@@ -413,7 +399,6 @@ Item {
                 color: ThemeManager.borderColor
             }
 
-            // Footer: selection hint (left), actions flush right
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8

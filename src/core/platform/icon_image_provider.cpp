@@ -23,7 +23,6 @@ QByteArray IconImageProvider::svgFor(bool filled, const QColor& color, const QSt
 }
 
 QImage IconImageProvider::requestImage(const QString& id, QSize* size, const QSize& requestedSize) {
-    // id = "<f|s>/<colour>/<encoded path>"; the path may itself contain '/' only encoded.
     const int first = id.indexOf('/');
     const int second = first < 0 ? -1 : id.indexOf('/', first + 1);
     const QSize target = requestedSize.isValid() && !requestedSize.isEmpty() ? requestedSize : QSize(24, 24);
@@ -43,4 +42,4 @@ QImage IconImageProvider::requestImage(const QString& id, QSize* size, const QSi
     return image;
 }
 
-} // namespace Zalos::Core::Platform
+}

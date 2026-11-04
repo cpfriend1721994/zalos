@@ -11,7 +11,6 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // Header
         Rectangle {
             Layout.fillWidth: true
             height: 56
@@ -52,7 +51,6 @@ Rectangle {
             }
         }
 
-        // Filter Tags
         Rectangle {
             Layout.fillWidth: true
             height: 44
@@ -95,7 +93,6 @@ Rectangle {
             }
         }
 
-        // Storage Items List
         ListView {
             id: cloudList
             Layout.fillWidth: true
@@ -107,7 +104,6 @@ Rectangle {
 
             model: []
 
-            // Empty Cloud State
             Item {
                 visible: cloudList.count === 0
                 anchors.centerIn: parent
@@ -183,7 +179,6 @@ Rectangle {
                         }
                     }
 
-                    // Copy action button
                     Rectangle {
                         width: 32
                         height: 32
@@ -214,4 +209,3 @@ Rectangle {
         }
     }
 }
-

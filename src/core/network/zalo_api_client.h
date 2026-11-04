@@ -12,11 +12,9 @@
 
 namespace Zalos::Core::Network {
 
-// Authentication front-end: QR device linking (id.zalo.me) and browser-session import.
-// Once cookies are available the authenticated work is delegated to ZaloSession.
 class ZaloApiClient : public QObject {
     Q_OBJECT
-    QML_ANONYMOUS // typed for the QML compiler (reached through ZaloClient properties)
+    QML_ANONYMOUS
 
     Q_PROPERTY(QString networkStatus READ networkStatus NOTIFY networkStatusChanged FINAL)
     Q_PROPERTY(bool isOnline READ isOnline NOTIFY networkStatusChanged FINAL)
@@ -32,14 +30,11 @@ public:
 
     Q_INVOKABLE void pingConnectivity();
 
-    // QR login (zca-js apis/loginQR.ts)
     Q_INVOKABLE void generateQrToken();
     Q_INVOKABLE void cancelQrLogin();
 
-    // Imports cookies/imei/user agent of a desktop browser already signed in to chat.zalo.me.
     Q_INVOKABLE void syncFromBrowserSession();
 
-    // Restores credentials saved by a previous run. Returns false if none exist.
     bool restoreSavedSession(const QString& language);
     void startSessionLogin(const QString& imei, const QString& userAgent, const QString& language);
     void forgetSession();
@@ -56,7 +51,6 @@ signals:
     void qrDeclined();
     void qrExpired();
     void qrFailed(const QString& reason);
-    // Emitted when cookies were obtained but before the session handshake.
     void credentialsObtained();
     void credentialsUnavailable(const QString& reason);
 
@@ -81,4 +75,4 @@ private:
     bool m_isPollingConfirm{false};
 };
 
-} // namespace Zalos::Core::Network
+}

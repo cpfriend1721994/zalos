@@ -17,7 +17,6 @@ QByteArray derive(const QString& passcode, const QByteArray& salt) {
                                               AppLock::kIterations, 32);
 }
 
-// Constant-time comparison (no early exit on the first differing byte).
 bool sameBytes(const QByteArray& a, const QByteArray& b) {
     if (a.size() != b.size()) return false;
     unsigned char diff = 0;
@@ -25,15 +24,15 @@ bool sameBytes(const QByteArray& a, const QByteArray& b) {
     return diff == 0;
 }
 
-} // namespace
+}
 
 AppLock::AppLock(QObject* parent) : QObject(parent) {
     QSettings settings;
     m_salt = QByteArray::fromBase64(settings.value("lock/salt").toByteArray());
     m_hash = QByteArray::fromBase64(settings.value("lock/hash").toByteArray());
-    if (settings.value("lock/iterations").toInt() != kIterations) m_hash.clear(); // unknown scheme: no lock
+    if (settings.value("lock/iterations").toInt() != kIterations) m_hash.clear();
     m_autoLockMinutes = qBound(0, settings.value("lock/autoMinutes", 0).toInt(), 24 * 60);
-    m_locked = hasPasscode(); // a set passcode locks on start, like tdesktop
+    m_locked = hasPasscode();
 
     m_idle.setSingleShot(true);
     connect(&m_idle, &QTimer::timeout, this, [this]() {
@@ -151,4 +150,4 @@ bool AppLock::eventFilter(QObject* watched, QEvent* event) {
     return QObject::eventFilter(watched, event);
 }
 
-} // namespace Zalos::Core::Platform
+}

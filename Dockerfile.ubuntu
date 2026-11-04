@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM docker.io/library/ubuntu:24.04
 
 LABEL maintainer="Zalos Developers"
@@ -6,7 +7,19 @@ LABEL description="Ubuntu 24.04 (Qt 6.4, glibc 2.39) build of Zalos: the oldest 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV QT_QPA_PLATFORM=offscreen
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Drop docs/man/info from installed packages (smaller image) and keep downloaded .debs so the apt cache mount can
+# reuse them across builds.
+RUN printf 'path-exclude=/usr/share/doc/*\npath-exclude=/usr/share/man/*\npath-exclude=/usr/share/info/*\n' \
+      > /etc/dpkg/dpkg.cfg.d/01-nodoc \
+    && printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\n' > /etc/apt/apt.conf.d/01-keep-debs
+
+# One install layer. The apt archives and package lists live on BuildKit cache mounts (persist on the builder, not
+# baked into the image), so rebuilds reuse downloads and the image carries no apt cache.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     ninja-build \
@@ -18,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dpkg-dev \
     curl \
     librsvg2-bin \
-    # Qt 6.4 development libraries
+    patchelf \
     qt6-base-dev \
     qt6-base-dev-tools \
     qt6-declarative-dev \
@@ -31,7 +44,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     qt6-shadertools-dev \
     qt6-tools-dev-tools \
     libgl-dev \
-    # QML modules the app imports (also needed by tests and the GUI check)
     qml6-module-qtquick \
     qml6-module-qtquick-controls \
     qml6-module-qtquick-layouts \
@@ -42,17 +54,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     qml6-module-qtqml-workerscript \
     qml6-module-qtmultimedia \
     qml6-module-qtcore \
-    # Crypto, compression, storage
     libssl-dev \
     liblzma-dev \
     zlib1g-dev \
     libsqlite3-dev \
-    # OpenH264 headers only (the library is dlopen()ed from the user's system, never bundled)
     libopenh264-dev \
-    # Headless GUI check
     xvfb \
-    xauth \
-    && rm -rf /var/lib/apt/lists/*
+    xauth
 
 WORKDIR /workspace
 

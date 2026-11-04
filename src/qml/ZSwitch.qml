@@ -1,8 +1,6 @@
 import QtQuick
 import Zalos
 
-// Zalo PC toggle (.z-toggle): 40×20 track radius 10, ON #0068FF, OFF --background-inactiveness-subtle,
-// white knob; disabled tokens; pointer cursor. Emits toggled(checked) on user clicks only.
 Item {
     id: root
     property bool checked: false
@@ -39,8 +37,6 @@ Item {
         anchors.fill: parent
         enabled: root.enabled
         cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
-        // Controlled: never assign `checked` here (it would break the owner's binding); the owner updates
-        // its source of truth in onToggled and the binding reflects it.
         onClicked: root.toggled(!root.checked)
     }
     Accessible.role: Accessible.CheckBox

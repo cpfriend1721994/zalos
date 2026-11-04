@@ -9,6 +9,9 @@
 #include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickWindow>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 #include <QSignalSpy>
 #include <QDateTime>
 #include <QBuffer>
@@ -89,6 +92,94 @@ private slots:
         settings.setValue("auth/userPhone", "");
         QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
         QFile::remove(QDir(baseDir).filePath("offline.db"));
+        QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering); // as main.cpp: screenshots match the app
+    }
+
+    // FTS5 search over the whole cached history, compressed raw payloads and the one-time storage upgrade
+    // (2026-11-04): accent-insensitive incl. đ, per conversation or global, recall/delete drop hits, MATCH input
+    // is sanitised, legacy TEXT raw rows are compressed and indexed on open.
+    void testMessageSearchFtsAndRawCodec() {
+        using Zalos::Core::Models::MessageItem;
+        QCOMPARE(ZaloOfflineStore::ftsQuery("Đường  phố\"x"), QString("\"duong\"* \"pho\"* \"x\"*"));
+        QCOMPARE(ZaloOfflineStore::ftsQuery("  ** \" "), QString());
+        const QJsonObject rawIn{{"msgId", "1"}, {"content", "Fixture payload"}};
+        const QByteArray packed = ZaloOfflineStore::encodeRaw(rawIn);
+        QVERIFY(!packed.isEmpty() && packed.at(0) != '{');
+        QCOMPARE(ZaloOfflineStore::decodeRaw(packed), rawIn);
+        QCOMPARE(ZaloOfflineStore::decodeRaw(QString("{\"a\":1}")).value("a").toInt(), 1); // legacy TEXT row
+        QVERIFY(ZaloOfflineStore::decodeRaw(QVariant()).isEmpty());
+        {
+            ZaloOfflineStore store;
+            store.clearCache();
+            QVERIFY(store.ftsAvailable()); // every supported distro's SQLite (Fedora 43, Ubuntu 24.04) has FTS5
+            auto msg = [](const QString& id, const QString& text, qint64 ts) {
+                MessageItem m;
+                m.id = id;
+                m.text = text;
+                m.messageType = "text";
+                m.senderName = "Fixture";
+                m.ts = ts;
+                return m;
+            };
+            QVERIFY(store.saveMessage("u-fts-a", msg("7001", "Hẹn gặp ở đường Fixture lúc 9 giờ", 1000), rawIn));
+            QVERIFY(store.saveMessage("u-fts-a", msg("7002", "Không liên quan", 2000)));
+            QVERIFY(store.saveMessage("u-fts-b", msg("7003", "Đường mới mở", 3000)));
+            QCOMPARE(store.rawMessage("7001"), rawIn);
+            auto ids = [](const QVector<ZaloOfflineStore::SearchHit>& hits) {
+                QStringList out;
+                for (const auto& h : hits) out << h.msgId;
+                return out;
+            };
+            QCOMPARE(ids(store.searchMessages("duong")), (QStringList{"7003", "7001"})); // newest first
+            QCOMPARE(ids(store.searchMessages("DUONG fixt", "u-fts-a")), QStringList{"7001"});
+            QCOMPARE(ids(store.searchMessages("hen gap")), QStringList{"7001"});
+            QVERIFY(store.searchMessages("\"").isEmpty());
+            QVERIFY(store.markRecalled("7003", "Tin nhắn đã được thu hồi"));
+            QCOMPARE(ids(store.searchMessages("duong")), QStringList{"7001"});
+            QVERIFY(store.deleteMessage("7001"));
+            QVERIFY(store.searchMessages("duong").isEmpty());
+            // A text change re-indexes the row.
+            QVERIFY(store.saveMessage("u-fts-a", msg("7002", "Giờ thì có đường", 2000)));
+            QCOMPARE(ids(store.searchMessages("duong")), QStringList{"7002"});
+            QCOMPARE(store.countMessagesBetween("u-fts-a", 0, 5000), 1);
+            QString conv;
+            QCOMPARE(store.messageTs("7002", &conv), 2000);
+            QCOMPARE(conv, QString("u-fts-a"));
+        }
+        // Legacy database: TEXT raw, no FTS rows, no migration marks → upgraded on open.
+        const QString path = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath("offline.db");
+        {
+            QSqlDatabase legacy = QSqlDatabase::addDatabase("QSQLITE", "fts_legacy");
+            legacy.setDatabaseName(path);
+            QVERIFY(legacy.open());
+            QSqlQuery q(legacy);
+            QVERIFY(q.exec("INSERT INTO messages (id, conv_id, text, message_type, ts, is_recalled, raw) VALUES "
+                           "('7100', 'u-fts-c', 'Đường cũ', 'text', 10, 0, '{\"legacy\":true}');"));
+            QVERIFY(q.exec("DELETE FROM meta WHERE key IN ('fts_version', 'raw_codec');"));
+            QVERIFY(q.exec("DELETE FROM messages_fts;"));
+            legacy.close();
+        }
+        QSqlDatabase::removeDatabase("fts_legacy");
+        {
+            ZaloOfflineStore upgraded;
+            QCOMPARE(upgraded.searchMessages("duong cu").size(), 1);
+            QCOMPARE(upgraded.rawMessage("7100").value("legacy").toBool(), true);
+            QCOMPARE(upgraded.pragmaForTesting("auto_vacuum"), QString("2")); // incremental
+            upgraded.clearCache();
+        }
+    }
+
+    // Desktop font specs: the size and weight/style words are not part of the family (bug 2026-11-03: GNOME
+    // "Ubuntu Medium 12" became family "Ubuntu Medium" and bold labels were synthesised and smeared).
+    void testSystemFontFamilyFromSpec() {
+        using Zalos::Core::Platform::ThemeManager;
+        QCOMPARE(ThemeManager::familyFromFontSpec("Ubuntu Medium 12"), QString("Ubuntu"));
+        QCOMPARE(ThemeManager::familyFromFontSpec("Noto Sans Bold Italic 11"), QString("Noto Sans"));
+        QCOMPARE(ThemeManager::familyFromFontSpec("Cantarell 11"), QString("Cantarell"));
+        QCOMPARE(ThemeManager::familyFromFontSpec("Noto Sans,10,-1,5,400,0,0,0,0,0"), QString("Noto Sans"));
+        QCOMPARE(ThemeManager::familyFromFontSpec("Source Code Pro Semibold 10.5"), QString("Source Code Pro"));
+        QCOMPARE(ThemeManager::familyFromFontSpec("Medium"), QString("Medium")); // never empties a one-word family
+        QCOMPARE(QQuickWindow::textRenderType(), QQuickWindow::NativeTextRendering);
     }
 
     void init() {
@@ -331,8 +422,6 @@ private slots:
         QCOMPARE(client.currentNavigationTab(), QString("messages"));
         client.setCurrentNavigationTab("contacts");
         QCOMPARE(client.currentNavigationTab(), QString("contacts"));
-        client.setCurrentNavigationTab("todo");
-        QCOMPARE(client.currentNavigationTab(), QString("todo"));
         client.setCurrentNavigationTab("cloud");
         QCOMPARE(client.currentNavigationTab(), QString("cloud"));
         client.setCurrentNavigationTab("messages");
@@ -849,11 +938,67 @@ private slots:
         QCOMPARE(client.messageModel()->rowCount(), 170);
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
                  QString::number(900000 + 7 * 170));
-        // Opening 40 threads keeps at most 30 in RAM; the evicted ones reload completely.
+        // Opening 40 threads keeps at most 12 in RAM; the evicted ones reload completely.
         for (int t = 0; t < 40; ++t) client.selectConversation(QString("u-mem-%1").arg(t), "Fixture", "");
         QCOMPARE(client.messageModel()->threadSize("u-mem-0"), 0);
         client.selectConversation("u-mem-0", "Fixture", "");
         QCOMPARE(client.messageModel()->rowCount(), 170);
+        // A long thread opens with its newest 200 cached rows; scrolling up pages older ones from offline.db
+        // (also without a session), and actions needing the raw JSON (quote) read it from disk.
+        QJsonArray big;
+        for (int m = 0; m < 500; ++m) {
+            big.append(QJsonObject{{"msgId", QString::number(5000000 + m)}, {"cliMsgId", QString::number(800000 + m)},
+                                   {"uidFrom", "u-mem-big"}, {"idTo", "u-me"}, {"msgType", "webchat"},
+                                   {"content", QString("fixture long thread message %1").arg(m)},
+                                   {"ts", QString::number(base + 1000000 + m)}});
+        }
+        emit client.apiClient()->session()->messagesReceived(big, false, true);
+#ifdef __GLIBC__
+        const size_t heapBefore = mallinfo2().uordblks;
+#endif
+        client.selectConversation("u-mem-big", "Fixture", "");
+        QCOMPARE(client.messageModel()->rowCount(), 200);
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
+                 QString::number(5000000 + 300));
+        // Search covers the whole stored thread, not only the loaded page; revealing an old hit loads down to it.
+        const QStringList found = client.searchConversationMessages("fixture long thread message 12");
+        QVERIFY(found.contains(QString::number(5000000 + 12)));
+        QCOMPARE(found.first(), QString::number(5000000 + 12)); // oldest first
+        QVERIFY(client.revealMessage(QString::number(5000000 + 12)));
+        QCOMPARE(client.messageModel()->rowCount(), 500);       // 12..499 plus 20 older rows of context (0..11)
+        QVERIFY(!client.revealMessage("does-not-exist"));
+        // Sidebar search (all conversations, typed model) and opening a hit.
+        client.messageSearch()->setQuery("fixture long thread message 12");
+        client.messageSearch()->runNow();
+        QVERIFY(client.messageSearch()->count() >= 1);
+        const QModelIndex first = client.messageSearch()->index(0);
+        QCOMPARE(client.messageSearch()->data(first, Zalos::Core::Models::MessageSearchModel::ConvIdRole).toString(),
+                 QString("u-mem-big"));
+        client.messageSearch()->setQuery("x"); // < 2 characters clears
+        QCOMPARE(client.messageSearch()->count(), 0);
+        QSignalSpy revealSpy(&client, &ZaloClient::revealRequested);
+        client.openMessageFromSearch("u-mem-big", QString::number(5000000 + 12));
+        QCOMPARE(revealSpy.count(), 1);
+        // The rest of this test pages from a fresh open of the thread.
+        client.selectConversation("u-mem-1", "Fixture", "");
+        for (int t = 2; t < 16; ++t) client.selectConversation(QString("u-mem-%1").arg(t), "Fixture", ""); // evict
+        client.selectConversation("u-mem-big", "Fixture", "");
+        QCOMPARE(client.messageModel()->rowCount(), 200);
+        client.loadOlderMessages();
+        QCOMPARE(client.messageModel()->rowCount(), 400);
+        client.loadOlderMessages();
+        QCOMPARE(client.messageModel()->rowCount(), 500);
+        client.loadOlderMessages(); // nothing older in the cache, offline: unchanged
+#ifdef __GLIBC__
+        qInfo("heap for 500 resident cached messages: %zu kB (%zu B each)", (mallinfo2().uordblks - heapBefore) / 1024,
+              (mallinfo2().uordblks - heapBefore) / 500);
+#endif
+        QCOMPARE(client.messageModel()->rowCount(), 500);
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
+                 QString::number(5000000));
+        client.setReplyTarget(QString::number(5000000)); // cached row: raw JSON read on demand
+        QCOMPARE(client.replyTarget().value("id").toString(), QString::number(5000000));
+        client.clearReplyTarget();
         ZaloOfflineStore cleanup;
         cleanup.clearCache();
     }
@@ -1019,9 +1164,71 @@ private slots:
             const QString suffix = mode ? "dark" : "light";
             client.setCurrentNavigationTab("messages");
             shot("chat_" + suffix);
+            if (mode == 0) {
+                // QML weight of the message list: objects per instantiated message row (memory review 2026-11-04).
+                // ListView delegates are not QObject children of the window: walk the visual item tree.
+                QList<QQuickItem*> rows;
+                std::function<void(QQuickItem*)> findRows = [&](QQuickItem* item) {
+                    if (item->objectName() == QLatin1String("messageRow")) { rows.append(item); return; }
+                    for (QQuickItem* c : item->childItems()) findRows(c);
+                };
+                findRows(window->contentItem());
+                std::function<int(QQuickItem*)> weight = [&](QQuickItem* item) {
+                    int n = 1 + int(item->findChildren<QObject*>(Qt::FindDirectChildrenOnly).size());
+                    for (QQuickItem* c : item->childItems()) n += weight(c);
+                    return n;
+                };
+                int objects = 0;
+                for (QQuickItem* row : rows) objects += weight(row);
+                const int perRow = rows.isEmpty() ? 0 : objects / int(rows.size());
+                qInfo("message rows: %d, QML objects: %d (%d per row)", int(rows.size()), objects, perRow);
+                // Closed popups are not in the visual tree; count the QObject tree of the window too.
+                qInfo("window QML objects: %d visual, %d in the QObject tree", weight(window->contentItem()),
+                      int(window->findChildren<QObject*>().size()));
+                QVERIFY2(perRow < 260, "message rows must create only the parts of their type (Loaders)");
+                QVERIFY(!rows.isEmpty());
+            }
             client.setAntiPeeking(true);                  // indicator strip + dimmed messages
             shot("chat_antipeek_" + suffix);
             client.setAntiPeeking(false);
+            // Pinned topics bar (Zalo PC chat-group-topic) and its expanded list, from neutral fixtures.
+            {
+                const QString conv = client.currentConversationId();
+                auto topic = [](const QString& id, int type, const QString& title, int msgType) {
+                    return QJsonObject{{"id", id}, {"type", type}, {"params", QJsonObject{
+                        {"title", title}, {"senderUid", "u-gallery"}, {"senderName", "Fixture Gallery"},
+                        {"global_msg_id", "m-" + id}, {"client_msg_id", "c-" + id}, {"msg_type", msgType}}}};
+                };
+                // t2: a photo pin whose thumb is gone (as an expired CDN link) → placeholder glyph.
+                QJsonObject photoPin = topic("t2", 2, "", 32);
+                QJsonObject photoParams = photoPin.value("params").toObject();
+                photoParams.insert("thumb", "file:///nonexistent/fixture-expired-thumb.jpg");
+                photoPin.insert("params", photoParams);
+                client.pins()->applyListForTesting(conv, QJsonObject{{"version", 3}, {"data", QJsonArray{
+                    topic("t1", 2, "Fixture pinned text message\n" + QString("Fixture detail line with enough words to wrap. ").repeated(12), 1), photoPin,
+                    topic("t3", 1, "Fixture note", 1), topic("t4", 3, "Fixture poll", 1)}}}, false);
+                shot("pins_" + suffix);
+                QObject* bar = window->findChild<QObject*>("pinBar");
+                QVERIFY(bar != nullptr);
+                QVERIFY(bar->property("visible").toBool());
+                bar->setProperty("expanded", true);
+                shot("pins_expanded_" + suffix);
+                bar->setProperty("expanded", false);
+                QObject* chatArea = window->findChild<QObject*>("chatArea");
+                QVERIFY(chatArea != nullptr);
+                QVERIFY(QMetaObject::invokeMethod(chatArea, "openPinDetail", Q_ARG(QString, "t1")));
+                QObject* detail = window->findChild<QObject*>("pinDetailPopup");
+                QVERIFY(detail != nullptr && detail->property("opened").toBool());
+                QVERIFY(detail->property("fullText").toString().contains("Fixture detail line"));
+                shot("pins_detail_" + suffix);
+                QVERIFY(QMetaObject::invokeMethod(detail, "close"));
+                QTRY_VERIFY(client.isMediaBroken("file:///nonexistent/fixture-expired-thumb.jpg"));
+                QVERIFY(QMetaObject::invokeMethod(chatArea, "openPinDetail", Q_ARG(QString, "t2")));
+                shot("pins_detail_expired_" + suffix);
+                QVERIFY(QMetaObject::invokeMethod(detail, "close"));
+                client.pins()->applyListForTesting(conv, QJsonObject{{"version", 4}, {"data", QJsonArray{}}}, false);
+                QVERIFY(!bar->property("visible").toBool());
+            }
             for (const char* tab : {"general", "language", "appearance", "notifications", "privacy", "storage", "sync"}) {
                 client.openSettings(tab);
                 shot(QString("settings_%1_%2").arg(tab, suffix));
@@ -1032,8 +1239,6 @@ private slots:
             client.closeCreateGroup();
             client.setCurrentNavigationTab("contacts");
             shot("contacts_" + suffix);
-            client.setCurrentNavigationTab("todo");
-            shot("todo_" + suffix);
             client.setCurrentNavigationTab("messages");
             client.viewProfile("u-gallery");
             shot("profile_" + suffix);
@@ -1086,6 +1291,35 @@ private slots:
             QTest::keyClick(window, Qt::Key_Escape);
             QTest::qWait(100);
         }
+        // Responsive sweep: the logged-in messages UI across quarter/half/full windows on common desktop sizes.
+        themeMgr.setThemeMode(1);
+        client.setCurrentNavigationTab("messages");
+        client.selectConversation("u-gallery", "Fixture Gallery", "");
+        client.setShowConversationInfo(false);
+        for (const QSize& s : {QSize(1920, 1080), QSize(1280, 800), QSize(960, 1080), QSize(683, 768),
+                               QSize(520, 480), QSize(380, 420)}) {
+            window->resize(s);
+            shot(QString("responsive_%1x%2").arg(s.width()).arg(s.height()));
+        }
+        // Info panel open (the split that can squeeze the chat + composer at narrow widths).
+        client.setShowConversationInfo(true);
+        for (const QSize& s : {QSize(1280, 800), QSize(760, 700), QSize(560, 600)}) {
+            window->resize(s);
+            shot(QString("responsive_info_%1x%2").arg(s.width()).arg(s.height()));
+        }
+        client.setShowConversationInfo(false);
+        window->resize(1280, 800);
+
+        // Rail tonal legibility check: label folders on, in dark (near-black rail) and light (blue rail).
+        client.setShowLabelFolders(true);
+        client.setCurrentNavigationTab("messages");
+        window->resize(1100, 760);
+        themeMgr.setThemeMode(1);
+        shot("rail_dark");
+        themeMgr.setThemeMode(0);
+        shot("rail_light");
+        client.setShowLabelFolders(false);
+
         themeMgr.setThemeMode(0);
         client.setNotifySound(false);
         QFile::remove(picPath);
@@ -2333,6 +2567,32 @@ private slots:
         QVERIFY(client.hasPinnedMessage());
         QCOMPARE(client.currentPinnedMessageText(), QString("Fixture pinned text"));
         QCOMPARE(client.pins()->versionForTesting("u-a"), 7);
+        // Detail view: a pin whose message is not in the loaded history keeps its whole text from the topic.
+        const QString longText = QString("Fixture line\n").repeated(200);
+        client.pins()->applyListForTesting("u-a", QJsonObject{{"version", 8}, {"data", QJsonArray{
+            QJsonObject{{"id", 502}, {"type", 2}, {"params", QJsonObject{{"global_msg_id", "9100"}, {"title", longText},
+                {"senderName", "Fixture A"}, {"msg_type", 1}}}},
+            QJsonObject{{"id", 503}, {"type", 2}, {"params", QJsonObject{{"global_msg_id", "9101"}, {"title", "cap"},
+                {"thumb", "https://example.com/t2.jpg"}, {"msg_type", 32}}}}}}}, false);
+        const QVariantMap detail = client.pins()->detail("502");
+        QCOMPARE(detail.value("text").toString(), longText);
+        QCOMPARE(detail.value("local").toBool(), false);
+        QCOMPARE(client.pins()->detail("503").value("image").toString(), QString("https://example.com/t2.jpg"));
+        QVERIFY(client.pins()->detail("nope").isEmpty());
+        // Refused media (expired pin thumbs): remembered once, not refetched, retry forgets it.
+        QSignalSpy brokenSpy(&client, &ZaloClient::brokenMediaChanged);
+        const int rev = client.brokenMediaRevision();
+        QVERIFY(!client.isMediaBroken("https://example.com/t2.jpg"));
+        client.markMediaBroken("https://example.com/t2.jpg");
+        client.markMediaBroken("https://example.com/t2.jpg"); // no second change
+        QVERIFY(client.isMediaBroken("https://example.com/t2.jpg"));
+        QCOMPARE(brokenSpy.count(), 1);
+        QVERIFY(client.brokenMediaRevision() > rev);
+        QVERIFY(!client.isMediaBroken(""));
+        client.retryMedia("https://example.com/t2.jpg");
+        QVERIFY(!client.isMediaBroken("https://example.com/t2.jpg"));
+        QCOMPARE(brokenSpy.count(), 2);
+        client.pins()->applyListForTesting("u-a", QJsonObject{{"data", QJsonArray{topicJson}}, {"version", 7}}, false);
         client.pins()->pinMessage("9001"); // offline
         QVERIFY(noticeSpy.count() >= 1);
         QVERIFY(client.pins()->handleControl("unpin_topic", QJsonObject{{"conversationId", "u-a"}}));
@@ -2351,7 +2611,7 @@ private slots:
         RenderProfile vk;
         vk.backend = RenderProfile::Backend::Vulkan;
         vk.apply();
-        QCOMPARE(qgetenv("VK_LOADER_DRIVERS_DISABLE"), QByteArray("*lvp_icd*"));
+        QCOMPARE(qgetenv("VK_LOADER_DRIVERS_DISABLE"), QByteArray("*lvp_icd*,*dzn_icd*"));
         qunsetenv("VK_LOADER_DRIVERS_DISABLE");
         RenderProfile gl;
         gl.backend = RenderProfile::Backend::OpenGL;
@@ -3127,18 +3387,26 @@ private slots:
         QTest::qWait(200);
         window->grabWindow().save("/workspace/build/test_contacts_invites.png");
         client.contactModel()->setCategoryFilter("friends");
-        client.setCurrentNavigationTab("todo");
-        QTest::qWait(200);
-        window->grabWindow().save("/workspace/build/test_todo_tab.png");
 
         client.setCurrentNavigationTab("messages");
-        auto settingsMenu = window->findChild<QObject*>("settingsMenu");
-        if (settingsMenu) {
-            QMetaObject::invokeMethod(settingsMenu, "open");
+        auto accountMenu = window->findChild<QObject*>("accountMenu");
+        if (accountMenu) {
+            QMetaObject::invokeMethod(accountMenu, "open");
             QTest::qWait(200);
             window->grabWindow().save("/workspace/build/test_settings_popup.png");
-            QMetaObject::invokeMethod(settingsMenu, "close");
+            QMetaObject::invokeMethod(accountMenu, "close");
         }
+        // Label folders in the navigation rail (Telegram-style), off by default.
+        QCOMPARE(client.showLabelFolders(), false);
+        client.labels()->applyServer(QJsonObject{{"version", 1}, {"labelData", QJsonArray{
+            QJsonObject{{"id", 1}, {"text", "Công việc"}, {"color", "#D91B1B"}, {"offset", 0}, {"conversations", QJsonArray{}}},
+            QJsonObject{{"id", 2}, {"text", "Gia đình"}, {"color", "#4BC377"}, {"offset", 1}, {"conversations", QJsonArray{}}},
+            QJsonObject{{"id", 3}, {"text", "Bạn bè"}, {"color", "#2F80ED"}, {"offset", 2}, {"conversations", QJsonArray{}}}}}});
+        client.setShowLabelFolders(true);
+        QCOMPARE(client.showLabelFolders(), true);
+        QTest::qWait(150);
+        window->grabWindow().save("/workspace/build/test_rail_label_folders.png");
+        client.setShowLabelFolders(false);
 
         // 5. Language switching
         client.setAppLanguage("en");

@@ -10,7 +10,6 @@ dist/
 CMakeLists.txt.user
 *.autosave
 .ninja_*
-AGENTS.md
 .local/
 __pycache__/
 *.pyc
@@ -21,7 +20,7 @@ zsess.json
 /*.png
 .config/
 
-# AI agent instructions and skills: kept locally, never committed (owner decision 2026-11-03)
+# Local editor, tooling and personal notes — not part of the project
 .agents/
 AGENTS.md
 CLAUDE.md
@@ -32,4 +31,5 @@ GEMINI.md
 .cursorrules
 .windsurf/
 .windsurfrules
+.idea/
 .github/copilot-instructions.md

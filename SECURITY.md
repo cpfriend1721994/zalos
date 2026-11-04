@@ -1,8 +1,8 @@
 # Security Policy
 
-## 🔒 Supported Versions
+## 🔒 Supported versions
 
-We provide security updates and patches for the following versions:
+Security updates are provided for the following versions:
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -11,29 +11,28 @@ We provide security updates and patches for the following versions:
 
 ---
 
-## 🛡️ Reporting a Vulnerability
+## 🛡️ Reporting a vulnerability
 
-Security is paramount, especially for an end-to-end encrypted messaging client.
+If you discover a security vulnerability in Zalos, **please do not open a public GitHub issue.**
 
-If you discover a security vulnerability in Zalos (such as a memory safety issue, crypto implementation flaw in `db-cross-v4`, or credential exposure), **please do not open a public GitHub issue**.
+Report it privately instead:
 
-Instead, please report the vulnerability privately via:
-1. **GitHub Private Vulnerability Reporting** directly on the repository tab.
-2. Or email the core security team at `security@zalos.local` with:
-   - Vulnerability description and attack vector.
-   - Proof of Concept (PoC) or reproducible steps.
-   - Estimated impact on confidentiality, integrity, or system security.
+1. Use **GitHub Private Vulnerability Reporting** on the repository's *Security* tab, or
+2. Email the maintainers privately.
 
-We will acknowledge receipt within 48 hours and work with you on a coordinated public disclosure timeline once a fix is released.
+Please include:
+
+- A description of the issue and how it can be triggered.
+- A proof of concept or reproducible steps, if possible.
+- Your assessment of the impact.
+
+We aim to acknowledge reports within 48 hours and will coordinate a disclosure timeline with you once a fix is
+available.
 
 ---
 
-## 🔑 Cryptographic Architecture & Local Security Scope
+## 🔑 Scope
 
-- **End-to-End Encryption (E2EE)**:
-  `Zalos` uses clean-room reverse-engineered C++ implementations of AES-256-CBC, OpenSSL EVP, and LZMA decompression (`src/core/crypto/db_cross.cpp`). Keys are derived locally in memory and never transmitted to external third-party servers.
-- **SQLite Decryption**:
-  Offline message backups are decrypted locally on your machine.
-- **Sandboxing**:
-  When using Flatpak, access to filesystem locations outside `$XDG_DOWNLOAD_DIR` is strictly prevented by bubblewrap sandboxing.
-
+Zalos handles personal messages and local data. Issues that are in scope include memory-safety problems,
+mishandling of local credentials or message data, and anything that could expose a user's data to another party.
+Your conversations and keys are processed locally on your machine.

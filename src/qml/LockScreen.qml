@@ -3,7 +3,6 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Zalos
 
-// Passcode lock screen (ZaloClient.appLock). Covers the whole window, swallows input and asks for the passcode.
 Rectangle {
     id: root
     color: ThemeManager.backgroundColor
@@ -27,7 +26,6 @@ Rectangle {
         Image {
             Layout.alignment: Qt.AlignHCenter
             source: "qrc:/Zalos/assets/icons/zalos.svg"
-            // Rasterised at the screen's pixel density (crisp on HiDPI).
             sourceSize.width: Math.ceil(72 * Screen.devicePixelRatio)
             sourceSize.height: Math.ceil(72 * Screen.devicePixelRatio)
             width: 72

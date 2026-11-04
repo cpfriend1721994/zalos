@@ -4,14 +4,10 @@ import QtQuick.Layouts
 import QtMultimedia
 import Zalos
 
-// Voice call window driven by ZaloClient.calls (CallBridge -> zcall-native engine UI socket).
-// Visual layout follows zalo-for-linux plugins/zcall/ui/call.css (laid out as Zalo for macOS):
-// black stage with the blurred avatar behind, 125px avatar with a grey ring, controls floating over the stage.
 Rectangle {
     id: root
     readonly property var call: ZaloClient.calls
     readonly property string phase: call ? call.phase : ""
-    // The peer's camera pictures (decoded by CallBridge with the system's OpenH264).
     readonly property bool peerVideoShown: !!(call && call.isVideo && call.peerVideoActive && !call.peerCamOff)
     visible: phase.length > 0
     color: "#000000"
@@ -43,10 +39,8 @@ Rectangle {
         return "";
     }
 
-    // Swallow clicks behind the window.
     MouseArea { anchors.fill: parent }
 
-    // Ended calls close themselves (with failsafe watchdog).
     Timer {
         interval: 2500
         running: root.phase === "ended"
@@ -55,7 +49,6 @@ Rectangle {
         }
     }
 
-    // Failsafe watchdog timer: guarantees call window closes if lingering in ended state
     Timer {
         interval: 4500
         running: root.phase === "ended"
@@ -64,13 +57,12 @@ Rectangle {
         }
     }
 
-    // Stage: blurred, darkened avatar (#bg: blur(42px) brightness(0.32))
     Item {
         id: stage
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.bottom: parent.bottom // the control bar floats over the picture
+        anchors.bottom: parent.bottom
         clip: true
 
         Image {
@@ -84,10 +76,9 @@ Rectangle {
             sourceSize.height: 256
             visible: false
         }
-        Loader { // ZBlurEffect: MultiEffect, Qt >= 6.5
+        Loader {
             id: blurLoader
             anchors.fill: bgAvatar
-            // Shader effects need a GPU backend; the software renderer (no GPU) keeps the plain black stage.
             active: GraphicsInfo.api !== GraphicsInfo.Software
             visible: bgAvatar.status === Image.Ready
             source: "ZBlurEffect.qml"
@@ -102,7 +93,6 @@ Rectangle {
             Component.onCompleted: if (root.call) root.call.setPeerVideoSink(peerVideo.videoSink)
         }
 
-        // Call timer, top-left (#timer)
         Text {
             anchors.left: parent.left
             anchors.top: parent.top
@@ -122,7 +112,6 @@ Rectangle {
             width: Math.min(parent.width - 32, 420)
             spacing: 10
 
-            // Avatar with the grey ringing ring
             Item {
                 id: avatarBox
                 readonly property int d: root.phase === "connected" ? 160 : 125
@@ -165,7 +154,6 @@ Rectangle {
                 font.family: Theme.fontFamily
                 font.pixelSize: 16
             }
-            // .note: small dark pill for the peer's state
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
                 visible: !!(root.call && root.call.peerMuted && root.phase === "connected")
@@ -201,13 +189,12 @@ Rectangle {
             }
         }
 
-        // Self view: our camera (unencoded preview), mirrored like a mirror, bottom-right.
         Rectangle {
             id: selfView
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.rightMargin: 16
-            anchors.bottomMargin: 96 // above the floating controls
+            anchors.bottomMargin: 96
             width: 200
             height: 112
             radius: 8
@@ -224,7 +211,6 @@ Rectangle {
             }
         }
 
-        // Honest notice, only when our picture cannot be sent (or the peer's cannot be shown).
         Rectangle {
             anchors.right: parent.right
             anchors.top: parent.top
@@ -261,7 +247,6 @@ Rectangle {
         }
     }
 
-    // .pill: 80x40 toggle in the control bar
     component PillButton: Rectangle {
         id: pb
         opacity: enabled ? 1.0 : 0.4
@@ -272,7 +257,6 @@ Rectangle {
         width: 80
         height: 40
         radius: 20
-        // Translucent over the picture (controls float on the stage).
         color: pbMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.26) : Qt.rgba(1, 1, 1, 0.16)
         border.color: Qt.rgba(1, 1, 1, 0.18)
         border.width: 1
@@ -294,7 +278,6 @@ Rectangle {
         ToolTip.text: tip
     }
 
-    // #end-style 40px round button
     component CircleButton: Rectangle {
         id: rb
         property string icon: ""
@@ -323,8 +306,6 @@ Rectangle {
         ToolTip.text: tip
     }
 
-    // Controls float over the background (no separate black strip): a soft bottom shade keeps them readable on
-    // bright video.
     Rectangle {
         id: bar
         anchors.left: parent.left
@@ -369,7 +350,6 @@ Rectangle {
                 tip: root.call && root.call.speakerOff ? I18n.t("Bật loa", "Speaker on") : I18n.t("Tắt loa", "Speaker off")
                 onClicked: root.call.setSpeakerOff(!root.call.speakerOff)
             }
-            // Our camera (CameraSender → OpenH264 → engine); disabled without a camera or encoder.
             PillButton {
                 visible: !!(root.call && root.call.isVideo) && (root.phase === "connected" || root.phase === "connecting" || root.phase === "outgoing")
                 enabled: !!(root.call && (root.call.cameraAvailable || root.call.cameraOn))

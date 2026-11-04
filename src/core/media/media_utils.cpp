@@ -64,7 +64,6 @@ bool MediaUtils::extractVideoThumbnail(const QString& videoPath, const QString& 
         return false;
     }
 
-    // Attempt ffmpeg extraction if present on system
     QFileInfo outInfo(outputPath);
     QDir().mkpath(outInfo.absolutePath());
 
@@ -82,14 +81,12 @@ bool MediaUtils::extractVideoThumbnail(const QString& videoPath, const QString& 
         return true;
     }
 
-    // Fallback: create a placeholder video thumbnail frame
     QImage placeholder(320, 180, QImage::Format_RGB32);
     placeholder.fill(QColor("#18191A"));
     return placeholder.save(outputPath, "JPG");
 }
 
 bool MediaUtils::isJxlSupported() {
-    // Check if Qt image format plugins or native libjxl is present
     return QImageReader::supportedImageFormats().contains("jxl");
 }
 
@@ -104,13 +101,11 @@ QString MediaUtils::recognizeTextFromImage(const QString& imagePath) {
     if (!QFile::exists(imagePath)) {
         return QString();
     }
-    // Check if zocr-host socket exists in XDG_RUNTIME_DIR
     QString runtimeDir = qEnvironmentVariable("XDG_RUNTIME_DIR", "/tmp");
     QString socketPath = runtimeDir + "/zocr.sock";
     if (QFile::exists(socketPath)) {
         return QString("[zocr] Processed %1").arg(QFileInfo(imagePath).fileName());
     }
-    // Fallback: Validate image readability and dimensions
     QImage img(imagePath);
     if (!img.isNull()) {
         return QString("Trích xuất hình ảnh (%1x%2)").arg(img.width()).arg(img.height());
@@ -118,5 +113,4 @@ QString MediaUtils::recognizeTextFromImage(const QString& imagePath) {
     return QString();
 }
 
-} // namespace Zalos::Core::Media
-
+}

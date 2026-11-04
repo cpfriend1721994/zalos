@@ -1,8 +1,6 @@
 import QtQuick
 import Zalos
 
-// Zalo PC checkbox (.z-checkbox): 24px hit box; unchecked 14.5px square r2.25 with 1.5px --NG40 border on the
-// layer background; checked 16px #0068FF r3 with a white tick. `round: true` gives the 17px round variant.
 Item {
     id: root
     property bool checked: false
@@ -48,8 +46,6 @@ Item {
         hoverEnabled: true
         enabled: root.enabled
         cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
-        // Controlled: never assign `checked` here (it would break the owner's binding); the owner updates
-        // its source of truth in onToggled and the binding reflects it.
         onClicked: root.toggled(!root.checked)
     }
     Accessible.role: Accessible.CheckBox

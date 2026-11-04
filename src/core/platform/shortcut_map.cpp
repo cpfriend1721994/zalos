@@ -13,13 +13,12 @@ namespace Zalos::Core::Platform {
 
 namespace {
 
-// Command order for the template file and all().
 const QStringList kOrder = {
     "chat.next", "chat.previous", "chat.pinned1", "chat.pinned2", "chat.pinned3", "chat.pinned4", "chat.pinned5",
     "chat.search", "chat.find", "composer.voice", "privacy.antiPeeking", "app.lock", "app.hide", "app.quit",
 };
 
-} // namespace
+}
 
 QHash<QString, QStringList> ShortcutMap::defaults() {
     return {
@@ -30,12 +29,12 @@ QHash<QString, QStringList> ShortcutMap::defaults() {
         {"chat.pinned3", {"Ctrl+3"}},
         {"chat.pinned4", {"Ctrl+4"}},
         {"chat.pinned5", {"Ctrl+5"}},
-        {"chat.search", {"Ctrl+K"}},          // conversation search (Zalo PC / web)
-        {"chat.find", {"Ctrl+F"}},            // search inside the open conversation
-        {"composer.voice", {"Ctrl+Shift+V"}}, // start / send a voice message
+        {"chat.search", {"Ctrl+K"}},
+        {"chat.find", {"Ctrl+F"}},
+        {"composer.voice", {"Ctrl+Shift+V"}},
         {"privacy.antiPeeking", {"Ctrl+Shift+H"}},
-        {"app.lock", {"Ctrl+L"}},             // passcode lock (when a passcode is set)
-        {"app.hide", {"Ctrl+W"}},             // hide to the tray
+        {"app.lock", {"Ctrl+L"}},
+        {"app.hide", {"Ctrl+W"}},
         {"app.quit", {"Ctrl+Q"}},
     };
 }
@@ -50,7 +49,6 @@ void ShortcutMap::load(const QString& configDir) {
     QDir().mkpath(dir);
     m_customPath = dir + "/shortcuts-custom.json";
 
-    // Template with every command and its default keys (rewritten so it follows new versions).
     QJsonArray defaultsJson;
     for (const QString& command : std::as_const(m_order)) {
         defaultsJson.append(QJsonObject{{"command", command}, {"keys", QJsonArray::fromStringList(m_keys.value(command))}});
@@ -66,7 +64,7 @@ void ShortcutMap::load(const QString& configDir) {
     for (const QJsonValue& v : entries) {
         const QJsonObject o = v.toObject();
         const QString command = o.value("command").toString();
-        if (!m_keys.contains(command)) continue; // unknown commands are ignored, never invented
+        if (!m_keys.contains(command)) continue;
         QStringList keys;
         for (const QJsonValue& k : o.value("keys").toArray()) {
             const QString text = k.toString().trimmed();
@@ -84,4 +82,4 @@ QVariantList ShortcutMap::all() const {
     return out;
 }
 
-} // namespace Zalos::Core::Platform
+}

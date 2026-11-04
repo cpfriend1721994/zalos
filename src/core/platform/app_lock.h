@@ -8,10 +8,6 @@
 
 namespace Zalos::Core::Platform {
 
-// Local passcode lock (tdesktop "Lock"): covers the window until the passcode is typed, locks on start when a
-// passcode is set, on Ctrl+L and after `autoLockMinutes` without keyboard/mouse input. Only the UI is locked:
-// sessions, caches and offline.db on disk are not encrypted by it (the Settings text says so).
-// Stored in QSettings "lock/*" as PBKDF2-HMAC-SHA256 (random salt, kIterations rounds), never the passcode.
 class AppLock : public QObject {
     Q_OBJECT
     QML_ANONYMOUS
@@ -23,7 +19,7 @@ class AppLock : public QObject {
 public:
     static constexpr int kIterations = 120000;
     static constexpr int kMinLength = 4;
-    static constexpr int kFreeAttempts = 5;  // then a 30 s wait between tries
+    static constexpr int kFreeAttempts = 5;
     static constexpr int kPenaltySeconds = 30;
 
     explicit AppLock(QObject* parent = nullptr);
@@ -34,13 +30,12 @@ public:
     void setAutoLockMinutes(int minutes);
     int retryAfterSeconds() const;
 
-    // New passcode (>= kMinLength chars); `current` must match when one is already set.
     Q_INVOKABLE bool setPasscode(const QString& current, const QString& passcode);
     Q_INVOKABLE bool removePasscode(const QString& current);
     Q_INVOKABLE void lock();
     Q_INVOKABLE bool unlock(const QString& passcode);
+    Q_INVOKABLE bool verifyPasscode(const QString& passcode) const { return verify(passcode); }
 
-    // Any user input: restarts the auto-lock countdown.
     void noteActivity();
 
 protected:
@@ -63,7 +58,7 @@ private:
     int m_failures{0};
     qint64 m_blockedUntil{0};
     QTimer m_idle;
-    QTimer m_retryTick; // 1 s countdown of retryAfterSeconds while blocked
+    QTimer m_retryTick;
 };
 
-} // namespace Zalos::Core::Platform
+}

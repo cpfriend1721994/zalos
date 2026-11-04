@@ -24,7 +24,7 @@ QMediaFormat aacFormat() {
     return format;
 }
 
-} // namespace
+}
 
 VoiceRecorder::VoiceRecorder(QObject* parent) : QObject(parent) {
     m_tick.setInterval(200);
@@ -70,7 +70,6 @@ bool VoiceRecorder::start() {
         });
         connect(m_recorder, &QMediaRecorder::recorderStateChanged, this, [this](QMediaRecorder::RecorderState state) {
             if (state != QMediaRecorder::StoppedState || m_recording || m_path.isEmpty()) return;
-            // The file is complete only once the recorder reports Stopped.
             const QString path = std::exchange(m_path, QString());
             if (m_keepOnStop && m_durationMs >= kMinDurationMs && QFile::exists(path)) emit finished(path, m_durationMs);
             else QFile::remove(path);
@@ -107,7 +106,7 @@ void VoiceRecorder::finish(bool keep) {
     m_recording = false;
     m_keepOnStop = keep;
     emit recordingChanged();
-    if (m_recorder) m_recorder->stop(); // finished() follows on StoppedState
+    if (m_recorder) m_recorder->stop();
 }
 
-} // namespace Zalos::Core::Media
+}

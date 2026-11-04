@@ -17,9 +17,8 @@ int MessageModel::rowCount(const QModelIndex& parent) const {
 }
 
 namespace {
-// Zalo time_to_break_block_messages: a run of messages by one sender breaks after 30 minutes.
 constexpr qint64 kGroupBreakMs = 30 * 60 * 1000;
-} // namespace
+}
 
 QVariant MessageModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_items.size()) {
@@ -55,7 +54,7 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
                    || QDateTime::fromMSecsSinceEpoch(prev.ts).date() != QDateTime::fromMSecsSinceEpoch(item.ts).date();
         }
         case LastInGroupRole: {
-            int last = index.row(); // a run head shows the time of its last folded tile
+            int last = index.row();
             while (last + 1 < m_items.size() && joinsPrevious(last + 1)) ++last;
             if (last + 1 >= m_items.size()) return true;
             const auto& next = m_items.at(last + 1);
@@ -136,7 +135,7 @@ bool MessageModel::isRunTile(int row) const {
     if (row < 0 || row >= m_items.size()) return false;
     const auto& m = m_items.at(row);
     if (m.isRecalled || !m.quoteText.isEmpty()) return false;
-    if (!m_unreadMarkerId.isEmpty() && m.id == m_unreadMarkerId) return false; // the unread bar stays visible
+    if (!m_unreadMarkerId.isEmpty() && m.id == m_unreadMarkerId) return false;
     return m.messageType == QLatin1String("sticker") || (m.messageType == QLatin1String("image") && m.text.isEmpty());
 }
 
@@ -217,7 +216,7 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
     if (items.isEmpty()) return;
     auto& thread = m_store[convId];
     QSet<QString> known;
-    QHash<QString, int> pendingByCliId; // local echoes still waiting for their server copy
+    QHash<QString, int> pendingByCliId;
     for (int i = 0; i < thread.size(); ++i) {
         known.insert(thread[i].id);
         if (thread[i].id.startsWith(QLatin1String("local-")) && !thread[i].cliMsgId.isEmpty()) {
@@ -229,7 +228,6 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
     for (const auto& m : items) {
         if (m.id.isEmpty() || known.contains(m.id)) continue;
         known.insert(m.id);
-        // Identity is the client id, never the text: two identical "ok" messages stay distinct.
         const int pending = pendingByCliId.contains(m.cliMsgId) ? pendingByCliId.take(m.cliMsgId) : -1;
         if (pending >= 0) {
             const QString localId = thread[pending].id;
@@ -251,23 +249,20 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         added = true;
     }
     if (!added) return;
-    // Appends in time order (live messages, history imported oldest-first) skip the sort.
     if (needSort) {
         std::stable_sort(thread.begin(), thread.end(), [](const MessageItem& a, const MessageItem& b) { return a.ts < b.ts; });
     }
 
     if (m_currentConvId != convId) return;
-    // Pure append keeps the view position; otherwise history was prepended and a reset is required.
     if (thread.size() > m_items.size() && std::equal(m_items.cbegin(), m_items.cend(), thread.cbegin(),
             [](const MessageItem& a, const MessageItem& b) { return a.id == b.id; })) {
         const int before = m_items.size();
         beginInsertRows(QModelIndex(), m_items.size(), thread.size() - 1);
         m_items = thread;
         endInsertRows();
-        // The previous tail lost "last in group" / "show status" to the new rows.
         if (before > 0) {
             emit dataChanged(index(0), index(before - 1), {LastInGroupRole, ShowStatusRole});
-            refreshRunsAround(before); // a new tile may extend the run that ended the thread
+            refreshRunsAround(before);
         }
         int incoming = 0;
         for (int row = before; row < m_items.size(); ++row) {
@@ -303,7 +298,6 @@ void MessageModel::clearUnreadMarker() {
 }
 
 void MessageModel::placeUnreadMarker() {
-    // Walk back over incoming messages; the N-th one from the end starts the unread run.
     int seen = 0;
     for (int row = m_items.size() - 1; row >= 0; --row) {
         const MessageItem& item = m_items.at(row);
@@ -315,7 +309,6 @@ void MessageModel::placeUnreadMarker() {
         emit unreadMarkerChanged(row);
         return;
     }
-    // Fewer incoming messages loaded than unread: wait for history (mergeMessages calls back).
 }
 
 int MessageModel::unreadMarkerRow() const {
@@ -328,7 +321,6 @@ int MessageModel::unreadMarkerRow() const {
 
 void MessageModel::confirmMessage(const QString& convId, const QString& localId, const QString& serverId) {
     auto& thread = m_store[convId];
-    // The realtime echo may already have delivered the server copy; drop the local one then.
     const bool alreadyPresent = std::any_of(thread.cbegin(), thread.cend(),
                                             [&](const MessageItem& m) { return m.id == serverId; });
     if (alreadyPresent) {
@@ -366,7 +358,6 @@ void MessageModel::removeMessage(const QString& convId, const QString& msgId) {
 }
 
 namespace {
-// Applies `fn` to the stored copy and, when the thread is shown, to the visible row.
 template <typename Fn>
 void updateItem(QHash<QString, QVector<MessageItem>>& store, QVector<MessageItem>& visible, const QString& currentConv,
                 const QString& convId, const QString& msgId, Fn fn, MessageModel* model, const QList<int>& roles) {
@@ -384,7 +375,7 @@ void updateItem(QHash<QString, QVector<MessageItem>>& store, QVector<MessageItem
         }
     }
 }
-} // namespace
+}
 
 void MessageModel::setReaction(const QString& convId, const QString& msgId, const QString& summary) {
     updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) { m.reaction = summary; },
@@ -424,7 +415,7 @@ void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
     for (const auto& m : thread) {
         if (m.id == msgId) { limit = m.ts; break; }
     }
-    if (limit < 0 && !thread.isEmpty()) limit = thread.last().ts; // unknown id: assume latest
+    if (limit < 0 && !thread.isEmpty()) limit = thread.last().ts;
     for (const auto& m : thread) {
         if (m.isMine && m.ts <= limit && m.status != "seen" && !m.id.startsWith("local-")) {
             setStatus(convId, m.id, "seen");
@@ -437,8 +428,15 @@ bool MessageModel::contains(const QString& convId, const QString& msgId) const {
     return std::any_of(thread.cbegin(), thread.cend(), [&](const MessageItem& m) { return m.id == msgId; });
 }
 
+qint64 MessageModel::oldestTimestamp(const QString& convId) const {
+    qint64 oldest = 0;
+    for (const auto& m : m_store.value(convId)) {
+        if (m.ts > 0 && (oldest == 0 || m.ts < oldest)) oldest = m.ts;
+    }
+    return oldest;
+}
+
 QString MessageModel::oldestMessageId(const QString& convId) const {
-    // History cursors are server ids; local echoes ("local-...") are skipped.
     for (const auto& m : m_store.value(convId)) {
         bool numeric = false;
         m.id.toULongLong(&numeric);
@@ -569,7 +567,6 @@ QString MessageModel::linkify(const QString& text) {
     while (it.hasNext()) {
         const auto m = it.next();
         QString link = m.captured(0);
-        // Trailing punctuation belongs to the sentence, not the link.
         while (!link.isEmpty() && QStringLiteral(".,;:!?)]}").contains(link.back())) link.chop(1);
         out += text.mid(last, m.capturedStart() - last).toHtmlEscaped();
         const QString href = link.startsWith(QLatin1String("www.")) ? "https://" + link : link;
@@ -619,7 +616,7 @@ QString MessageModel::linkify(const QString& text, const QVector<MessageMention>
     QString out;
     int last = 0;
     for (const MessageMention& m : sorted) {
-        if (m.pos < last || m.len <= 0 || m.pos + m.len > text.size()) continue; // overlapping or stale range
+        if (m.pos < last || m.len <= 0 || m.pos + m.len > text.size()) continue;
         out += linkify(text.mid(last, m.pos - last));
         out += QStringLiteral("<a href=\"zalos-mention:%1\"><b>%2</b></a>")
                    .arg(m.uid.toHtmlEscaped(), text.mid(m.pos, m.len).toHtmlEscaped());
@@ -646,7 +643,7 @@ QString MessageModel::styledHtml(const QString& text, const QVector<MessageMenti
         cuts << m.pos << m.pos + m.len;
     }
     for (int i = 0; i < text.size(); ++i) {
-        if (text.at(i) == QLatin1Char('\n')) cuts << i + 1; // line starts carry list markers
+        if (text.at(i) == QLatin1Char('\n')) cuts << i + 1;
     }
     QList<int> points(cuts.begin(), cuts.end());
     std::sort(points.begin(), points.end());
@@ -816,5 +813,4 @@ void MessageModel::updatePollVote(const QString& convId, qint64 pollId, int opti
     }
 }
 
-} // namespace Zalos::Core::Models
-
+}

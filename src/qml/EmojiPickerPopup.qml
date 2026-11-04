@@ -3,8 +3,6 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Zalos
 
-// Emoji + sticker picker. Stickers: ZaloClient.stickers (the account's packs, recent, keyword search), drawn with
-// ZSticker (animated on hover); a click sends through ZaloClient.stickers.send (recent list kept per account).
 Rectangle {
     id: root
     width: parent ? Math.min(380, parent.width - 32) : 380
@@ -18,7 +16,7 @@ Rectangle {
     signal emojiSelected(string emoji)
     signal stickerSelected(var sticker)
 
-    property int tab: 0 // 0 = emoji, 1 = stickers
+    property int tab: 0
 
     onVisibleChanged: if (visible && root.tab === 1) ZaloClient.stickers.load()
 
@@ -27,7 +25,6 @@ Rectangle {
         anchors.margins: 10
         spacing: 8
 
-        // Tabs
         RowLayout {
             Layout.fillWidth: true
             spacing: 16
@@ -77,7 +74,6 @@ Rectangle {
             color: ThemeManager.borderColor
         }
 
-        // Emoji grid
         GridView {
             visible: root.tab === 0
             Layout.fillWidth: true
@@ -114,7 +110,6 @@ Rectangle {
             }
         }
 
-        // Sticker search (Enter searches; clearing the field goes back to the pack)
         ZTextField {
             id: stickerSearch
             visible: root.tab === 1
@@ -180,7 +175,6 @@ Rectangle {
             }
         }
 
-        // Packs: recent first, then the account's sticker packs (Zalo PC sticker bar).
         ListView {
             id: packBar
             visible: root.tab === 1 && ZaloClient.stickers.categories.length > 0

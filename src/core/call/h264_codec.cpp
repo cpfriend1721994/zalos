@@ -14,9 +14,6 @@ namespace Zalos::Core::Call {
 #ifdef ZALOS_HAVE_OPENH264
 namespace {
 
-// The encoder's output structs changed in OpenH264 2.6.0 (Fedora soname 8): SLayerBSInfo gained a trailing
-// `float rPsnr[3]`, which moves every sLayerInfo[i] after the first. Both layouts are mirrored here (the build
-// headers may be either version) and picked from the run-time version. The decoder API is unchanged.
 struct LayerBSInfo24 {
     unsigned char uiTemporalId;
     unsigned char uiSpatialId;
@@ -55,12 +52,9 @@ struct FrameBSInfo26 {
     long long uiTimeStamp;
 };
 
-// The build headers must match one of the mirrored layouts (a new OpenH264 layout needs a new mirror).
 static_assert(sizeof(SFrameBSInfo) == sizeof(FrameBSInfo24) || sizeof(SFrameBSInfo) == sizeof(FrameBSInfo26),
               "unknown OpenH264 SFrameBSInfo layout");
 
-// Structs that only gained trailing fields (SEncParamExt, SSourcePicture) are handed over inside a zeroed,
-// larger buffer so a newer library never reads or writes past them.
 constexpr size_t kTailSlack = 256;
 
 bool g_layout26 = false;
@@ -77,7 +71,7 @@ QByteArray collectNals(const Frame& info) {
     return out;
 }
 
-} // namespace
+}
 #endif
 
 OpenH264& OpenH264::instance() {
@@ -116,7 +110,7 @@ OpenH264::OpenH264() {
     OpenH264Version v{};
     versionEx(&v);
     m_version = QStringLiteral("%1.%2.%3").arg(v.uMajor).arg(v.uMinor).arg(v.uRevision);
-    if (v.uMajor < 1 || v.uMajor > 2) { // a 3.x could change the vtables
+    if (v.uMajor < 1 || v.uMajor > 2) {
         m_error = QStringLiteral("unsupported libopenh264 %1").arg(m_version);
         dlclose(m_handle);
         m_handle = nullptr;
@@ -149,8 +143,6 @@ ISVCEncoder* OpenH264::createEncoder() const {
 void OpenH264::destroyEncoder(ISVCEncoder* encoder) const {
     if (encoder && m_destroyEncoder) m_destroyEncoder(encoder);
 }
-
-// ---------------------------------------------------------------------------
 
 H264Decoder::H264Decoder() {
 #ifdef ZALOS_HAVE_OPENH264
@@ -212,8 +204,6 @@ QVideoFrame H264Decoder::decode(const QByteArray& accessUnit, bool* damaged) {
 #endif
 }
 
-// ---------------------------------------------------------------------------
-
 H264Encoder::~H264Encoder() { close(); }
 
 bool H264Encoder::open(QSize size, int fps, int bitrate, bool screenContent) {
@@ -236,8 +226,8 @@ bool H264Encoder::open(QSize size, int fps, int bitrate, bool screenContent) {
     p->fMaxFrameRate = float(fps);
     p->iSpatialLayerNum = 1;
     p->iTemporalLayerNum = 1;
-    p->uiIntraPeriod = 0; // key frames on request (peer PLI) and on the caller's timer
-    p->iEntropyCodingModeFlag = 0; // CAVLC: Constrained Baseline, what the peer is told (avc1.42E0xx)
+    p->uiIntraPeriod = 0;
+    p->iEntropyCodingModeFlag = 0;
     p->bEnableFrameSkip = true;
     p->iMultipleThreadIdc = 1;
     p->eSpsPpsIdStrategy = CONSTANT_ID;
@@ -325,15 +315,12 @@ QByteArray H264Encoder::encodeI420(const QByteArray& i420, qint64 timestampMs, b
 #endif
 }
 
-// ---------------------------------------------------------------------------
-
 QByteArray frameToI420(const QVideoFrame& source, QSize size) {
     const int w = size.width() & ~1;
     const int h = size.height() & ~1;
     if (w <= 0 || h <= 0 || !source.isValid()) return {};
     QImage image = source.toImage();
     if (image.isNull()) return {};
-    // Keep the aspect ratio: crop the centre to w:h (a 4:3 webcam sent at 16:9 is not stretched).
     const qreal target = qreal(w) / h;
     const qreal aspect = qreal(image.width()) / image.height();
     if (aspect > target + 0.01) {
@@ -349,7 +336,6 @@ QByteArray frameToI420(const QVideoFrame& source, QSize size) {
     auto* y = reinterpret_cast<uchar*>(out.data());
     uchar* u = y + w * h;
     uchar* v = u + (w / 2) * (h / 2);
-    // BT.601 limited range, chroma from the top-left pixel of each 2x2 block.
     for (int row = 0; row < h; ++row) {
         const auto* line = reinterpret_cast<const QRgb*>(image.constScanLine(row));
         for (int col = 0; col < w; ++col) {
@@ -365,4 +351,4 @@ QByteArray frameToI420(const QVideoFrame& source, QSize size) {
     return out;
 }
 
-} // namespace Zalos::Core::Call
+}

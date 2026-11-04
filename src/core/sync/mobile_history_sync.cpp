@@ -30,11 +30,10 @@ namespace Zalos::Core::Sync {
 
 namespace {
 
-constexpr int kConfirmTimeoutMs = 3 * 60 * 1000;   // phone shows the Allow prompt
-constexpr int kBackupTimeoutMs = 30 * 60 * 1000;   // phone packs and uploads the backup
+constexpr int kConfirmTimeoutMs = 3 * 60 * 1000;
+constexpr int kBackupTimeoutMs = 30 * 60 * 1000;
 constexpr int kNoiseBatch = 100;
 
-// ChatContent.MsgType -> TMessage msgType (Zalo PC shared-worker table `Be`).
 QString typeName(int t) {
     static const QHash<int, QString> map{
         {0, "webchat"}, {2, "chat.doodle"}, {3, "chat.photo"}, {4, "chat.photo"}, {6, "chat.voice"},
@@ -46,7 +45,6 @@ QString typeName(int t) {
     return map.value(t, QStringLiteral("webchat"));
 }
 
-// Types Zalo PC itself never imports from a backup (system/ephemeral rows), plus delete/undo markers.
 bool isSkippedType(int t) {
     static const QList<int> skipped{20, 21, 25, 26, 29, 32, 33, 34, 35, 36, 45, 51, 52};
     return skipped.contains(t);
@@ -56,7 +54,6 @@ QString str(const std::string& s) {
     return QString::fromStdString(s);
 }
 
-// "[Photo] ", "[Hình ảnh]", "[Video]"... — preview placeholders stored instead of real text.
 bool isPlaceholderCaption(const QString& s) {
     static const QRegularExpression re(QStringLiteral("^\\[[^\\]]{1,24}\\]$"));
     return re.match(s.trimmed()).hasMatch();
@@ -78,14 +75,12 @@ QString firstColumn(const QSqlRecord& rec, const QSqlQuery& q, std::initializer_
     return {};
 }
 
-} // namespace
+}
 
 MobileHistorySync::MobileHistorySync(Network::ZaloSession* session, QObject* parent)
     : QObject(parent), m_session(session) {
-    // A run killed mid-import leaves decrypted history behind: remove it at startup.
     QDir(QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("sync")))
         .removeRecursively();
-    // A run interrupted by a crash or kill may have left a download or decrypted databases behind.
     QDir(QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("sync")))
         .removeRecursively();
     m_timeout.setSingleShot(true);
@@ -115,7 +110,6 @@ void MobileHistorySync::log(const QString& line) const {
 }
 
 namespace {
-// Keys and value types of a JSON object, for logs (no values).
 QString shapeOf(const QJsonValue& v) {
     if (v.isArray()) return QStringLiteral("array[%1]").arg(v.toArray().size());
     if (!v.isObject()) return v.isString() ? "string" : v.isDouble() ? "number" : v.isBool() ? "bool" : "null";
@@ -124,7 +118,7 @@ QString shapeOf(const QJsonValue& v) {
     for (auto it = o.begin(); it != o.end(); ++it) parts << it.key() + ":" + shapeOf(it.value());
     return "{" + parts.join(",") + "}";
 }
-} // namespace
+}
 
 void MobileHistorySync::setState(int state, const QString& status, int progress) {
     log(QStringLiteral("state %1 progress %2").arg(state).arg(progress));
@@ -140,10 +134,6 @@ void MobileHistorySync::fail(const QString& reason) {
     log("failed: " + reason);
     setState(Failed, reason, 0);
 }
-
-// ---------------------------------------------------------------------------
-// Crypto building blocks
-// ---------------------------------------------------------------------------
 
 MobileHistorySync::KeyPair MobileHistorySync::generateKeyPair() {
     KeyPair out;
@@ -195,13 +185,8 @@ QByteArray MobileHistorySync::rsaDecrypt(const QByteArray& privateKeyPem, const 
 }
 
 QString MobileHistorySync::backupKeyText(const QByteArray& plainKey, int format) {
-    // Zalo PC: privateDecrypt(..., output: format ? "hex" : "base64").
     return format ? QString::fromLatin1(plainKey.toHex()) : QString::fromLatin1(plainKey.toBase64());
 }
-
-// ---------------------------------------------------------------------------
-// Backup reading and conversion
-// ---------------------------------------------------------------------------
 
 QVector<MobileHistorySync::BackupConversation> MobileHistorySync::readBackupDirectory(const QString& dir,
                                                                                     QString* error) {
@@ -229,8 +214,6 @@ QVector<MobileHistorySync::BackupConversation> MobileHistorySync::readBackupDire
             db.setDatabaseName(QDir(dir).filePath(file));
             if (db.open() && db.tables().contains(QStringLiteral("ChatContent"))) {
                 QSqlQuery q(db);
-                // Same filter as Zalo PC (MsgStatus > 0, has a client id); fall back to all rows when a
-                // backup variant lacks one of the columns.
                 if (!q.exec(QStringLiteral("SELECT * FROM ChatContent WHERE MsgStatus > 0 AND CliMsgId NOT NULL "
                                            "ORDER BY TimeStamp ASC"))) {
                     q.exec(QStringLiteral("SELECT * FROM ChatContent"));
@@ -302,7 +285,6 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
         QJsonValue content;
         if (type == QLatin1String("webchat") || bin.attachs.empty()) {
             const QString text = row.text.isEmpty() ? str(bin.text) : row.text;
-            // A media row without its attachment is only a placeholder: nothing to show.
             if ((text.isEmpty() && bin.attachs.empty()) || (type != QLatin1String("webchat") && isPlaceholderCaption(text))) {
                 ++skip;
                 continue;
@@ -317,7 +299,6 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
                 obj["id"] = a.id;
                 obj["catId"] = a.catId;
             }
-            // MsgContent of media rows is a placeholder ("[Photo] ", "[Video]"...), never a caption.
             if (obj.value("title").toString().isEmpty() && !isPlaceholderCaption(row.text)) obj["title"] = row.text;
             content = obj;
         }
@@ -347,10 +328,6 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
     if (skipped) *skipped += skip;
     return out;
 }
-
-// ---------------------------------------------------------------------------
-// Flow
-// ---------------------------------------------------------------------------
 
 void MobileHistorySync::start(const QString& myNoisedUid, const QString& pcName) {
     if (!m_session) return;
@@ -394,7 +371,6 @@ void MobileHistorySync::handleControl(const QJsonObject& content) {
     const QString act = content.value("act").toString();
     const QJsonValue raw = content.value("data");
     const QJsonObject data = raw.isString() ? QJsonDocument::fromJson(raw.toString().toUtf8()).object() : raw.toObject();
-    // Only events for this request (Zalo PC matches pc_name and public_key).
     if (data.value("public_key").toString() != m_keys.publicKeyBase64) return;
     const bool samePc = !data.contains("pc_name") || data.value("pc_name").toString() == m_pcName;
     log(QStringLiteral("control act=%1 samePc=%2 user_action=%3 status=%4 error_code=%5")
@@ -451,7 +427,6 @@ void MobileHistorySync::onBackupReady(const QJsonObject& data) {
         return;
     }
     if (m_format != 1) {
-        // Format 0 (older single-database backups) uses another decryptor that is not implemented.
         fail(L("Bản sao lưu dùng định dạng cũ (0) mà Zalos chưa hỗ trợ.",
                "The backup uses the old format (0), which Zalos doesn't support yet."));
         return;
@@ -496,7 +471,6 @@ void MobileHistorySync::download() {
         log(QStringLiteral("download http=%1 bytes=%2").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt())
                 .arg(file->size()));
         if (reply->error() != QNetworkReply::NoError) {
-            // errorString() embeds the private download URL: show only the status.
             const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             fail(L("Tải bản sao lưu thất bại (%1).", "Downloading the backup failed (%1).")
                      .arg(http > 0 ? QStringLiteral("HTTP %1").arg(http) : QString::number(int(reply->error()))));
@@ -531,7 +505,7 @@ void MobileHistorySync::decryptAndRead() {
             result->error = QString::fromStdString(err);
             return;
         }
-        QFile::remove(input); // the encrypted copy is no longer needed
+        QFile::remove(input);
         result->conversations = readBackupDirectory(output, &result->error);
     });
     connect(worker, &QThread::finished, this, [this, worker, result, gen]() {
@@ -547,14 +521,13 @@ void MobileHistorySync::decryptAndRead() {
             return;
         }
         m_conversations = result->conversations;
-        cleanup(); // rows are in memory now; the decrypted databases must not stay on disk
+        cleanup();
         resolveIdsAndImport();
     });
     worker->start();
 }
 
 void MobileHistorySync::resolveIdsAndImport() {
-    // Every plain id in the backup must be turned into the noised id the app uses.
     QSet<QString> users;
     QSet<QString> groups;
     for (const auto& conv : std::as_const(m_conversations)) {
@@ -586,7 +559,7 @@ void MobileHistorySync::resolveIdsAndImport() {
         auto apply = [this](const QStringList& asked, const QJsonValue& answer) {
             if (answer.isArray()) {
                 const QJsonArray arr = answer.toArray();
-                if (arr.size() != asked.size()) return; // cannot align safely
+                if (arr.size() != asked.size()) return;
                 for (int i = 0; i < arr.size(); ++i) {
                     const QString noised = arr.at(i).toVariant().toString();
                     if (!noised.isEmpty() && noised != "0") m_ids.insert(asked.at(i), noised);
@@ -642,7 +615,6 @@ void MobileHistorySync::importNextChunk() {
     }
     const BackupConversation& conv = m_conversations.at(m_importIndex++);
     const QJsonArray messages = toMessages(conv, m_ids, m_myPlainUid, m_myNoisedUid, &m_skipped);
-    // One batch per conversation: the receiver re-sorts/persists once per conversation.
     if (!messages.isEmpty()) emit messagesImported(messages, conv.isGroup);
     if (!messages.isEmpty()) {
         m_importedMessages += messages.size();
@@ -652,18 +624,16 @@ void MobileHistorySync::importNextChunk() {
     setState(Importing, L("Đang nhập tin nhắn (%1/%2 hội thoại)...", "Importing messages (%1/%2 conversations)...")
                             .arg(m_importIndex).arg(m_conversations.size()), progress);
     const quint64 gen = m_generation;
-    // Yield to the event loop between conversations so the window stays responsive.
     QTimer::singleShot(1, this, [this, gen]() {
         if (gen == m_generation) importNextChunk();
     });
 }
 
 void MobileHistorySync::cleanup() {
-    // The download and the decrypted databases are private history: never leave them behind.
     if (!m_workDir.isEmpty()) {
         QDir(m_workDir).removeRecursively();
         m_workDir.clear();
     }
 }
 
-} // namespace Zalos::Core::Sync
+}

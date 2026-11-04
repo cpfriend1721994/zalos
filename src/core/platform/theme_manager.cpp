@@ -3,6 +3,7 @@
 #include <QJSEngine>
 #include <QGuiApplication>
 #include <QFont>
+#include <QFontDatabase>
 #include <QProcessEnvironment>
 #include <QDBusConnection>
 #include <QDBusMessage>
@@ -136,7 +137,6 @@ QColor ThemeManager::resolveColor(const QString& lightZalo, const QString& darkZ
     if (m_themeMode == 1) {
         return QColor(darkZalo);
     }
-    // Mode 2: System theme
     if (systemColor.isValid()) {
         return systemColor;
     }
@@ -215,8 +215,8 @@ QColor ThemeManager::secondaryTextColor() const {
 }
 
 QColor ThemeManager::borderColor() const {
-    if (m_themeMode == 0) return QColor("#26000000"); // 15% black
-    if (m_themeMode == 1) return QColor("#1AFFFFFF"); // 10% white
+    if (m_themeMode == 0) return QColor("#26000000");
+    if (m_themeMode == 1) return QColor("#1AFFFFFF");
     return m_isDarkMode ? QColor(255, 255, 255, 26) : QColor(0, 0, 0, 36);
 }
 
@@ -335,7 +335,6 @@ void ThemeManager::initSystemThemeDetection() {
     detectKdeTheme();
     detectSystemAccentColor();
 
-    // 1. Listen for D-Bus theme changes (org.freedesktop.portal.Settings)
     QDBusConnection::sessionBus().connect(
         "org.freedesktop.portal.Desktop",
         "/org/freedesktop/portal/desktop",
@@ -345,7 +344,6 @@ void ThemeManager::initSystemThemeDetection() {
         SLOT(detectGnomeOrPortalTheme())
     );
 
-    // 2. Watch KDE Plasma's ~/.config/kdeglobals for real-time theme updates
     const QString kdeGlobalsPath = QDir::homePath() + "/.config/kdeglobals";
     if (QFile::exists(kdeGlobalsPath)) {
         m_kdeWatcher = new QFileSystemWatcher(this);
@@ -360,7 +358,6 @@ void ThemeManager::initSystemThemeDetection() {
 void ThemeManager::detectSystemAccentColor() {
     QColor detectedAccent;
 
-    // 1. Try reading XDG Desktop Portal Settings for accent-color
     QDBusMessage msg = QDBusMessage::createMethodCall(
         "org.freedesktop.portal.Desktop",
         "/org/freedesktop/portal/desktop",
@@ -389,7 +386,6 @@ void ThemeManager::detectSystemAccentColor() {
         }
     }
 
-    // 2. Try KDE Plasma kdeglobals [General] AccentColor
     if (!detectedAccent.isValid()) {
         const QString kdeGlobalsPath = QDir::homePath() + "/.config/kdeglobals";
         if (QFile::exists(kdeGlobalsPath)) {
@@ -408,7 +404,6 @@ void ThemeManager::detectSystemAccentColor() {
         }
     }
 
-    // 3. Fallback: Query Qt QGuiApplication::palette().color(QPalette::Highlight)
     if (!detectedAccent.isValid()) {
         QColor highlight = QGuiApplication::palette().color(QPalette::Highlight);
         if (highlight.isValid() && highlight != Qt::black && highlight != Qt::white) {
@@ -442,7 +437,6 @@ void ThemeManager::detectKdeTheme() {
             int r = parts[0].trimmed().toInt();
             int g = parts[1].trimmed().toInt();
             int b = parts[2].trimmed().toInt();
-            // ITU-R BT.601 luminance calculation
             double luminance = 0.299 * r + 0.587 * g + 0.114 * b;
             m_systemIsDark = (luminance < 128.0);
             if (m_themeMode == 2) {
@@ -455,7 +449,6 @@ void ThemeManager::detectKdeTheme() {
 void ThemeManager::detectGnomeOrPortalTheme() {
     detectSystemAccentColor();
 
-    // 1. Try reading XDG Desktop Portal Settings for color-scheme
     QDBusMessage msg = QDBusMessage::createMethodCall(
         "org.freedesktop.portal.Desktop",
         "/org/freedesktop/portal/desktop",
@@ -472,7 +465,6 @@ void ThemeManager::detectGnomeOrPortalTheme() {
         }
         bool ok = false;
         uint value = v.toUInt(&ok);
-        // 1 = prefer dark, 2 = prefer light, 0 = no preference
         if (ok) {
             if (value == 1) {
                 m_systemIsDark = true;
@@ -486,7 +478,6 @@ void ThemeManager::detectGnomeOrPortalTheme() {
         }
     }
 
-    // 2. Fallback: Query GNOME interface color-scheme via Portal Settings
     QDBusMessage gnomePortalMsg = QDBusMessage::createMethodCall(
         "org.freedesktop.portal.Desktop",
         "/org/freedesktop/portal/desktop",
@@ -511,7 +502,6 @@ void ThemeManager::detectGnomeOrPortalTheme() {
         }
     }
 
-    // 3. Fallback: Query GTK_THEME environment variable
     const QString gtkTheme = qEnvironmentVariable("GTK_THEME");
     if (!gtkTheme.isEmpty()) {
         m_systemIsDark = gtkTheme.contains("dark", Qt::CaseInsensitive);
@@ -521,10 +511,24 @@ void ThemeManager::detectGnomeOrPortalTheme() {
     }
 }
 
+QString ThemeManager::familyFromFontSpec(const QString& spec) {
+    QString s = spec.trimmed();
+    if (s.contains(',')) s = s.section(',', 0, 0).trimmed();
+    QStringList words = s.split(' ', Qt::SkipEmptyParts);
+    bool sizeOk = false;
+    if (!words.isEmpty()) words.last().toDouble(&sizeOk);
+    if (sizeOk) words.removeLast();
+    static const QStringList kStyleWords{
+        "thin", "hairline", "extralight", "ultralight", "light", "semilight", "book", "regular", "normal", "medium",
+        "semibold", "demibold", "bold", "extrabold", "ultrabold", "heavy", "black", "italic", "oblique",
+        "condensed", "semicondensed", "extracondensed", "expanded"};
+    while (words.size() > 1 && kStyleWords.contains(words.last().toLower())) words.removeLast();
+    return words.join(' ');
+}
+
 void ThemeManager::detectSystemFont() {
     QString detectedFont;
 
-    // 1. Try reading XDG Desktop Portal Settings for font-name
     QDBusMessage msg = QDBusMessage::createMethodCall(
         "org.freedesktop.portal.Desktop",
         "/org/freedesktop/portal/desktop",
@@ -534,23 +538,8 @@ void ThemeManager::detectSystemFont() {
     msg << "org.gnome.desktop.interface" << "font-name";
 
     QDBusReply<QDBusVariant> reply = QDBusConnection::sessionBus().call(msg);
-    if (reply.isValid()) {
-        QString fontSpec = reply.value().variant().toString().trimmed();
-        int lastSpace = fontSpec.lastIndexOf(' ');
-        if (lastSpace > 0) {
-            bool ok = false;
-            fontSpec.mid(lastSpace + 1).toDouble(&ok);
-            if (ok) {
-                detectedFont = fontSpec.left(lastSpace).trimmed();
-            } else {
-                detectedFont = fontSpec;
-            }
-        } else if (!fontSpec.isEmpty()) {
-            detectedFont = fontSpec;
-        }
-    }
+    if (reply.isValid()) detectedFont = familyFromFontSpec(reply.value().variant().toString());
 
-    // 2. Try KDE Plasma kdeglobals
     if (detectedFont.isEmpty()) {
         const QString kdeGlobalsPath = QDir::homePath() + "/.config/kdeglobals";
         if (QFile::exists(kdeGlobalsPath)) {
@@ -559,15 +548,16 @@ void ThemeManager::detectSystemFont() {
             QString kdeFont = kdeSettings.value("font").toString();
             kdeSettings.endGroup();
             if (!kdeFont.isEmpty()) {
-                QStringList parts = kdeFont.split(',');
-                if (!parts.isEmpty() && !parts[0].trimmed().isEmpty()) {
-                    detectedFont = parts[0].trimmed();
-                }
+                detectedFont = familyFromFontSpec(kdeFont);
             }
         }
     }
 
-    // 3. Fallback to QGuiApplication font family or standard system font
+    if (!detectedFont.isEmpty() && !QFontDatabase::hasFamily(detectedFont)) {
+        qInfo() << "System font family" << detectedFont << "is not installed; using the default font";
+        detectedFont.clear();
+    }
+
     if (detectedFont.isEmpty()) {
         detectedFont = QGuiApplication::font().family();
     }
@@ -578,5 +568,4 @@ void ThemeManager::detectSystemFont() {
     setSystemFontFamily(detectedFont);
 }
 
-} // namespace Zalos::Core::Platform
-
+}
