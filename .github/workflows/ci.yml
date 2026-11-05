@@ -77,6 +77,12 @@ jobs:
           docker pull --platform linux/arm64 ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-fedora:43
           docker tag  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-fedora:43 localhost/zalos-fedora-arm64:43
       - run: rm -rf dist /tmp/rpmbuild
+      # TEMP diagnostic: prove whether the runner's docker daemon can see the checkout via a bind mount.
+      - name: Diagnose workspace mount
+        run: |
+          echo "== host: pwd + checkout =="; pwd; ls -la packaging/rpm | head
+          echo "== docker daemon =="; docker info 2>/dev/null | grep -iE 'Server Version|Rootless|Operating System|Name:|Cgroup Driver' || true
+          echo "== container /workspace =="; docker compose run --rm --entrypoint bash package-rpm -c 'ls -la /workspace | head; echo ---; ls -la /workspace/packaging/rpm 2>&1 | head; echo ---; grep -i workspace /proc/mounts || echo "(no workspace mount in /proc/mounts)"'
       - name: Build RPM (x86_64)
         run: docker compose run --rm package-rpm
       - name: Enable aarch64 emulation (binfmt)
