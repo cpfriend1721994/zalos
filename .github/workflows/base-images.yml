@@ -31,6 +31,10 @@ jobs:
   build:
     name: ${{ matrix.name }} (${{ matrix.tag }})
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
+    # Keep docker credentials in a job-private dir: on the self-hosted runner /root/.docker/config.json is a
+    # bind mount, so login-action's atomic rename over it fails with "device or resource busy".
+    env:
+      DOCKER_CONFIG: ${{ runner.temp }}/docker
     strategy:
       fail-fast: false
       matrix:
@@ -45,20 +49,20 @@ jobs:
             file: Dockerfile.nix
             tag: latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           clean: true
       - name: Lowercase owner (GHCR requires lowercase)
         id: base
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}:${{ matrix.tag }}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.file }}
