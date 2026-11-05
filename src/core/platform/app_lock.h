@@ -34,7 +34,6 @@ public:
     Q_INVOKABLE bool removePasscode(const QString& current);
     Q_INVOKABLE void lock();
     Q_INVOKABLE bool unlock(const QString& passcode);
-    Q_INVOKABLE bool verifyPasscode(const QString& passcode) const { return verify(passcode); }
 
     void noteActivity();
 

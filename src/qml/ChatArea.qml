@@ -265,7 +265,7 @@ Rectangle {
     }
 
     function dateLabel(ts: real): string {
-        if (!ts) return "";
+        if (!ts || ts < 946684800000) return "";
         const d = new Date(ts);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -426,6 +426,7 @@ Rectangle {
 
                     ColumnLayout {
                         Layout.fillWidth: true
+                        Layout.maximumWidth: Number.POSITIVE_INFINITY
                         spacing: 2
 
                         Text {
@@ -452,7 +453,8 @@ Rectangle {
 
                         RowLayout {
                             spacing: 5
-                            visible: ZaloClient.currentConversationIsGroup || ZaloClient.currentConversationIsOnline || (ZaloClient.currentConversationStatus && ZaloClient.currentConversationStatus.length > 0)
+                            visible: ZaloClient.currentConversationIsGroup || ZaloClient.currentConversationIsOnline
+                                     || ZaloClient.currentConversationStatus.length > 0 || ZaloClient.currentConversationHasPresence
 
                             Rectangle {
                                 visible: !ZaloClient.currentConversationIsGroup && ZaloClient.currentConversationIsOnline
@@ -472,9 +474,8 @@ Rectangle {
                                     if (ZaloClient.currentConversationIsOnline) {
                                         return I18n.t("Đang hoạt động", "Active now");
                                     }
-                                    return (ZaloClient.currentConversationStatus && ZaloClient.currentConversationStatus.length > 0)
-                                           ? ZaloClient.currentConversationStatus
-                                           : I18n.t("Truy cập gần đây", "Recently active");
+                                    if (ZaloClient.currentConversationStatus.length > 0) return ZaloClient.currentConversationStatus;
+                                    return ZaloClient.currentConversationHasPresence ? I18n.t("Truy cập gần đây", "Recently active") : "";
                                 }
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 11
@@ -887,9 +888,9 @@ Rectangle {
                 parent: messageList.parent
                 z: -1
                 anchors.fill: messageList
-                visible: ZaloClient.useAvatarAsChatBackground && ZaloClient.currentConversationAvatar.length > 0
-                         && status === Image.Ready
-                source: ZaloClient.useAvatarAsChatBackground ? ZaloClient.currentConversationAvatar : ""
+                visible: ZaloClient.currentConversationBackground.length > 0 && status === Image.Ready
+                source: ZaloClient.currentConversationBackground.length > 0
+                        ? "image://cover/" + encodeURIComponent(ZaloClient.currentConversationBackground) : ""
                 sourceSize.width: 640
                 fillMode: Image.PreserveAspectCrop
                 opacity: ThemeManager.isDarkMode ? 0.14 : 0.1
@@ -1180,7 +1181,10 @@ Rectangle {
                     readonly property bool isCall: messageType === "call"
                     readonly property bool isPoll: messageType === "poll"
                     readonly property bool isContactCard: messageType === "card"
-                    readonly property bool hasCard: isFile || isLink || isVoice || isCall || isPoll || isContactCard
+                    readonly property bool isLocation: messageType === "location"
+                    readonly property bool isBankCard: messageType === "bankcard"
+                    readonly property bool hasCard: isFile || isLink || isVoice || isCall || isPoll || isContactCard || isLocation
+                                                    || isBankCard
                     readonly property bool bubbleless: (isPhoto && text.length === 0 && quoteText.length === 0) || isSticker
                     readonly property real maxBubble: Math.min(messageList.width * 0.7, 560)
                     readonly property bool isSearchHit: root.searchFocusId.length > 0 && msgId === root.searchFocusId
@@ -1249,7 +1253,17 @@ Rectangle {
                             text: msgRow.text
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
-                            color: ThemeManager.secondaryTextColor
+                            font.underline: systemLinkMouse.enabled && systemLinkMouse.containsMouse
+                            color: systemLinkMouse.enabled ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+
+                            MouseArea {
+                                id: systemLinkMouse
+                                anchors.fill: parent
+                                enabled: msgRow.isSystem && !!model.extra.reminderEventId
+                                hoverEnabled: true
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onClicked: ZaloClient.showConversationInfo = true
+                            }
                         }
 
                         Loader {
@@ -1260,15 +1274,21 @@ Rectangle {
                             Layout.bottomMargin: 4
                             sourceComponent: Rectangle {
                                 id: ecardCard
-                                readonly property var stickers: model.extra.stickers || []
-                                readonly property string desc: model.extra.desc || ""
+                                readonly property bool suggest: model.extra.suggestStickers === true
+                                readonly property var stickers: (model.extra.stickers && model.extra.stickers.length > 0)
+                                                                ? model.extra.stickers
+                                                                : (ecardCard.suggest ? ZaloClient.stickers.birthdayStickers : [])
+                                readonly property string desc: ecardCard.suggest && ecardCard.stickers.length === 0 ? "" : (model.extra.desc || "")
                                 implicitWidth: Math.min(340, messageList.width - 48)
                                 implicitHeight: ecardCol.implicitHeight + 24
                                 radius: 12
                                 color: ThemeManager.surfaceColor
                                 border.color: ThemeManager.borderColor
                                 border.width: 1
-                                Component.onCompleted: if (ecardCard.stickers.length > 0) ZaloClient.prefetchStickers(ecardCard.stickers)
+                                Component.onCompleted: {
+                                    if (ecardCard.suggest) ZaloClient.stickers.loadBirthdayStickers();
+                                    else if (ecardCard.stickers.length > 0) ZaloClient.prefetchStickers(ecardCard.stickers);
+                                }
 
                                 ColumnLayout {
                                     id: ecardCol
@@ -1370,7 +1390,8 @@ Rectangle {
                                             avatarUrl: (model.senderAvatar && model.senderAvatar.length > 0)
                                                        ? model.senderAvatar
                                                        : (ZaloClient.currentConversationIsGroup ? "" : ZaloClient.currentConversationAvatar)
-                                            name: (model.senderName && model.senderName.length > 0) ? model.senderName : ZaloClient.currentConversationName
+                                            name: (model.senderName && model.senderName.length > 0) ? model.senderName
+                                                  : (ZaloClient.currentConversationIsGroup ? "" : ZaloClient.currentConversationName)
                                             showStatusDot: false
                                         }
                                         MouseArea {
@@ -1430,6 +1451,26 @@ Rectangle {
                                             animatedSource: model.extra.animatedUrl ? model.extra.animatedUrl : ""
                                             sourceSize.width: Math.ceil(360 * (Screen.devicePixelRatio || 1))
                                             topOnly: !msgRow.bubbleless
+                                        }
+                                        ColumnLayout {
+                                            objectName: "mediaExpiredHint"
+                                            visible: mediaImg.status === Image.Error
+                                            anchors.centerIn: parent
+                                            spacing: 6
+                                            ZIcon {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                name: msgRow.messageType === "video" ? "video" : "image"
+                                                size: 24
+                                                color: ThemeManager.secondaryTextColor
+                                            }
+                                            Text {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                text: msgRow.messageType === "video" ? I18n.t("Video đã hết hạn", "Video expired")
+                                                                                     : I18n.t("Ảnh đã hết hạn", "Photo expired")
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 12
+                                                color: ThemeManager.secondaryTextColor
+                                            }
                                         }
                                         Rectangle {
                                             anchors.fill: parent
@@ -1549,11 +1590,20 @@ Rectangle {
                                                 width: tile.sticker ? 130 : 150
                                                 height: tile.sticker ? 130 : 150
                                                 ZRoundedImage {
+                                                    id: tileImage
                                                     visible: !tile.sticker
                                                     anchors.fill: parent
                                                     source: tile.sticker ? "" : tile.modelData.mediaUrl
                                                     animatedSource: !tile.sticker && tile.modelData.animatedUrl ? tile.modelData.animatedUrl : ""
                                                     sourceSize.width: 320
+                                                }
+                                                Text {
+                                                    visible: !tile.sticker && tileImage.status === Image.Error
+                                                    anchors.centerIn: parent
+                                                    text: I18n.t("Ảnh đã hết hạn", "Photo expired")
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 12
+                                                    color: ThemeManager.secondaryTextColor
                                                 }
                                                 ZSticker {
                                                     id: tileSticker
@@ -1856,13 +1906,14 @@ Rectangle {
                                                     Layout.fillWidth: true
                                                     text: msgRow.isLink ? (model.extra.desc || "") : ""
                                                     wrapMode: Text.Wrap
-                                                    maximumLineCount: 2
+                                                    maximumLineCount: msgRow.href.length > 0 ? 2 : 8
                                                     elide: Text.ElideRight
                                                     font.family: Theme.fontFamily
                                                     font.pixelSize: 12
                                                     color: ThemeManager.secondaryTextColor
                                                 }
                                                 Text {
+                                                    visible: msgRow.href.length > 0
                                                     Layout.fillWidth: true
                                                     text: msgRow.isLink ? (model.extra.domain || msgRow.href) : ""
                                                     elide: Text.ElideRight
@@ -1871,9 +1922,110 @@ Rectangle {
                                                     color: Theme.linkColor
                                                 }
                                                 TapHandler {
-                                                    onTapped: if (msgRow.href.length > 0) ZaloClient.openLink(msgRow.href)
+                                                    enabled: msgRow.href.length > 0
+                                                    onTapped: ZaloClient.openLink(msgRow.href, msgRow.text, msgRow.mediaUrl)
                                                 }
-                                                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                                HoverHandler { cursorShape: msgRow.href.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                                            }
+                                        }
+
+                                        Loader {
+                                            active: msgRow.isBankCard && !model.isRecalled
+                                            visible: active
+                                            Layout.preferredWidth: Math.min(280, bubbleRect.innerMax)
+                                            sourceComponent: RowLayout {
+                                                spacing: 10
+                                                Rectangle {
+                                                    Layout.preferredWidth: 40
+                                                    Layout.preferredHeight: 40
+                                                    radius: 20
+                                                    color: Theme.zaloBlueLight
+                                                    ZIcon { anchors.centerIn: parent; name: "contacts"; size: 20; color: Theme.zaloBlueTonalText }
+                                                }
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 2
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: I18n.t("Thông tin chuyển khoản", "Bank transfer details")
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: 14
+                                                        font.weight: Font.DemiBold
+                                                        color: ThemeManager.textColor
+                                                    }
+                                                    Text {
+                                                        visible: msgRow.text !== I18n.t("Thông tin chuyển khoản", "Bank transfer details")
+                                                        Layout.fillWidth: true
+                                                        text: msgRow.text
+                                                        wrapMode: Text.Wrap
+                                                        maximumLineCount: 2
+                                                        elide: Text.ElideRight
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: 13
+                                                        color: ThemeManager.textColor
+                                                    }
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: msgRow.isBankCard ? (model.extra.desc || "") : ""
+                                                        wrapMode: Text.Wrap
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: 12
+                                                        color: ThemeManager.secondaryTextColor
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Loader {
+                                            active: msgRow.isLocation && !model.isRecalled
+                                            visible: active
+                                            Layout.preferredWidth: Math.min(280, bubbleRect.innerMax)
+                                            sourceComponent: RowLayout {
+                                                spacing: 10
+                                                Rectangle {
+                                                    Layout.preferredWidth: 40
+                                                    Layout.preferredHeight: 40
+                                                    radius: 20
+                                                    color: Theme.zaloBlueLight
+                                                    ZIcon { anchors.centerIn: parent; name: "location"; size: 20; color: Theme.zaloBlueTonalText }
+                                                }
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 2
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: msgRow.text
+                                                        wrapMode: Text.Wrap
+                                                        maximumLineCount: 2
+                                                        elide: Text.ElideRight
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: 14
+                                                        font.weight: Font.DemiBold
+                                                        color: ThemeManager.textColor
+                                                    }
+                                                    Text {
+                                                        visible: text.length > 0
+                                                        Layout.fillWidth: true
+                                                        text: msgRow.isLocation ? (model.extra.desc || model.extra.coords || "") : ""
+                                                        wrapMode: Text.Wrap
+                                                        maximumLineCount: 2
+                                                        elide: Text.ElideRight
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: 12
+                                                        color: ThemeManager.secondaryTextColor
+                                                    }
+                                                    Text {
+                                                        visible: msgRow.href.length > 0
+                                                        text: I18n.t("Mở bản đồ", "Open map")
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: 12
+                                                        color: Theme.linkColor
+                                                    }
+                                                }
+                                                TapHandler {
+                                                    onTapped: if (msgRow.href.length > 0) Qt.openUrlExternally(msgRow.href)
+                                                }
+                                                HoverHandler { cursorShape: msgRow.href.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                             }
                                         }
 
@@ -2431,8 +2583,80 @@ Rectangle {
         }
 
         Rectangle {
+            id: blockedBanner
+            objectName: "blockedBanner"
+            visible: ZaloClient.currentConversationBlocked && ZaloClient.composerLockReason.length === 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: blockedRow.implicitHeight + 16
+            color: ThemeManager.hoverColor
+
+            RowLayout {
+                id: blockedRow
+                anchors.fill: parent
+                anchors.leftMargin: 16
+                anchors.rightMargin: 16
+                spacing: 12
+                ZIcon { name: "lock"; size: 16; color: ThemeManager.secondaryTextColor }
+                Text {
+                    Layout.fillWidth: true
+                    text: I18n.t("Bạn đã chặn người này. Người này sẽ không thể trả lời tin nhắn của bạn",
+                                 "You blocked this person. They can't reply to your messages")
+                    wrapMode: Text.Wrap
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    color: ThemeManager.textColor
+                }
+                ZButton {
+                    variant: "secondary"
+                    text: I18n.t("Bỏ chặn", "Unblock")
+                    onClicked: ZaloClient.unblockUser(ZaloClient.currentConversationId)
+                }
+            }
+        }
+
+        Rectangle {
+            id: composerLockBar
+            objectName: "composerLockBar"
+            visible: ZaloClient.composerLockReason.length > 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: 64
+            color: ThemeManager.surfaceColor
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: 1
+                color: ThemeManager.dividerColor
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 16
+                anchors.rightMargin: 16
+                spacing: 12
+                ZIcon { name: "lock"; size: 16; color: ThemeManager.secondaryTextColor }
+                Text {
+                    Layout.fillWidth: true
+                    text: ZaloClient.composerLockReason
+                    wrapMode: Text.Wrap
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    color: ThemeManager.secondaryTextColor
+                }
+                ZButton {
+                    visible: ZaloClient.composerLockDeletable
+                    variant: "secondary"
+                    text: I18n.t("Xoá trò chuyện", "Delete conversation")
+                    onClicked: ZaloClient.deleteConversation(ZaloClient.currentConversationId)
+                }
+            }
+        }
+
+        Rectangle {
             id: composerBox
             objectName: "composerBox"
+            visible: ZaloClient.composerLockReason.length === 0
             Layout.fillWidth: true
             readonly property real textAreaHeight: root.isEditorExpanded ? 230
                 : Math.max(root.composerMinTextHeight, Math.min(root.composerMaxTextHeight, msgInput.implicitHeight + 16))

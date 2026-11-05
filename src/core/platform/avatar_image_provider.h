@@ -8,7 +8,7 @@ namespace Zalos::Core::Platform {
 
 class AvatarImageProvider : public QQuickAsyncImageProvider {
 public:
-    AvatarImageProvider();
+    explicit AvatarImageProvider(bool circular = true);
     ~AvatarImageProvider() override;
 
     QQuickImageResponse* requestImageResponse(const QString& id, const QSize& requestedSize) override;
@@ -22,6 +22,7 @@ public:
 
 private:
     QNetworkAccessManager* m_nam{nullptr};
+    bool m_circular{true};
 };
 
 }

@@ -7,6 +7,7 @@ class QJSEngine;
 
 #include <QObject>
 #include <QColor>
+#include <QPalette>
 #include <QString>
 #include <QFileSystemWatcher>
 
@@ -56,6 +57,14 @@ class ThemeManager : public QObject {
     Q_PROPERTY(QColor railSelectedColor READ railSelectedColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor timestampColor READ timestampColor NOTIFY themeColorsChanged FINAL)
     Q_PROPERTY(QColor reactionBackgroundColor READ reactionBackgroundColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor uiAccentColor READ uiAccentColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor activenessColor READ activenessColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor uiLinkColor READ uiLinkColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor reactionSurfaceColor READ reactionSurfaceColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor inactiveSubtleColor READ inactiveSubtleColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor inactiveDisabledColor READ inactiveDisabledColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor activeDisabledColor READ activeDisabledColor NOTIFY themeColorsChanged FINAL)
+    Q_PROPERTY(QColor dropOverlayColor READ dropOverlayColor NOTIFY themeColorsChanged FINAL)
 
 public:
     static inline ThemeManager* s_instance = nullptr;
@@ -119,6 +128,15 @@ public:
     QColor timestampColor() const;
     QColor reactionBackgroundColor() const;
 
+    QColor uiAccentColor() const;
+    QColor activenessColor() const;
+    QColor uiLinkColor() const;
+    QColor reactionSurfaceColor() const;
+    QColor inactiveSubtleColor() const;
+    QColor inactiveDisabledColor() const;
+    QColor activeDisabledColor() const;
+    QColor dropOverlayColor() const;
+
     Q_INVOKABLE void toggleTheme();
 
 signals:
@@ -143,6 +161,7 @@ private:
     bool m_isDarkMode{false};
     bool m_systemIsDark{false};
     QColor m_systemAccentColor;
+    QPalette m_systemPalette;
     QString m_systemFontFamily;
     QFileSystemWatcher* m_kdeWatcher{nullptr};
 };

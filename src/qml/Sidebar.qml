@@ -11,56 +11,17 @@ Rectangle {
     color: ThemeManager.surfaceColor
 
     property var menuConv: ({})
-    property bool moreViewsOpen: false
+
+    function openConvMenu(id: string, pinned: bool, muted: bool, unread: bool, marked: bool, labelId: int,
+                          revealed: bool, p: point): void {
+        root.menuConv = { id: id, isPinned: pinned, isMuted: muted, unread: unread, marked: marked,
+                          labelId: labelId, revealed: revealed };
+        const h = Math.max(convMenu.height, convMenu.implicitHeight);
+        convMenu.x = Math.max(8, Math.min(p.x, root.width - convMenu.width - 8));
+        convMenu.y = Math.max(8, p.y + h > root.height - 8 ? p.y - h : p.y);
+        convMenu.open();
+    }
     readonly property bool searching: ZaloClient.conversationModel.searchQuery.trim().length > 0
-
-    function toggleMoreViews(): void {
-        root.moreViewsOpen = !root.moreViewsOpen;
-        if (!root.moreViewsOpen) ZaloClient.conversationModel.setViewMode("normal");
-    }
-
-    function requestHiddenView(): void {
-        if (ZaloClient.appLock.hasPasscode) hiddenPasscodeDialog.open();
-        else ZaloClient.conversationModel.setViewMode("hidden");
-    }
-
-    Dialog {
-        id: hiddenPasscodeDialog
-        parent: T.Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
-        width: 320
-        title: I18n.t("Nhập mã khóa để xem", "Enter passcode to view")
-        standardButtons: Dialog.Cancel | Dialog.Ok
-        onAboutToShow: { hiddenPinField.text = ""; hiddenPinField.forceActiveFocus(); }
-        onAccepted: {
-            if (ZaloClient.appLock.verifyPasscode(hiddenPinField.text))
-                ZaloClient.conversationModel.setViewMode("hidden");
-            else
-                ZaloClient.showNotice(I18n.t("Mã không đúng", "Wrong passcode"));
-        }
-        ColumnLayout {
-            width: parent.width
-            spacing: 8
-            Text {
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                text: I18n.t("Hội thoại đã ẩn được bảo vệ bằng mã khóa ứng dụng.",
-                             "Hidden conversations are protected by the app passcode.")
-                color: ThemeManager.secondaryTextColor
-                font.family: Theme.fontFamily
-                font.pixelSize: 13
-            }
-            ZTextField {
-                id: hiddenPinField
-                Layout.fillWidth: true
-                echoMode: TextInput.Password
-                inputMethodHints: Qt.ImhDigitsOnly
-                placeholderText: I18n.t("Mã khóa", "Passcode")
-                onAccepted: hiddenPasscodeDialog.accept()
-            }
-        }
-    }
 
     component LabelMenuRow: Rectangle {
         id: lrow
@@ -182,6 +143,19 @@ Rectangle {
                             name: "search"
                             size: 14
                             color: ThemeManager.secondaryTextColor
+
+                            Rectangle {
+                                objectName: "hiddenUnreadDot"
+                                visible: ZaloClient.hiddenUnread
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.topMargin: -2
+                                anchors.rightMargin: -3
+                                width: 7
+                                height: 7
+                                radius: 3.5
+                                color: Theme.badgeRed
+                            }
                         }
 
                         TextInput {
@@ -192,6 +166,7 @@ Rectangle {
                             font.pixelSize: 12
                             clip: true
                             onTextChanged: ZaloClient.conversationModel.setSearchFilter(text)
+                            onActiveFocusChanged: if (activeFocus && ZaloClient.hiddenUnread) ZaloClient.dismissHiddenUnread()
                             Keys.onEscapePressed: { text = ""; focus = false; }
 
                             Text {
@@ -294,11 +269,12 @@ Rectangle {
             Layout.preferredHeight: 36
 
             Row {
+                id: tabRow
                 anchors.left: parent.left
                 anchors.leftMargin: 16
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
-                spacing: 18
+                spacing: 14
 
                 Repeater {
                     model: [
@@ -341,45 +317,21 @@ Rectangle {
                     }
                 }
 
-                Item {
-                    height: parent.height
-                    width: 26
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 26
-                        height: 26
-                        radius: 13
-                        color: moreViewsMouse.containsMouse || root.moreViewsOpen ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                        ZIcon {
-                            anchors.centerIn: parent
-                            name: "chevron_down"
-                            size: 16
-                            rotation: root.moreViewsOpen ? 180 : 0
-                            color: ZaloClient.conversationModel.viewMode !== "normal" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
-                            Behavior on rotation { NumberAnimation { duration: 140 } }
-                        }
-                    }
-                    MouseArea {
-                        id: moreViewsMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.toggleMoreViews()
-                    }
-                    ToolTip.visible: moreViewsMouse.containsMouse
-                    ToolTip.delay: 400
-                    ToolTip.text: root.moreViewsOpen ? I18n.t("Thu gọn", "Collapse")
-                                                     : I18n.t("Hội thoại khác & đã ẩn", "Other & hidden conversations")
+                ViewTab {
+                    viewKey: "archived"
+                    title: I18n.t("Khác", "Other")
+                    onClicked: ZaloClient.conversationModel.setViewMode("archived")
                 }
             }
 
             Rectangle {
                 id: labelFilterButton
-                visible: !root.moreViewsOpen
                 anchors.right: parent.right
                 anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 readonly property bool hasCurrent: currentText.length > 0
+                readonly property real maxTextWidth: Math.max(24, parent.width - (tabRow.x + tabRow.width) - 12 - 12 - 16
+                                                                  - 14 - 10 - (hasCurrent ? 13 : 0))
                 readonly property string currentText: labelFilterButton.labelField(ZaloClient.conversationModel.labelFilter, "text")
                 readonly property string currentColor: labelFilterButton.labelField(ZaloClient.conversationModel.labelFilter, "color")
                 function labelField(id: int, key: string): string {
@@ -411,7 +363,7 @@ Rectangle {
                         font.pixelSize: 12
                         color: labelFilterButton.hasCurrent ? ThemeManager.textColor : ThemeManager.secondaryTextColor
                         elide: Text.ElideRight
-                        width: Math.min(implicitWidth, 110)
+                        width: Math.min(implicitWidth, 110, labelFilterButton.maxTextWidth)
                     }
                     ZIcon { anchors.verticalCenter: parent.verticalCenter; name: "chevron_down"; size: 14; color: ThemeManager.secondaryTextColor }
                 }
@@ -458,30 +410,6 @@ Rectangle {
             }
         }
 
-        Item {
-            visible: root.moreViewsOpen
-            Layout.fillWidth: true
-            Layout.preferredHeight: visible ? 34 : 0
-
-            Row {
-                anchors.left: parent.left
-                anchors.leftMargin: 16
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                spacing: 18
-
-                ViewTab {
-                    viewKey: "archived"
-                    title: I18n.t("Hội thoại khác", "Other conversations")
-                    onClicked: ZaloClient.conversationModel.setViewMode("archived")
-                }
-                ViewTab {
-                    viewKey: "hidden"
-                    title: I18n.t("Hội thoại đã ẩn", "Hidden conversations")
-                    onClicked: root.requestHiddenView()
-                }
-            }
-        }
 
         Rectangle {
             Layout.fillWidth: true
@@ -508,6 +436,87 @@ Rectangle {
                 font.family: Theme.fontFamily
                 font.pixelSize: 11
                 color: ZaloClient.isConnected && !ZaloClient.isOfflineMode ? Theme.zaloBlue : "#B26A00"
+            }
+        }
+
+        Text {
+            visible: root.searching && ZaloClient.hiddenSearch.count > 0
+            Layout.fillWidth: true
+            Layout.leftMargin: 16
+            Layout.topMargin: 8
+            Layout.bottomMargin: 4
+            text: I18n.t("Trò chuyện ẩn", "Hidden conversations")
+            font.family: Theme.fontFamily
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+            color: ThemeManager.textColor
+        }
+        ListView {
+            id: hiddenHitList
+            objectName: "hiddenHitList"
+            visible: root.searching && ZaloClient.hiddenSearch.count > 0
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.maximumHeight: convList.count > 0 || ZaloClient.peopleSearch.count > 0 || ZaloClient.messageSearch.count > 0
+                                  ? Math.min(hiddenHitList.contentHeight, 64 * 4) : Number.POSITIVE_INFINITY
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            model: ZaloClient.hiddenSearch
+            delegate: Rectangle {
+                id: hiddenRow
+                required property string convId
+                required property string convName
+                required property string avatar
+                required property bool isGroup
+                required property string text
+                width: ListView.view.width
+                height: 64
+                color: hiddenHover.hovered ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                HoverHandler { id: hiddenHover }
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    onTapped: ZaloClient.openHiddenConversation(hiddenRow.convId, "")
+                }
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: (point) => root.openConvMenu(hiddenRow.convId, false, false, false, false, 0, true,
+                                                           hiddenRow.mapToItem(root, point.position.x, point.position.y))
+                }
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 12
+                    spacing: 10
+                    ZAvatar {
+                        size: 40
+                        avatarUrl: hiddenRow.avatar
+                        name: hiddenRow.convName
+                        isGroup: hiddenRow.isGroup
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Text {
+                            Layout.fillWidth: true
+                            text: hiddenRow.convName
+                            elide: Text.ElideRight
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                            color: ThemeManager.textColor
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: hiddenRow.text
+                            textFormat: Text.PlainText
+                            maximumLineCount: 1
+                            elide: Text.ElideRight
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            color: ThemeManager.secondaryTextColor
+                        }
+                    }
+                }
             }
         }
 
@@ -546,7 +555,7 @@ Rectangle {
             }
 
             function relativeTime(ts: real, fallback: string): string {
-                if (!ts || ts <= 0) return fallback || "";
+                if (!ts || ts < 946684800000) return fallback || "";
                 var lang = I18n.currentLanguage;
                 var diffMin = Math.floor((convList.now - ts) / 60000);
                 if (diffMin < 1) return I18n.t("Vừa xong", "Now");
@@ -586,17 +595,13 @@ Rectangle {
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: function(mouse) {
                         if (mouse.button === Qt.RightButton) {
-                            root.menuConv = { id: model.id, isPinned: model.isPinned, isMuted: model.isMuted,
-                                              unread: model.unreadCount > 0, marked: ZaloClient.isMarkedUnread(model.id),
-                                              labelId: model.labelId };
-                            const p = mouseArea.mapToItem(root, mouse.x, mouse.y);
-                            const h = Math.max(convMenu.height, convMenu.implicitHeight);
-                            convMenu.x = Math.max(8, Math.min(p.x, root.width - convMenu.width - 8));
-                            convMenu.y = Math.max(8, p.y + h > root.height - 8 ? p.y - h : p.y);
-                            convMenu.open();
+                            root.openConvMenu(model.id, model.isPinned, model.isMuted, model.unreadCount > 0,
+                                              ZaloClient.isMarkedUnread(model.id), model.labelId, false,
+                                              mouseArea.mapToItem(root, mouse.x, mouse.y));
                             return;
                         }
-                        ZaloClient.selectConversation(model.id, model.name, model.avatarUrl);
+                        if (ZaloClient.needsHiddenPin(model.id)) ZaloClient.requestHiddenFlow("open", model.id, false);
+                        else ZaloClient.selectConversation(model.id, model.name, model.avatarUrl);
                     }
                 }
 
@@ -656,6 +661,7 @@ Rectangle {
 
                             Text {
                                 text: {
+                                    if (model.isHidden) return I18n.t("Trò chuyện ẩn", "Hidden conversation");
                                     if (model.isTyping) return I18n.t("Đang soạn tin...", "Typing...");
                                     if (model.draft.length > 0 && model.id !== ZaloClient.currentConversationId) {
                                         return I18n.t("[Bản nháp] ", "[Draft] ") + model.draft.replace(/\n/g, " ");
@@ -747,6 +753,7 @@ Rectangle {
             function onTextChanged() {
                 ZaloClient.messageSearch.setQuery(searchInput.text);
                 ZaloClient.peopleSearch.setQuery(searchInput.text);
+                ZaloClient.hiddenSearch.setQuery(searchInput.text);
             }
         }
         Text {
@@ -884,7 +891,7 @@ Rectangle {
                                 color: ThemeManager.textColor
                             }
                             Text {
-                                text: Qt.formatDate(new Date(hitRow.ts), "dd/MM/yy")
+                                text: hitRow.ts >= 946684800000 ? Qt.formatDate(new Date(hitRow.ts), "dd/MM/yy") : ""
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 11
                                 color: ThemeManager.secondaryTextColor
@@ -907,7 +914,7 @@ Rectangle {
 
         Item {
             visible: convList.count === 0 && ZaloClient.messageSearch.count === 0
-                     && !(root.searching && ZaloClient.peopleSearch.count > 0)
+                     && !(root.searching && (ZaloClient.peopleSearch.count > 0 || ZaloClient.hiddenSearch.count > 0))
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -1044,10 +1051,16 @@ Rectangle {
             }
             ZMenuRow {
                 readonly property bool hidden: ZaloClient.isConversationHidden(root.menuConv.id)
+                visible: hidden || ZaloClient.canHideConversation(root.menuConv.id)
                 icon: "eye_off"
                 label: hidden ? I18n.t("Bỏ ẩn trò chuyện", "Unhide conversation")
                               : I18n.t("Ẩn trò chuyện", "Hide conversation")
-                onTriggered: { ZaloClient.hideConversation(root.menuConv.id, !hidden); convMenu.close(); }
+                onTriggered: {
+                    const id = root.menuConv.id;
+                    const bypass = !!root.menuConv.revealed || id === ZaloClient.currentConversationId;
+                    convMenu.close();
+                    ZaloClient.requestHiddenFlow(hidden ? "unhide" : "hide", id, bypass);
+                }
             }
             Rectangle {
                 Layout.fillWidth: true

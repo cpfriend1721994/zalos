@@ -61,6 +61,9 @@ class ZaloClient : public QObject {
     Q_PROPERTY(Zalos::Core::Network::PinBoard* pins READ pins CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Models::MessageSearchModel* messageSearch READ messageSearch CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Models::MessageSearchModel* peopleSearch READ peopleSearch CONSTANT FINAL)
+    Q_PROPERTY(Zalos::Core::Models::MessageSearchModel* hiddenSearch READ hiddenSearch CONSTANT FINAL)
+    Q_PROPERTY(bool hasHiddenPin READ hasHiddenPin NOTIFY hiddenPinChanged FINAL)
+    Q_PROPERTY(bool hiddenUnread READ hiddenUnread NOTIFY hiddenUnreadChanged FINAL)
     Q_PROPERTY(Zalos::Core::Models::RichComposer* composer READ composer CONSTANT FINAL)
     Q_PROPERTY(bool showSyncPrompt READ showSyncPrompt NOTIFY syncPromptChanged FINAL)
 
@@ -87,6 +90,12 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString currentConversationName READ currentConversationName NOTIFY currentConversationChanged FINAL)
     Q_PROPERTY(QString currentConversationAvatar READ currentConversationAvatar NOTIFY currentConversationChanged FINAL)
     Q_PROPERTY(bool currentConversationIsGroup READ currentConversationIsGroup NOTIFY currentConversationChanged FINAL)
+    Q_PROPERTY(QString composerLockReason READ composerLockReason NOTIFY composerStateChanged FINAL)
+    Q_PROPERTY(bool composerLockDeletable READ composerLockDeletable NOTIFY composerStateChanged FINAL)
+    Q_PROPERTY(bool currentConversationIsStranger READ currentConversationIsStranger NOTIFY composerStateChanged FINAL)
+    Q_PROPERTY(int strangerRank READ strangerRank NOTIFY composerStateChanged FINAL)
+    Q_PROPERTY(QString strangerBannerTitle READ strangerBannerTitle NOTIFY composerStateChanged FINAL)
+    Q_PROPERTY(QString strangerBannerText READ strangerBannerText NOTIFY composerStateChanged FINAL)
     Q_PROPERTY(int currentConversationMemberCount READ currentConversationMemberCount NOTIFY currentConversationChanged FINAL)
     Q_PROPERTY(bool currentConversationPinned READ currentConversationPinned NOTIFY currentConversationChanged FINAL)
     Q_PROPERTY(bool currentConversationMuted READ currentConversationMuted NOTIFY currentConversationChanged FINAL)
@@ -95,6 +104,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool isSyncing READ isSyncing NOTIFY syncStateChanged FINAL)
     Q_PROPERTY(QString myCloudId READ myCloudId NOTIFY userProfileChanged FINAL)
     Q_PROPERTY(QString currentConversationStatus READ currentConversationStatus NOTIFY conversationStatusChanged FINAL)
+    Q_PROPERTY(bool currentConversationHasPresence READ currentConversationHasPresence NOTIFY conversationStatusChanged FINAL)
     Q_PROPERTY(bool isSendingAttachment READ isSendingAttachment NOTIFY attachmentStateChanged FINAL)
     Q_PROPERTY(bool isConnected READ isConnected NOTIFY connectionStateChanged FINAL)
     Q_PROPERTY(int brokenMediaRevision READ brokenMediaRevision NOTIFY brokenMediaChanged FINAL)
@@ -137,7 +147,10 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString profileBio READ profileBio NOTIFY currentProfileChanged FINAL)
     Q_PROPERTY(QString profilePhone READ profilePhone NOTIFY currentProfileChanged FINAL)
     Q_PROPERTY(bool profileIsFriend READ profileIsFriend NOTIFY currentProfileChanged FINAL)
+    Q_PROPERTY(bool profileIsOfficial READ profileIsOfficial NOTIFY currentProfileChanged FINAL)
     Q_PROPERTY(bool profileIsBlocked READ profileIsBlocked NOTIFY currentProfileChanged FINAL)
+    Q_PROPERTY(bool profileIsInactive READ profileIsInactive NOTIFY currentProfileChanged FINAL)
+    Q_PROPERTY(bool currentConversationBlocked READ currentConversationBlocked NOTIFY composerStateChanged FINAL)
     Q_PROPERTY(bool profileLoading READ profileLoading NOTIFY currentProfileChanged FINAL)
 
     Q_PROPERTY(int mobileSyncState READ mobileSyncState NOTIFY mobileSyncStateChanged FINAL)
@@ -150,7 +163,9 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool notifyNewMessage READ notifyNewMessage WRITE setNotifyNewMessage NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool notifySound READ notifySound WRITE setNotifySound NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool antiPeeking READ antiPeeking WRITE setAntiPeeking NOTIFY settingsChanged FINAL)
-    Q_PROPERTY(bool useAvatarAsChatBackground READ useAvatarAsChatBackground WRITE setUseAvatarAsChatBackground NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(QString chatBackgroundMode READ chatBackgroundMode WRITE setChatBackgroundMode NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(QString chatBackgroundImage READ chatBackgroundImage NOTIFY chatBackgroundImageChanged FINAL)
+    Q_PROPERTY(QString currentConversationBackground READ currentConversationBackground NOTIFY currentConversationBackgroundChanged FINAL)
     Q_PROPERTY(bool showLabelFolders READ showLabelFolders WRITE setShowLabelFolders NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool startHiddenInTray READ startHiddenInTray WRITE setStartHiddenInTray NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY settingsChanged FINAL)
@@ -211,7 +226,17 @@ public:
     QString currentConversationId() const { return m_currentConvId; }
     QString currentConversationName() const { return m_currentConvName; }
     QString currentConversationAvatar() const { return m_currentConvAvatar; }
+    QString currentConversationBackground();
     bool currentConversationIsGroup() const;
+    QString composerLockReason() const;
+    bool composerLockDeletable() const { return m_readOnlyThreads.contains(m_currentConvId); }
+    bool currentConversationIsStranger() const;
+    int strangerRank() const { return m_strangerRanks.value(m_currentConvId).rank; }
+    QString strangerBannerTitle() const;
+    QString strangerBannerText() const;
+    bool isStrangerLocked(const QString& id) const;
+    bool noteSendFailure(const QString& convId, int code, const QJsonValue& data);
+    bool isThreadReadOnly(const QString& id) const { return m_readOnlyThreads.contains(id); }
     int currentConversationMemberCount() const;
     bool currentConversationPinned() const;
     bool currentConversationMuted() const;
@@ -220,6 +245,7 @@ public:
     bool isSyncing() const { return m_syncing; }
     QString myCloudId() const;
     QString currentConversationStatus() const;
+    bool currentConversationHasPresence() const;
     bool isSendingAttachment() const { return m_pendingAttachments > 0; }
     Platform::SoundEngine* soundEngine() const { return m_sound; }
     Call::CallBridge* calls() const { return m_calls; }
@@ -233,6 +259,12 @@ public:
     PinBoard* pins() const { return m_pinBoard; }
     Models::MessageSearchModel* messageSearch() const { return m_messageSearch; }
     Models::MessageSearchModel* peopleSearch() const { return m_peopleSearch; }
+    Models::MessageSearchModel* hiddenSearch() const { return m_hiddenSearch; }
+    bool hasHiddenPin() const { return !m_hiddenPinHash.isEmpty(); }
+    bool hiddenUnread() const { return m_hiddenUnread; }
+    static QString hiddenPinDigest(const QString& pin);
+    static bool isReparsedOnLoad(const QString& msgType);
+    static bool isGoneError(const QString& error);
     QString myUid() const { return m_myUid; }
     Models::RichComposer* composer() const { return m_composer; }
     bool showSyncPrompt() const { return m_showSyncPrompt; }
@@ -260,6 +292,7 @@ public:
     Q_INVOKABLE void openConversationWithContact(const QString& id, const QString& name, const QString& avatarUrl);
     Call::ZCallEngine* callEngine() const { return m_callEngine; }
     Offline::ZaloOfflineStore* offlineStore() const { return m_offlineStore; }
+    static constexpr int kCacheParseVersion = 3;
     ZaloApiClient* apiClient() const { return m_apiClient; }
 
     bool showSettingsModal() const { return m_showSettingsModal; }
@@ -280,7 +313,15 @@ public:
     QString profileBio() const;
     QString profilePhone() const;
     bool profileIsFriend() const;
+    bool profileIsOfficial() const;
+    static bool isOfficialAccountForTesting(const QJsonObject& user);
+    bool isOfficialIdForTesting(const QString& id) const { return m_officialIds.contains(id); }
     bool profileIsBlocked() const;
+    bool profileIsInactive() const;
+    bool currentConversationBlocked() const;
+    static QString undoTargetOf(const QJsonObject& msg);
+    static QString backgroundOf(const QJsonObject& profile);
+    void noteAccountFlagsForTesting(const QString& uid, const QJsonObject& profile) { noteAccountFlags(uid, profile); }
     bool profileLoading() const;
 
     bool showAddFriendModal() const { return m_showAddFriendModal; }
@@ -349,8 +390,12 @@ public:
     bool historyExhausted() const { return m_historyExhausted.contains(m_currentConvId); }
     void setNotifySound(bool val);
 
-    bool useAvatarAsChatBackground() const { return m_useAvatarAsChatBackground; }
-    void setUseAvatarAsChatBackground(bool val);
+    QString chatBackgroundMode() const { return m_chatBackgroundMode; }
+    void setChatBackgroundMode(const QString& mode);
+
+    QString chatBackgroundImage() const { return m_chatBackgroundImage; }
+    Q_INVOKABLE void setChatBackgroundImage(const QString& urlOrPath);
+    Q_INVOKABLE void clearChatBackgroundImage();
     bool showLabelFolders() const { return m_showLabelFolders; }
     void setShowLabelFolders(bool val);
 
@@ -405,6 +450,25 @@ public:
     }
     void setMyUidForTesting(const QString& uid) { m_myUid = uid; }
     void setHiddenThreadsForTesting(const QSet<QString>& ids) { m_hiddenThreads = ids; m_conversationModel->setHiddenThreads(ids); }
+    void setHiddenPinHashForTesting(const QString& hash) { m_hiddenPinHash = hash; emit hiddenPinChanged(); }
+    void handleGroupControlForTesting(const QString& act, const QJsonObject& data) { handleGroupControl(act, data); }
+    void reloadReadOnlyForTesting() { loadReadOnlyThreads(); }
+    void setFriendsForTesting(const QSet<QString>& ids) { m_friendIds = ids; m_friendsKnown = true; syncFriendContext(); }
+    void setStrangerRankForTesting(const QString& id, const QJsonObject& data);
+    QString friendlyErrorForTesting(const QString& error, int code) const { return friendlyError(error, code); }
+    void purgeExpiredForTesting() { purgeExpiredMessages(); }
+    void setUserForTesting(const QString& uid, const QString& name, const QString& avatar) {
+        m_users[uid] = {name, avatar, 0};
+        m_messageModel->refreshSenders();
+    }
+    void setGroupForTesting(const QString& gid, const QString& name, const QString& avatar) {
+        m_groups[gid] = {name, avatar, 0};
+        m_groupIds.insert(gid);
+    }
+    bool isUserLookupPendingForTesting(const QString& uid) const { return m_pendingUserLookups.contains(uid); }
+    void handleSyncControlForTesting(const QString& actType, const QString& act, const QJsonValue& data) {
+        handleSyncControl(actType, act, data);
+    }
     void handleReactionsForTesting(const QJsonArray& reactions, bool isGroup) { handleReactions(reactions, isGroup); }
     Platform::DesktopNotifications* notificationsForTesting() const { return m_notifications; }
     void reloadDraftsForTesting() { loadDrafts(); }
@@ -513,7 +577,9 @@ public:
     Q_INVOKABLE QVariantMap reactionDetails(const QString& msgId) const;
     Q_INVOKABLE void removeMyReaction(const QString& msgId);
     Q_INVOKABLE void showNotice(const QString& text) { emit notice(text); }
-    Q_INVOKABLE void openLink(const QString& url);
+    Q_INVOKABLE void openLink(const QString& url, const QString& title = QString(), const QString& thumb = QString());
+    Q_INVOKABLE QVariantMap qrModules(const QString& text) const;
+    static bool isAppOnlyLink(const QString& url);
     Q_INVOKABLE QVariantList groupsForInvite(const QString& userId) const;
     Q_INVOKABLE QVariantList groupComposite(const QString& groupId, int revision = 0) const {
         Q_UNUSED(revision);
@@ -543,6 +609,14 @@ public:
     Q_INVOKABLE void hideConversation(const QString& id, bool hide);
     Q_INVOKABLE bool isConversationHidden(const QString& id) const { return m_hiddenThreads.contains(id); }
     Q_INVOKABLE void archiveConversation(const QString& id, bool archive);
+    Q_INVOKABLE bool verifyHiddenPin(const QString& pin) const;
+    Q_INVOKABLE void setHiddenPin(const QString& pin, const QString& thenHideId = QString());
+    Q_INVOKABLE void resetHiddenPin();
+    Q_INVOKABLE bool canHideConversation(const QString& id) const;
+    Q_INVOKABLE bool needsHiddenPin(const QString& id) const;
+    Q_INVOKABLE void openHiddenConversation(const QString& id, const QString& msgId = QString());
+    Q_INVOKABLE void requestHiddenFlow(const QString& flow, const QString& id = QString(), bool bypass = false);
+    Q_INVOKABLE void dismissHiddenUnread();
     Q_INVOKABLE bool isConversationArchived(const QString& id) const { return m_archivedThreads.contains(id); }
     Q_INVOKABLE void setConversationAutoDelete(const QString& id, qint64 ttl);
     Q_INVOKABLE qint64 conversationAutoDelete(const QString& id) const { return m_autoDeleteTtl.value(id, 0); }
@@ -581,6 +655,10 @@ signals:
     void sentFriendRequestsChanged();
     void myAvatarHistoryChanged();
     void conversationFlagsChanged();
+    void hiddenPinChanged();
+    void hiddenUnreadChanged();
+    void hiddenOpFinished(const QString& op, bool ok);
+    void hiddenFlowRequested(const QString& flow, const QString& convId, const QString& convName, bool bypass);
     void remindersChanged();
     void voicePlaybackChanged();
     void loginStateChanged();
@@ -591,9 +669,11 @@ signals:
     void qrCodeChanged();
     void qrTimerTick();
     void qrMatrixChanged();
+    void appOnlyLinkRequested(const QString& url, const QString& title, const QString& thumb);
     void qrLoginStepChanged();
 
     void currentConversationChanged();
+    void composerStateChanged();
     void appLanguageChanged();
     void connectionStateChanged(bool connected);
     void stickerRevisionChanged();
@@ -627,6 +707,8 @@ signals:
     void groupCreateFinished(bool ok, const QString& message);
     void notice(const QString& message);
     void conversationStatusChanged();
+    void currentConversationBackgroundChanged();
+    void chatBackgroundImageChanged();
     void attachmentStateChanged();
     void stickersFound(const QVariantList& stickers);
     void replyTargetChanged();
@@ -654,6 +736,20 @@ private:
     void preloadRecentThreads();
     void handleSyncControl(const QString& actType, const QString& act, const QJsonValue& data);
     void handleGroupControl(const QString& act, const QJsonObject& data);
+    void markThreadReadOnly(const QString& id, const QString& reason, qint64 ts);
+    void purgeExpiredMessages();
+    void migrateCachedParses();
+    void noteAccountFlags(const QString& uid, const QJsonObject& profile);
+    void openRemoteFile(const QString& url, const QString& fileName, const QString& goneText);
+    void queueUnknownSenders(int first, int last);
+    void scheduleExpiry();
+    void loadReadOnlyThreads();
+    void saveReadOnlyThreads() const;
+    void saveStrangerLocks() const;
+    void scheduleStrangerUnlock();
+    void refreshStrangerRank(const QString& convId);
+    void syncFriendContext();
+    QString ttlText(qint64 ttlMs) const;
     void handleRemoteDeletes(const QJsonArray& entries, bool isGroup);
     void addSystemNotice(const QString& threadId, bool isGroup, const QString& text, qint64 ts);
     void loadAliases(int page = 1, QHash<QString, QString> collected = {});
@@ -680,6 +776,7 @@ private:
     void rememberMessageId(const QString& msgId);
     void releaseFreedMemory();
     void fetchBytes(const QString& url, std::function<void(const QByteArray& data, const QString& error)> done);
+    void applyStrangerRank(const QString& id, const QJsonObject& data);
     void persistProfile(const QString& id, bool isGroup);
     void applyReadPoints(const QJsonArray& clearUnreads);
     bool isThreadMuted(const QString& threadId);
@@ -701,6 +798,8 @@ private:
     void resolveUnknownUsers();
     void handleIncomingMessages(const QJsonArray& messages, bool isGroup, bool isOld);
     Models::MessageItem toMessageItem(const QJsonObject& msg, bool isGroup, QString* threadId, QString* preview) const;
+    QString fillHighlights(const QString& text, const QJsonArray& highlights) const;
+    static bool isQuietMessageType(const QString& msgType);
     void ensureConversation(const QString& threadId, bool isGroup);
     void applyProfileToConversation(const QString& id);
     void rebuildContacts();
@@ -714,6 +813,9 @@ private:
     void refreshPresence();
     void loadLabels();
     void loadHiddenConversations();
+    void applyHiddenSet(const QSet<QString>& ids);
+    void dropHiddenConversationsLocally(const QSet<QString>& ids);
+    void markHiddenUnread(qint64 ts);
     void loadArchivedChats();
     void loadAutoDeleteSettings();
     void resolveSticker(const QString& convId, const QString& msgId, qint64 stickerId);
@@ -735,6 +837,10 @@ private:
     QSet<QString> m_brokenMedia;
     int m_brokenMediaRevision{0};
     QSet<QString> m_onlineIds;
+    QSet<QString> m_officialIds;
+    QSet<QString> m_inactiveIds;
+    QSet<QString> m_blockedIds;
+    static constexpr qint64 kMinPlausibleEpochMs = 946684800000LL;
     QSet<QString> m_seenSent;
     QHash<QString, qint64> m_typingUntil;
     QHash<QString, QList<QPair<QString, QString>>> m_stickerWaiters;
@@ -764,6 +870,22 @@ private:
     QSet<QString> m_pendingUserLookups;
     QSet<QString> m_mutedIds;
     QSet<QString> m_hiddenThreads;
+    QHash<QString, QString> m_readOnlyThreads;
+    struct StrangerRank {
+        int rank{0};
+        QString title;
+        QString text;
+    };
+    QHash<QString, StrangerRank> m_strangerRanks;
+    QHash<QString, qint64> m_strangerLocks;
+    QTimer* m_strangerUnlockTimer{nullptr};
+    bool m_friendsKnown{false};
+    QString m_hiddenPinHash;
+    QString m_hiddenUnlockedId;
+    bool m_hiddenUnread{false};
+    qint64 m_hiddenDismissedAt{0};
+    QTimer* m_hiddenRefreshTimer{nullptr};
+    QTimer* m_expiryTimer{nullptr};
     QSet<QString> m_archivedThreads;
     QHash<QString, qint64> m_autoDeleteTtl;
     QSet<QString> m_historyLoaded;
@@ -814,6 +936,7 @@ private:
     PinBoard* m_pinBoard{nullptr};
     Models::MessageSearchModel* m_messageSearch{nullptr};
     Models::MessageSearchModel* m_peopleSearch{nullptr};
+    Models::MessageSearchModel* m_hiddenSearch{nullptr};
     QString m_screenshotRequest;
     QString m_screenshotTarget;
     Models::RichComposer* m_composer{nullptr};
@@ -890,7 +1013,8 @@ private:
     bool m_notifyNewMessage{true};
     bool m_notifySound{false};
     bool m_antiPeeking{false};
-    bool m_useAvatarAsChatBackground{false};
+    QString m_chatBackgroundMode{QStringLiteral("none")};
+    QString m_chatBackgroundImage;
     bool m_showLabelFolders{false};
     bool m_startHiddenInTray{false};
     bool m_closeToTray{true};

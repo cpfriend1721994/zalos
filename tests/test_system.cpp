@@ -19,6 +19,10 @@
 #include <functional>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <QStandardPaths>
+#include <QFileInfo>
+#include <QDir>
+#include <QUrl>
 #include <QVideoSink>
 
 #include "core/network/zalo_client.h"
@@ -314,18 +318,25 @@ private slots:
         model.setSearchFilter("");
         QVERIFY(!has("g-cl"));
         model.setCategoryFilter("");
-        // Archived ("Hội thoại khác") chats are found by search; hidden chats never leak into it.
+        // Archived ("Hội thoại khác") chats are found by search.
         model.setArchivedThreads({"g-cl"});
         model.setHiddenThreads({"ht-2"});
         model.setSearchFilter("");
         QVERIFY(!has("g-cl"));
+        QVERIFY(!has("ht-2"));
         model.setSearchFilter("cau long");
         QVERIFY(has("g-cl"));
+        // Hidden chats (Zalo behaviour): found by their exact name only — never by message text, never in the
+        // plain list, and kept out of normal results while the typed keyword is the hidden-chat PIN.
         model.setSearchFilter("ban than");
-        QCOMPARE(model.rowCount(), 0);
-        model.setViewMode("hidden");
         QVERIFY(has("ht-2"));
-        model.setViewMode("normal");
+        QVERIFY(model.data(model.index(0, 0), ConversationModel::IsHiddenRole).toBool());
+        model.setSearchFilter("di an");
+        QVERIFY(!has("ht-2"));
+        model.setSearchFilter("ban than");
+        model.setHiddenPinReveal(true);
+        QVERIFY(!has("ht-2"));
+        model.setHiddenPinReveal(false);
         model.setSearchFilter("");
         model.setArchivedThreads({});
         model.setHiddenThreads({});
@@ -385,6 +396,431 @@ private slots:
         QCOMPARE(client.currentConversationId(), QString("g-search"));
     }
 
+    // Hidden conversations (Zalo): server-stored MD5 PIN, control-event sync, reveal by PIN in search, no leaks.
+    void testHiddenConversationsZaloStyle() {
+        QCOMPARE(ZaloClient::hiddenPinDigest("1234"), QString("81dc9bdb52d04dc20036dbd8313ed055"));
+        ZaloClient client;
+        client.setMyUidForTesting("u-me");
+        QVERIFY(!client.hasHiddenPin());
+        QVERIFY(!client.verifyHiddenPin("1234"));
+        client.setHiddenPinHashForTesting(ZaloClient::hiddenPinDigest("2468"));
+        QVERIFY(client.hasHiddenPin());
+        QVERIFY(client.verifyHiddenPin("2468"));
+        for (const char* bad : {"2469", "24680", "246", "abcd", ""}) QVERIFY2(!client.verifyHiddenPin(bad), bad);
+
+        auto* model = client.conversationModel();
+        model->addConversation({"u-hide-a", "Fixture Hidden Friend", "fixture secret words", "10:00", 0, false, false, "", "priority", ""});
+        model->addConversation({"u-hide-b", "Fixture Visible Friend", "fixture hello", "10:01", 0, false, false, "", "priority", ""});
+        model->setUnreadCount("u-hide-a", 3);
+        model->setUnreadCount("u-hide-b", 2);
+        QCOMPARE(model->totalUnreadCount(), 5);
+        auto has = [model](const QString& id) {
+            for (int r = 0; r < model->rowCount(); ++r)
+                if (model->data(model->index(r, 0), ConversationModel::IdRole).toString() == id) return true;
+            return false;
+        };
+
+        // Another device hides a chat: the "hidden_chat" control event (is_group may arrive as a string).
+        client.handleSyncControlForTesting("hidden_chat", "add_remove", QJsonObject{
+            {"add_items", QJsonArray{QJsonObject{{"thread_id", "u-hide-a"}, {"is_group", "0"}}}},
+            {"del_items", QJsonArray{}}});
+        QVERIFY(client.isConversationHidden("u-hide-a"));
+        QVERIFY(!has("u-hide-a"));
+        QCOMPARE(model->totalUnreadCount(), 2);
+        QVERIFY(!client.canHideConversation("u-hide-a"));
+        QVERIFY(client.canHideConversation("u-hide-b"));
+        QVERIFY(client.needsHiddenPin("u-hide-a"));
+        QVERIFY(!client.needsHiddenPin("u-hide-b"));
+
+        // Name search finds the hidden chat (opening asks for the PIN); its messages' text never matches.
+        model->setSearchFilter("hidden friend");
+        QVERIFY(has("u-hide-a"));
+        model->setSearchFilter("secret words");
+        QVERIFY(!has("u-hide-a"));
+        // Typing the exact PIN: hidden chats leave the normal results and get their own section.
+        model->setSearchFilter("2468");
+        QVERIFY(model->hiddenPinReveal());
+        auto* hidden = client.hiddenSearch();
+        hidden->setQuery("2468");
+        hidden->runNow();
+        QCOMPARE(hidden->count(), 1);
+        QCOMPARE(hidden->data(hidden->index(0), MessageSearchModel::ConvIdRole).toString(), QString("u-hide-a"));
+        hidden->setQuery("2469");
+        hidden->runNow();
+        QCOMPARE(hidden->count(), 0);
+        model->setSearchFilter("");
+        QVERIFY(!model->hiddenPinReveal());
+
+        // A new message in a hidden chat: no notification, only the contentless search-icon dot.
+        QSignalSpy hiddenUnreadSpy(&client, &ZaloClient::hiddenUnreadChanged);
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{QJsonObject{
+            {"msgId", "9701"}, {"cliMsgId", "9701"}, {"uidFrom", "u-hide-a"}, {"idTo", "u-me"}, {"msgType", "webchat"},
+            {"content", "fixture hidden ping"}, {"ts", QString::number(QDateTime::currentMSecsSinceEpoch())}}},
+            false, false);
+        QVERIFY(client.hiddenUnread());
+        QCOMPARE(hiddenUnreadSpy.count(), 1);
+        QCOMPARE(client.notificationsForTesting()->shownForTesting("thread:u-hide-a"), 0);
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{QJsonObject{
+            {"msgId", "9702"}, {"cliMsgId", "9702"}, {"uidFrom", "u-hide-b"}, {"idTo", "u-me"}, {"msgType", "webchat"},
+            {"content", "fixture visible ping"}, {"ts", QString::number(QDateTime::currentMSecsSinceEpoch())}}},
+            false, false);
+        QCOMPARE(client.notificationsForTesting()->shownForTesting("thread:u-hide-b"), 1);
+        model->setUnreadCount("u-hide-b", 2);
+        QCOMPARE(model->totalUnreadCount(), 2);
+        client.dismissHiddenUnread();
+        QVERIFY(!client.hiddenUnread());
+
+        // Unhidden elsewhere, then the PIN changed and was reset from another device.
+        client.handleSyncControlForTesting("hidden_chat", "add_remove", QJsonObject{
+            {"add_items", QJsonArray{}}, {"del_items", QJsonArray{QJsonObject{{"thread_id", "u-hide-a"}, {"is_group", 0}}}}});
+        QVERIFY(!client.isConversationHidden("u-hide-a"));
+        QVERIFY(has("u-hide-a"));
+        client.handleSyncControlForTesting("hidden_chat", "change_pin",
+                                           QJsonObject{{"pin", ZaloClient::hiddenPinDigest("1357").toUpper()}});
+        QVERIFY(client.verifyHiddenPin("1357"));
+        QVERIFY(!client.verifyHiddenPin("2468"));
+        client.handleSyncControlForTesting("hidden_chat", "add_remove", QJsonObject{
+            {"add_items", QJsonArray{QJsonObject{{"thread_id", "u-hide-b"}, {"is_group", 0}}}}, {"del_items", QJsonArray{}}});
+        client.handleSyncControlForTesting("hidden_chat", "reset", QJsonObject{});
+        QVERIFY(!client.hasHiddenPin());
+        QVERIFY(!client.isConversationHidden("u-hide-b"));
+        QVERIFY(!model->contains("u-hide-b"));
+        QVERIFY(model->contains("u-hide-a"));
+    }
+
+    // Removed from / disbanded group (Zalo): history stays, the thread turns read-only with a notice and a delete action.
+    void testGroupRemovalKeepsHistoryReadOnly() {
+        ZaloClient client;
+        client.setAppLanguage("vi");
+        client.setMyUidForTesting("u-ro-me");
+        client.applyGroupInfoForTesting(QJsonObject{
+            {"g-ro", QJsonObject{{"name", "Fixture RO Group"}, {"totalMember", 3}, {"creatorId", "u-ro-owner"}}},
+            {"g-dis", QJsonObject{{"name", "Fixture Disband Group"}, {"totalMember", 3}, {"creatorId", "u-ro-owner"}}},
+            {"g-lock", QJsonObject{{"name", "Fixture Locked Group"}, {"totalMember", 3}, {"creatorId", "u-ro-owner"},
+                                   {"setting", QJsonObject{{"lockSendMsg", 1}}}}},
+            {"g-own", QJsonObject{{"name", "Fixture Own Group"}, {"totalMember", 3}, {"creatorId", "u-ro-me"},
+                                  {"setting", QJsonObject{{"lockSendMsg", 1}}}}}});
+        auto* model = client.conversationModel();
+        for (const char* id : {"g-ro", "g-dis", "g-lock", "g-own", "g-left"})
+            model->addConversation({QString::fromLatin1(id), "Fixture", "fixture", "10:00", 0, false, false, "", "priority", ""});
+        auto noticeIn = [&client](const QString& thread, const QString& text) {
+            client.selectConversation(thread, "Fixture", "");
+            auto* m = client.messageModel();
+            for (int r = 0; r < m->rowCount(); ++r)
+                if (m->data(m->index(r), MessageModel::TextRole).toString() == text) return true;
+            return false;
+        };
+        client.selectConversation("g-ro", "Fixture RO Group", "");
+        QVERIFY(client.composerLockReason().isEmpty());
+        client.handleGroupControlForTesting("remove_member", QJsonObject{
+            {"groupId", "g-ro"}, {"sourceId", "u-ro-owner"},
+            {"updateMembers", QJsonArray{QJsonObject{{"id", "u-ro-me"}, {"dName", "Fixture Me"}}}}});
+        QVERIFY(model->contains("g-ro"));
+        QVERIFY(client.isThreadReadOnly("g-ro"));
+        QCOMPARE(client.composerLockReason(), QString::fromUtf8("Bạn không thể gửi tin nhắn vào nhóm được nữa"));
+        QVERIFY(client.composerLockDeletable());
+        QVERIFY(noticeIn("g-ro", QString::fromUtf8("Bạn đã được xoá khỏi nhóm")));
+
+        client.handleGroupControlForTesting("disperse", QJsonObject{{"groupId", "g-dis"}, {"sourceId", "u-ro-owner"}});
+        QVERIFY(client.isThreadReadOnly("g-dis"));
+        QVERIFY(noticeIn("g-dis", QString::fromUtf8("Trưởng nhóm đã giải tán nhóm")));
+
+        client.handleGroupControlForTesting("update_ttl", QJsonObject{{"groupId", "g-lock"}, {"sourceId", "u-ro-me"},
+                                                                       {"ttl", 86400000}});
+        QVERIFY(noticeIn("g-lock", QString::fromUtf8("Bạn đã đặt thời gian tự xóa cho tin nhắn là 1 ngày")));
+        QCOMPARE(client.conversationAutoDelete("g-lock"), qint64(86400000));
+        client.handleGroupControlForTesting("update_ttl", QJsonObject{{"groupId", "g-lock"}, {"sourceId", "u-ro-me"}, {"ttl", 0}});
+        QVERIFY(noticeIn("g-lock", QString::fromUtf8("Bạn đã tắt tin nhắn tự xóa")));
+
+        client.selectConversation("g-lock", "Fixture Locked Group", "");
+        QCOMPARE(client.composerLockReason(), QString::fromUtf8("Nhóm không cho phép thành viên gửi tin nhắn"));
+        QVERIFY(!client.composerLockDeletable());
+        client.selectConversation("g-own", "Fixture Own Group", "");
+        QVERIFY(client.composerLockReason().isEmpty());
+
+        // The flag survives a restart; my own voluntary leave still removes the chat.
+        ZaloClient restarted;
+        restarted.setMyUidForTesting("u-ro-me");
+        restarted.reloadReadOnlyForTesting();
+        QVERIFY(restarted.isThreadReadOnly("g-ro"));
+        client.handleGroupControlForTesting("leave", QJsonObject{
+            {"groupId", "g-left"}, {"sourceId", "u-ro-me"}, {"updateMembers", QJsonArray{QJsonObject{{"id", "u-ro-me"}}}}});
+        QVERIFY(!model->contains("g-left"));
+
+        client.deleteConversation("g-ro");
+        client.deleteConversation("g-dis");
+        QVERIFY(!model->contains("g-ro"));
+        QVERIFY(!client.isThreadReadOnly("g-ro"));
+        QVERIFY(!client.isThreadReadOnly("g-dis"));
+    }
+
+    // Per-message ttl: expired messages never show, are dropped from the cache (+FTS) and live ones expire on time.
+    void testMessageTtlExpiry() {
+        {
+            ZaloOfflineStore owner;
+            owner.bindOwner("u-ttl-owner");
+            owner.clearCache();
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-ttl-owner");
+        client.setMyUidForTesting("u-ttl-owner");
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        auto msg = [](const QString& id, qint64 ts, qint64 ttl, const QString& text) {
+            QJsonObject m{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-ttl-peer"}, {"idTo", "u-ttl-owner"},
+                          {"msgType", "webchat"}, {"content", text}, {"ts", QString::number(ts)}};
+            if (ttl > 0) m.insert("ttl", ttl);
+            return m;
+        };
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{
+            msg("9801", now - 2 * 86400000LL, 86400000LL, "fixture expired words"),
+            msg("9802", now - 1000, 1800, "fixture short lived words"),
+            msg("9803", now - 500, 0, "fixture permanent words")}, false, false);
+        auto* store = client.offlineStore();
+        QVERIFY(store->rawMessage("9801").isEmpty());
+        QVERIFY(!store->rawMessage("9802").isEmpty());
+        QVERIFY(store->nextExpiry(QDateTime::currentMSecsSinceEpoch()) > 0);
+        QCOMPARE(store->searchMessages("fixture short lived").size(), 1);
+        QTest::qWait(1500);
+        client.purgeExpiredForTesting();
+        QVERIFY(store->rawMessage("9802").isEmpty());
+        QCOMPARE(store->searchMessages("fixture short lived").size(), 0);
+        QVERIFY(!store->rawMessage("9803").isEmpty());
+        QCOMPARE(store->loadMessages("u-ttl-peer").size(), 1);
+        QCOMPARE(store->nextExpiry(QDateTime::currentMSecsSinceEpoch()), qint64(0));
+    }
+
+    // System/OA broadcast types never count as unread and never notify (Zalo's shared-worker exclusion list).
+    void testQuietMessageTypesSkipUnreadAndNotifications() {
+        ZaloClient client;
+        client.setMyUidForTesting("u-quiet-me");
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        int n = 0;
+        auto msg = [&n, now](const QString& from, const QString& type, const QJsonValue& content) {
+            const QString id = QString::number(9900 + ++n);
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", from}, {"idTo", "u-quiet-me"},
+                               {"msgType", type}, {"content", content}, {"ts", QString::number(now - 1000 + n)}};
+        };
+        const QJsonObject web{{"title", "Fixture notice"}, {"href", ""}, {"params", "{}"}};
+        const QJsonArray cards{QJsonObject{{"title", "Fixture card"}, {"href", "https://example.com/a"}}};
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{
+            msg("u-quiet-oa", "chat.webcontent", web), msg("u-quiet-oa", "chat.list.action", cards),
+            msg("u-quiet-oa", "chat.livelocation", QJsonObject{}), msg("u-quiet-oa", "chat.video.live.msg", QJsonObject{})},
+            false, false);
+        auto* model = client.conversationModel();
+        QCOMPARE(model->totalUnreadCount(), 0);
+        QCOMPARE(client.notificationsForTesting()->shownForTesting("thread:u-quiet-oa"), 0);
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{msg("u-quiet-peer", "webchat", "fixture hello")},
+                                                            false, false);
+        QCOMPARE(model->totalUnreadCount(), 1);
+        QCOMPARE(client.notificationsForTesting()->shownForTesting("thread:u-quiet-peer"), 1);
+    }
+
+    // Group rows saved before the sender's profile was known resolve name/avatar at display time, never the group's.
+    void testGroupSenderNamesResolveAtDisplayTime() {
+        ZaloClient client;
+        client.setMyUidForTesting("u-gs-me");
+        client.applyGroupInfoForTesting(QJsonObject{{"g-gs", QJsonObject{{"name", "Fixture Sender Group"}, {"totalMember", 3}}}});
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{QJsonObject{
+            {"msgId", "9951"}, {"cliMsgId", "9951"}, {"uidFrom", "u-gs-1"}, {"idTo", "g-gs"}, {"msgType", "webchat"},
+            {"content", "fixture group hello"}, {"ts", QString::number(QDateTime::currentMSecsSinceEpoch())}}}, true, true);
+        client.selectConversation("g-gs", "Fixture Sender Group", "");
+        auto* m = client.messageModel();
+        QCOMPARE(m->rowCount(), 1);
+        QVERIFY(m->data(m->index(0), MessageModel::SenderNameRole).toString().isEmpty());
+        QVERIFY(client.isUserLookupPendingForTesting("u-gs-1"));
+        QSignalSpy changed(m, &QAbstractItemModel::dataChanged);
+        client.setUserForTesting("u-gs-1", "Fixture Member", "https://example.com/a.png");
+        QVERIFY(changed.count() >= 1);
+        QCOMPARE(m->data(m->index(0), MessageModel::SenderNameRole).toString(), QString("Fixture Member"));
+        QCOMPARE(m->data(m->index(0), MessageModel::SenderAvatarRole).toString(), QString("https://example.com/a.png"));
+    }
+
+    // Official accounts: detected from oaInfo/oa_status, type >= 1 or bizPkg (never a group id), persisted in the cache.
+    void testOfficialAccountDetectionPersists() {
+        QVERIFY(ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-1"}, {"type", 1}}));
+        QVERIFY(ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-2"}, {"oaInfo", QJsonObject{{"id", 1}}}}));
+        QVERIFY(ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-3"}, {"bizPkg", QJsonObject{{"pkgId", 2}}}}));
+        QVERIFY(!ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-4"}, {"type", 0}}));
+        QVERIFY(!ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "g-oa-5"}, {"type", 1}}));
+        {
+            ZaloOfflineStore store;
+            store.bindOwner("u-oa-owner");
+            store.clearCache();
+            store.bindOwner("u-oa-owner");
+            QVERIFY(store.saveProfile({"u-oa-1", "Fixture OA", "", false, 0, false, true}));
+            QVERIFY(store.saveProfile({"u-oa-6", "Fixture Person", "", false, 0, true, false}));
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-oa-owner");
+        QVERIFY(client.isOfficialIdForTesting("u-oa-1"));
+        QVERIFY(!client.isOfficialIdForTesting("u-oa-6"));
+    }
+
+    // chat.location.new → a location card opening the coordinates in a map; bad coordinates give no link.
+    void testUndoEventsAndAccountStates() {
+        {
+            ZaloOfflineStore owner;
+            owner.bindOwner("u-undo-owner");
+            owner.clearCache();
+        }
+        ZaloClient client;
+        client.setAppLanguage("vi");
+        client.openOfflineCacheForTesting("u-undo-owner");
+        client.setMyUidForTesting("u-undo-owner");
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        auto msg = [now](const QString& id, const QString& type, const QJsonValue& content, int age) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-undo-peer"}, {"idTo", "u-undo-owner"},
+                               {"msgType", type}, {"content", content}, {"ts", QString::number(now - age)}};
+        };
+        const QJsonObject undoFirst = msg("9902", "chat.undo", QJsonObject{{"globalMsgId", "9901"}, {"deleteMsg", 1}}, 10);
+        const QJsonObject original = msg("9901", "webchat", QString("fixture recalled words"), 50);
+        auto* session = client.apiClient()->session();
+        emit session->messagesReceived(QJsonArray{undoFirst, original}, false, true);
+        auto* store = client.offlineStore();
+        QVERIFY(store->rawMessage("9902").isEmpty());
+        QCOMPARE(store->searchMessages("fixture recalled").size(), 0);
+
+        emit session->messagesReceived(QJsonArray{msg("9903", "webchat", QString("fixture later recalled"), 40)}, false, true);
+        QCOMPARE(store->searchMessages("fixture later recalled").size(), 1);
+        emit session->messagesReceived(QJsonArray{msg("9904", "chat.undo",
+            QString("{\"globalMsgId\":\"9903\",\"deleteMsg\":1}"), 5)}, false, true);
+        QCOMPARE(store->searchMessages("fixture later recalled").size(), 0);
+        emit session->messagesReceived(QJsonArray{msg("9903", "webchat", QString("fixture later recalled"), 40)}, false, true);
+        QCOMPARE(store->searchMessages("fixture later recalled").size(), 0);
+        int recalled = 0;
+        for (const auto& row : store->loadMessages("u-undo-peer")) {
+            if (row.id == "9901" || row.id == "9903") {
+                QVERIFY(row.isRecalled);
+                QCOMPARE(row.text, QString::fromUtf8("Tin nhắn đã được thu hồi"));
+                ++recalled;
+            }
+        }
+        QCOMPARE(recalled, 2);
+
+        QCOMPARE(ZaloClient::undoTargetOf(msg("9905", "chat.undo", QString("{\"msgId\":\"9801\"}"), 0)), QString("9801"));
+        QCOMPARE(ZaloClient::undoTargetOf(original), QString());
+        const MessageItem bareUndo = client.toMessageItemForTesting(msg("9906", "chat.undo", QJsonObject{}, 0), false);
+        QVERIFY(bareUndo.isRecalled);
+        QCOMPARE(bareUndo.text, QString::fromUtf8("Tin nhắn đã thu hồi"));
+        QCOMPARE(client.toMessageItemForTesting(msg("9907", "chat.delete.everyone", QJsonObject{}, 0), false).text,
+                 QString::fromUtf8("Tin nhắn đã bị xóa"));
+        QCOMPARE(client.toMessageItemForTesting(msg("9908", "chat.fixture.unknown", QJsonObject{}, 0), false).text,
+                 QString::fromUtf8("[Tin nhắn chưa hỗ trợ ở phiên bản hiện tại]"));
+        QJsonObject early = msg("9909", "webchat", QString("fixture"), 0);
+        early.insert("ts", "5");
+        QVERIFY(client.toMessageItemForTesting(early, false).timeStr.isEmpty());
+        const MessageItem video = client.toMessageItemForTesting(msg("9910", "chat.video.msg",
+            QJsonObject{{"href", "https://example.invalid/v.mp4"}, {"params", "{\"fileSize\":\"2048\"}"}}, 0), false);
+        QCOMPARE(video.fileSize, qint64(2048));
+
+        QCOMPARE(client.friendlyErrorForTesting("x", 126), QString::fromUtf8("Tài khoản đã ngừng hoạt động."));
+        QCOMPARE(client.friendlyErrorForTesting("x", 164), QString::fromUtf8("Bạn không còn là thành viên trong nhóm này"));
+        QVERIFY(client.friendlyErrorForTesting("x", 301).contains(QString::fromUtf8("24 giờ")));
+        QVERIFY(ZaloClient::isGoneError("HTTP 404"));
+        QVERIFY(!ZaloClient::isGoneError("HTTP 500"));
+
+        client.selectConversation("u-undo-peer", "Fixture Peer", "");
+        QVERIFY(!client.currentConversationBlocked());
+        QSignalSpy composer(&client, &ZaloClient::composerStateChanged);
+        client.noteAccountFlagsForTesting("u-undo-peer", QJsonObject{{"accountStatus", 1}, {"isBlocked", 1}});
+        QVERIFY(composer.count() >= 1);
+        QVERIFY(client.currentConversationBlocked());
+        QCOMPARE(client.currentConversationStatus(), QString::fromUtf8("Tài khoản đã ngừng hoạt động"));
+        QVERIFY(!client.currentConversationHasPresence());
+        client.noteAccountFlagsForTesting("u-undo-peer", QJsonObject{{"accountStatus", 0}, {"isBlocked", 0}});
+        QVERIFY(!client.currentConversationBlocked());
+        QVERIFY(client.currentConversationStatus() != QString::fromUtf8("Tài khoản đã ngừng hoạt động"));
+    }
+
+    void testLocationMessageCard() {
+        ZaloClient client;
+        client.setAppLanguage("vi");
+        auto parse = [&client](const QJsonObject& params, const QString& title) {
+            QJsonObject content{{"params", QString::fromUtf8(QJsonDocument(params).toJson(QJsonDocument::Compact))}};
+            if (!title.isEmpty()) content.insert("title", title);
+            return client.toMessageItemForTesting(QJsonObject{
+                {"msgId", "9961"}, {"uidFrom", "u-loc-1"}, {"idTo", "u-loc-me"}, {"msgType", "chat.location.new"},
+                {"ts", "1700000000000"}, {"content", content}}, false);
+        };
+        const MessageItem a = parse(QJsonObject{{"latitude", "10.762622"}, {"longitude", "106.660172"},
+                                                {"description", "Fixture street"}}, "Fixture place");
+        QCOMPARE(a.messageType, QString("location"));
+        QCOMPARE(a.text, QString("Fixture place"));
+        QCOMPARE(a.href, QString("https://www.google.com/maps?q=10.762622,106.660172"));
+        QCOMPARE(a.extra.value("desc").toString(), QString("Fixture street"));
+        const MessageItem b = parse(QJsonObject{{"latitude", 21.0285}, {"longitude", 105.8542}}, "");
+        QCOMPARE(b.text, QString::fromUtf8("Vị trí được chia sẻ"));
+        QCOMPARE(b.extra.value("coords").toString(), QString("21.028500, 105.854200"));
+        const MessageItem c = parse(QJsonObject{{"latitude", "abc"}}, "");
+        QVERIFY(c.href.isEmpty());
+        QVERIFY(ZaloClient::isReparsedOnLoad("chat.location.new"));
+    }
+
+    // Stale cached rows are re-parsed once (meta parse_version): text, type, FTS and previews; bank card; href-less cards.
+    void testCachedParseMigrationAndSpecialCards() {
+        {
+            ZaloOfflineStore owner;
+            owner.bindOwner("u-mig-owner");
+            owner.clearCache();
+            owner.bindOwner("u-mig-owner");
+            MessageItem stale;
+            stale.id = "9971";
+            stale.senderId = "u-mig-peer";
+            stale.text = QString::fromUtf8("[Nội dung web của Zalo]");
+            stale.messageType = "text";
+            stale.ts = 1700000000000LL;
+            const QJsonObject raw{{"msgId", "9971"}, {"uidFrom", "u-mig-peer"}, {"idTo", "u-mig-owner"},
+                                  {"msgType", "chat.webcontent"}, {"ts", "1700000000000"},
+                                  {"content", QJsonObject{{"title", "Fixture became member"}, {"href", ""},
+                                                          {"params", "{\"type\":6}"}}}};
+            QVERIFY(owner.saveMessage("u-mig-peer", stale, raw, false));
+            Zalos::Core::Models::ConversationItem conv;
+            conv.id = "u-mig-peer";
+            conv.name = "Fixture Peer";
+            conv.lastMessage = stale.text;
+            conv.lastTs = stale.ts;
+            owner.saveConversation(conv);
+            owner.setMetaValue("parse_version", "0");
+        }
+        ZaloClient client;
+        client.setAppLanguage("vi");
+        client.openOfflineCacheForTesting("u-mig-owner");
+        auto* store = client.offlineStore();
+        QCOMPARE(store->metaValue("parse_version"), QString::number(ZaloClient::kCacheParseVersion));
+        const auto rows = store->loadMessages("u-mig-peer");
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().messageType, QString("system"));
+        QCOMPARE(rows.first().text, QString::fromUtf8("Bạn đã trở thành thành viên của nhóm"));
+        QCOMPARE(store->searchMessages(QString::fromUtf8("Nội dung web")).size(), 0);
+        QCOMPARE(client.conversationModel()->conversation("u-mig-peer").lastMessage,
+                 QString::fromUtf8("Bạn đã trở thành thành viên của nhóm"));
+
+        auto parse = [&client](const QString& type, const QJsonValue& content) {
+            return client.toMessageItemForTesting(QJsonObject{{"msgId", "9972"}, {"uidFrom", "u-mig-peer"},
+                {"idTo", "u-mig-owner"}, {"msgType", type}, {"ts", "1700000000000"}, {"content", content}}, false);
+        };
+        const MessageItem bank = parse("chat.webcontent", QJsonObject{{"title", "Fixture bank"}, {"href", ""},
+            {"action", "zinstant.bankcard"}, {"params", "{\"item\":{\"zinstantdata_id\":\"templateId=11845\"}}"}});
+        QCOMPARE(bank.messageType, QString("bankcard"));
+        QCOMPARE(bank.text, QString("Fixture bank"));
+        const MessageItem devices = parse("chat.list.action", QJsonArray{QJsonObject{
+            {"title", "Fixture login alert"}, {"href", ""}, {"action", "action.open.logindevices"}}});
+        QCOMPARE(devices.messageType, QString("link"));
+        QVERIFY(devices.href.isEmpty());
+        QCOMPARE(devices.text, QString("Fixture login alert"));
+        QCOMPARE(parse("chat.list.action", QJsonArray{}).messageType, QString("link"));
+
+        const MessageItem todo = parse("chat.todo", QJsonObject{{"message", "Hop 15 gi"},
+            {"params", "{\"topicId\":\"4242\"}"}});
+        QCOMPARE(todo.messageType, QString("system"));
+        QCOMPARE(todo.text, QString("Hop 15 gi"));
+        QCOMPARE(todo.extra.value("reminderEventId").toString(), QString("4242"));
+        QCOMPARE(parse("chat.todo", QJsonObject{{"message", QJsonObject{{"message", "Nho uong thuoc"}}}}).text,
+                 QString("Nho uong thuoc"));
+        QCOMPARE(parse("chat.todo", QJsonObject{{"title", "Cuoc hop giao ban"}}).text, QString("Cuoc hop giao ban"));
+        QCOMPARE(parse("chat.todo", QJsonObject{}).text, QString::fromUtf8("Nhắc nhở"));
+    }
+
     // 3. Feature: Unread Message Calculation & Notification Clearing
     void testUnreadCountAggregation() {
         ConversationModel model;
@@ -401,6 +837,46 @@ private slots:
         model.clearUnread("conv-2");
         // Spy may record 0 or 1 depending on whether conv-2 had unread messages
         QVERIFY(unreadSpy.isValid());
+    }
+
+    // zbusiness/OA chats are skipped by applyReadPoints (sub-chat cursors carry type=2 + sct), so the server
+    // read-point never re-heals their badge. Reading a chat must write the zeroed unread back to offline.db,
+    // otherwise the stale unread_count resurfaces as a "new message" badge on every launch.
+    void testReadChatUnreadPersistedForSubChat() {
+        const QString owner = QStringLiteral("u-subchat-owner");
+        const QString peer = QStringLiteral("u-subchat-oa");
+        {
+            ZaloOfflineStore store;
+            store.bindOwner(owner);
+            store.clearCache();
+            store.bindOwner(owner);
+            Zalos::Core::Models::ConversationItem conv;
+            conv.id = peer;
+            conv.name = QStringLiteral("Z Business Fixture");
+            conv.lastMessage = QStringLiteral("Khuyen mai");
+            conv.lastTs = 1700000000000LL;
+            conv.unreadCount = 2;
+            QVERIFY(store.saveConversation(conv));
+        }
+
+        ZaloClient client;
+        client.setAppLanguage("vi");
+        client.openOfflineCacheForTesting(owner);
+        QCOMPARE(client.conversationModel()->conversation(peer).unreadCount, 2);
+
+        // Opening the chat clears the badge in memory and persists the zeroed count to the store.
+        client.selectConversation(peer, QStringLiteral("Z Business Fixture"), QString());
+        QCOMPARE(client.conversationModel()->conversation(peer).unreadCount, 0);
+
+        // Re-reading from disk must not resurrect the stale "new message" badge.
+        const auto persisted = client.offlineStore()->loadConversations();
+        int reloadedUnread = -1;
+        for (const auto& c : persisted) {
+            if (c.id == peer) reloadedUnread = c.unreadCount;
+        }
+        QCOMPARE(reloadedUnread, 0);
+
+        client.offlineStore()->clearCache();
     }
 
     // 4. Feature: Real-time Message Stream & Formatting
@@ -1409,13 +1885,17 @@ private slots:
         client.setShowConversationInfo(false);
         window->resize(1280, 800);
 
-        // Sidebar: the "Hội thoại khác" chevron row, and one query finding chats + groups + messages.
-        if (QObject* side = window->findChild<QObject*>("sidebar")) {
+        // Sidebar: the always-visible tab row (Tất cả · Chưa đọc · Khác + Phân loại) at normal and narrowest
+        // widths, and one query finding chats + groups + messages.
+        if (window->findChild<QObject*>("sidebar")) {
             themeMgr.setThemeMode(1);
             window->resize(1100, 760);
-            side->setProperty("moreViewsOpen", true);
-            shot("sidebar_more_views_dark");
-            side->setProperty("moreViewsOpen", false);
+            shot("sidebar_tabs_dark");
+            client.openWelcomeScreen();
+            window->resize(380, 600);
+            shot("sidebar_tabs_compact_dark");
+            window->resize(1100, 760);
+            client.selectConversation("u-gallery", "Fixture Gallery", "");
             client.applyGroupInfoForTesting(QJsonObject{{"g-dir", QJsonObject{{"name", "Fixture Directory Group"}, {"totalMember", 4}}}});
             client.conversationModel()->setSearchFilter("fixture");
             client.peopleSearch()->setQuery("fixture");
@@ -1426,6 +1906,27 @@ private slots:
             client.conversationModel()->setSearchFilter("");
             client.peopleSearch()->clear();
             client.messageSearch()->clear();
+
+            // Hidden conversations: typing the exact PIN shows the "Trò chuyện ẩn" section; the PIN-entry popup.
+            client.setHiddenPinHashForTesting(ZaloClient::hiddenPinDigest("2468"));
+            client.openWelcomeScreen();
+            client.setHiddenThreadsForTesting({"u-gallery"});
+            client.conversationModel()->setSearchFilter("2468");
+            client.hiddenSearch()->setQuery("2468");
+            client.hiddenSearch()->runNow();
+            shot("sidebar_hidden_search_dark");
+            QCOMPARE(client.hiddenSearch()->count(), 1);
+            client.conversationModel()->setSearchFilter("");
+            client.hiddenSearch()->clear();
+            client.requestHiddenFlow("hide", "u-gallery", false);
+            QObject* pinPopup = window->findChild<QObject*>("hiddenPinPopup");
+            QVERIFY(pinPopup != nullptr);
+            QVERIFY(pinPopup->property("opened").toBool());
+            shot("hidden_pin_dark");
+            QVERIFY(QMetaObject::invokeMethod(pinPopup, "close"));
+            client.setHiddenThreadsForTesting({});
+            client.setHiddenPinHashForTesting(QString());
+            client.selectConversation("u-gallery", "Fixture Gallery", "");
         }
 
         // Rail tonal legibility check: label folders on, in dark (near-black rail) and light (blue rail).
@@ -1443,6 +1944,140 @@ private slots:
         QFile::remove(picPath);
     }
 
+
+    // Zalo system payloads: chat.webcontent birthday (ZInstant template 14030) and other customMsg notices, plus
+    // app-only zalo.me links (zvideo / mini-app) routed to the in-app QR popup instead of the browser.
+    void testWebcontentSystemMessagesAndAppOnlyLinks() {
+        ZaloClient client;
+        client.setAppLanguage("vi");
+        const QString birthdayParams = QString::fromUtf8(QJsonDocument(QJsonObject{
+            {"item", QJsonObject{{"zinstantdata_id", "templateId=14030"}, {"data_type", 2}, {"version", 1}}},
+            {"type", 11},
+            {"customMsg", QJsonObject{{"msg", QJsonObject{
+                {"en", "Celebrate Fixture Friend's birthday today (01/01) with your best wishes!"},
+                {"vi", QString::fromUtf8("Hôm nay (01/01) là sinh nhật của Fixture Friend, hãy gửi một lời chúc!")}}},
+                {"highLightsV2", QJsonArray{}}}}}).toJson(QJsonDocument::Compact));
+        const QString noticeParams = QString::fromUtf8(QJsonDocument(QJsonObject{
+            {"item", QJsonObject{{"zinstantdata_id", "templateId=99999"}}},
+            {"type", 5},
+            {"customMsg", QJsonObject{{"msg", QJsonObject{{"en", "Fixture notice"},
+                                                          {"vi", QString::fromUtf8("Fixture thông báo")}}}}}}).toJson(QJsonDocument::Compact));
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        auto msg = [](const QString& id, qint64 ts, const QJsonObject& content) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-sys-fixture"}, {"idTo", "u-me"},
+                               {"msgType", "chat.webcontent"}, {"content", content}, {"ts", QString::number(ts)}};
+        };
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{
+            msg("7101", now - 2000, QJsonObject{{"title", "Celebrate Fixture Friend's birthday today (01/01) with your best wishes!"},
+                                                {"href", ""}, {"params", birthdayParams}}),
+            msg("7102", now - 1000, QJsonObject{{"title", "Fixture notice"}, {"href", ""}, {"params", noticeParams}})},
+            false, true);
+        client.selectConversation("u-sys-fixture", "Fixture Friend", "");
+        auto* m = client.messageModel();
+        QCOMPARE(m->rowCount(), 2);
+        QCOMPARE(m->data(m->index(0), MessageModel::MessageTypeRole).toString(), QString("ecard"));
+        QVERIFY(m->data(m->index(0), MessageModel::TextRole).toString().startsWith(QString::fromUtf8("Hôm nay (01/01)")));
+        const QVariantMap extra = m->data(m->index(0), MessageModel::ExtraRole).toMap();
+        QCOMPARE(extra.value("ecardType").toString(), QString("1"));
+        QVERIFY(extra.value("suggestStickers").toBool());
+        QCOMPARE(m->data(m->index(1), MessageModel::MessageTypeRole).toString(), QString("link"));
+        QCOMPARE(m->data(m->index(1), MessageModel::TextRole).toString(), QString::fromUtf8("Fixture thông báo"));
+        QVERIFY(m->data(m->index(1), MessageModel::HrefRole).toString().isEmpty());
+
+        // customMsg placeholders %N$s resolve from highLightsV2 (own uid → "Bạn"); unresolved ones are stripped;
+        // a calendar action keeps the reminder event id. Webcontent without customMsg/href is a system notice.
+        client.setMyUidForTesting("u-me");
+        auto parse = [&client](const QJsonObject& params, const QString& title) {
+            return client.toMessageItemForTesting(QJsonObject{
+                {"msgId", "7201"}, {"uidFrom", "u-sys-fixture"}, {"idTo", "g-fixture"}, {"msgType", "chat.webcontent"},
+                {"ts", "1700000000000"},
+                {"content", QJsonObject{{"title", title}, {"href", ""},
+                                        {"params", QString::fromUtf8(QJsonDocument(params).toJson(QJsonDocument::Compact))}}}},
+                true);
+        };
+        const MessageItem reminder = parse(QJsonObject{
+            {"type", 2}, {"item", QJsonObject{{"zinstantdata_id", "templateId=11366"}}},
+            {"customMsg", QJsonObject{
+                {"msg", QJsonObject{{"vi", QString::fromUtf8("%1$s đã tạo nhắc hẹn mới cho %2$s %3$s")}}},
+                {"highLightsV2", QJsonArray{QJsonObject{{"dpn", "Fixture Member"}, {"uid", "u-other"}},
+                                            QJsonObject{{"dpn", "Fixture Me"}, {"uid", "u-me"}}}}}},
+            {"actions", QJsonArray{QJsonObject{{"actionType", "action.open.calendar.event"},
+                                               {"actionData", QJsonObject{{"eventId", "8801"}}}}}}}, "Fixture title");
+        QCOMPARE(reminder.messageType, QString("system"));
+        QCOMPARE(reminder.text, QString::fromUtf8("Fixture Member đã tạo nhắc hẹn mới cho Bạn"));
+        QCOMPARE(reminder.extra.value("reminderEventId").toString(), QString("8801"));
+        QCOMPARE(parse(QJsonObject{{"type", 6}}, "You became group member").text,
+                 QString::fromUtf8("Bạn đã trở thành thành viên của nhóm"));
+        QCOMPARE(parse(QJsonObject{{"type", 6}}, "You just created the group").text, QString::fromUtf8("Bạn vừa tạo nhóm"));
+        const MessageItem owner = parse(QJsonObject{{"type", 19}}, "You were appointed as new group owner");
+        QCOMPARE(owner.messageType, QString("system"));
+        QCOMPARE(owner.text, QString::fromUtf8("Bạn được bổ nhiệm làm trưởng nhóm"));
+        QCOMPARE(parse(QJsonObject{{"type", 34}}, "Fixture safety").messageType, QString("system"));
+        QCOMPARE(parse(QJsonObject{{"type", 77}}, "").text,
+                 QString::fromUtf8("Tin nhắn chưa hỗ trợ hiển thị trên phiên bản hiện tại"));
+        QCOMPARE(parse(QJsonObject{{"type", 77}}, "Fixture other").text, QString("Fixture other"));
+
+        // 1-1 OA/system content without href is a card from the OA (left, avatar), never a centred group notice.
+        auto parseOne = [&client](const QString& msgType, const QJsonValue& content, qint64 ttl) {
+            QJsonObject raw{{"msgId", "7301"}, {"uidFrom", "u-oa-fixture"}, {"idTo", "u-me"}, {"msgType", msgType},
+                            {"ts", "1700000000000"}, {"content", content}};
+            if (ttl > 0) raw.insert("ttl", ttl);
+            return client.toMessageItemForTesting(raw, false);
+        };
+        const MessageItem oaNotice = parseOne("chat.webcontent", QJsonObject{
+            {"title", "Fixture OA title"}, {"description", "Fixture OA body"}, {"href", ""},
+            {"params", QString::fromUtf8(QJsonDocument(QJsonObject{{"type", 2}}).toJson(QJsonDocument::Compact))}}, 17459000);
+        QCOMPARE(oaNotice.messageType, QString("link"));
+        QVERIFY(oaNotice.href.isEmpty());
+        QCOMPARE(oaNotice.text, QString("Fixture OA title"));
+        QCOMPARE(oaNotice.extra.value("desc").toString(), QString("Fixture OA body"));
+        QVERIFY(!oaNotice.extra.contains("expireOn"));
+        const MessageItem oaList = parseOne("chat.list.action", QJsonObject{
+            {"title", "Fixture login notice"}, {"description", "Fixture device line"}, {"href", ""},
+            {"action", "action.open.logindevices"}, {"type", "l.a.header.only"}}, 0);
+        QCOMPARE(oaList.messageType, QString("link"));
+        QCOMPARE(oaList.extra.value("desc").toString(), QString("Fixture device line"));
+        QCOMPARE(client.toMessageItemForTesting(QJsonObject{
+            {"msgId", "7302"}, {"uidFrom", "u-oa-fixture"}, {"idTo", "g-fixture"}, {"msgType", "chat.list.action"},
+            {"ts", "1700000000000"}, {"content", QJsonObject{{"title", "Fixture group line"}, {"href", ""}}}}, true).messageType,
+            QString("system"));
+        auto customParams = [](int type, const QString& tpl, const QString& vi) {
+            return QString::fromUtf8(QJsonDocument(QJsonObject{{"type", type}, {"item", QJsonObject{{"zinstantdata_id", tpl}}},
+                {"customMsg", QJsonObject{{"msg", QJsonObject{{"vi", vi}}}}}}).toJson(QJsonDocument::Compact));
+        };
+        const MessageItem accepted = parseOne("chat.webcontent", QJsonObject{{"title", "Fixture"}, {"href", ""},
+            {"params", customParams(9, "", QString::fromUtf8("Fixture Friend đã đồng ý kết bạn"))}}, 0);
+        QCOMPARE(accepted.messageType, QString("system"));
+        const MessageItem order = parseOne("chat.webcontent", QJsonObject{{"title", "Fixture"}, {"href", ""},
+            {"params", customParams(27, "templateId=10904", QString::fromUtf8("Fixture greeting\nFixture order line"))}}, 0);
+        QCOMPARE(order.messageType, QString("link"));
+        QCOMPARE(order.text, QString("Fixture greeting"));
+        QCOMPARE(order.extra.value("desc").toString(), QString("Fixture order line"));
+        QCOMPARE(parseOne("chat.webcontent", QJsonObject{{"title", "Fixture safety"}, {"href", ""},
+            {"params", QString::fromUtf8(QJsonDocument(QJsonObject{{"type", 34}}).toJson(QJsonDocument::Compact))}}, 0).text,
+            QString::fromUtf8("Zalo gửi thông báo về an toàn tài khoản của bạn"));
+
+        // Per-message ttl is a self-destruct only for user messages; broadcast/system content never expires.
+        QCOMPARE(ZaloOfflineStore::expiryOf(QJsonObject{{"msgType", "chat.webcontent"}, {"ttl", 86400000}}, 1000), qint64(0));
+        QCOMPARE(ZaloOfflineStore::expiryOf(QJsonObject{{"msgType", "chat.list.action"}, {"ttl", 17459000}}, 1000), qint64(0));
+        QCOMPARE(ZaloOfflineStore::expiryOf(QJsonObject{{"msgType", "chat.ecard"}, {"ttl", 86400000}}, 1000), qint64(0));
+        QCOMPARE(ZaloOfflineStore::expiryOf(QJsonObject{{"msgType", "webchat"}, {"ttl", 60000}}, 1000), qint64(61000));
+        QCOMPARE(ZaloOfflineStore::expiryOf(QJsonObject{{"msgType", "webchat"}}, 1000), qint64(0));
+
+        QVERIFY(ZaloClient::isAppOnlyLink("https://zalo.me/v/video/1000000000000000001?source=fixture&type=0"));
+        QVERIFY(ZaloClient::isAppOnlyLink("https://zalo.me/s/1000000000000000002?utm_source=fixture"));
+        QVERIFY(ZaloClient::isAppOnlyLink("https://zalo.video/s/FIXTURE"));
+        QVERIFY(!ZaloClient::isAppOnlyLink("https://zalo.me/g/fixture01"));
+        QVERIFY(!ZaloClient::isAppOnlyLink("https://example.com/v/video/1"));
+        QSignalSpy appLink(&client, &ZaloClient::appOnlyLinkRequested);
+        client.openLink("https://zalo.me/v/video/1000000000000000001", "Fixture video", "");
+        QCOMPARE(appLink.count(), 1);
+        QCOMPARE(appLink.at(0).at(1).toString(), QString("Fixture video"));
+        const QVariantMap qr = client.qrModules("https://zalo.me/v/video/1000000000000000001");
+        const int size = qr.value("size").toInt();
+        QVERIFY(size >= 21);
+        QCOMPARE(qr.value("modules").toList().size(), size * size);
+    }
 
     // Anti-peeking: one state shared by settings, the Ctrl+Shift+H shortcut and the tray menu quick switch.
     void testAntiPeekingQuickSwitch() {
@@ -2780,6 +3415,131 @@ private slots:
         // 6. Test Close Profile Modal
         client.closeUserProfile();
         QCOMPARE(client.showUserProfileModal(), false);
+    }
+
+    void testChatBackgroundModes() {
+        // The mode and image path are persisted in QSettings; start from a clean slate so a leaked
+        // value from an earlier run cannot decide what a "new install" reads back.
+        {
+            QSettings settings("Zalos", "ZalosApp");
+            settings.remove("settings/chatBackgroundMode");
+            settings.remove("settings/chatBackgroundImage");
+            settings.remove("settings/useAvatarAsChatBackground");
+            // The retired profile-background mode must migrate to "none" on load.
+            settings.setValue("settings/chatBackgroundMode", "background");
+        }
+        ZaloClient client;
+        QCOMPARE(client.chatBackgroundMode(), QString("none"));
+        QCOMPARE(client.currentConversationBackground(), QString());
+
+        // The source chain behind backgroundOf still powers the profile-card cover.
+        QCOMPARE(ZaloClient::backgroundOf({{"cover", "https://x/cover.jpg"},
+                                           {"bgavatar", "https://x/bg.jpg"}}),
+                 QString("https://x/cover.jpg"));
+        QCOMPARE(ZaloClient::backgroundOf({{"avatar", "https://x/av.jpg"},
+                                           {"bgavatar", "https://x/bg.jpg"}}),
+                 QString("https://x/bg.jpg"));
+        QCOMPARE(ZaloClient::backgroundOf({{"avt", "https://x/avt.jpg"},
+                                           {"fullAvt", "https://x/full.jpg"}}),
+                 QString("https://x/full.jpg"));
+        QCOMPARE(ZaloClient::backgroundOf({{"avatar", "https://x/av.jpg"}}), QString());
+
+        // Avatar mode dims the current conversation photo behind the messages.
+        client.setGroupForTesting("grp-1", "Nh\u1ed3m th\u1eed", "https://x/group_av.jpg");
+        client.selectConversation("grp-1", "Nh\u1ee9m th\u1eed", "https://x/group_av.jpg");
+        QCOMPARE(client.currentConversationBackground(), QString());
+        client.setChatBackgroundMode("avatar");
+        QCOMPARE(client.chatBackgroundMode(), QString("avatar"));
+        QCOMPARE(client.currentConversationBackground(), QString("https://x/group_av.jpg"));
+
+        // Unknown values collapse to "none".
+        client.setChatBackgroundMode("wallpaper");
+        QCOMPARE(client.chatBackgroundMode(), QString("none"));
+        QCOMPARE(client.currentConversationBackground(), QString());
+
+        // Custom mode renders a user-selected local image copied into the app data directory.
+        QTemporaryFile source;
+        source.setFileTemplate(QDir::tempPath() + QStringLiteral("/zalos_bg_XXXXXX.png"));
+        QVERIFY(source.open());
+        source.write("fake-image-bytes");
+        source.flush();
+
+        client.setChatBackgroundImage(QUrl::fromLocalFile(source.fileName()).toString());
+        QCOMPARE(client.chatBackgroundMode(), QString("custom"));
+        QVERIFY(!client.chatBackgroundImage().isEmpty());
+        QVERIFY(QFileInfo::exists(client.chatBackgroundImage()));
+        QVERIFY(client.currentConversationBackground().startsWith(QStringLiteral("file://")));
+
+        // Clearing removes the managed copy and falls back to the plain background.
+        client.clearChatBackgroundImage();
+        QCOMPARE(client.chatBackgroundMode(), QString("none"));
+        QVERIFY(client.chatBackgroundImage().isEmpty());
+        QCOMPARE(client.currentConversationBackground(), QString());
+
+        // Leave no residue for the tests that run after this one.
+        QSettings settings("Zalos", "ZalosApp");
+        settings.remove("settings/chatBackgroundMode");
+        settings.remove("settings/chatBackgroundImage");
+    }
+
+    // System theme (mode 2) reads surfaces/text/link from the platform palette snapshot, so it works
+    // for every Qt and GTK theme line, while Zalo Light/Dark (modes 0/1) keep their exact literals.
+    void testSystemThemePaletteSnapshot() {
+        const QPalette original = QGuiApplication::palette();
+
+        // A synthetic desktop palette, as any Qt or GTK platform theme would deliver at startup.
+        QPalette system;
+        system.setColor(QPalette::Window, QColor("#101010"));
+        system.setColor(QPalette::Base, QColor("#0A0A0A"));
+        system.setColor(QPalette::AlternateBase, QColor("#202020"));
+        system.setColor(QPalette::WindowText, QColor("#EAEAEA"));
+        system.setColor(QPalette::PlaceholderText, QColor("#7F7F7F"));
+        system.setColor(QPalette::Link, QColor("#FF00FF"));
+        QGuiApplication::setPalette(system);
+
+        {
+            ThemeManager theme;
+            theme.setThemeMode(ThemeManager::SystemTheme);
+            // Mode 2 derives surfaces and text straight from the platform palette roles.
+            QCOMPARE(theme.backgroundColor(), QColor("#101010"));
+            QCOMPARE(theme.chatBackgroundColor(), QColor("#0A0A0A"));
+            QCOMPARE(theme.cardBackgroundColor(), QColor("#202020"));
+            QCOMPARE(theme.textColor(), QColor("#EAEAEA"));
+            // syncApplicationPalette() overwrote the app palette (Window) but did not re-set Link;
+            // the snapshot still returns the system Link, which a direct app-palette read would lose.
+            QCOMPARE(QGuiApplication::palette().color(QPalette::Window), QColor("#101010"));
+            QVERIFY(QGuiApplication::palette().color(QPalette::Link) != QColor("#FF00FF"));
+            QCOMPARE(theme.linkColor(), QColor("#FF00FF"));
+            // New mode-2 tokens follow the system instead of the Zalo literals.
+            QCOMPARE(theme.uiLinkColor(), QColor("#FF00FF"));
+            QCOMPARE(theme.reactionSurfaceColor(), QColor("#0A0A0A"));
+            QCOMPARE(theme.inactiveSubtleColor(), QColor("#7F7F7F"));
+
+            // Zalo Light: literals untouched (parity guard).
+            theme.setThemeMode(ThemeManager::ZaloLight);
+            QCOMPARE(theme.uiAccentColor(), QColor("#0068FF"));
+            QCOMPARE(theme.activenessColor(), QColor("#0068FF"));
+            QCOMPARE(theme.uiLinkColor(), QColor("#0068FF"));
+            QCOMPARE(theme.cardBackgroundColor(), QColor("#EBECF0")); // Theme.mediaPlaceholder source
+            QCOMPARE(theme.reactionSurfaceColor(), QColor("#FFFFFF"));
+            QCOMPARE(theme.inactiveSubtleColor(), QColor("#B5B5B5"));
+            QCOMPARE(theme.inactiveDisabledColor(), QColor("#DBDBDB"));
+            QCOMPARE(theme.activeDisabledColor(), QColor("#ADD1FF"));
+            QCOMPARE(theme.dropOverlayColor(), QColor("#F0F7FF"));
+
+            // Zalo Dark: literals untouched.
+            theme.setThemeMode(ThemeManager::ZaloDark);
+            QCOMPARE(theme.activenessColor(), QColor("#66A6FF"));
+            QCOMPARE(theme.uiLinkColor(), QColor("#66A6FF"));
+            QCOMPARE(theme.cardBackgroundColor(), QColor("#1D2025"));
+            QCOMPARE(theme.reactionSurfaceColor(), QColor("#1D2025"));
+            QCOMPARE(theme.inactiveSubtleColor(), QColor("#595959"));
+            QCOMPARE(theme.inactiveDisabledColor(), QColor("#333333"));
+            QCOMPARE(theme.activeDisabledColor(), QColor("#00378A"));
+            QCOMPARE(theme.dropOverlayColor(), QColor("#001029"));
+        }
+
+        QGuiApplication::setPalette(original);
     }
 
     // Peer video: H.264 access units on the UI socket -> decoder thread -> the QML sink. The stream is

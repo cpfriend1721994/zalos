@@ -742,6 +742,52 @@ Rectangle {
                 }
 
                 Rectangle {
+                    id: hideRow
+                    objectName: "infoHideRow"
+                    property bool hiddenNow: false
+                    property bool canHide: false
+                    function refresh(): void {
+                        hideRow.hiddenNow = ZaloClient.isConversationHidden(ZaloClient.currentConversationId);
+                        hideRow.canHide = ZaloClient.canHideConversation(ZaloClient.currentConversationId);
+                    }
+                    visible: root.hasConversation && (hideRow.hiddenNow || hideRow.canHide)
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 16
+                    Layout.rightMargin: 16
+                    Layout.preferredHeight: 36
+                    radius: 6
+                    color: hideRowMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.hoverClearColor
+                    Component.onCompleted: hideRow.refresh()
+                    Connections {
+                        target: ZaloClient
+                        function onConversationFlagsChanged() { hideRow.refresh(); }
+                        function onCurrentConversationChanged() { hideRow.refresh(); }
+                    }
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 4
+                        spacing: 8
+                        ZIcon { name: "eye_off"; size: 16; color: ThemeManager.secondaryTextColor }
+                        Text {
+                            Layout.fillWidth: true
+                            text: hideRow.hiddenNow ? I18n.t("Bỏ ẩn trò chuyện", "Unhide conversation")
+                                                    : I18n.t("Ẩn trò chuyện", "Hide conversation")
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            color: ThemeManager.textColor
+                        }
+                    }
+                    MouseArea {
+                        id: hideRowMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: ZaloClient.requestHiddenFlow(hideRow.hiddenNow ? "unhide" : "hide",
+                                                                ZaloClient.currentConversationId, true)
+                    }
+                }
+
+                Rectangle {
                     visible: root.hasConversation
                     Layout.fillWidth: true
                     Layout.preferredHeight: 1

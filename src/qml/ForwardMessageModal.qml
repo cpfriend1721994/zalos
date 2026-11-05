@@ -250,10 +250,11 @@ Item {
                 property bool rowIsGroup: false
                 property var rowMembers: []
                 property int rowMemberCount: 0
+                property bool rowHidden: false
                 readonly property bool sent: root.sentIds[rowItem.rowId] === true
                 radius: 8
                 color: rowHover.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                visible: root.matches(rowItem.rowName)
+                visible: !rowItem.rowHidden && root.matches(rowItem.rowName)
                 height: visible ? 52 : 0
 
                 RowLayout {
@@ -324,6 +325,7 @@ Item {
                     rowAvatar: model.avatarUrl || ""
                     rowIsGroup: model.isGroup
                     rowMemberCount: model.memberCount
+                    rowHidden: model.isHidden
                     rowMembers: model.memberAvatars || []
                     rowSub: model.lastMessage || (model.isGroup ? I18n.t("Nhóm", "Group") : I18n.t("Cá nhân", "Direct"))
                 }

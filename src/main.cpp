@@ -252,6 +252,7 @@ int main(int argc, char* argv[]) {
 
     QQmlApplicationEngine engine;
     engine.addImageProvider("avatar", new Zalos::Core::Platform::AvatarImageProvider);
+    engine.addImageProvider("cover", new Zalos::Core::Platform::AvatarImageProvider(false));
     engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
     engine.addImportPath("qrc:/");
     engine.addImportPath("qrc:/qt/qml");

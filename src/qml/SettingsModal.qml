@@ -106,6 +106,37 @@ Item {
         }
     }
 
+    component SegmentedOption: Rectangle {
+        id: segmentedOption
+        property string label: ""
+        property bool selected: false
+        signal chosen()
+
+        Layout.fillWidth: true
+        implicitHeight: 34
+        radius: Theme.radiusRound
+        color: selected ? Theme.zaloBlueLight
+                        : (segmentMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
+
+        Text {
+            anchors.centerIn: parent
+            text: segmentedOption.label
+            font.family: Theme.fontFamily
+            font.pixelSize: 13
+            font.bold: segmentedOption.selected
+            color: segmentedOption.selected ? Theme.zaloBlueTonalText : ThemeManager.textColor
+            elide: Text.ElideRight
+        }
+
+        MouseArea {
+            id: segmentMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: segmentedOption.chosen()
+        }
+    }
+
     component PreviewOption: ColumnLayout {
         id: previewOption
         property bool selected: false
@@ -894,10 +925,86 @@ Item {
                                 color: ThemeManager.textColor
                             }
 
-                            ToggleRow {
-                                title: I18n.t("Dùng ảnh đại diện làm hình nền", "Use the avatar as the chat background")
-                                checked: ZaloClient.useAvatarAsChatBackground
-                                onToggled: (value) => ZaloClient.useAvatarAsChatBackground = value
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                SegmentedOption {
+                                    label: I18n.t("Không", "None")
+                                    selected: ZaloClient.chatBackgroundMode === "none"
+                                    onChosen: ZaloClient.chatBackgroundMode = "none"
+                                }
+
+                                SegmentedOption {
+                                    label: I18n.t("Ảnh đại diện", "Avatar")
+                                    selected: ZaloClient.chatBackgroundMode === "avatar"
+                                    onChosen: ZaloClient.chatBackgroundMode = "avatar"
+                                }
+
+                                SegmentedOption {
+                                    label: I18n.t("Ảnh tùy chọn", "Custom image")
+                                    selected: ZaloClient.chatBackgroundMode === "custom"
+                                    onChosen: ZaloClient.chatBackgroundMode = "custom"
+                                }
+                            }
+
+                            SectionHint {
+                                text: ZaloClient.chatBackgroundMode === "custom"
+                                    ? I18n.t("Ảnh bạn chọn được làm mờ phía sau tin nhắn ở mọi cuộc trò chuyện.",
+                                             "Your chosen image is dimmed behind the messages in every conversation.")
+                                    : (ZaloClient.chatBackgroundMode === "avatar"
+                                       ? I18n.t("Ảnh đại diện được làm mờ phía sau tin nhắn.",
+                                                "The avatar is dimmed behind the messages.")
+                                       : I18n.t("Khung chat dùng màu nền mặc định của giao diện.",
+                                                "The chat area uses the theme's default colour."))
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+                                visible: ZaloClient.chatBackgroundMode === "custom"
+
+                                Rectangle {
+                                    Layout.preferredWidth: 60
+                                    Layout.preferredHeight: 60
+                                    Layout.alignment: Qt.AlignVCenter
+                                    visible: ZaloClient.chatBackgroundImage.length > 0
+                                    radius: Theme.radiusSmall
+                                    color: ThemeManager.hoverColor
+                                    clip: true
+                                    Image {
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        source: ZaloClient.currentConversationBackground.length > 0
+                                                ? "image://cover/" + encodeURIComponent(ZaloClient.currentConversationBackground) : ""
+                                        sourceSize.width: 160
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                    }
+                                }
+
+                                ZButton {
+                                    text: ZaloClient.chatBackgroundImage.length > 0
+                                          ? I18n.t("Đổi ảnh…", "Change image…")
+                                          : I18n.t("Chọn ảnh…", "Choose image…")
+                                    onClicked: chatBackgroundDialog.open()
+                                }
+
+                                ZButton {
+                                    visible: ZaloClient.chatBackgroundImage.length > 0
+                                    variant: "danger"
+                                    text: I18n.t("Bỏ ảnh", "Remove image")
+                                    onClicked: ZaloClient.clearChatBackgroundImage()
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                FileDialog {
+                                    id: chatBackgroundDialog
+                                    title: I18n.t("Chọn ảnh nền trò chuyện", "Choose chat background image")
+                                    nameFilters: [I18n.t("Hình ảnh (*.jpg *.jpeg *.png *.webp)", "Images (*.jpg *.jpeg *.png *.webp)")]
+                                    onAccepted: ZaloClient.setChatBackgroundImage(selectedFile.toString())
+                                }
                             }
 
                             Rectangle {
@@ -1285,6 +1392,39 @@ Item {
                                             onActivated: (index) => ZaloClient.appLock.autoLockMinutes = autoLockBox.minutes[index]
                                         }
                                     }
+                                }
+                            }
+
+                            SectionTitle {
+                                Layout.topMargin: 12
+                                text: I18n.t("Thiết lập ẩn trò chuyện", "Hidden conversations")
+                            }
+                            SectionHint {
+                                text: ZaloClient.hasHiddenPin
+                                      ? I18n.t("Mã PIN dùng để ẩn trò chuyện và mở lại chúng bằng cách nhập mã PIN hoặc tên trò chuyện tại khung tìm kiếm. Mã PIN được đồng bộ với Zalo trên điện thoại.",
+                                               "The PIN hides conversations; type it, or a hidden conversation's name, in the search box to open them again. It is shared with Zalo on your phone.")
+                                      : I18n.t("Chưa có mã PIN. Đặt mã PIN để ẩn các trò chuyện khỏi danh sách tin nhắn.",
+                                               "No PIN yet. Set one to hide conversations from your message list.")
+                            }
+                            RowLayout {
+                                objectName: "hiddenPinSettings"
+                                spacing: 8
+                                ZButton {
+                                    visible: !ZaloClient.hasHiddenPin
+                                    text: I18n.t("Đặt mã PIN", "Set PIN")
+                                    onClicked: ZaloClient.requestHiddenFlow("setPin", "", false)
+                                }
+                                ZButton {
+                                    visible: ZaloClient.hasHiddenPin
+                                    variant: "secondary"
+                                    text: I18n.t("Đổi mã PIN", "Change PIN")
+                                    onClicked: ZaloClient.requestHiddenFlow("changePin", "", false)
+                                }
+                                ZButton {
+                                    visible: ZaloClient.hasHiddenPin
+                                    variant: "danger"
+                                    text: I18n.t("Xóa mã PIN", "Remove PIN")
+                                    onClicked: ZaloClient.requestHiddenFlow("resetPin", "", false)
                                 }
                             }
                         }

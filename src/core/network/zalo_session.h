@@ -105,6 +105,7 @@ public:
 
     void fetchFriendOnlines(Callback cb);
     void fetchLastOnline(const QString& userId, Callback cb);
+    void fetchProfileRank(const QString& userId, Callback cb);
     void fetchLabels(Callback cb);
     void updateLabels(const QJsonArray& labelData, qint64 version, Callback cb);
     void fetchUserQr(const QStringList& userIds, Callback cb);
@@ -178,6 +179,8 @@ public:
     void updateSetting(const QString& type, int value, Callback cb);
     void fetchHiddenConversations(Callback cb);
     void setHiddenConversation(const QString& threadId, bool isGroup, bool hide, Callback cb);
+    void updateHiddenConversPin(const QString& pinMd5, Callback cb);
+    void resetHiddenConversPin(Callback cb);
     void fetchArchivedChats(Callback cb);
     void setArchivedChat(const QString& threadId, bool isGroup, bool archive, Callback cb);
     void fetchAutoDeleteChats(Callback cb);

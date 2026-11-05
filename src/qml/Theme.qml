@@ -14,18 +14,18 @@ QtObject {
     readonly property color goldStar: "#F5A623"
 
     readonly property bool _dark: ThemeManager.isDarkMode
-    readonly property color accent: "#0068FF"
-    readonly property color activeness: _dark ? "#66A6FF" : "#0068FF"
-    readonly property color inactiveSubtle: _dark ? "#595959" : "#B5B5B5"
-    readonly property color inactiveDisabled: _dark ? "#333333" : "#DBDBDB"
-    readonly property color activeDisabled: _dark ? "#00378A" : "#ADD1FF"
+    readonly property color accent: ThemeManager.uiAccentColor
+    readonly property color activeness: ThemeManager.activenessColor
+    readonly property color inactiveSubtle: ThemeManager.inactiveSubtleColor
+    readonly property color inactiveDisabled: ThemeManager.inactiveDisabledColor
+    readonly property color activeDisabled: ThemeManager.activeDisabledColor
     readonly property color textOnColor: "#FFFFFF"
-    readonly property color linkColor: _dark ? "#66A6FF" : "#0068FF"
-    readonly property color mediaPlaceholder: _dark ? "#1D2025" : "#EBECF0"
+    readonly property color linkColor: ThemeManager.uiLinkColor
+    readonly property color mediaPlaceholder: ThemeManager.cardBackgroundColor
     readonly property color mediaHover: Qt.rgba(0, 0, 0, 0.2)
     readonly property color timestampPill: _dark ? Qt.rgba(1, 1, 1, 0.05) : Qt.rgba(0, 0, 0, 0.2)
-    readonly property color reactionBackground: _dark ? "#1D2025" : "#FFFFFF"
-    readonly property color dropOverlay: _dark ? "#001029" : "#F0F7FF"
+    readonly property color reactionBackground: ThemeManager.reactionSurfaceColor
+    readonly property color dropOverlay: ThemeManager.dropOverlayColor
     readonly property color downloadedGreen: "#2B974F"
 
     readonly property string fontFamily: ThemeManager.systemFontFamily.length > 0 ? ThemeManager.systemFontFamily : Qt.application.font.family

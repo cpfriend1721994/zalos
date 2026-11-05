@@ -41,6 +41,7 @@ class ConversationModel : public QAbstractListModel {
     Q_PROPERTY(QString activeCategory READ activeCategory WRITE setCategoryFilter NOTIFY filterChanged FINAL)
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchFilter NOTIFY filterChanged FINAL)
     Q_PROPERTY(int labelFilter READ labelFilter WRITE setLabelFilter NOTIFY filterChanged FINAL)
+    Q_PROPERTY(bool strangerOnly READ strangerOnly WRITE setStrangerOnly NOTIFY filterChanged FINAL)
     Q_PROPERTY(QString viewMode READ viewMode WRITE setViewMode NOTIFY filterChanged FINAL)
     Q_PROPERTY(int totalUnreadCount READ totalUnreadCount NOTIFY unreadCountChanged FINAL)
 
@@ -66,7 +67,8 @@ public:
         IsTypingRole,
         DraftRole,
         MemberAvatarsRole,
-        HasUnreadMentionRole
+        HasUnreadMentionRole,
+        IsHiddenRole
     };
 
     explicit ConversationModel(QObject* parent = nullptr);
@@ -85,7 +87,13 @@ public:
     QString viewMode() const { return m_viewMode; }
     Q_INVOKABLE void setViewMode(const QString& mode);
     void setHiddenThreads(const QSet<QString>& ids);
+    void setHiddenPinReveal(bool reveal);
+    bool hiddenPinReveal() const { return m_hiddenPinReveal; }
     void setArchivedThreads(const QSet<QString>& ids);
+    bool strangerOnly() const { return m_strangerOnly; }
+    Q_INVOKABLE void setStrangerOnly(bool on);
+    void setFriendContext(const QSet<QString>& friends, const QSet<QString>& officials, const QString& myUid, bool known);
+    Q_INVOKABLE bool isStranger(const QString& convId) const;
     void applyLabels(const QHash<QString, QVariantMap>& labels);
     Q_INVOKABLE int totalUnreadCount() const;
     Q_INVOKABLE bool hasAnyUnreadMention() const;
@@ -137,7 +145,14 @@ private:
     int m_labelFilter{0};
     QString m_viewMode{QStringLiteral("normal")};
     QSet<QString> m_hiddenIds;
+    bool m_hiddenPinReveal{false};
     QSet<QString> m_archivedIds;
+    bool m_strangerOnly{false};
+    bool m_friendsKnown{false};
+    QSet<QString> m_friendIds;
+    QSet<QString> m_officialIds;
+    QString m_myUid;
+    bool strangerId(const QString& convId, bool isGroup) const;
     void stampLabel(ConversationItem& item) const;
     QHash<QString, QVariantMap> m_labels;
 };

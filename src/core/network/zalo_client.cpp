@@ -1,5 +1,6 @@
 #include "zalo_client.h"
 #include <QJSEngine>
+#include <QCryptographicHash>
 #include "crypto/db_cross.h"
 #include "sync/mobile_history_sync.h"
 #include "fs/file_utils.h"
@@ -60,6 +61,7 @@ namespace {
 
 constexpr int kQrLifetimeSeconds = 120;
 constexpr int kGroupInfoBatch = 50;
+constexpr int kProfileInfoBatch = 100;
 
 struct ReactionDef {
     const char* key;
@@ -100,6 +102,27 @@ QString pickName(const QJsonObject& obj) {
     return {};
 }
 
+bool isOfficialAccount(const QJsonObject& user) {
+    for (const char* key : {"oaInfo", "oa_status", "oaStatus"}) {
+        const QJsonValue v = user.value(key);
+        if (v.isObject() && !v.toObject().isEmpty()) return true;
+    }
+    const QString id = idOf(user.value("userId").isUndefined() ? user.value("uid") : user.value("userId"));
+    if (id.startsWith('g')) return false;
+    if (user.value("type").toVariant().toInt() >= 1) return true;
+    const QJsonValue biz = user.value("bizPkg");
+    if (biz.isObject() && biz.toObject().value("pkgId").toVariant().toInt() > 0) return true;
+    return false;
+}
+
+}
+
+QString ZaloClient::backgroundOf(const QJsonObject& obj) {
+    for (const char* key : {"cover", "bgavatar", "fullAvt"}) {
+        const QString v = obj.value(key).toString();
+        if (!v.isEmpty()) return v;
+    }
+    return {};
 }
 
 ZaloClient::ZaloClient(QObject* parent)
@@ -120,6 +143,13 @@ ZaloClient::ZaloClient(QObject* parent)
     m_userLookupTimer->setSingleShot(true);
     m_userLookupTimer->setInterval(400);
     connect(m_userLookupTimer, &QTimer::timeout, this, &ZaloClient::resolveUnknownUsers);
+    m_messageModel->setSenderResolver([this](const QString& uid) {
+        return qMakePair(displayNameOf(uid), m_users.value(uid).avatar);
+    });
+    connect(m_messageModel, &QAbstractItemModel::rowsInserted, this,
+            [this](const QModelIndex&, int first, int last) { queueUnknownSenders(first, last); });
+    connect(m_messageModel, &QAbstractItemModel::modelReset, this,
+            [this]() { queueUnknownSenders(0, m_messageModel->rowCount() - 1); });
 
     connect(m_callEngine, &Call::ZCallEngine::callStateChanged, this, [this](int state) {
         if (state == static_cast<int>(Call::CallState::RingingIncoming)) {
@@ -315,9 +345,8 @@ ZaloClient::ZaloClient(QObject* parent)
         m_messageSearch = new Models::MessageSearchModel([this](const QString& query) {
             QVector<Models::MessageSearchModel::Hit> out;
             if (!cacheUsable()) return out;
-            const bool hiddenView = m_conversationModel->viewMode() == QLatin1String("hidden");
             for (const auto& h : m_offlineStore->searchMessages(query, QString(), 80)) {
-                if (m_hiddenThreads.contains(h.convId) != hiddenView) continue;
+                if (m_hiddenThreads.contains(h.convId)) continue;
                 const Models::ConversationItem conv = m_conversationModel->conversation(h.convId);
                 if (conv.id.isEmpty()) continue;
                 out.append({h.msgId, h.convId, conv.name, conv.avatarUrl, conv.isGroup, h.senderName, h.text, h.ts});
@@ -347,8 +376,34 @@ ZaloClient::ZaloClient(QObject* parent)
             if (out.size() > 30) out.resize(30);
             return out;
         }, this, 1);
+        m_hiddenSearch = new Models::MessageSearchModel([this](const QString& query) {
+            QVector<Models::MessageSearchModel::Hit> out;
+            if (!verifyHiddenPin(query.trimmed())) return out;
+            for (const QString& id : std::as_const(m_hiddenThreads)) {
+                const Models::ConversationItem conv = m_conversationModel->conversation(id);
+                const bool isGroup = conv.id.isEmpty() ? isGroupThread(id) : conv.isGroup;
+                QString name = conv.name;
+                if (name.isEmpty()) name = isGroup ? m_groups.value(id).name : displayNameOf(id);
+                if (name.isEmpty()) name = isGroup ? L("Nhóm chưa đặt tên", "Unnamed group") : L("Người dùng Zalo", "Zalo user");
+                out.append({QString(), id, name, conv.avatarUrl, isGroup, QString(), conv.lastMessage, conv.lastTs});
+            }
+            std::stable_sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.ts > b.ts; });
+            return out;
+        }, this, 4);
+        auto syncHiddenReveal = [this]() {
+            m_conversationModel->setHiddenPinReveal(verifyHiddenPin(m_conversationModel->searchQuery().trimmed()));
+        };
+        connect(m_conversationModel, &Models::ConversationModel::filterChanged, this, syncHiddenReveal);
+        connect(this, &ZaloClient::hiddenPinChanged, this, syncHiddenReveal);
+        connect(this, &ZaloClient::currentConversationChanged, this, [this]() {
+            if (!m_hiddenUnlockedId.isEmpty() && m_hiddenUnlockedId != m_currentConvId) m_hiddenUnlockedId.clear();
+        });
+        m_hiddenRefreshTimer = new QTimer(this);
+        m_hiddenRefreshTimer->setInterval(24 * 60 * 60 * 1000);
+        connect(m_hiddenRefreshTimer, &QTimer::timeout, this, &ZaloClient::loadHiddenConversations);
         connect(m_pinBoard, &PinBoard::pinsChanged, this, &ZaloClient::pinnedMessageChanged);
         connect(this, &ZaloClient::currentConversationChanged, this, [this]() { m_pinBoard->setCurrent(m_currentConvId); loadReminders(); });
+        connect(this, &ZaloClient::currentConversationChanged, this, &ZaloClient::composerStateChanged);
         connect(this, &ZaloClient::loginStateChanged, this, [this]() {
             if (m_isLoggedIn) m_pinBoard->reload();
         });
@@ -485,6 +540,25 @@ QString ZaloClient::friendlyError(const QString& error, int code) const {
                        "the server said to stop retrying (the service is not offered to this session)");
     case 18022: return L("chữ ký yêu cầu không hợp lệ", "the request signature was rejected");
     case 18060: return L("máy chủ yêu cầu tham số được mã hoá", "the server requires encrypted parameters");
+    case 126: return L("Tài khoản đã ngừng hoạt động.", "This account is no longer active.");
+    case 164: return L("Bạn không còn là thành viên trong nhóm này", "You are no longer a member of this group");
+    case 166: return L("Chỉ có trưởng/phó nhóm thực hiện được tính năng này.", "Only the group owner or deputies can do this.");
+    case 204: return L("Hiện tại Zalo chưa hỗ trợ chia sẻ tập tin định dạng này.", "Zalo doesn't support sharing this file type yet.");
+    case 211: return L("Phiên bản Zalo bên người nhận chưa hỗ trợ thu hồi tin nhắn",
+                       "The recipient's Zalo version doesn't support recalling messages");
+    case 216: return L("Danh tính người dùng này không hợp lệ.", "This user's identity is invalid.");
+    case 301: return L("Bạn đã thu hồi quá số lần cho phép. Vui lòng thử lại sau 24 giờ.",
+                       "You've recalled too many times. Please try again in 24 hours.");
+    case 120: return L("Zalo: Hiện tại bạn không thể nhắn tin cho người lạ.", "Zalo: You can't message strangers right now.");
+    case 121: return L("Zalo: Tin nhắn có nội dung không phù hợp để gửi cho người lạ. Vui lòng kiểm tra lại.",
+                       "Zalo: This message isn't appropriate to send to a stranger. Please check it.");
+    case 122: return L("Bạn chưa thể gửi tin nhắn đến người này vì người này chặn không nhận tin nhắn từ người lạ.",
+                       "You can't message this person yet because they don't accept messages from strangers.");
+    case 206: return L("Bạn không thể gửi File cho người lạ.", "You can't send files to strangers.");
+    case 804: return L("Bạn đã đạt giới hạn trả lời người lạ trong tháng. Để tránh rủi ro bị lừa đảo, bạn tạm thời sẽ "
+                       "không thể trả lời người này.",
+                       "You've reached this month's limit for replying to strangers. To avoid scams, you temporarily "
+                       "can't reply to this person.");
     default: break;
     }
     if (error == "not_logged_in") return L("bạn chưa đăng nhập", "you're not signed in");
@@ -522,8 +596,17 @@ void ZaloClient::loadSession() {
 
     m_notifyNewMessage = settings.value("settings/notifyNewMessage", true).toBool();
     m_notifySound = settings.value("settings/notifySound", false).toBool();
-    m_useAvatarAsChatBackground = settings.value("settings/useAvatarAsChatBackground", false).toBool();
+    const bool legacyAvatarBackground = settings.value("settings/useAvatarAsChatBackground", false).toBool();
+    m_chatBackgroundMode = settings.value("settings/chatBackgroundMode").toString();
+    if (m_chatBackgroundMode != QLatin1String("avatar") && m_chatBackgroundMode != QLatin1String("custom")) {
+        m_chatBackgroundMode = legacyAvatarBackground ? QStringLiteral("avatar") : QStringLiteral("none");
+    }
+    m_chatBackgroundImage = settings.value("settings/chatBackgroundImage").toString();
+    if (!m_chatBackgroundImage.isEmpty() && !QFileInfo::exists(m_chatBackgroundImage)) m_chatBackgroundImage.clear();
+    if (m_chatBackgroundMode == QLatin1String("custom") && m_chatBackgroundImage.isEmpty())
+        m_chatBackgroundMode = QStringLiteral("none");
     m_showLabelFolders = settings.value("settings/showLabelFolders", false).toBool();
+    m_hiddenDismissedAt = settings.value("settings/hiddenUnreadDismissedAt", 0).toLongLong();
     m_startHiddenInTray = settings.value("settings/startHiddenInTray", false).toBool();
     m_closeToTray = settings.value("settings/closeToTray", true).toBool();
     m_antiPeeking = settings.value("settings/antiPeeking", false).toBool();
@@ -552,7 +635,8 @@ void ZaloClient::saveSession() {
     settings.setValue("settings/notifyNewMessage", m_notifyNewMessage);
     settings.setValue("settings/notifySound", m_notifySound);
     settings.setValue("settings/antiPeeking", m_antiPeeking);
-    settings.setValue("settings/useAvatarAsChatBackground", m_useAvatarAsChatBackground);
+    settings.setValue("settings/chatBackgroundMode", m_chatBackgroundMode);
+    settings.setValue("settings/chatBackgroundImage", m_chatBackgroundImage);
     settings.setValue("settings/showLabelFolders", m_showLabelFolders);
     settings.setValue("settings/startHiddenInTray", m_startHiddenInTray);
     settings.setValue("settings/closeToTray", m_closeToTray);
@@ -677,6 +761,7 @@ void ZaloClient::onSessionLoggedIn() {
     loadQuickMessages();
     loadServerSettings();
     loadHiddenConversations();
+    loadReadOnlyThreads();
     loadArchivedChats();
     loadAutoDeleteSettings();
     m_profileRefreshTimer->start();
@@ -779,6 +864,11 @@ void ZaloClient::logout() {
     m_mutedIds.clear();
     m_muteUntil.clear();
     m_markedUnread.clear();
+    m_hiddenThreads.clear();
+    m_hiddenPinHash.clear();
+    m_hiddenUnlockedId.clear();
+    m_hiddenUnread = false;
+    if (m_hiddenRefreshTimer) m_hiddenRefreshTimer->stop();
     m_aliases.clear();
     m_realtimeWasUp = false;
     if (m_profileRefreshTimer) m_profileRefreshTimer->stop();
@@ -837,8 +927,7 @@ void ZaloClient::loadAccountData() {
             m_myProfile.displayName = m_userName;
             m_myProfile.zaloName = profile.value("zaloName").toString(m_userName);
             m_myProfile.avatar = m_userAvatar;
-            m_myProfile.cover = profile.value("cover").toString();
-            if (m_myProfile.cover.isEmpty()) m_myProfile.cover = profile.value("bgavatar").toString();
+            m_myProfile.cover = backgroundOf(profile);
             m_myProfile.gender = profile.value("gender").toInt(0);
             m_myProfile.dob = profile.value("dob").toVariant().toLongLong();
             m_myProfile.sdob = profile.value("sdob").toString();
@@ -856,12 +945,14 @@ void ZaloClient::loadAccountData() {
 
     session->fetchFriends([this, finishJob](bool ok, const QJsonValue& data, const QString&, int) {
         if (ok) {
+            m_friendsKnown = true;
             for (const QJsonValue& v : data.toArray()) {
                 const QJsonObject u = v.toObject();
                 const QString uid = idOf(u.value("userId"));
                 if (uid.isEmpty()) continue;
                 m_friendIds.insert(uid);
                 m_users[uid] = {pickName(u), u.value("avatar").toString(), 0};
+                noteAccountFlags(uid, u);
                 applyProfileToConversation(uid);
                 persistProfile(uid, false);
             }
@@ -930,6 +1021,7 @@ void ZaloClient::applyGroupInfo(const QJsonObject& map) {
         m_groups[it.key()] = {g.value("name").toString(), avatar, g.value("totalMember").toInt()};
         m_groupIds.insert(it.key());
         m_groupAdmin->rememberSettings(it.key(), g.value("setting").toObject());
+        if (it.key() == m_currentConvId) emit composerStateChanged();
         if (m_conversationModel->contains(it.key())) applyProfileToConversation(it.key());
         persistProfile(it.key(), true);
 
@@ -995,6 +1087,7 @@ void ZaloClient::lookupCompositeMembers() {
                 const QString name = pickName(p);
                 if (name.isEmpty() || m_users.contains(uid)) continue;
                 m_users[uid] = {name, p.value("avatar").toString(), 0};
+                noteAccountFlags(uid, p);
                 persistProfile(uid, false);
             }
             for (auto g = m_groupRosters.cbegin(); g != m_groupRosters.cend(); ++g) {
@@ -1057,6 +1150,7 @@ void ZaloClient::resolveGroupMembers(const QString& groupId) {
             const QString name = pickName(p);
             if (name.isEmpty()) continue;
             m_users[uid] = {name, p.value("avatar").toString(), 0};
+            noteAccountFlags(uid, p);
             persistProfile(uid, false);
             if (m_conversationModel->contains(uid)) applyProfileToConversation(uid);
         }
@@ -1119,13 +1213,44 @@ void ZaloClient::disperseGroup(const QString& groupId) {
     });
 }
 
-void ZaloClient::openLink(const QString& url) {
+void ZaloClient::openLink(const QString& url, const QString& title, const QString& thumb) {
     if (url.isEmpty()) return;
     if (GroupAdmin::isGroupLink(url)) {
         m_groupAdmin->openJoin(url);
         return;
     }
+    if (isAppOnlyLink(url)) {
+        emit appOnlyLinkRequested(url, title, thumb);
+        return;
+    }
     QDesktopServices::openUrl(QUrl::fromUserInput(url));
+}
+
+bool ZaloClient::isAppOnlyLink(const QString& url) {
+    const QUrl u = QUrl::fromUserInput(url);
+    const QString host = u.host().toLower();
+    if (host == QLatin1String("zalo.video") || host.endsWith(QLatin1String(".zalo.video"))) return true;
+    if (host != QLatin1String("zalo.me") && host != QLatin1String("www.zalo.me")) return false;
+    const QString path = u.path();
+    return path.startsWith(QLatin1String("/v/")) || path.startsWith(QLatin1String("/s/"));
+}
+
+QVariantMap ZaloClient::qrModules(const QString& text) const {
+    QVariantMap out{{"size", 0}, {"modules", QVariantList{}}};
+    if (text.isEmpty()) return out;
+    try {
+        using namespace qrcodegen;
+        const QrCode qr = QrCode::encodeText(text.toUtf8().constData(), QrCode::Ecc::MEDIUM);
+        const int size = qr.getSize();
+        QVariantList modules;
+        modules.reserve(size * size);
+        for (int y = 0; y < size; ++y)
+            for (int x = 0; x < size; ++x) modules.append(qr.getModule(x, y));
+        out["size"] = size;
+        out["modules"] = modules;
+    } catch (...) {
+    }
+    return out;
 }
 
 QVariantList ZaloClient::groupsForInvite(const QString& userId) const {
@@ -1198,7 +1323,8 @@ void ZaloClient::toggleVoice(const QString& msgId, const QString& url) {
             emit voicePlaybackChanged();
             emit notice(L("Không phát được trong ứng dụng, mở bằng trình phát của hệ thống…",
                           "Can't play it in the app; opening it with the system player…"));
-            openFileMessage(url, QStringLiteral("voice-%1.aac").arg(id));
+            openRemoteFile(url, QStringLiteral("voice-%1.aac").arg(id),
+                           L("Tin nhắn thoại không tồn tại", "The voice message no longer exists"));
         });
     }
     m_voicePlayer->stop();
@@ -1368,7 +1494,7 @@ QHash<QString, QJsonArray> ZaloClient::deliveredCandidates(const QJsonArray& msg
         if (from.isEmpty() || from == "0" || from == m_myUid) continue;
         const QString type = m.value("msgType").toString();
         if (type == QLatin1String("chat.delete") || type == QLatin1String("group.poll")) continue;
-        if (m.value("content").toObject().contains("deleteMsg")) continue;
+        if (!undoTargetOf(m).isEmpty()) continue;
         if (idOf(m.value("msgId")).isEmpty()) continue;
         out[isGroup ? idOf(m.value("idTo")) : from].append(m);
     }
@@ -1402,11 +1528,26 @@ void ZaloClient::resolveUnknownUsers() {
             if (uid.endsWith("_0")) uid.chop(2);
             const QJsonObject p = it.value().toObject();
             m_users[uid] = {pickName(p), p.value("avatar").toString(), 0};
+            noteAccountFlags(uid, p);
             applyProfileToConversation(uid);
             persistProfile(uid, false);
         }
         m_conversationModel->endBatch();
+        m_messageModel->refreshSenders();
     });
+}
+
+void ZaloClient::queueUnknownSenders(int first, int last) {
+    bool queued = false;
+    for (int row = qMax(0, first); row <= last && row < m_messageModel->rowCount(); ++row) {
+        const QModelIndex idx = m_messageModel->index(row);
+        const QString uid = idx.data(Models::MessageModel::SenderIdRole).toString();
+        if (uid.isEmpty() || uid == QLatin1String("0") || uid == QLatin1String("system") || uid == m_myUid) continue;
+        if (m_users.contains(uid) || m_groupIds.contains(uid)) continue;
+        m_pendingUserLookups.insert(uid);
+        queued = true;
+    }
+    if (queued && m_isLoggedIn) m_userLookupTimer->start();
 }
 
 void ZaloClient::rebuildContacts() {
@@ -1434,6 +1575,7 @@ void ZaloClient::rebuildContacts() {
     items += m_friendRequests;
     m_contactModel->setContacts(items);
     m_contactModel->setOnlineIds(m_onlineIds);
+    syncFriendContext();
 }
 
 void ZaloClient::refreshContacts() {
@@ -1482,6 +1624,7 @@ void ZaloClient::applyProfileToConversation(const QString& id) {
         if (!p.name.isEmpty()) m_currentConvName = p.name;
         if (!p.avatar.isEmpty()) m_currentConvAvatar = p.avatar;
         emit currentConversationChanged();
+        emit currentConversationBackgroundChanged();
     }
 }
 
@@ -1533,7 +1676,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         }
     }
     item.ts = msg.value("ts").toVariant().toLongLong();
-    item.timeStr = item.ts > 0 ? QDateTime::fromMSecsSinceEpoch(item.ts).toString("HH:mm") : QString();
+    item.timeStr = item.ts >= kMinPlausibleEpochMs ? QDateTime::fromMSecsSinceEpoch(item.ts).toString("HH:mm") : QString();
     item.isMine = isSelf;
     item.status = isSelf ? QStringLiteral("sent") : QString();
     item.senderId = isSelf ? m_myUid : uidFrom;
@@ -1606,10 +1749,32 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         item.mediaUrl = obj.value("thumb").toString();
         item.href = obj.value("href").toString();
         item.text = captionOf(obj);
+        const QJsonValue videoParams = obj.value("params");
+        item.fileSize = (videoParams.isString() ? QJsonDocument::fromJson(videoParams.toString().toUtf8()).object()
+                                                : videoParams.toObject()).value("fileSize").toVariant().toLongLong();
         label = L("[Video]", "[Video]");
     } else if (type == "chat.location.new") {
-        item.text = L("[Vị trí]", "[Location]");
-        label = item.text;
+        const QJsonValue rawParams = obj.value("params");
+        const QJsonObject params = rawParams.isString()
+                                       ? QJsonDocument::fromJson(rawParams.toString().toUtf8()).object()
+                                       : rawParams.toObject();
+        auto field = [&](const char* key) {
+            const QString v = params.value(QLatin1String(key)).toVariant().toString();
+            return v.isEmpty() ? obj.value(QLatin1String(key)).toVariant().toString() : v;
+        };
+        bool latOk = false, lngOk = false;
+        const double lat = field("latitude").toDouble(&latOk);
+        const double lng = field("longitude").toDouble(&lngOk);
+        const bool hasCoords = latOk && lngOk && qAbs(lat) <= 90 && qAbs(lng) <= 180 && !(lat == 0 && lng == 0);
+        const QString coords = hasCoords ? QStringLiteral("%1, %2").arg(lat, 0, 'f', 6).arg(lng, 0, 'f', 6) : QString();
+        const QString title = field("title");
+        item.messageType = "location";
+        item.text = !title.isEmpty() ? title : L("Vị trí được chia sẻ", "Shared location");
+        if (hasCoords) {
+            item.href = QStringLiteral("https://www.google.com/maps?q=%1,%2").arg(lat, 0, 'f', 6).arg(lng, 0, 'f', 6);
+        }
+        item.extra = {{"desc", field("description")}, {"coords", coords}};
+        label = L("[Vị trí] ", "[Location] ") + item.text;
     } else if (type == "chat.ecard") {
         item.messageType = "ecard";
         const QJsonValue rawParams = obj.value("params");
@@ -1649,6 +1814,23 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
                       {"thumb", obj.value("thumb").toString()},
                       {"stickers", stickers}};
         label = L("[Thiệp] ", "[Card] ") + item.text;
+    } else if (type == "chat.list.action" && (content.isArray() ? content.toArray().at(0).toObject() : obj)
+                                                    .value("href").toString().isEmpty()) {
+        const QJsonObject first = content.isArray() ? content.toArray().at(0).toObject() : obj;
+        const QString title = first.value("title").toString();
+        const QString desc = first.value("description").toString();
+        if (isGroup) {
+            item.messageType = "system";
+            item.text = !title.isEmpty() ? title : desc;
+        } else {
+            item.messageType = "link";
+            item.text = !title.isEmpty() ? title : desc;
+            item.mediaUrl = first.value("thumb").toString();
+            item.extra = {{"desc", desc == item.text ? QString() : desc}, {"domain", QString()}};
+        }
+        if (item.text.isEmpty())
+            item.text = L("Tin nhắn chưa hỗ trợ hiển thị trên phiên bản hiện tại", "This message isn't supported in the current version");
+        label = item.text;
     } else if (type == "chat.list.action") {
         const QJsonArray cards = content.toArray();
         const QJsonObject first = cards.isEmpty() ? obj : cards.first().toObject();
@@ -1664,7 +1846,63 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
     } else if (type == "chat.webcontent" || type == "chat.webcontent.v2") {
         const QString title = obj.value("title").toString();
         const QString href = obj.value("href").toString();
-        if (!href.isEmpty()) {
+        const QJsonValue rawParams = obj.value("params");
+        const QJsonObject params = rawParams.isString()
+                                       ? QJsonDocument::fromJson(rawParams.toString().toUtf8()).object()
+                                       : rawParams.toObject();
+        const QJsonObject custom = params.value("customMsg").toObject().value("msg").toObject();
+        QString localized = custom.value(m_appLanguage == QLatin1String("en") ? "en" : "vi").toString();
+        if (localized.isEmpty()) localized = custom.value("en").toString();
+        if (localized.isEmpty()) localized = custom.value("vi").toString();
+        localized = fillHighlights(localized, params.value("customMsg").toObject().value("highLightsV2").toArray());
+        const QString templateId = params.value("item").toObject().value("zinstantdata_id").toString();
+        const int webType = params.value("type").toVariant().toInt();
+        const bool birthday = webType == 11 || templateId == QLatin1String("templateId=14030");
+        const bool bankCard = templateId == QLatin1String("templateId=11845")
+                              || obj.value("action").toString() == QLatin1String("zinstant.bankcard")
+                              || params.value("action").toString() == QLatin1String("zinstant.bankcard");
+        if (bankCard) {
+            item.messageType = "bankcard";
+            item.text = !localized.isEmpty() ? localized : (!title.isEmpty() ? title : L("Thông tin chuyển khoản", "Bank transfer details"));
+            item.extra = {{"desc", L("Mở Zalo trên điện thoại để xem chi tiết và chuyển khoản",
+                                     "Open Zalo on your phone to see the details and transfer")}};
+            label = L("[Chuyển khoản] ", "[Bank transfer] ") + item.text;
+        } else if (birthday) {
+            item.messageType = "ecard";
+            item.text = !localized.isEmpty() ? localized
+                      : (!item.senderName.isEmpty() ? L("Hôm nay là sinh nhật của %1", "Today is %1's birthday").arg(item.senderName)
+                                                    : title);
+            item.extra = {{"ecardType", QStringLiteral("1")},
+                          {"desc", L("Gửi ngay sticker dưới đây thay lời chúc mừng", "Send one of these stickers as your wishes")},
+                          {"thumb", QString()},
+                          {"stickers", QVariantList{}},
+                          {"suggestStickers", true}};
+            label = L("[Sinh nhật] ", "[Birthday] ") + item.text;
+        } else if (!localized.isEmpty() && !isGroup && webType != 9
+                   && params.value("customMsg").toObject().value("highLightsV2").toArray().isEmpty()
+                   && templateId != QLatin1String("templateId=11366") && templateId != QLatin1String("templateId=10709")
+                   && templateId != QLatin1String("templateId=10667")) {
+            const QString body = localized.trimmed();
+            const qsizetype cut = body.indexOf(QLatin1Char('\n'));
+            item.messageType = "link";
+            item.text = cut > 0 ? body.left(cut).trimmed() : body;
+            item.mediaUrl = obj.value("thumb").toString();
+            item.extra = {{"desc", cut > 0 ? body.mid(cut + 1).trimmed() : QString()}, {"domain", QString()}};
+            label = item.text;
+        } else if (!localized.isEmpty()) {
+            item.messageType = "system";
+            item.text = localized;
+            for (const QJsonValue& a : params.value("actions").toArray()) {
+                const QJsonObject act = a.toObject();
+                if (act.value("actionType").toString() != QLatin1String("action.open.calendar.event")) continue;
+                const QJsonValue raw = act.value("actionData");
+                const QJsonObject data = raw.isString() ? QJsonDocument::fromJson(raw.toString().toUtf8()).object()
+                                                        : raw.toObject();
+                const QString eventId = idOf(data.value("eventId"));
+                if (!eventId.isEmpty()) item.extra.insert("reminderEventId", eventId);
+            }
+            label = item.text;
+        } else if (!href.isEmpty()) {
             item.messageType = "link";
             item.href = href;
             item.mediaUrl = obj.value("thumb").toString();
@@ -1672,10 +1910,50 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
             const QString desc = obj.value("description").toString();
             item.extra = {{"desc", desc == title ? QString() : desc}, {"domain", QUrl(href).host()}};
             label = L("[Liên kết] ", "[Link] ") + item.text;
+        } else if (!isGroup && webType != 6 && webType != 16 && webType != 19) {
+            item.messageType = "link";
+            item.mediaUrl = obj.value("thumb").toString();
+            const QString desc = webType == 34 && !title.isEmpty() ? title : obj.value("description").toString();
+            item.text = webType == 34 ? L("Zalo gửi thông báo về an toàn tài khoản của bạn", "Zalo sent an account safety notice")
+                      : !title.isEmpty() ? title
+                      : (!desc.isEmpty() ? desc
+                                         : L("Tin nhắn chưa hỗ trợ hiển thị trên phiên bản hiện tại",
+                                             "This message isn't supported in the current version"));
+            item.extra = {{"desc", desc == item.text ? QString() : desc}, {"domain", QString()}};
+            label = item.text;
         } else {
-            item.text = title.isEmpty() ? L("[Nội dung web của Zalo]", "[Zalo web content]") : title;
+            item.messageType = "system";
+            if (webType == 6) {
+                item.text = title.contains(QLatin1String("created"), Qt::CaseInsensitive)
+                                ? L("Bạn vừa tạo nhóm", "You just created the group")
+                                : L("Bạn đã trở thành thành viên của nhóm", "You became a member of the group");
+            } else if (webType == 19) {
+                item.text = L("Bạn được bổ nhiệm làm trưởng nhóm", "You were appointed as the group owner");
+            } else if (webType == 34) {
+                item.text = L("Zalo gửi thông báo về an toàn tài khoản của bạn", "Zalo sent an account safety notice");
+            } else if (!title.isEmpty()) {
+                item.text = title;
+            } else {
+                item.text = L("Tin nhắn chưa hỗ trợ hiển thị trên phiên bản hiện tại",
+                              "This message isn't supported in the current version");
+            }
             label = item.text;
         }
+    } else if (type == QLatin1String("chat.todo")) {
+        // Group/1-1 reminder event (Zalo PC MSG_TODO): a centred system notice, never a sender bubble.
+        const QJsonValue rawMessage = obj.value("message");
+        QString msg = rawMessage.isString() ? rawMessage.toString() : rawMessage.toObject().value("message").toString();
+        if (msg.isEmpty()) msg = obj.value("title").toString();
+        if (msg.isEmpty()) msg = obj.value("description").toString();
+        item.messageType = "system";
+        item.text = msg.isEmpty() ? L("Nhắc nhở", "Reminder") : msg;
+        const QJsonValue rawParams = obj.value("params");
+        const QJsonObject params = rawParams.isString()
+                                       ? QJsonDocument::fromJson(rawParams.toString().toUtf8()).object()
+                                       : rawParams.toObject();
+        const QString topicId = idOf(params.value("topicId").isUndefined() ? params.value("id") : params.value("topicId"));
+        if (!topicId.isEmpty()) item.extra.insert("reminderEventId", topicId);
+        label = item.text;
     } else if ((type == "chat.recommended" || type == "chat.link")
                && obj.value("action").toString() == QLatin1String("recommened.misscall")) {
         callLogItem(obj, true, &item, &label);
@@ -1754,7 +2032,18 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
     } else {
         item.text = obj.value("title").toString();
         if (item.text.isEmpty()) item.text = obj.value("description").toString();
-        if (item.text.isEmpty()) item.text = L("[Tin nhắn chưa hỗ trợ hiển thị]", "[Unsupported message]");
+        if (item.text.isEmpty())
+            item.text = L("[Tin nhắn chưa hỗ trợ ở phiên bản hiện tại]", "[Message not supported in this version]");
+        label = item.text;
+    }
+    if (type == QLatin1String("chat.undo") || type == QLatin1String("chat.delete.everyone")) {
+        item.isRecalled = true;
+        item.messageType = "text";
+        item.mediaUrl.clear();
+        item.href.clear();
+        item.extra.clear();
+        item.text = type == QLatin1String("chat.undo") ? L("Tin nhắn đã thu hồi", "Message recalled")
+                                                       : L("Tin nhắn đã bị xóa", "Message deleted");
         label = item.text;
     }
 
@@ -1772,6 +2061,8 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
     if (preview) {
         *preview = label.simplified();
     }
+    if (const qint64 expireOn = Offline::ZaloOfflineStore::expiryOf(msg, item.ts); expireOn > 0)
+        item.extra.insert(QStringLiteral("expireOn"), expireOn);
     return item;
 }
 
@@ -1785,6 +2076,18 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
     QHash<QString, QVector<Models::MessageItem>> byThread;
     QHash<QString, QVector<QPair<Models::MessageItem, QJsonObject>>> coldThreads;
     QJsonArray receiptCandidates;
+    QHash<QString, QPair<QString, QString>> recalls;
+    for (const QJsonValue& v : messages) {
+        const QJsonObject msg = v.toObject();
+        const QString target = undoTargetOf(msg);
+        if (target.isEmpty()) continue;
+        const QString uidFrom = idOf(msg.value("uidFrom"));
+        const QString thread = isGroup ? idOf(msg.value("idTo"))
+                                       : ((uidFrom == "0" || uidFrom == m_myUid) ? idOf(msg.value("idTo")) : uidFrom);
+        recalls.insert(target, qMakePair(thread, msg.value("msgType").toString() == QLatin1String("chat.delete.everyone")
+                                                     ? L("Tin nhắn đã bị xóa", "Message deleted")
+                                                     : L("Tin nhắn đã được thu hồi", "Message recalled")));
+    }
 
     for (const QJsonValue& v : messages) {
         const QJsonObject msg = v.toObject();
@@ -1795,22 +2098,26 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
             continue;
         }
 
-        if (content.isObject() && content.toObject().contains("deleteMsg")) {
-            const QJsonObject undo = content.toObject();
-            const QString uidFrom = idOf(msg.value("uidFrom"));
-            const QString thread = isGroup ? idOf(msg.value("idTo"))
-                                           : ((uidFrom == "0" || uidFrom == m_myUid) ? idOf(msg.value("idTo")) : uidFrom);
-            const QString recalledId = idOf(undo.value("globalMsgId"));
-            m_messageModel->markRecalled(thread, recalledId, L("Tin nhắn đã được thu hồi", "Message recalled"));
-            if (isThreadResident(thread)) persistMessage(thread, recalledId);
-            else if (m_offlineStore) m_offlineStore->markRecalled(recalledId, L("Tin nhắn đã được thu hồi", "Message recalled"));
-            continue;
-        }
+        if (!undoTargetOf(msg).isEmpty()) continue;
 
         QString threadId;
         QString preview;
-        const Models::MessageItem item = toMessageItem(msg, isGroup, &threadId, &preview);
+        Models::MessageItem item = toMessageItem(msg, isGroup, &threadId, &preview);
         if (threadId.isEmpty() || item.id.isEmpty()) continue;
+        if (const auto recall = recalls.constFind(item.id); recall != recalls.cend()) {
+            item.isRecalled = true;
+            item.text = recall->second;
+            item.messageType = "text";
+            item.mediaUrl.clear();
+            item.href.clear();
+            preview = recall->second;
+            recalls.erase(recall);
+        }
+        if (const qint64 expireOn = item.extra.value(QStringLiteral("expireOn")).toLongLong();
+            expireOn > 0 && expireOn <= QDateTime::currentMSecsSinceEpoch()) {
+            if (m_offlineStore) m_offlineStore->deleteMessage(item.id);
+            continue;
+        }
         if (item.messageType == QLatin1String("poll_update")) {
             refreshPoll(item.pollData.value("poll_id").toLongLong(), true);
             continue;
@@ -1846,7 +2153,8 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
         }
         const bool fresh = !isOld && !item.isMine && !alreadySeen;
         if (fresh) receiptCandidates.append(msg);
-        const bool unread = fresh && threadId != m_currentConvId;
+        const bool quiet = isQuietMessageType(msg.value("msgType").toString());
+        const bool unread = fresh && !quiet && threadId != m_currentConvId;
         bool hasMention = false;
         if (unread && !m_myUid.isEmpty()) {
             for (const auto& men : item.mentions) {
@@ -1857,7 +2165,10 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
             }
         }
         m_conversationModel->recordMessage(threadId, preview, prefix, item.ts, unread, hasMention);
-        if (fresh && !isThreadMuted(threadId)) {
+        if (fresh && quiet) {
+        } else if (fresh && m_hiddenThreads.contains(threadId)) {
+            if (threadId != m_currentConvId && !isThreadMuted(threadId)) markHiddenUnread(item.ts);
+        } else if (fresh && !isThreadMuted(threadId)) {
             const auto* app = qobject_cast<QGuiApplication*>(QCoreApplication::instance());
             const bool focused = app && app->focusWindow();
             if (threadId != m_currentConvId || !focused) {
@@ -1887,7 +2198,14 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
             m_offlineStore->saveConversation(m_conversationModel->conversation(it.key()));
         }
     }
+    for (auto it = recalls.cbegin(); it != recalls.cend(); ++it) {
+        const QString& thread = it.value().first;
+        m_messageModel->markRecalled(thread, it.key(), it.value().second);
+        if (isThreadResident(thread) && !m_messageModel->message(thread, it.key()).id.isEmpty()) persistMessage(thread, it.key());
+        else if (m_offlineStore) m_offlineStore->markRecalled(it.key(), it.value().second);
+    }
     if (m_offlineStore) m_offlineStore->endBatch();
+    scheduleExpiry();
     if (!byThread.isEmpty()) evictColdThreads();
     sendDeliveredReceipts(receiptCandidates, isGroup);
     if (byThread.contains(m_currentConvId)) {
@@ -1915,15 +2233,21 @@ void ZaloClient::selectConversation(const QString& id, const QString& name, cons
     m_messageModel->loadConversation(id);
     m_messageModel->setUnreadMarker(id, m_conversationModel->conversation(id).unreadCount);
     m_conversationModel->clearUnread(id);
+    // Persist the zeroed count: reading a chat must survive a restart. Normal chats are later re-healed from the
+    // server read-point, but sub-chat/OA (zbusiness) cursors are skipped in applyReadPoints, so without this save a
+    // stale offline unread_count resurfaces as a "new message" badge every launch.
+    if (m_offlineStore) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
     m_notifications->close(QStringLiteral("thread:") + id);
     if (m_markedUnread.contains(id)) toggleUnreadMark(id);
     m_currentLastOnline = 0;
     emit currentConversationChanged();
     emit conversationStatusChanged();
     emit pinnedMessageChanged();
+    emit composerStateChanged();
 
     if (m_isLoggedIn && !id.isEmpty()) {
         sendSeenForCurrent();
+        refreshStrangerRank(id);
         if (!currentConversationIsGroup() && id != myCloudId()) {
             m_apiClient->session()->fetchLastOnline(id, [this, id](bool ok, const QJsonValue& data, const QString&, int) {
                 if (!ok || id != m_currentConvId) return;
@@ -1931,7 +2255,7 @@ void ZaloClient::selectConversation(const QString& id, const QString& name, cons
                 if (!obj.value("settings").toObject().value("show_online_status").toBool(true)) return;
                 qint64 ts = obj.value("lastOnline").toVariant().toLongLong();
                 if (ts > 0 && ts < 10000000000LL) ts *= 1000;
-                m_currentLastOnline = ts;
+                m_currentLastOnline = ts > 0 && ts < kMinPlausibleEpochMs ? -1 : ts;
                 emit conversationStatusChanged();
             });
         }
@@ -2082,6 +2406,10 @@ void ZaloClient::sendTextNow(const QString& convId, bool isGroup, const QString&
             if (!serverId.isEmpty()) m_messageModel->confirmMessage(convId, localId, serverId);
         } else {
             m_messageModel->removeMessage(convId, localId);
+            if (code == 164 && isGroupThread(convId)) {
+                markThreadReadOnly(convId, QStringLiteral("removed"), QDateTime::currentMSecsSinceEpoch());
+                return;
+            }
             emit notice(L("Không gửi được tin nhắn (%1): ", "Message not sent (%1): ").arg(friendlyError(error, code))
                         + text.left(40));
         }
@@ -2211,6 +2539,7 @@ void ZaloClient::findUserByPhone(const QString& phone) {
         profile["name"] = pickName(obj);
         profile["avatar"] = obj.value("avatar").toString();
         m_users[uid] = {profile["name"].toString(), profile["avatar"].toString(), 0};
+        noteAccountFlags(uid, obj);
         emit userSearchFinished(true, profile, QString());
     });
 }
@@ -2328,7 +2657,24 @@ void ZaloClient::toggleUnreadMark(const QString& id) {
 }
 
 void ZaloClient::deleteConversation(const QString& id) {
-    if (id.isEmpty() || !m_isLoggedIn) return;
+    if (id.isEmpty()) return;
+    if (m_readOnlyThreads.contains(id)) {
+        if (id == m_currentConvId) openWelcomeScreen();
+        m_messageModel->clearThread(id);
+        m_conversationModel->removeConversation(id);
+        m_historyLoaded.remove(id);
+        m_markedUnread.remove(id);
+        m_groupIds.remove(id);
+        m_groups.remove(id);
+        m_groupRosters.remove(id);
+        if (m_offlineStore) m_offlineStore->deleteConversation(id);
+        m_readOnlyThreads.remove(id);
+        saveReadOnlyThreads();
+        rebuildContacts();
+        emit notice(L("Đã xoá hội thoại.", "Conversation deleted."));
+        return;
+    }
+    if (!m_isLoggedIn) return;
     const QJsonObject last = rawMessage(m_messageModel->latestMessageId(id));
     if (last.isEmpty()) {
         emit notice(L("Chưa tải được tin nhắn mới nhất của hội thoại nên chưa thể xoá. Hãy mở hội thoại rồi thử lại.",
@@ -2361,7 +2707,11 @@ bool ZaloClient::loadOfflineCache() {
             m_groupIds.insert(p.id);
         } else {
             if (!m_users.contains(p.id)) m_users[p.id] = {p.name, p.avatar, 0};
-            if (p.isFriend) m_friendIds.insert(p.id);
+            if (p.isFriend) {
+                m_friendIds.insert(p.id);
+                m_friendsKnown = true;
+            }
+            if (p.isOfficial) m_officialIds.insert(p.id);
         }
     }
     const auto convs = m_offlineStore->loadConversations();
@@ -2373,7 +2723,59 @@ bool ZaloClient::loadOfflineCache() {
         m_conversationModel->upsertConversation(item);
     }
     rebuildContacts();
+    purgeExpiredMessages();
+    migrateCachedParses();
     return !convs.isEmpty();
+}
+
+void ZaloClient::migrateCachedParses() {
+    if (!m_offlineStore) return;
+    const QString version = QString::number(kCacheParseVersion);
+    if (m_offlineStore->metaValue(QStringLiteral("parse_version")) == version) return;
+    const QSet<QString> touched = m_offlineStore->reparseStored(
+        [this](const QJsonObject& raw, bool isGroup, Models::MessageItem* out) {
+            if (!isReparsedOnLoad(raw.value("msgType").toString())) return false;
+            QString thread, preview;
+            *out = toMessageItem(raw, isGroup, &thread, &preview);
+            return out->messageType != QLatin1String("poll_update");
+        });
+    for (const QString& convId : touched) {
+        const auto latest = m_offlineStore->loadMessages(convId, nullptr, 1, 0);
+        if (!latest.isEmpty()) m_conversationModel->updateLastMessage(convId, latest.first().text, latest.first().timeStr);
+    }
+    m_offlineStore->setMetaValue(QStringLiteral("parse_version"), version);
+}
+
+void ZaloClient::purgeExpiredMessages() {
+    if (!m_offlineStore) return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    QSet<QString> touched;
+    for (const auto& [convId, msgId] : m_offlineStore->purgeExpired(now)) {
+        m_messageModel->removeMessage(convId, msgId);
+        touched.insert(convId);
+    }
+    for (const QString& convId : std::as_const(touched)) {
+        const auto latest = m_offlineStore->loadMessages(convId, nullptr, 1, 0);
+        m_conversationModel->updateLastMessage(convId, latest.isEmpty() ? QString() : latest.first().text,
+                                               latest.isEmpty() ? QString() : latest.first().timeStr);
+    }
+    scheduleExpiry();
+}
+
+void ZaloClient::scheduleExpiry() {
+    if (!m_offlineStore) return;
+    if (!m_expiryTimer) {
+        m_expiryTimer = new QTimer(this);
+        m_expiryTimer->setSingleShot(true);
+        connect(m_expiryTimer, &QTimer::timeout, this, &ZaloClient::purgeExpiredMessages);
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 next = m_offlineStore->nextExpiry(now);
+    if (next <= 0) {
+        m_expiryTimer->stop();
+        return;
+    }
+    m_expiryTimer->start(int(qBound<qint64>(1000, next - now + 500, 6LL * 60 * 60 * 1000)));
 }
 
 void ZaloClient::mergeCachedThread(const QString& convId) {
@@ -2415,10 +2817,7 @@ void ZaloClient::mergeCacheRows(const QString& convId, QVector<Models::MessageIt
         const QJsonObject raw = raws.value(row.id);
         if (raw.isEmpty() || row.isRecalled) continue;
         const QString type = raw.value("msgType").toString();
-        if (!raw.contains("mentions") && type != QLatin1String("chat.recommended") && type != QLatin1String("chat.voice")
-            && type != QLatin1String("group.poll") && type != QLatin1String("chat.link")) {
-            continue;
-        }
+        if (!raw.contains("mentions") && !isReparsedOnLoad(type)) continue;
         QString thread, preview;
         Models::MessageItem rebuilt = toMessageItem(raw, isGroup, &thread, &preview);
         if (rebuilt.messageType == QLatin1String("poll_update")) continue;
@@ -2511,7 +2910,8 @@ void ZaloClient::persistMessage(const QString& convId, const QString& msgId) {
 void ZaloClient::persistProfile(const QString& id, bool isGroup) {
     if (!m_offlineStore || id.isEmpty() || m_myUid.isEmpty()) return;
     const Profile p = isGroup ? m_groups.value(id) : m_users.value(id);
-    m_offlineStore->saveProfile({id, p.name, p.avatar, isGroup, p.memberCount, !isGroup && m_friendIds.contains(id)});
+    m_offlineStore->saveProfile({id, p.name, p.avatar, isGroup, p.memberCount, !isGroup && m_friendIds.contains(id),
+                                 !isGroup && m_officialIds.contains(id)});
 }
 
 void ZaloClient::fetchBytes(const QString& url, std::function<void(const QByteArray&, const QString&)> done) {
@@ -2574,6 +2974,14 @@ void ZaloClient::copyImage(const QString& url) {
 }
 
 void ZaloClient::openFileMessage(const QString& url, const QString& fileName) {
+    openRemoteFile(url, fileName, L("File không còn tồn tại trên hệ thống", "The file no longer exists on the server"));
+}
+
+bool ZaloClient::isGoneError(const QString& error) {
+    return error == QLatin1String("HTTP 403") || error == QLatin1String("HTTP 404") || error == QLatin1String("HTTP 410");
+}
+
+void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, const QString& goneText) {
     if (url.isEmpty()) {
         emit notice(L("Tệp này không còn đường dẫn tải.", "This file has no download link."));
         return;
@@ -2588,7 +2996,11 @@ void ZaloClient::openFileMessage(const QString& url, const QString& fileName) {
         return;
     }
     emit notice(L("Đang tải ", "Downloading ") + safe + "...");
-    fetchBytes(url, [this, path](const QByteArray& data, const QString& error) {
+    fetchBytes(url, [this, path, goneText](const QByteArray& data, const QString& error) {
+        if (isGoneError(error)) {
+            emit notice(goneText);
+            return;
+        }
         QSaveFile out(path);
         if (!error.isEmpty() || !out.open(QIODevice::WriteOnly) || out.write(data) != data.size() || !out.commit()) {
             emit notice(L("Tải tệp thất bại", "Download failed") + (error.isEmpty() ? QString() : " (" + error + ")"));
@@ -2597,6 +3009,60 @@ void ZaloClient::openFileMessage(const QString& url, const QString& fileName) {
         emit notice(L("Đã tải về ", "Downloaded to ") + path);
         QDesktopServices::openUrl(QUrl::fromLocalFile(path));
     });
+}
+
+QString ZaloClient::undoTargetOf(const QJsonObject& msg) {
+    const QString type = msg.value("msgType").toString();
+    const QJsonValue raw = msg.value("content");
+    const QJsonObject content = raw.isString() ? QJsonDocument::fromJson(raw.toString().toUtf8()).object() : raw.toObject();
+    const bool undo = type == QLatin1String("chat.undo") || type == QLatin1String("chat.delete.everyone")
+                      || content.contains(QLatin1String("deleteMsg"));
+    if (!undo) return {};
+    for (const char* key : {"globalMsgId", "msgId", "cliMsgId"}) {
+        const QString id = idOf(content.value(QLatin1String(key)));
+        if (!id.isEmpty() && id != "0" && id != idOf(msg.value("msgId"))) return id;
+    }
+    return {};
+}
+
+bool ZaloClient::isReparsedOnLoad(const QString& msgType) {
+    static const QSet<QString> types{
+        QStringLiteral("chat.recommended"), QStringLiteral("chat.voice"), QStringLiteral("group.poll"),
+        QStringLiteral("chat.link"), QStringLiteral("chat.webcontent"), QStringLiteral("chat.webcontent.v2"),
+        QStringLiteral("chat.ecard"), QStringLiteral("chat.list.action"), QStringLiteral("chat.location.new"),
+        QStringLiteral("chat.undo"), QStringLiteral("chat.delete.everyone")};
+    return types.contains(msgType);
+}
+
+bool ZaloClient::isQuietMessageType(const QString& msgType) {
+    static const QSet<QString> quiet{QStringLiteral("chat.webcontent"), QStringLiteral("chat.webcontent.v2"),
+                                     QStringLiteral("chat.livelocation"), QStringLiteral("chat.video.live.msg"),
+                                     QStringLiteral("chat.list.action")};
+    return quiet.contains(msgType);
+}
+
+QString ZaloClient::fillHighlights(const QString& text, const QJsonArray& highlights) const {
+    static const QRegularExpression placeholder(QStringLiteral("%(\\d+)\\$s"));
+    if (!text.contains(QLatin1Char('%'))) return text;
+    QString out;
+    qsizetype last = 0;
+    auto it = placeholder.globalMatch(text);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch m = it.next();
+        out += text.mid(last, m.capturedStart() - last);
+        last = m.capturedEnd();
+        const int index = m.captured(1).toInt() - 1;
+        if (index < 0 || index >= highlights.size()) continue;
+        const QJsonObject h = highlights.at(index).toObject();
+        const QString uid = idOf(h.value("uid"));
+        QString name;
+        if (!uid.isEmpty() && uid == m_myUid) name = L("Bạn", "You");
+        if (name.isEmpty() && !uid.isEmpty()) name = displayNameOf(uid);
+        if (name.isEmpty()) name = h.value("dpn").toString();
+        out += name;
+    }
+    out += text.mid(last);
+    return out.simplified();
 }
 
 QString ZaloClient::displayNameOf(const QString& uid) const {
@@ -2638,6 +3104,7 @@ void ZaloClient::applyAliases(const QHash<QString, QString>& complete) {
     m_conversationModel->beginBatch();
     for (const QString& uid : touched) applyProfileToConversation(uid);
     m_conversationModel->endBatch();
+    m_messageModel->refreshSenders();
     rebuildContacts();
 }
 
@@ -2677,8 +3144,9 @@ void ZaloClient::resyncAfterReconnect() {
 
 void ZaloClient::addSystemNotice(const QString& threadId, bool isGroup, const QString& text, qint64 ts) {
     if (threadId.isEmpty() || text.isEmpty()) return;
+    if (ts < kMinPlausibleEpochMs) ts = QDateTime::currentMSecsSinceEpoch();
     Models::MessageItem notice;
-    notice.id = QStringLiteral("sys-%1-%2").arg(threadId).arg(ts);
+    notice.id = QStringLiteral("sys-%1-%2-%3").arg(threadId).arg(ts).arg(qHash(text), 0, 16);
     notice.messageType = QStringLiteral("system");
     notice.senderId = QStringLiteral("system");
     notice.text = text;
@@ -2756,6 +3224,10 @@ void ZaloClient::handleGroupControl(const QString& act, const QJsonObject& data)
                                        ? L("%1 đã tham gia nhóm", "%1 joined the group").arg(who)
                                        : L("%1 đã thêm %2 vào nhóm", "%1 added %2").arg(actorName, who), ts);
     } else if (act == "leave" || act == "remove_member" || act == "block_member") {
+        if (meAffected && act != "leave") {
+            markThreadReadOnly(gid, QStringLiteral("removed"), ts);
+            return;
+        }
         if (meAffected) {
             if (gid == m_currentConvId) openWelcomeScreen();
             m_conversationModel->removeConversation(gid);
@@ -2787,14 +3259,221 @@ void ZaloClient::handleGroupControl(const QString& act, const QJsonObject& data)
                                        : rawParams.toObject();
         const qint64 pollId = params.value("pollId").toVariant().toLongLong();
         if (pollId > 0) refreshPoll(pollId, true);
+    } else if (act == "disperse" || act == "disband") {
+        if (actor != m_myUid) markThreadReadOnly(gid, QStringLiteral("disbanded"), ts);
+    } else if (act == "update_ttl") {
+        QJsonValue raw = data.value("ttl");
+        if (raw.isUndefined()) raw = data.value("data").toObject().value("ttl");
+        qint64 ttl = raw.toVariant().toLongLong();
+        if (ttl > 0 && ttl < 10000000) ttl *= 1000;
+        if (ttl > 0) m_autoDeleteTtl.insert(gid, ttl);
+        else m_autoDeleteTtl.remove(gid);
+        emit conversationFlagsChanged();
+        addSystemNotice(gid, true, ttl > 0
+                                       ? L("%1 đã đặt thời gian tự xóa cho tin nhắn là %2", "%1 set disappearing messages to %2")
+                                             .arg(actorName, ttlText(ttl))
+                                       : L("%1 đã tắt tin nhắn tự xóa", "%1 turned off disappearing messages").arg(actorName), ts);
+    } else if (act == "change_owner") {
+        loadGroupInfo({gid});
+        if (!who.isEmpty())
+            addSystemNotice(gid, true, L("%1 đã chuyển quyền trưởng nhóm cho %2", "%1 made %2 the group owner")
+                                           .arg(actorName, who), ts);
+        if (gid == m_currentConvId) emit composerStateChanged();
     } else if (act == "update_setting" || act == "force_sync" || act == "group_type" || act == "new_link"
                || act == "invite_multi" || act == "remove_multi") {
         loadGroupInfo({gid});
     }
 }
 
+void ZaloClient::markThreadReadOnly(const QString& id, const QString& reason, qint64 ts) {
+    if (id.isEmpty()) return;
+    const bool fresh = m_readOnlyThreads.value(id) != reason;
+    m_readOnlyThreads.insert(id, reason);
+    saveReadOnlyThreads();
+    if (fresh) {
+        addSystemNotice(id, true, reason == QLatin1String("disbanded")
+                                      ? L("Trưởng nhóm đã giải tán nhóm", "The owner disbanded the group")
+                                      : L("Bạn đã được xoá khỏi nhóm", "You were removed from the group"), ts);
+    }
+    if (id == m_currentConvId) emit composerStateChanged();
+}
+
+void ZaloClient::loadReadOnlyThreads() {
+    m_readOnlyThreads.clear();
+    if (m_myUid.isEmpty()) return;
+    QSettings settings("Zalos", "ZalosApp");
+    const QVariantMap map = settings.value(QStringLiteral("readonlyThreads/") + m_myUid).toMap();
+    for (auto it = map.cbegin(); it != map.cend(); ++it) m_readOnlyThreads.insert(it.key(), it.value().toString());
+    m_strangerLocks.clear();
+    const QVariantMap locks = settings.value(QStringLiteral("strangerLocks/") + m_myUid).toMap();
+    for (auto it = locks.cbegin(); it != locks.cend(); ++it) m_strangerLocks.insert(it.key(), it.value().toLongLong());
+    scheduleStrangerUnlock();
+    emit composerStateChanged();
+}
+
+void ZaloClient::saveReadOnlyThreads() const {
+    if (m_myUid.isEmpty()) return;
+    QVariantMap map;
+    for (auto it = m_readOnlyThreads.cbegin(); it != m_readOnlyThreads.cend(); ++it) map.insert(it.key(), it.value());
+    QSettings settings("Zalos", "ZalosApp");
+    settings.setValue(QStringLiteral("readonlyThreads/") + m_myUid, map);
+}
+
+bool ZaloClient::isStrangerLocked(const QString& id) const {
+    const auto it = m_strangerLocks.constFind(id);
+    return it != m_strangerLocks.cend() && *it > QDateTime::currentMSecsSinceEpoch() && !m_friendIds.contains(id);
+}
+
+bool ZaloClient::noteSendFailure(const QString& convId, int code, const QJsonValue& data) {
+    if (code != 804 || convId.isEmpty() || isGroupThread(convId)) return false;
+    const QJsonObject info = data.isString() ? QJsonDocument::fromJson(data.toString().toUtf8()).object() : data.toObject();
+    const qint64 until = info.value("bannedExpireTimestamp").toVariant().toLongLong();
+    if (until <= QDateTime::currentMSecsSinceEpoch()) return false;
+    m_strangerLocks.insert(convId, until);
+    saveStrangerLocks();
+    scheduleStrangerUnlock();
+    emit composerStateChanged();
+    return true;
+}
+
+void ZaloClient::saveStrangerLocks() const {
+    if (m_myUid.isEmpty()) return;
+    QVariantMap map;
+    for (auto it = m_strangerLocks.cbegin(); it != m_strangerLocks.cend(); ++it) map.insert(it.key(), it.value());
+    QSettings settings("Zalos", "ZalosApp");
+    settings.setValue(QStringLiteral("strangerLocks/") + m_myUid, map);
+}
+
+void ZaloClient::scheduleStrangerUnlock() {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    qint64 next = 0;
+    for (auto it = m_strangerLocks.begin(); it != m_strangerLocks.end();) {
+        if (it.value() <= now) {
+            it = m_strangerLocks.erase(it);
+            continue;
+        }
+        if (next == 0 || it.value() < next) next = it.value();
+        ++it;
+    }
+    if (!m_strangerUnlockTimer) {
+        m_strangerUnlockTimer = new QTimer(this);
+        m_strangerUnlockTimer->setSingleShot(true);
+        connect(m_strangerUnlockTimer, &QTimer::timeout, this, [this]() {
+            scheduleStrangerUnlock();
+            saveStrangerLocks();
+            emit composerStateChanged();
+        });
+    }
+    if (next == 0) {
+        m_strangerUnlockTimer->stop();
+        return;
+    }
+    m_strangerUnlockTimer->start(int(qBound<qint64>(1000, next - now + 500, 6LL * 60 * 60 * 1000)));
+}
+
+bool ZaloClient::currentConversationIsStranger() const {
+    return m_conversationModel->isStranger(m_currentConvId) && !m_blockedIds.contains(m_currentConvId);
+}
+
+QString ZaloClient::strangerBannerTitle() const {
+    const StrangerRank r = m_strangerRanks.value(m_currentConvId);
+    if (!r.title.isEmpty()) return r.title;
+    if (r.rank == 2) return L("Cảnh báo lừa đảo", "Scam warning");
+    if (r.rank == 1) return L("Cảnh giác lừa đảo", "Beware of scams");
+    return L("Người này chưa là bạn", "This person isn't your friend yet");
+}
+
+QString ZaloClient::strangerBannerText() const {
+    const StrangerRank r = m_strangerRanks.value(m_currentConvId);
+    if (!r.text.isEmpty()) return r.text;
+    if (r.rank == 2) return L("Cẩn trọng khi chia sẻ thông tin với người này.", "Be careful sharing information with this person.");
+    if (r.rank == 1) return L("Cẩn thận khi chia sẻ thông tin với người lạ", "Be mindful when sharing information with strangers");
+    return L("Lưu ý rủi ro lừa đảo từ người lạ.", "Watch out for scams from strangers.");
+}
+
+void ZaloClient::applyStrangerRank(const QString& id, const QJsonObject& data) {
+    StrangerRank r;
+    const QString rank = data.value("userRank").toString(data.value("rank_type").toString(data.value("rank").toString()));
+    r.rank = rank == QLatin1String("BLACK") ? 2 : (rank == QLatin1String("GRAY") ? 1 : 0);
+    const QJsonObject render = data.value("data_render").toObject();
+    const QString lang = m_appLanguage == QLatin1String("en") ? QStringLiteral("en") : QStringLiteral("vi");
+    r.title = render.value("title").toObject().value(lang).toString();
+    r.text = render.value("desc").toObject().value(lang).toString();
+    m_strangerRanks.insert(id, r);
+    if (id == m_currentConvId) emit composerStateChanged();
+}
+
+#ifdef ZALOS_TESTING
+void ZaloClient::setStrangerRankForTesting(const QString& id, const QJsonObject& data) {
+    applyStrangerRank(id, data);
+}
+#endif
+
+void ZaloClient::refreshStrangerRank(const QString& convId) {
+    if (!m_isLoggedIn || m_strangerRanks.contains(convId) || !m_conversationModel->isStranger(convId)) return;
+    m_strangerRanks.insert(convId, StrangerRank{});
+    QPointer<ZaloClient> guard(this);
+    m_apiClient->session()->fetchProfileRank(convId, [guard, convId](bool ok, const QJsonValue& data, const QString&, int) {
+        if (!guard || !ok) return;
+        guard->applyStrangerRank(convId, data.toObject());
+    });
+}
+
+void ZaloClient::syncFriendContext() {
+    m_conversationModel->setFriendContext(m_friendIds, m_officialIds, m_myUid, m_friendsKnown);
+    emit composerStateChanged();
+}
+
+QString ZaloClient::composerLockReason() const {
+    if (m_currentConvId.isEmpty()) return {};
+    if (m_readOnlyThreads.contains(m_currentConvId))
+        return L("Bạn không thể gửi tin nhắn vào nhóm được nữa", "You can no longer send messages to this group");
+    if (isStrangerLocked(m_currentConvId))
+        return friendlyError(QString(), 804) + QLatin1Char(' ')
+               + L("Bạn có thể trả lời lại lúc %1.", "You can reply again at %1.")
+                     .arg(QDateTime::fromMSecsSinceEpoch(m_strangerLocks.value(m_currentConvId)).toString("HH:mm dd/MM/yyyy"));
+    if (!isGroupThread(m_currentConvId)) return {};
+    if (m_groupAdmin->settingsOf(m_currentConvId).value("lockSendMsg").toVariant().toInt() != 1) return {};
+    const auto roster = m_groupRosters.constFind(m_currentConvId);
+    if (roster != m_groupRosters.cend() && (roster->creator == m_myUid || roster->admins.contains(m_myUid))) return {};
+    return L("Nhóm không cho phép thành viên gửi tin nhắn", "Only admins can send messages in this group");
+}
+
+QString ZaloClient::ttlText(qint64 ttlMs) const {
+    const qint64 hours = ttlMs / 3600000;
+    if (hours >= 24 && hours % 24 == 0) return L("%1 ngày", "%1 day(s)").arg(hours / 24);
+    if (hours >= 1) return L("%1 giờ", "%1 hour(s)").arg(hours);
+    return L("%1 phút", "%1 minute(s)").arg(qMax<qint64>(1, ttlMs / 60000));
+}
+
 void ZaloClient::handleSyncControl(const QString& actType, const QString& act, const QJsonValue& data) {
     const QJsonObject obj = data.toObject();
+    if (actType == "hidden_chat") {
+        auto threadOf = [](const QJsonValue& v) {
+            QString id = idOf(v.toObject().value("thread_id"));
+            if (id.size() > 1 && (id.startsWith('g') || id.startsWith('u')) && id.at(1).isDigit()) id.remove(0, 1);
+            return id;
+        };
+        if (act == "add_remove") {
+            QSet<QString> next = m_hiddenThreads;
+            for (const QJsonValue& v : obj.value("add_items").toArray()) {
+                const QString id = threadOf(v);
+                if (!id.isEmpty()) next.insert(id);
+            }
+            for (const QJsonValue& v : obj.value("del_items").toArray()) next.remove(threadOf(v));
+            applyHiddenSet(next);
+        } else if (act == "reset") {
+            const QSet<QString> dropped = m_hiddenThreads;
+            m_hiddenPinHash.clear();
+            emit hiddenPinChanged();
+            dropHiddenConversationsLocally(dropped);
+            applyHiddenSet({});
+        } else if (act == "change_pin") {
+            m_hiddenPinHash = obj.value("pin").toString().toLower();
+            emit hiddenPinChanged();
+        }
+        return;
+    }
     if (m_pinBoard->handleControl(act, data)) return;
     if (actType == "group") {
         handleGroupControl(act, obj);
@@ -2981,6 +3660,10 @@ void ZaloClient::openPinnedConversation(int n) {
 
 void ZaloClient::openConversationById(const QString& id) {
     if (id.isEmpty()) return;
+    if (needsHiddenPin(id)) {
+        requestHiddenFlow(QStringLiteral("open"), id, false);
+        return;
+    }
     const auto conv = m_conversationModel->conversation(id);
     const Profile p = m_users.value(id);
     const QString name = !conv.name.isEmpty() ? conv.name : p.name;
@@ -2991,6 +3674,7 @@ void ZaloClient::openConversationById(const QString& id) {
 void ZaloClient::markThreadRead(const QString& convId) {
     if (convId.isEmpty()) return;
     m_conversationModel->clearUnread(convId);
+    if (m_offlineStore) m_offlineStore->saveConversation(m_conversationModel->conversation(convId));
     if (m_markedUnread.contains(convId)) toggleUnreadMark(convId);
     sendSeenFor(convId, isGroupThread(convId));
 }
@@ -3062,7 +3746,36 @@ QString ZaloClient::profileDob() const { return m_activeProfile.sdob; }
 QString ZaloClient::profileBio() const { return m_activeProfile.status; }
 QString ZaloClient::profilePhone() const { return m_activeProfile.phoneNumber; }
 bool ZaloClient::profileIsFriend() const { return m_activeProfile.isFriend; }
+bool ZaloClient::profileIsOfficial() const { return m_officialIds.contains(m_activeProfile.userId); }
+bool ZaloClient::isOfficialAccountForTesting(const QJsonObject& user) { return isOfficialAccount(user); }
 bool ZaloClient::profileIsBlocked() const { return m_activeProfile.isBlocked; }
+bool ZaloClient::profileIsInactive() const { return m_inactiveIds.contains(m_activeProfile.userId); }
+
+bool ZaloClient::currentConversationBlocked() const {
+    return !m_currentConvId.isEmpty() && !isGroupThread(m_currentConvId) && m_blockedIds.contains(m_currentConvId);
+}
+
+void ZaloClient::noteAccountFlags(const QString& uid, const QJsonObject& profile) {
+    if (uid.isEmpty() || uid.startsWith('g')) return;
+    if (isOfficialAccount(profile)) m_officialIds.insert(uid);
+    bool changed = false;
+    if (const QJsonValue status = profile.value("accountStatus"); !status.isUndefined() && !status.isNull()) {
+        const bool inactive = status.toVariant().toInt() != 0;
+        changed |= inactive ? !m_inactiveIds.contains(uid) : m_inactiveIds.contains(uid);
+        if (inactive) m_inactiveIds.insert(uid);
+        else m_inactiveIds.remove(uid);
+    }
+    if (const QJsonValue blocked = profile.value("isBlocked"); !blocked.isUndefined() && !blocked.isNull()) {
+        const bool on = blocked.toVariant().toInt() == 1 || blocked.toBool();
+        changed |= on ? !m_blockedIds.contains(uid) : m_blockedIds.contains(uid);
+        if (on) m_blockedIds.insert(uid);
+        else m_blockedIds.remove(uid);
+    }
+    if (changed && uid == m_currentConvId) {
+        emit composerStateChanged();
+        emit conversationStatusChanged();
+    }
+}
 bool ZaloClient::profileLoading() const { return m_profileLoading; }
 
 void ZaloClient::openUserProfile() {
@@ -3117,8 +3830,7 @@ void ZaloClient::viewProfile(const QString& userId) {
                     if (!name.isEmpty()) m_activeProfile.displayName = name;
                     m_activeProfile.zaloName = p.value("zaloName").toString(m_activeProfile.displayName);
                     m_activeProfile.avatar = p.value("avatar").toString(m_activeProfile.avatar);
-                    m_activeProfile.cover = p.value("cover").toString();
-                    if (m_activeProfile.cover.isEmpty()) m_activeProfile.cover = p.value("bgavatar").toString();
+                    m_activeProfile.cover = backgroundOf(p);
                     m_activeProfile.gender = p.value("gender").toInt(0);
                     m_activeProfile.dob = p.value("dob").toVariant().toLongLong();
                     m_activeProfile.sdob = p.value("sdob").toString();
@@ -3126,6 +3838,7 @@ void ZaloClient::viewProfile(const QString& userId) {
                     m_activeProfile.phoneNumber = p.value("phoneNumber").toString();
                     m_activeProfile.isFriend = p.value("isFr").toInt() == 1 || m_friendIds.contains(userId);
                     m_activeProfile.isBlocked = p.value("isBlocked").toInt() == 1;
+                    noteAccountFlags(userId, p);
                 }
             }
             emit currentProfileChanged();
@@ -3196,26 +3909,40 @@ void ZaloClient::updateMyStatus(const QString& status) {
 
 void ZaloClient::blockUser(const QString& userId) {
     if (userId.isEmpty() || userId == m_myUid) return;
-    m_activeProfile.isBlocked = true;
+    if (m_activeProfile.userId == userId) m_activeProfile.isBlocked = true;
+    m_blockedIds.insert(userId);
     emit currentProfileChanged();
-    emit notice(L("Đã chặn người dùng này", "User blocked"));
+    emit composerStateChanged();
+    emit notice(L("Bạn đã chặn tin nhắn và cuộc gọi từ người này", "You blocked messages and calls from this person"));
 
     if (m_isLoggedIn && m_apiClient->session()) {
-        m_apiClient->session()->blockUser(userId, [this](bool ok, const QJsonValue&, const QString& err, int) {
-            if (!ok) emit notice(L("Không thể chặn: ", "Failed to block: ") + friendlyError(err));
+        m_apiClient->session()->blockUser(userId, [this, userId](bool ok, const QJsonValue&, const QString& err, int) {
+            if (ok) return;
+            m_blockedIds.remove(userId);
+            if (m_activeProfile.userId == userId) m_activeProfile.isBlocked = false;
+            emit currentProfileChanged();
+            emit composerStateChanged();
+            emit notice(L("Không thể chặn: ", "Failed to block: ") + friendlyError(err));
         });
     }
 }
 
 void ZaloClient::unblockUser(const QString& userId) {
     if (userId.isEmpty() || userId == m_myUid) return;
-    m_activeProfile.isBlocked = false;
+    if (m_activeProfile.userId == userId) m_activeProfile.isBlocked = false;
+    m_blockedIds.remove(userId);
     emit currentProfileChanged();
+    emit composerStateChanged();
     emit notice(L("Đã bỏ chặn người dùng này", "User unblocked"));
 
     if (m_isLoggedIn && m_apiClient->session()) {
-        m_apiClient->session()->unblockUser(userId, [this](bool ok, const QJsonValue&, const QString& err, int) {
-            if (!ok) emit notice(L("Không thể bỏ chặn: ", "Failed to unblock: ") + friendlyError(err));
+        m_apiClient->session()->unblockUser(userId, [this, userId](bool ok, const QJsonValue&, const QString& err, int) {
+            if (ok) return;
+            m_blockedIds.insert(userId);
+            if (m_activeProfile.userId == userId) m_activeProfile.isBlocked = true;
+            emit currentProfileChanged();
+            emit composerStateChanged();
+            emit notice(L("Không thể bỏ chặn: ", "Failed to unblock: ") + friendlyError(err));
         });
     }
 }
@@ -3792,12 +4519,56 @@ void ZaloClient::setNotifySound(bool val) {
     }
 }
 
-void ZaloClient::setUseAvatarAsChatBackground(bool val) {
-    if (m_useAvatarAsChatBackground != val) {
-        m_useAvatarAsChatBackground = val;
+void ZaloClient::setChatBackgroundMode(const QString& mode) {
+    const QString normalized = mode == QLatin1String("avatar") || mode == QLatin1String("custom")
+                                  ? mode : QStringLiteral("none");
+    if (m_chatBackgroundMode != normalized) {
+        m_chatBackgroundMode = normalized;
         saveSession();
         emit settingsChanged();
+        emit currentConversationBackgroundChanged();
     }
+}
+
+QString ZaloClient::currentConversationBackground() {
+    if (m_chatBackgroundMode == QLatin1String("avatar")) return m_currentConvAvatar;
+    if (m_chatBackgroundMode == QLatin1String("custom") && !m_chatBackgroundImage.isEmpty())
+        return QUrl::fromLocalFile(m_chatBackgroundImage).toString();
+    return QString();
+}
+
+void ZaloClient::setChatBackgroundImage(const QString& urlOrPath) {
+    const QString source = urlOrPath.startsWith(QLatin1String("file:"))
+                              ? QUrl(urlOrPath).toLocalFile() : urlOrPath;
+    if (source.isEmpty() || !QFileInfo::exists(source)) return;
+
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dir);
+    const QString suffix = QFileInfo(source).suffix().toLower();
+    const QString target = dir + QStringLiteral("/background.") + (suffix.isEmpty() ? QStringLiteral("png") : suffix);
+
+    if (QFileInfo(source).absoluteFilePath() != QFileInfo(target).absoluteFilePath()) {
+        QFile::remove(target);
+        if (!QFile::copy(source, target)) return;
+    }
+
+    m_chatBackgroundImage = target;
+    m_chatBackgroundMode = QStringLiteral("custom");
+    saveSession();
+    emit settingsChanged();
+    emit chatBackgroundImageChanged();
+    emit currentConversationBackgroundChanged();
+}
+
+void ZaloClient::clearChatBackgroundImage() {
+    if (m_chatBackgroundImage.isEmpty()) return;
+    QFile::remove(m_chatBackgroundImage);
+    m_chatBackgroundImage.clear();
+    if (m_chatBackgroundMode == QLatin1String("custom")) m_chatBackgroundMode = QStringLiteral("none");
+    saveSession();
+    emit settingsChanged();
+    emit chatBackgroundImageChanged();
+    emit currentConversationBackgroundChanged();
 }
 
 void ZaloClient::setShowLabelFolders(bool val) {
@@ -4303,6 +5074,7 @@ void ZaloClient::findUserByUsername(const QString& username) {
         profile["name"] = pickName(obj);
         profile["avatar"] = obj.value("avatar").toString();
         m_users[uid] = {profile["name"].toString(), profile["avatar"].toString(), 0};
+        noteAccountFlags(uid, obj);
         emit userSearchFinished(true, profile, QString());
     });
 }
@@ -4817,7 +5589,7 @@ void ZaloClient::refreshPresence() {
                 if (!obj.value("settings").toObject().value("show_online_status").toBool(true)) return;
                 qint64 ts = obj.value("lastOnline").toVariant().toLongLong();
                 if (ts > 0 && ts < 10000000000LL) ts *= 1000;
-                m_currentLastOnline = ts;
+                m_currentLastOnline = ts > 0 && ts < kMinPlausibleEpochMs ? -1 : ts;
                 emit conversationStatusChanged();
             });
         }
@@ -4832,14 +5604,134 @@ void ZaloClient::loadHiddenConversations() {
     if (!m_isLoggedIn) return;
     m_apiClient->session()->fetchHiddenConversations([this](bool ok, const QJsonValue& data, const QString&, int) {
         if (!ok) return;
-        m_hiddenThreads.clear();
-        for (const QJsonValue& v : data.toObject().value("threads").toArray()) {
+        const QJsonObject obj = data.toObject();
+        QSet<QString> ids;
+        for (const QJsonValue& v : obj.value("threads").toArray()) {
             const QString id = idOf(v.toObject().value("thread_id"));
-            if (!id.isEmpty()) m_hiddenThreads.insert(id);
+            if (!id.isEmpty()) ids.insert(id);
         }
-        m_conversationModel->setHiddenThreads(m_hiddenThreads);
-        emit conversationFlagsChanged();
+        const QString pin = obj.value("pin").toString().trimmed().toLower();
+        if (pin != m_hiddenPinHash) {
+            m_hiddenPinHash = pin;
+            emit hiddenPinChanged();
+        }
+        applyHiddenSet(ids);
+        if (m_hiddenRefreshTimer) m_hiddenRefreshTimer->start();
     });
+}
+
+void ZaloClient::applyHiddenSet(const QSet<QString>& ids) {
+    m_hiddenThreads = ids;
+    m_conversationModel->setHiddenThreads(m_hiddenThreads);
+    emit conversationFlagsChanged();
+}
+
+void ZaloClient::dropHiddenConversationsLocally(const QSet<QString>& ids) {
+    for (const QString& id : ids) {
+        if (id == m_currentConvId) openWelcomeScreen();
+        m_conversationModel->removeConversation(id);
+        if (m_offlineStore) m_offlineStore->deleteConversation(id);
+    }
+}
+
+void ZaloClient::markHiddenUnread(qint64 ts) {
+    if (m_hiddenUnread || (ts > 0 && ts <= m_hiddenDismissedAt)) return;
+    m_hiddenUnread = true;
+    emit hiddenUnreadChanged();
+}
+
+void ZaloClient::dismissHiddenUnread() {
+    m_hiddenDismissedAt = QDateTime::currentMSecsSinceEpoch();
+    QSettings settings("Zalos", "ZalosApp");
+    settings.setValue("settings/hiddenUnreadDismissedAt", m_hiddenDismissedAt);
+    if (!m_hiddenUnread) return;
+    m_hiddenUnread = false;
+    emit hiddenUnreadChanged();
+}
+
+QString ZaloClient::hiddenPinDigest(const QString& pin) {
+    return QString::fromLatin1(QCryptographicHash::hash(pin.toUtf8(), QCryptographicHash::Md5).toHex());
+}
+
+bool ZaloClient::verifyHiddenPin(const QString& pin) const {
+    static const QRegularExpression fourDigits(QStringLiteral("^\\d{4}$"));
+    if (m_hiddenPinHash.isEmpty() || !fourDigits.match(pin).hasMatch()) return false;
+    return hiddenPinDigest(pin) == m_hiddenPinHash;
+}
+
+void ZaloClient::setHiddenPin(const QString& pin, const QString& thenHideId) {
+    static const QRegularExpression fourDigits(QStringLiteral("^\\d{4}$"));
+    if (!m_isLoggedIn || !fourDigits.match(pin).hasMatch()) {
+        emit hiddenOpFinished(QStringLiteral("pin"), false);
+        return;
+    }
+    const QString digest = hiddenPinDigest(pin);
+    m_apiClient->session()->updateHiddenConversPin(digest, [this, digest, thenHideId](bool ok, const QJsonValue&,
+                                                                                      const QString& error, int code) {
+        if (!ok) {
+            emit notice(code < 0 && error != QLatin1String("decrypt_failed")
+                            ? L("Không có kết nối. Vui lòng thử lại sau", "No connection. Please try again later")
+                            : L("Có lỗi trong quá trình thay đổi mã PIN. Vui lòng thử lại (%1)",
+                                "Couldn't change the PIN. Please try again (%1)").arg(code));
+            emit hiddenOpFinished(QStringLiteral("pin"), false);
+            return;
+        }
+        m_hiddenPinHash = digest;
+        emit hiddenPinChanged();
+        emit hiddenOpFinished(QStringLiteral("pin"), true);
+        if (!thenHideId.isEmpty()) hideConversation(thenHideId, true);
+    });
+}
+
+void ZaloClient::resetHiddenPin() {
+    if (!m_isLoggedIn) {
+        emit hiddenOpFinished(QStringLiteral("reset"), false);
+        return;
+    }
+    m_apiClient->session()->resetHiddenConversPin([this](bool ok, const QJsonValue&, const QString& error, int) {
+        if (!ok) {
+            emit notice(L("Không thể xóa mã PIN: ", "Couldn't remove the PIN: ") + friendlyError(error));
+            emit hiddenOpFinished(QStringLiteral("reset"), false);
+            return;
+        }
+        const QSet<QString> dropped = m_hiddenThreads;
+        m_hiddenPinHash.clear();
+        emit hiddenPinChanged();
+        dropHiddenConversationsLocally(dropped);
+        applyHiddenSet({});
+        emit notice(L("Đã xóa thành công mã PIN và các trò chuyện ẩn", "The PIN and the hidden conversations were removed"));
+        emit hiddenOpFinished(QStringLiteral("reset"), true);
+    });
+}
+
+bool ZaloClient::canHideConversation(const QString& id) const {
+    return !id.isEmpty() && !m_officialIds.contains(id) && !m_hiddenThreads.contains(id);
+}
+
+bool ZaloClient::needsHiddenPin(const QString& id) const {
+    return m_hiddenThreads.contains(id) && id != m_currentConvId && id != m_hiddenUnlockedId;
+}
+
+void ZaloClient::openHiddenConversation(const QString& id, const QString& msgId) {
+    if (id.isEmpty()) return;
+    m_hiddenUnlockedId = id;
+    if (!msgId.isEmpty()) {
+        openMessageFromSearch(id, msgId);
+        return;
+    }
+    const Models::ConversationItem conv = m_conversationModel->conversation(id);
+    QString name = conv.name;
+    if (name.isEmpty()) name = isGroupThread(id) ? m_groups.value(id).name : displayNameOf(id);
+    selectConversation(id, name, conv.avatarUrl);
+}
+
+void ZaloClient::requestHiddenFlow(const QString& flow, const QString& id, bool bypass) {
+    QString name;
+    if (!id.isEmpty()) {
+        name = m_conversationModel->conversation(id).name;
+        if (name.isEmpty()) name = isGroupThread(id) ? m_groups.value(id).name : displayNameOf(id);
+    }
+    emit hiddenFlowRequested(flow, id, name, bypass);
 }
 
 void ZaloClient::loadArchivedChats() {
@@ -4876,17 +5768,26 @@ void ZaloClient::loadAutoDeleteSettings() {
 }
 
 void ZaloClient::hideConversation(const QString& id, bool hide) {
-    if (id.isEmpty()) return;
+    const QString op = hide ? QStringLiteral("hide") : QStringLiteral("unhide");
+    if (id.isEmpty() || !m_isLoggedIn || (hide && m_officialIds.contains(id))) {
+        emit hiddenOpFinished(op, false);
+        return;
+    }
     m_apiClient->session()->setHiddenConversation(id, isGroupThread(id), hide,
-                                                  [this, id, hide](bool ok, const QJsonValue&, const QString& error, int) {
+                                                  [this, id, hide, op](bool ok, const QJsonValue&, const QString&, int) {
         if (!ok) {
-            emit notice(L("Không thể cập nhật trạng thái ẩn: ", "Couldn't update hidden state: ") + friendlyError(error));
+            emit hiddenOpFinished(op, false);
             return;
         }
-        if (hide) m_hiddenThreads.insert(id);
-        else m_hiddenThreads.remove(id);
-        m_conversationModel->setHiddenThreads(m_hiddenThreads);
-        emit conversationFlagsChanged();
+        QSet<QString> next = m_hiddenThreads;
+        if (hide) {
+            next.insert(id);
+            if (id == m_currentConvId) m_hiddenUnlockedId = id;
+        } else {
+            next.remove(id);
+        }
+        applyHiddenSet(next);
+        emit hiddenOpFinished(op, true);
     });
 }
 
@@ -4980,10 +5881,14 @@ QString ZaloClient::currentConversationStatus() const {
         const int members = currentConversationMemberCount();
         return members > 0 ? QString::number(members) + L(" thành viên", " members") : QString();
     }
+    if (m_officialIds.contains(m_currentConvId)) return L("Tài khoản chính thức", "Official account");
+    if (m_inactiveIds.contains(m_currentConvId)) return L("Tài khoản đã ngừng hoạt động", "Account no longer active");
     if (m_onlineIds.contains(m_currentConvId)) return L("Đang hoạt động", "Active now");
+    if (m_currentLastOnline < 0) return {};
     if (m_currentLastOnline > 0) {
         qint64 lastMs = m_currentLastOnline;
         if (lastMs > 0 && lastMs < 10000000000LL) lastMs *= 1000;
+        if (lastMs < kMinPlausibleEpochMs) return {};
         const qint64 diffMs = QDateTime::currentMSecsSinceEpoch() - lastMs;
         const qint64 minutes = diffMs / 60000;
         if (minutes < 1) return L("Vừa mới truy cập", "Just now");
@@ -4996,6 +5901,12 @@ QString ZaloClient::currentConversationStatus() const {
         return L("Truy cập %1", "Last seen %1").arg(dt.toString("dd/MM/yyyy"));
     }
     return L("Truy cập gần đây", "Recently active");
+}
+
+bool ZaloClient::currentConversationHasPresence() const {
+    if (m_currentConvId.isEmpty() || currentConversationIsGroup()) return false;
+    if (m_officialIds.contains(m_currentConvId) || m_inactiveIds.contains(m_currentConvId)) return false;
+    return m_currentLastOnline >= 0;
 }
 
 void ZaloClient::startVoiceCall() {

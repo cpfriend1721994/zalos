@@ -239,31 +239,24 @@ void StickerStore::applyCategory(int cateId, const QJsonValue& data) {
     emit categoriesChanged();
 }
 
-void StickerStore::search(const QString& keyword) {
-    const QString q = keyword.trimmed();
-    if (q.isEmpty()) {
-        m_query.clear();
-        selectCategory(m_current);
+void StickerStore::lookup(const QString& keyword, int limit, std::function<void(const QVariantList&)> done) {
+    ZaloSession* s = session();
+    if (!s) {
+        done({});
         return;
     }
-    ZaloSession* s = session();
-    const quint64 seq = ++m_searchSeq;
-    setStickers(m_current, {}, q);
-    if (!s) return;
-    busy(1);
     QPointer<StickerStore> self(this);
-    auto finish = [self, seq, q](const QList<qint64>& ids) {
-        if (!self || seq != self->m_searchSeq) return;
+    auto finish = [self, done](const QList<qint64>& ids) {
+        if (!self) return;
         auto results = std::make_shared<QHash<qint64, QVariantMap>>();
         auto remaining = std::make_shared<int>(0);
-        auto publish = [self, seq, q, ids, results]() {
-            if (!self || seq != self->m_searchSeq) return;
+        auto publish = [self, ids, results, done]() {
+            if (!self) return;
             QVariantList list;
             for (qint64 id : ids) {
                 if (results->contains(id)) list.append(results->value(id));
             }
-            self->setStickers(self->m_current, list, q);
-            self->busy(-1);
+            done(list);
         };
         ZaloSession* session = self->session();
         for (qint64 id : ids) {
@@ -286,7 +279,7 @@ void StickerStore::search(const QString& keyword) {
         }
         if (*remaining == 0) publish();
     };
-    s->searchStickers(q, [self, finish, q](bool ok, const QJsonValue& data, const QString&, int) {
+    s->searchStickers(keyword, [self, finish, keyword, limit](bool ok, const QJsonValue& data, const QString&, int) {
         if (!self) return;
         QList<qint64> ids;
         QJsonArray suggested = ok ? data.toObject().value("sugg_sticker").toArray() : QJsonArray();
@@ -295,20 +288,61 @@ void StickerStore::search(const QString& keyword) {
         for (const QJsonValue& v : suggested) {
             const qint64 id = v.toObject().value("sticker_id").toVariant().toLongLong();
             if (id > 0 && !ids.contains(id)) ids.append(id);
-            if (ids.size() >= kMaxSearch) break;
+            if (ids.size() >= limit) break;
         }
         ZaloSession* session = self->session();
         if (!ids.isEmpty() || !session) {
             finish(ids);
             return;
         }
-        session->searchStickerIds(q, kMaxSearch, [finish](bool ok2, const QJsonValue& d2, const QString&, int) {
+        session->searchStickerIds(keyword, limit, [finish, limit](bool ok2, const QJsonValue& d2, const QString&, int) {
             QList<qint64> found;
             for (const QJsonValue& v : (ok2 ? stickerArray(d2) : QJsonArray())) {
                 const qint64 id = v.toObject().value("sticker_id").toVariant().toLongLong();
                 if (id > 0 && !found.contains(id)) found.append(id);
+                if (found.size() >= limit) break;
             }
             finish(found);
+        });
+    });
+}
+
+void StickerStore::search(const QString& keyword) {
+    const QString q = keyword.trimmed();
+    if (q.isEmpty()) {
+        m_query.clear();
+        selectCategory(m_current);
+        return;
+    }
+    const quint64 seq = ++m_searchSeq;
+    setStickers(m_current, {}, q);
+    if (!session()) return;
+    busy(1);
+    QPointer<StickerStore> self(this);
+    lookup(q, kMaxSearch, [self, seq, q](const QVariantList& list) {
+        if (!self || seq != self->m_searchSeq) return;
+        self->setStickers(self->m_current, list, q);
+        self->busy(-1);
+    });
+}
+
+void StickerStore::loadBirthdayStickers() {
+    if (!m_birthday.isEmpty() || m_birthdayLoading || !session()) return;
+    m_birthdayLoading = true;
+    QPointer<StickerStore> self(this);
+    lookup(QStringLiteral("sinh nhật"), kBirthdaySuggestions, [self](const QVariantList& list) {
+        if (!self) return;
+        if (!list.isEmpty()) {
+            self->m_birthdayLoading = false;
+            self->m_birthday = list;
+            emit self->birthdayStickersChanged();
+            return;
+        }
+        self->lookup(QStringLiteral("birthday"), kBirthdaySuggestions, [self](const QVariantList& fallback) {
+            if (!self) return;
+            self->m_birthdayLoading = false;
+            self->m_birthday = fallback;
+            emit self->birthdayStickersChanged();
         });
     });
 }
@@ -336,8 +370,11 @@ void StickerStore::reset() {
     m_byCategory.clear();
     m_loaded = false;
     m_query.clear();
+    m_birthday.clear();
+    m_birthdayLoading = false;
     setStickers(kRecentId, {});
     emit categoriesChanged();
+    emit birthdayStickersChanged();
 }
 
 }

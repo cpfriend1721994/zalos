@@ -41,6 +41,7 @@ public:
     void tokenForTesting(uint id, const QString& token) { onActivationToken(id, token); }
     void closedForTesting(uint id) { onClosed(id, 2); }
     uint idForTesting(const QString& key) const { return m_ids.value(key, 0); }
+    int shownForTesting(const QString& key) const { return m_shownKeys.count(key); }
 #endif
 
 signals:
@@ -61,6 +62,7 @@ private:
     QHash<QString, uint> m_ids;
     QHash<uint, QString> m_keys;
     QHash<uint, QString> m_tokens;
+    QStringList m_shownKeys;
 };
 
 }

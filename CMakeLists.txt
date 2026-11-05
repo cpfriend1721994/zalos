@@ -174,6 +174,8 @@ qt_add_qml_module(zalos
         src/qml/ZSticker.qml
         src/qml/PopupHost.qml
         src/qml/PinDetailHost.qml
+        src/qml/AppLinkPopup.qml
+        src/qml/HiddenPinPopup.qml
         src/qml/PinMenuHost.qml
     RESOURCES
         assets/icons/zalos.svg

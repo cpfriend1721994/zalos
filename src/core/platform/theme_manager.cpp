@@ -181,36 +181,36 @@ QColor ThemeManager::railBackgroundColor() const {
     if (m_themeMode == 0) return QColor("#005AE0");
     if (m_themeMode == 1) return QColor("#121416");
     if (m_isDarkMode) {
-        QColor win = QGuiApplication::palette().color(QPalette::Window);
+        QColor win = m_systemPalette.color(QPalette::Window);
         return win.isValid() ? win.darker(120) : QColor("#121416");
     }
     return accentColor().darker(115);
 }
 
 QColor ThemeManager::chatBackgroundColor() const {
-    return resolveColor("#EBECF0", "#16191D", QGuiApplication::palette().color(QPalette::Base));
+    return resolveColor("#EBECF0", "#16191D", m_systemPalette.color(QPalette::Base));
 }
 
 QColor ThemeManager::backgroundColor() const {
-    return resolveColor("#FFFFFF", "#22262B", QGuiApplication::palette().color(QPalette::Window));
+    return resolveColor("#FFFFFF", "#22262B", m_systemPalette.color(QPalette::Window));
 }
 
 QColor ThemeManager::surfaceColor() const {
-    return resolveColor("#FFFFFF", "#22262B", QGuiApplication::palette().color(QPalette::Window));
+    return resolveColor("#FFFFFF", "#22262B", m_systemPalette.color(QPalette::Window));
 }
 
 QColor ThemeManager::cardBackgroundColor() const {
-    return resolveColor("#EBECF0", "#1D2025", QGuiApplication::palette().color(QPalette::AlternateBase));
+    return resolveColor("#EBECF0", "#1D2025", m_systemPalette.color(QPalette::AlternateBase));
 }
 
 QColor ThemeManager::textColor() const {
-    return resolveColor("#081B3A", "#DFE2E7", QGuiApplication::palette().color(QPalette::WindowText));
+    return resolveColor("#081B3A", "#DFE2E7", m_systemPalette.color(QPalette::WindowText));
 }
 
 QColor ThemeManager::secondaryTextColor() const {
     if (m_themeMode == 0) return QColor("#5A6981");
     if (m_themeMode == 1) return QColor("#9FACBC");
-    QColor t = QGuiApplication::palette().color(QPalette::WindowText);
+    QColor t = m_systemPalette.color(QPalette::WindowText);
     return t.isValid() ? QColor(t.red(), t.green(), t.blue(), 175) : (m_isDarkMode ? QColor("#9FACBC") : QColor("#5A6981"));
 }
 
@@ -232,10 +232,10 @@ QColor ThemeManager::chatBubbleTheir() const {
     if (m_themeMode == 0) return QColor("#FFFFFF");
     if (m_themeMode == 1) return QColor("#282D33");
     if (m_isDarkMode) {
-        QColor win = QGuiApplication::palette().color(QPalette::Window);
+        QColor win = m_systemPalette.color(QPalette::Window);
         return win.isValid() ? win.lighter(115) : QColor("#282D33");
     }
-    return QGuiApplication::palette().color(QPalette::Base);
+    return m_systemPalette.color(QPalette::Base);
 }
 
 QColor ThemeManager::hoverColor() const {
@@ -258,11 +258,11 @@ QColor ThemeManager::pinnedColor() const {
 }
 
 QColor ThemeManager::inputFillColor() const {
-    return resolveColor("#EBECF0", "#16191D", QGuiApplication::palette().color(QPalette::Base));
+    return resolveColor("#EBECF0", "#16191D", m_systemPalette.color(QPalette::Base));
 }
 
 QColor ThemeManager::inputFillHoverColor() const {
-    return resolveColor("#E5E7EB", "#1D2025", QGuiApplication::palette().color(QPalette::AlternateBase));
+    return resolveColor("#E5E7EB", "#1D2025", m_systemPalette.color(QPalette::AlternateBase));
 }
 
 QColor ThemeManager::dividerColor() const {
@@ -272,7 +272,7 @@ QColor ThemeManager::dividerColor() const {
 }
 
 QColor ThemeManager::placeholderColor() const {
-    return resolveColor("#77859C", "#738296", QGuiApplication::palette().color(QPalette::PlaceholderText));
+    return resolveColor("#77859C", "#738296", m_systemPalette.color(QPalette::PlaceholderText));
 }
 
 QColor ThemeManager::iconColor() const {
@@ -284,7 +284,7 @@ QColor ThemeManager::iconColor() const {
 QColor ThemeManager::linkColor() const {
     if (m_themeMode == 0) return QColor("#005AE0");
     if (m_themeMode == 1) return QColor("#66A6FF");
-    QColor l = QGuiApplication::palette().color(QPalette::Link);
+    QColor l = m_systemPalette.color(QPalette::Link);
     return l.isValid() ? l : accentColor();
 }
 
@@ -330,7 +330,66 @@ QColor ThemeManager::reactionBackgroundColor() const {
     return cardBackgroundColor();
 }
 
+QColor ThemeManager::uiAccentColor() const {
+    if (m_themeMode == 0) return QColor("#0068FF");
+    if (m_themeMode == 1) return QColor("#0068FF");
+    return accentColor();
+}
+
+QColor ThemeManager::activenessColor() const {
+    if (m_themeMode == 0) return QColor("#0068FF");
+    if (m_themeMode == 1) return QColor("#66A6FF");
+    return accentColor();
+}
+
+QColor ThemeManager::uiLinkColor() const {
+    if (m_themeMode == 0) return QColor("#0068FF");
+    if (m_themeMode == 1) return QColor("#66A6FF");
+    QColor l = m_systemPalette.color(QPalette::Link);
+    return l.isValid() ? l : accentColor();
+}
+
+QColor ThemeManager::reactionSurfaceColor() const {
+    if (m_themeMode == 0) return QColor("#FFFFFF");
+    if (m_themeMode == 1) return QColor("#1D2025");
+    QColor b = m_systemPalette.color(QPalette::Base);
+    return b.isValid() ? b : (m_isDarkMode ? QColor("#1D2025") : QColor("#FFFFFF"));
+}
+
+QColor ThemeManager::inactiveSubtleColor() const {
+    if (m_themeMode == 0) return QColor("#B5B5B5");
+    if (m_themeMode == 1) return QColor("#595959");
+    QColor p = m_systemPalette.color(QPalette::PlaceholderText);
+    return p.isValid() ? p : (m_isDarkMode ? QColor("#595959") : QColor("#B5B5B5"));
+}
+
+QColor ThemeManager::inactiveDisabledColor() const {
+    if (m_themeMode == 0) return QColor("#DBDBDB");
+    if (m_themeMode == 1) return QColor("#333333");
+    QColor t = m_systemPalette.color(QPalette::WindowText);
+    return t.isValid() ? QColor(t.red(), t.green(), t.blue(), 90)
+                       : (m_isDarkMode ? QColor("#333333") : QColor("#DBDBDB"));
+}
+
+QColor ThemeManager::activeDisabledColor() const {
+    if (m_themeMode == 0) return QColor("#ADD1FF");
+    if (m_themeMode == 1) return QColor("#00378A");
+    QColor acc = accentColor();
+    return QColor(acc.red(), acc.green(), acc.blue(), m_isDarkMode ? 130 : 150);
+}
+
+QColor ThemeManager::dropOverlayColor() const {
+    if (m_themeMode == 0) return QColor("#F0F7FF");
+    if (m_themeMode == 1) return QColor("#001029");
+    QColor acc = accentColor();
+    return QColor(acc.red(), acc.green(), acc.blue(), m_isDarkMode ? 45 : 28);
+}
+
 void ThemeManager::initSystemThemeDetection() {
+    // Snapshot the platform palette (populated by the Qt/GTK platform theme plugin) before
+    // syncApplicationPalette() overwrites QGuiApplication::setPalette(); mode 2 reads from here so
+    // roles we never re-set (e.g. Link) survive and stay stable across theme toggles.
+    m_systemPalette = QGuiApplication::palette();
     detectGnomeOrPortalTheme();
     detectKdeTheme();
     detectSystemAccentColor();
@@ -405,7 +464,7 @@ void ThemeManager::detectSystemAccentColor() {
     }
 
     if (!detectedAccent.isValid()) {
-        QColor highlight = QGuiApplication::palette().color(QPalette::Highlight);
+        QColor highlight = m_systemPalette.color(QPalette::Highlight);
         if (highlight.isValid() && highlight != Qt::black && highlight != Qt::white) {
             detectedAccent = highlight;
         }

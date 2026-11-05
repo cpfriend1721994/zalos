@@ -7,6 +7,8 @@
 #include <QHash>
 #include <QSet>
 #include <QJsonObject>
+#include <QPair>
+#include <functional>
 #include <QVector>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -45,6 +47,7 @@ public:
         bool isGroup{false};
         int memberCount{0};
         bool isFriend{false};
+        bool isOfficial{false};
     };
 
     bool initializeDatabase(const QString& customPath = QString());
@@ -82,6 +85,12 @@ public:
     void maintenance();
     bool markRecalled(const QString& msgId, const QString& placeholder);
     bool deleteMessage(const QString& msgId);
+    static qint64 expiryOf(const QJsonObject& raw, qint64 ts);
+    QVector<QPair<QString, QString>> purgeExpired(qint64 now);
+    qint64 nextExpiry(qint64 now) const;
+    QString metaValue(const QString& key) const;
+    void setMetaValue(const QString& key, const QString& value);
+    QSet<QString> reparseStored(const std::function<bool(const QJsonObject& raw, bool isGroup, Models::MessageItem* out)>& fn);
     bool deleteMessagesUpTo(const QString& convId, const QString& lastMsgId);
     bool saveProfile(const CachedProfile& profile);
     QString pragmaForTesting(const QString& name) const;

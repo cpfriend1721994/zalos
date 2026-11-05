@@ -276,7 +276,9 @@ Item {
                                 anchors.centerIn: parent
                                 text: ZaloClient.profileIsSelf
                                       ? I18n.t("Bạn", "You")
-                                      : (ZaloClient.profileIsFriend ? I18n.t("Bạn bè", "Friend") : I18n.t("Người lạ", "Stranger"))
+                                      : ZaloClient.profileIsInactive ? I18n.t("Tài khoản đã ngừng hoạt động", "Account no longer active")
+                                      : (ZaloClient.profileIsOfficial ? I18n.t("Tài khoản chính thức", "Official account")
+                                         : (ZaloClient.profileIsFriend ? I18n.t("Bạn bè", "Friend") : I18n.t("Người lạ", "Stranger")))
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 11
                                 font.bold: true

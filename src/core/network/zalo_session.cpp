@@ -365,7 +365,7 @@ void ZaloSession::handleApiReply(QNetworkReply* reply, Callback cb) {
     const QJsonObject outer = QJsonDocument::fromJson(reply->readAll()).object();
     const int outerCode = outer.value("error_code").toInt(-1);
     if (outerCode != 0) {
-        cb(false, {}, outer.value("error_message").toString(), outerCode);
+        cb(false, parseMaybeJsonString(outer.value("data")), outer.value("error_message").toString(), outerCode);
         return;
     }
     const QJsonValue rawData = outer.value("data");
@@ -382,7 +382,7 @@ void ZaloSession::handleApiReply(QNetworkReply* reply, Callback cb) {
     }
     const int innerCode = inner.value("error_code").toInt(-1);
     if (innerCode != 0) {
-        cb(false, {}, inner.value("error_message").toString(), innerCode);
+        cb(false, inner.value("data"), inner.value("error_message").toString(), innerCode);
         return;
     }
     cb(true, parseMaybeJsonString(inner.value("data")), QString(), 0);
@@ -1033,6 +1033,10 @@ void ZaloSession::fetchLastOnline(const QString& userId, Callback cb) {
     apiGet("profile", "/api/social/profile/lastOnline", {{"uid", userId}, {"conv_type", 1}, {"imei", m_imei}}, cb);
 }
 
+void ZaloSession::fetchProfileRank(const QString& userId, Callback cb) {
+    apiGet("profile", "/api/social/profile/getrank", {{"profile_id", userId}, {"imei", m_imei}}, cb);
+}
+
 void ZaloSession::fetchLabels(Callback cb) {
     apiGet("label", "/api/convlabel/get", {{"imei", m_imei}}, cb);
 }
@@ -1247,6 +1251,14 @@ void ZaloSession::setHiddenConversation(const QString& threadId, bool isGroup, b
             {{hide ? "add_threads" : "del_threads", threads},
              {hide ? "del_threads" : "add_threads", QStringLiteral("[]")},
              {"imei", m_imei}}, cb);
+}
+
+void ZaloSession::updateHiddenConversPin(const QString& pinMd5, Callback cb) {
+    apiGet("conversation", "/api/hiddenconvers/update-pin", {{"new_pin", pinMd5}, {"imei", m_imei}}, cb);
+}
+
+void ZaloSession::resetHiddenConversPin(Callback cb) {
+    apiGet("conversation", "/api/hiddenconvers/reset", {}, cb, true);
 }
 
 void ZaloSession::fetchArchivedChats(Callback cb) {

@@ -43,6 +43,9 @@ QStringList DesktopNotifications::actionList(const Request& request) const {
 }
 
 void DesktopNotifications::show(const QString& key, const Request& request) {
+#ifdef ZALOS_TESTING
+    m_shownKeys.append(key);
+#endif
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) return;
     QDBusMessage msg = QDBusMessage::createMethodCall(kService, kPath, kInterface, "Notify");

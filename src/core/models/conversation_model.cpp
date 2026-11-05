@@ -42,6 +42,7 @@ QVariant ConversationModel::data(const QModelIndex& index, int role) const {
         case DraftRole: return m_drafts.value(item.id);
         case MemberAvatarsRole: return m_memberAvatars.value(item.id);
         case HasUnreadMentionRole: return item.hasUnreadMention;
+        case IsHiddenRole: return m_hiddenIds.contains(item.id);
         default: return {};
     }
 }
@@ -68,7 +69,8 @@ QHash<int, QByteArray> ConversationModel::roleNames() const {
         {IsTypingRole, "isTyping"},
         {DraftRole, "draft"},
         {MemberAvatarsRole, "memberAvatars"},
-        {HasUnreadMentionRole, "hasUnreadMention"}
+        {HasUnreadMentionRole, "hasUnreadMention"},
+        {IsHiddenRole, "isHidden"}
     };
 }
 
@@ -119,30 +121,28 @@ void ConversationModel::applyFilter() {
     const QStringList terms = foldTerms(m_searchQuery);
     const bool searching = !terms.isEmpty();
     const bool archivedView = m_viewMode == QLatin1String("archived");
-    const bool hiddenView = m_viewMode == QLatin1String("hidden");
     for (const auto& item : m_allItems) {
         const bool isArchived = m_archivedIds.contains(item.id);
         const bool isHidden = m_hiddenIds.contains(item.id);
+        if (isHidden && (!searching || m_hiddenPinReveal)) continue;
         if (archivedView) {
             if (!isArchived) continue;
-        } else if (hiddenView) {
-            if (!isHidden) continue;
-        } else {
-            if (isHidden) continue;
-            if (!searching) {
-                if (isArchived) continue;
-                if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
-                if (!(m_activeCategory.isEmpty() ||
-                      (m_activeCategory == "unread" ? item.unreadCount > 0 : item.category == m_activeCategory)))
-                    continue;
-            }
+        } else if (!searching) {
+            if (isArchived) continue;
+            if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
+            if (m_strangerOnly && !strangerId(item.id, item.isGroup)) continue;
+            if (!(m_activeCategory.isEmpty() ||
+                  (m_activeCategory == "unread" ? item.unreadCount > 0 : item.category == m_activeCategory)))
+                continue;
         }
         const QString shownName = !item.name.isEmpty() ? item.name
                                   : (item.isGroup ? QStringLiteral("Nhóm chưa đặt tên Unnamed group")
                                                   : QStringLiteral("Người dùng Zalo Zalo user"));
-        if (searching && !containsAllTerms(foldForSearch(shownName) + QLatin1Char(' ') + foldForSearch(item.lastMessage),
-                                           terms))
-            continue;
+        if (searching) {
+            const QString haystack = isHidden ? foldForSearch(shownName)
+                                              : foldForSearch(shownName) + QLatin1Char(' ') + foldForSearch(item.lastMessage);
+            if (!containsAllTerms(haystack, terms)) continue;
+        }
         m_filteredItems.append(item);
     }
 
@@ -301,7 +301,14 @@ void ConversationModel::setHiddenThreads(const QSet<QString>& ids) {
     if (ids == m_hiddenIds) return;
     m_hiddenIds = ids;
     applyFilter();
+    emitUnreadChanged();
     emit filterChanged();
+}
+
+void ConversationModel::setHiddenPinReveal(bool reveal) {
+    if (reveal == m_hiddenPinReveal) return;
+    m_hiddenPinReveal = reveal;
+    applyFilter();
 }
 
 void ConversationModel::setArchivedThreads(const QSet<QString>& ids) {
@@ -309,6 +316,36 @@ void ConversationModel::setArchivedThreads(const QSet<QString>& ids) {
     m_archivedIds = ids;
     applyFilter();
     emit filterChanged();
+}
+
+void ConversationModel::setStrangerOnly(bool on) {
+    if (on == m_strangerOnly) return;
+    m_strangerOnly = on;
+    applyFilter();
+    emit filterChanged();
+}
+
+void ConversationModel::setFriendContext(const QSet<QString>& friends, const QSet<QString>& officials,
+                                         const QString& myUid, bool known) {
+    if (friends == m_friendIds && officials == m_officialIds && myUid == m_myUid && known == m_friendsKnown) return;
+    m_friendIds = friends;
+    m_officialIds = officials;
+    m_myUid = myUid;
+    m_friendsKnown = known;
+    if (m_strangerOnly) applyFilter();
+    emit filterChanged();
+}
+
+bool ConversationModel::strangerId(const QString& convId, bool isGroup) const {
+    return m_friendsKnown && !isGroup && !convId.isEmpty() && !convId.startsWith(QLatin1Char('g'))
+           && convId != QLatin1String("0") && convId != m_myUid && !m_friendIds.contains(convId)
+           && !m_officialIds.contains(convId);
+}
+
+bool ConversationModel::isStranger(const QString& convId) const {
+    for (const auto& item : m_allItems)
+        if (item.id == convId) return strangerId(convId, item.isGroup);
+    return strangerId(convId, false);
 }
 
 void ConversationModel::applyLabels(const QHash<QString, QVariantMap>& labels) {
@@ -433,14 +470,14 @@ void ConversationModel::removeConversation(const QString& convId) {
 int ConversationModel::totalUnreadCount() const {
     int total = 0;
     for (const auto& item : m_allItems) {
-        total += item.unreadCount;
+        if (!m_hiddenIds.contains(item.id)) total += item.unreadCount;
     }
     return total;
 }
 
 bool ConversationModel::hasAnyUnreadMention() const {
     for (const auto& item : m_allItems) {
-        if (item.unreadCount > 0 && item.hasUnreadMention) return true;
+        if (item.unreadCount > 0 && item.hasUnreadMention && !m_hiddenIds.contains(item.id)) return true;
     }
     return false;
 }

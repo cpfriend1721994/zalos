@@ -20,6 +20,11 @@ namespace {
 constexpr qint64 kGroupBreakMs = 30 * 60 * 1000;
 }
 
+void MessageModel::refreshSenders() {
+    if (m_items.isEmpty()) return;
+    emit dataChanged(index(0), index(int(m_items.size()) - 1), {SenderNameRole, SenderAvatarRole});
+}
+
 QVariant MessageModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_items.size()) {
         return {};
@@ -28,7 +33,11 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
     const auto& item = m_items.at(index.row());
     switch (role) {
         case IdRole: return item.id;
-        case SenderNameRole: return item.senderName;
+        case SenderNameRole:
+            if (item.senderName.isEmpty() && !item.isMine && m_senderResolver && !item.senderId.isEmpty()
+                && item.senderId != QLatin1String("system"))
+                return m_senderResolver(item.senderId).first;
+            return item.senderName;
         case TextRole: return item.text;
         case TimeRole: return item.timeStr;
         case IsMineRole: return item.isMine;
@@ -38,7 +47,11 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
         case MediaUrlRole: return item.mediaUrl;
         case TimestampRole: return item.ts;
         case SenderIdRole: return item.senderId;
-        case SenderAvatarRole: return item.senderAvatar;
+        case SenderAvatarRole:
+            if (item.senderAvatar.isEmpty() && !item.isMine && m_senderResolver && !item.senderId.isEmpty()
+                && item.senderId != QLatin1String("system"))
+                return m_senderResolver(item.senderId).second;
+            return item.senderAvatar;
         case StatusRole: return item.status;
         case IsRecalledRole: return item.isRecalled;
         case PollDataRole: return item.pollData;

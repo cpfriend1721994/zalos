@@ -24,11 +24,13 @@ class StickerStore : public QObject {
     Q_PROPERTY(QVariantList stickers READ stickers NOTIFY stickersChanged FINAL)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged FINAL)
     Q_PROPERTY(QString searchQuery READ searchQuery NOTIFY stickersChanged FINAL)
+    Q_PROPERTY(QVariantList birthdayStickers READ birthdayStickers NOTIFY birthdayStickersChanged FINAL)
 
 public:
     static constexpr int kRecentId = -1;
     static constexpr int kMaxRecent = 24;
     static constexpr int kMaxSearch = 24;
+    static constexpr int kBirthdaySuggestions = 8;
     static constexpr int kExtWebp = 2;
 
     struct Hooks {
@@ -49,6 +51,7 @@ public:
     QVariantList stickers() const { return m_stickers; }
     bool loading() const { return m_loading > 0; }
     QString searchQuery() const { return m_query; }
+    QVariantList birthdayStickers() const { return m_birthday; }
 
     QVariantMap info(const QString& stickerId) const { return m_info.value(stickerId); }
     void remember(const QVariantMap& info);
@@ -58,6 +61,8 @@ public:
     Q_INVOKABLE void selectCategory(int cateId);
     Q_INVOKABLE void search(const QString& keyword);
     Q_INVOKABLE void send(const QVariantMap& sticker);
+    Q_INVOKABLE void loadBirthdayStickers();
+    void lookup(const QString& keyword, int limit, std::function<void(const QVariantList&)> done);
     void reset();
 
     void applyPersonalForTesting(const QJsonObject& data) { applyPersonal(data); }
@@ -68,6 +73,7 @@ signals:
     void categoriesChanged();
     void stickersChanged();
     void loadingChanged();
+    void birthdayStickersChanged();
 
 private:
     ZaloSession* session() const { return m_hooks.session ? m_hooks.session() : nullptr; }
@@ -93,6 +99,8 @@ private:
     QString m_cacheFile;
     QTimer m_saveTimer;
     quint64 m_searchSeq{0};
+    QVariantList m_birthday;
+    bool m_birthdayLoading{false};
 };
 
 }

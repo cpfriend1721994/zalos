@@ -314,6 +314,16 @@ ApplicationWindow {
     LazyOverlay { active: ZaloClient.groupAdmin.joinOpen; sourceComponent: GroupJoinModal {} }
     LazyOverlay { active: ZaloClient.labels.manageOpen; sourceComponent: LabelManageModal {} }
 
+    AppLinkPopup { id: appLinkPopup }
+    HiddenPinPopup { id: hiddenPinPopup }
+    Connections {
+        target: ZaloClient
+        function onAppOnlyLinkRequested(url: string, title: string, thumb: string) { appLinkPopup.show(url, title, thumb); }
+        function onHiddenFlowRequested(flow: string, convId: string, convName: string, bypass: bool) {
+            hiddenPinPopup.start(flow, convId, convName, bypass);
+        }
+    }
+
     LazyOverlay {
         z: 1500
         active: ImageViewerState.open

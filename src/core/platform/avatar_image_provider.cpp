@@ -25,6 +25,7 @@ namespace Zalos::Core::Platform {
 namespace {
 
 constexpr int kDefaultDiameter = 96;
+constexpr int kDefaultCoverWidth = 720;
 constexpr int kMaxMemCacheKiB = 12 * 1024;
 
 QMutex s_memCacheMutex;
@@ -32,11 +33,14 @@ QCache<QString, QImage> s_memCache(kMaxMemCacheKiB);
 
 class AvatarResponse : public QQuickImageResponse {
 public:
-    AvatarResponse(QNetworkAccessManager* nam, const QString& id, const QSize& requestedSize)
-        : m_diameter(requestedSize.isValid() && requestedSize.width() > 0 ? requestedSize.width() : kDefaultDiameter) {
+    AvatarResponse(QNetworkAccessManager* nam, const QString& id, const QSize& requestedSize, bool circular)
+        : m_circular(circular),
+          m_diameter(requestedSize.isValid() && requestedSize.width() > 0
+                         ? requestedSize.width()
+                         : (circular ? kDefaultDiameter : kDefaultCoverWidth)) {
         const QUrl url(QUrl::fromPercentEncoding(id.toUtf8()));
         const QString hashHex = QString::fromLatin1(QCryptographicHash::hash(url.toEncoded(), QCryptographicHash::Md5).toHex());
-        m_memKey = hashHex + QLatin1Char('@') + QString::number(m_diameter);
+        m_memKey = hashHex + QLatin1Char(circular ? '@' : '#') + QString::number(m_diameter);
 
         QImage memCached;
         if (AvatarImageProvider::lookupMemCache(m_memKey, &memCached)) {
@@ -131,13 +135,20 @@ public:
 
 private:
     void finishWith(const QImage& source) {
-        m_image = source.isNull() ? QImage() : AvatarImageProvider::makeCircular(source, m_diameter);
+        if (source.isNull()) {
+            m_image = QImage();
+        } else if (m_circular) {
+            m_image = AvatarImageProvider::makeCircular(source, m_diameter);
+        } else {
+            m_image = source.width() > m_diameter ? source.scaledToWidth(m_diameter, Qt::SmoothTransformation) : source;
+        }
         if (!m_image.isNull()) {
             AvatarImageProvider::insertMemCache(m_memKey, m_image);
         }
         QMetaObject::invokeMethod(this, &QQuickImageResponse::finished, Qt::QueuedConnection);
     }
 
+    bool m_circular;
     int m_diameter;
     QString m_memKey;
     QImage m_image;
@@ -145,8 +156,8 @@ private:
 
 }
 
-AvatarImageProvider::AvatarImageProvider()
-    : m_nam(new QNetworkAccessManager) {
+AvatarImageProvider::AvatarImageProvider(bool circular)
+    : m_nam(new QNetworkAccessManager), m_circular(circular) {
 }
 
 AvatarImageProvider::~AvatarImageProvider() {
@@ -154,7 +165,7 @@ AvatarImageProvider::~AvatarImageProvider() {
 }
 
 QQuickImageResponse* AvatarImageProvider::requestImageResponse(const QString& id, const QSize& requestedSize) {
-    return new AvatarResponse(m_nam, id, requestedSize);
+    return new AvatarResponse(m_nam, id, requestedSize, m_circular);
 }
 
 QString AvatarImageProvider::cacheDirectory() {

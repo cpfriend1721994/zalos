@@ -3,6 +3,8 @@
 #include <QtQml/qqmlregistration.h>
 
 #include <QAbstractListModel>
+#include <QPair>
+#include <functional>
 #include <QString>
 #include <QVector>
 #include <QHash>
@@ -80,6 +82,9 @@ public:
     static constexpr qint64 kMediaRunGapMs = 5 * 60 * 1000;
 
     explicit MessageModel(QObject* parent = nullptr);
+    using SenderResolver = std::function<QPair<QString, QString>(const QString& uid)>;
+    void setSenderResolver(SenderResolver resolver) { m_senderResolver = std::move(resolver); }
+    void refreshSenders();
     void refreshRunsAround(int row);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -137,6 +142,7 @@ private:
     bool joinsPrevious(int row) const;
 
     QVector<MessageItem> m_items;
+    SenderResolver m_senderResolver;
     QHash<QString, QVector<MessageItem>> m_store;
     QString m_currentConvId;
     QString m_unreadMarkerId;
