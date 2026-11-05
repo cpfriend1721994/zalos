@@ -31,10 +31,6 @@ jobs:
   build:
     name: ${{ matrix.name }} (${{ matrix.tag }})
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
-    # Keep docker credentials in a job-private dir: on the self-hosted runner /root/.docker/config.json is a
-    # bind mount, so login-action's atomic rename over it fails with "device or resource busy".
-    env:
-      DOCKER_CONFIG: ${{ runner.temp }}/docker
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +48,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           clean: true
+      # Keep docker credentials in a job-private dir: /root/.docker/config.json is a bind mount on the self-hosted
+      # runner, so login-action's atomic rename over it fails with "device or resource busy". $RUNNER_TEMP is unique.
+      - name: Use a job-private DOCKER_CONFIG
+        run: echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
       - name: Lowercase owner (GHCR requires lowercase)
         id: base
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}:${{ matrix.tag }}" >> "$GITHUB_OUTPUT"
