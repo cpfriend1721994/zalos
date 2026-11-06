@@ -1,8 +1,20 @@
+# A source context only: the base images (Dockerfile, Dockerfile.ubuntu, Dockerfile.nix) contain the toolchain and
+# Dockerfile.app bakes a clean source tree, so local build trees, artifacts, VCS data and agent files never ship.
 build/
+build-*/
 dist/
-.git/
+dist-*/
 *.AppImage
 *.rpm
+*.deb
 *.flatpak
+.flatpak-builder/
+.git/
 .agents/
+__pycache__/
+*.pyc
 
+# Local session exports and screenshots (may contain credentials or personal data)
+zsess.json
+*.session.json
+/zalos_*.png

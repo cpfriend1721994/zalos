@@ -14,13 +14,25 @@ mkdir -p "${RPMBUILD_DIR}/"{BUILD,RPMS,SOURCES,SPECS,SRPMS} "${OUTPUT_DIR}"
 # 1. Create source tarball
 TARBALL_NAME="zalos-1.0.0.tar.gz"
 echo "==> Creating source tarball ${TARBALL_NAME}..."
-# Only files git tracks or would track (.gitignore respected): never sessions (zsess.json), offline caches
-# (.local/, .config/, .cache/ written by containers with HOME=/workspace), build trees or dist/.
+# Only project sources, from an explicit exclude list (mirrors .gitignore, .dockerignore and the Nix source
+# filter): never sessions (zsess.json), offline caches (.local/, .config/, .cache/), screenshots, build trees,
+# packages or agent files. A file list rather than `git ls-files` because the CI packaging image bakes the source
+# in with COPY (Dockerfile.app), so there is no repository in the container; the same script still works on a
+# bind-mounted checkout locally.
 ( cd "${WORKSPACE_DIR}" &&
-  git -c safe.directory='*' ls-files -z --cached --others --exclude-standard |
-  while IFS= read -r -d '' f; do [ -f "$f" ] && printf '%s\0' "$f"; done ) > /tmp/zalos-src-files
-if [ ! -s /tmp/zalos-src-files ]; then
-    echo "❌ git ls-files returned nothing: refusing to tar the whole workspace" >&2
+  find . -mindepth 1 \
+      \( -path './.git' -o -path './.agents' -o -path './build' -o -path './build-*' -o -path './dist' \
+         -o -path './dist-*' \
+         -o -path './.cache' -o -path './.config' -o -path './.local' -o -path './.flatpak-builder' \
+         -o -name '__pycache__' \) -prune -o \
+      -type f \
+      ! -name 'AGENTS.md' ! -name 'CLAUDE.md' ! -name 'GEMINI.md' \
+      ! -name 'zsess.json' ! -name '*.session.json' ! -name 'zalos_*.png' \
+      ! -name '*.AppImage' ! -name '*.rpm' ! -name '*.deb' ! -name '*.flatpak' ! -name '*.tar.gz' \
+      ! -name 'CMakeLists.txt.user' ! -name '*.autosave' ! -name '*.pyc' \
+      -printf '%P\0' ) > /tmp/zalos-src-files
+if [ ! -s /tmp/zalos-src-files ] || ! tr '\0' '\n' < /tmp/zalos-src-files | grep -qx 'CMakeLists.txt'; then
+    echo "❌ Source list is empty or has no CMakeLists.txt: refusing to tar ${WORKSPACE_DIR}" >&2
     exit 1
 fi
 tar -C "${WORKSPACE_DIR}" --transform 's,^,zalos-1.0.0/,' \

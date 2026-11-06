@@ -68,31 +68,29 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Base image is prebuilt multiarch on GHCR — pull and retag to the names docker-compose.yml expects.
-      # No `docker compose build`: the toolchain is never rebuilt (and never installed under QEMU for arm64).
-      - name: Pull prebuilt base (amd64 + arm64)
+      # No bind mounts in the packaging jobs. A runner whose docker daemon is remote or containerized cannot see
+      # the job checkout, so `docker compose run` gets an empty /workspace and dies with
+      # "bash: /workspace/packaging/...: No such file or directory" (exit 127). scripts/ci-package.sh moves the
+      # source and the artifacts through the docker API instead: pull the prebuilt multiarch base (built once by
+      # base-images.yml, never rebuilt here), COPY the source onto it (Dockerfile.app), run the packaging script,
+      # copy /workspace/dist out. Each run is a fresh tree, so no build dir or stale artifact carries over.
+      - name: Prebuilt base image (multiarch, from base-images.yml)
+        run: echo "base_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-fedora:43" >> "$GITHUB_ENV"
+      - run: rm -rf dist
+      - name: Pull base for amd64
         run: |
-          docker pull --platform linux/amd64 ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-fedora:43
-          docker tag  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-fedora:43 localhost/zalos-fedora:43
-          docker pull --platform linux/arm64 ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-fedora:43
-          docker tag  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-fedora:43 localhost/zalos-fedora-arm64:43
-      - run: rm -rf dist /tmp/rpmbuild
-      # TEMP diagnostic: prove whether the runner's docker daemon can see the checkout via a bind mount.
-      - name: Diagnose workspace mount
-        run: |
-          echo "== host: pwd + checkout =="; pwd; ls -la packaging/rpm | head
-          echo "== docker daemon =="; docker info 2>/dev/null | grep -iE 'Server Version|Rootless|Operating System|Name:|Cgroup Driver' || true
-          echo "== container /workspace =="; docker compose run --rm --entrypoint bash package-rpm -c 'ls -la /workspace | head; echo ---; ls -la /workspace/packaging/rpm 2>&1 | head; echo ---; grep -i workspace /proc/mounts || echo "(no workspace mount in /proc/mounts)"'
+          docker pull --platform linux/amd64 "${base_image}"
+          docker tag  "${base_image}" zalos-fedora:43-amd64
       - name: Build RPM (x86_64)
-        run: docker compose run --rm package-rpm
+        run: bash scripts/ci-package.sh zalos-fedora:43-amd64 linux/amd64 packaging/rpm/build-rpm.sh
       - name: Enable aarch64 emulation (binfmt)
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
-      - name: Clean build trees before the aarch64 build
-        run: docker compose run --rm --entrypoint rm package-rpm -rf /workspace/build /tmp/rpmbuild || true
+      - name: Pull base for arm64
+        run: |
+          docker pull --platform linux/arm64 "${base_image}"
+          docker tag  "${base_image}" zalos-fedora:43-arm64
       - name: Build RPM (aarch64, emulated)
-        run: docker compose run --rm package-rpm-arm64
-      - name: Fix artifact ownership
-        run: docker compose run --rm --entrypoint chown package-rpm -R "$(id -u):$(id -g)" /workspace/dist || true
+        run: bash scripts/ci-package.sh zalos-fedora:43-arm64 linux/arm64 packaging/rpm/build-rpm.sh
       - uses: actions/upload-artifact@v7
         with:
           name: zalos-rpm
@@ -127,28 +125,28 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Prebuilt Ubuntu base (Qt 6.4) from GHCR — retagged to the names docker-compose.yml expects, no build.
-      - name: Pull prebuilt base (amd64 + arm64)
+      # Prebuilt Ubuntu base (Qt 6.4) from GHCR; the source is baked on top of it per target (see the RPM job).
+      - name: Prebuilt base image (multiarch, from base-images.yml)
+        run: echo "base_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-ubuntu:24.04" >> "$GITHUB_ENV"
+      - run: rm -rf dist
+      - name: Pull base for amd64
         run: |
-          docker pull --platform linux/amd64 ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-ubuntu:24.04
-          docker tag  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-ubuntu:24.04 localhost/zalos-ubuntu:24.04
-          docker pull --platform linux/arm64 ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-ubuntu:24.04
-          docker tag  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-ubuntu:24.04 localhost/zalos-ubuntu-arm64:24.04
-      - run: rm -rf dist build-deb build-appimage
+          docker pull --platform linux/amd64 "${base_image}"
+          docker tag  "${base_image}" zalos-ubuntu:24.04-amd64
       - name: Build .deb + AppImage (x86_64)
         run: |
-          docker compose run --rm package-deb
-          docker compose run --rm package-appimage
+          bash scripts/ci-package.sh zalos-ubuntu:24.04-amd64 linux/amd64 packaging/deb/build-deb.sh
+          bash scripts/ci-package.sh zalos-ubuntu:24.04-amd64 linux/amd64 packaging/appimage/build-appimage.sh
       - name: Enable aarch64 emulation (binfmt)
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
-      - name: Clean build trees before the aarch64 build
-        run: docker compose run --rm --entrypoint rm package-deb -rf /workspace/build-deb /workspace/build-appimage || true
+      - name: Pull base for arm64
+        run: |
+          docker pull --platform linux/arm64 "${base_image}"
+          docker tag  "${base_image}" zalos-ubuntu:24.04-arm64
       - name: Build .deb + AppImage (aarch64, emulated)
         run: |
-          docker compose run --rm package-deb-arm64
-          docker compose run --rm package-appimage-arm64
-      - name: Fix artifact ownership
-        run: docker compose run --rm --entrypoint chown package-deb -R "$(id -u):$(id -g)" /workspace/dist || true
+          bash scripts/ci-package.sh zalos-ubuntu:24.04-arm64 linux/arm64 packaging/deb/build-deb.sh
+          bash scripts/ci-package.sh zalos-ubuntu:24.04-arm64 linux/arm64 packaging/appimage/build-appimage.sh
       - uses: actions/upload-artifact@v7
         with:
           name: zalos-deb-appimage
@@ -183,22 +181,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: rm -rf dist
-      # Both nix services reference docker.io/nixos/nix:latest; retag the pinned GHCR base to that name for the
-      # arch about to run (amd64 here, arm64 in the aarch64 step) so the job uses the prebuilt base, not a pull.
-      - name: Build Nix package (x86_64, updates flake.lock to the newest nixos-unstable)
+      # The nix base pins nixos/nix with flakes pre-enabled (see Dockerfile.nix). The flake.lock refresh happens
+      # inside the container, so it is not committed back — the release archive is built from the pinned revision.
+      - name: Prebuilt base image (multiarch, from base-images.yml)
+        run: echo "base_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-nix:latest" >> "$GITHUB_ENV"
+      - name: Build Nix package (x86_64, against the newest nixos-unstable)
         run: |
-          docker pull --platform linux/amd64 ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-nix:latest
-          docker tag  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-nix:latest docker.io/nixos/nix:latest
-          docker compose run --rm package-nix
+          docker pull --platform linux/amd64 "${base_image}"
+          docker tag  "${base_image}" zalos-nix:latest-amd64
+          bash scripts/ci-package.sh zalos-nix:latest-amd64 linux/amd64 packaging/nix/build-nix.sh
       - name: Enable aarch64 emulation (binfmt)
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
       - name: Build Nix package (aarch64, emulated)
         run: |
-          docker pull --platform linux/arm64 ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-nix:latest
-          docker tag  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-nix:latest docker.io/nixos/nix:latest
-          docker compose run --rm package-nix-arm64
-      - name: Fix artifact ownership
-        run: docker compose run --rm --entrypoint chown package-nix -R "$(id -u):$(id -g)" /workspace/dist || true
+          docker pull --platform linux/arm64 "${base_image}"
+          docker tag  "${base_image}" zalos-nix:latest-arm64
+          bash scripts/ci-package.sh zalos-nix:latest-arm64 linux/arm64 packaging/nix/build-nix.sh
       - uses: actions/upload-artifact@v7
         with:
           name: zalos-nix

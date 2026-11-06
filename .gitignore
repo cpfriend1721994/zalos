@@ -3,6 +3,7 @@ build-appimage/
 build-ubuntu/
 build-deb/
 dist/
+dist-*/
 *.AppImage
 *.rpm
 *.flatpak
