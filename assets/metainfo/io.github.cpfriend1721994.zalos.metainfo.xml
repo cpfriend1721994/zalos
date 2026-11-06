@@ -28,6 +28,11 @@
     <binary>zalos</binary>
   </provides>
   <releases>
+    <release version="1.0.6" date="2026-11-07">
+      <description>
+        <p>Duplicate-message fix for mobile history resync (cliMsgId dedup), text emoticons rendered as emoji, a photo viewer that no longer initialises a media backend, and a minified GitHub Pages deployment.</p>
+      </description>
+    </release>
     <release version="1.0.5" date="2026-11-06">
       <description>
         <p>Memory optimizations inspired by Telegram Desktop, complete mobile history sync with 64-bit znoise resolution, in-app video playback, avatar/background viewer, and ARM64 Nix build fixes.</p>

@@ -18,6 +18,15 @@ Rectangle {
     property real angle: 0
     readonly property real minZoom: 0.25
     readonly property real maxZoom: 8.0
+    property var videoPlayer: null
+    readonly property bool videoPlaying: !!videoPlayer && videoPlayer.playbackState === MediaPlayer.PlayingState
+    readonly property bool videoLoading: !!videoPlayer && (videoPlayer.mediaStatus === MediaPlayer.LoadingMedia
+                                                           || videoPlayer.mediaStatus === MediaPlayer.BufferingMedia)
+    readonly property bool videoFailed: !!videoPlayer && videoPlayer.error !== MediaPlayer.NoError
+    readonly property bool videoMuted: !videoPlayer || videoPlayer.audioOutput.muted
+    readonly property real videoPosition: videoPlayer ? videoPlayer.position : 0
+    readonly property real videoDuration: videoPlayer ? videoPlayer.duration : 0
+    readonly property bool videoSeekable: !!videoPlayer && videoPlayer.seekable
 
     function resetView(): void {
         zoom = 1.0;
@@ -27,7 +36,7 @@ Rectangle {
     }
     function go(delta: int): void {
         if (count < 2) return;
-        videoPlayer.stop();
+        stopVideo();
         ImageViewerState.index = (ImageViewerState.index + delta + count) % count;
         resetView();
     }
@@ -48,30 +57,30 @@ Rectangle {
         return (m < 10 ? "0" + m : String(m)) + ":" + (s < 10 ? "0" + s : String(s));
     }
     function toggleVideoPlayback(): void {
-        if (!root.isVideo) return;
+        if (!root.isVideo || !videoPlayer) return;
         if (videoPlayer.playbackState === MediaPlayer.PlayingState) videoPlayer.pause();
         else videoPlayer.play();
     }
+    function stopVideo(): void { if (videoPlayer) videoPlayer.stop(); }
+    function loadVideo(sourceUrl: url): void {
+        if (!videoPlayer) videoPlayer = videoPlayerComponent.createObject(root);
+        if (!videoPlayer) return;
+        videoPlayer.source = sourceUrl;
+        videoPlayer.play();
+    }
 
     onCurrentChanged: {
-        videoPlayer.stop();
-        if (root.isVideo && root.current.url) {
-            videoPlayer.source = root.current.url;
-            videoPlayer.play();
-        } else {
-            videoPlayer.source = "";
-        }
+        stopVideo();
+        if (root.isVideo && root.current.url) loadVideo(root.current.url);
+        else if (videoPlayer) videoPlayer.source = "";
     }
 
     Component.onCompleted: {
         forceActiveFocus();
-        if (root.isVideo && root.current.url) {
-            videoPlayer.source = root.current.url;
-            videoPlayer.play();
-        }
+        if (root.isVideo && root.current.url) loadVideo(root.current.url);
     }
-    Component.onDestruction: videoPlayer.stop()
-    Keys.onEscapePressed: { videoPlayer.stop(); ImageViewerState.close(); }
+    Component.onDestruction: stopVideo()
+    Keys.onEscapePressed: { stopVideo(); ImageViewerState.close(); }
     Keys.onLeftPressed: go(-1)
     Keys.onRightPressed: go(1)
     Keys.onPressed: function(event) {
@@ -84,18 +93,17 @@ Rectangle {
         else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_S) { saveDialog.open(); event.accepted = true; }
     }
 
-    MediaPlayer {
-        id: videoPlayer
-        audioOutput: AudioOutput {
-            id: videoAudio
-            muted: false
+    Component {
+        id: videoPlayerComponent
+        MediaPlayer {
+            audioOutput: AudioOutput { muted: false }
+            videoOutput: videoOut
         }
-        videoOutput: videoOut
     }
 
     MouseArea {
         anchors.fill: parent
-        onClicked: { videoPlayer.stop(); ImageViewerState.close(); }
+        onClicked: { stopVideo(); ImageViewerState.close(); }
     }
 
     Item {
@@ -153,8 +161,7 @@ Rectangle {
             }
 
             Rectangle {
-                visible: root.isVideo && videoPlayer.playbackState !== MediaPlayer.PlayingState
-                         && videoPlayer.error === MediaPlayer.NoError
+                visible: root.isVideo && !root.videoPlaying && !root.videoFailed
                 anchors.centerIn: parent
                 width: 64
                 height: 64
@@ -172,15 +179,12 @@ Rectangle {
 
         BusyIndicator {
             anchors.centerIn: parent
-            running: (!root.isVideo && photo.status === Image.Loading)
-                     || (root.isVideo && (videoPlayer.mediaStatus === MediaPlayer.LoadingMedia
-                                          || videoPlayer.mediaStatus === MediaPlayer.BufferingMedia))
+            running: (!root.isVideo && photo.status === Image.Loading) || (root.isVideo && root.videoLoading)
             visible: running
         }
         ColumnLayout {
             anchors.centerIn: parent
-            visible: (!root.isVideo && photo.status === Image.Error)
-                     || (root.isVideo && videoPlayer.error !== MediaPlayer.NoError)
+            visible: (!root.isVideo && photo.status === Image.Error) || (root.isVideo && root.videoFailed)
             spacing: 10
             Text {
                 Layout.alignment: Qt.AlignHCenter
@@ -247,7 +251,7 @@ Rectangle {
                 color: playBtnMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : ThemeManager.hoverClearColor
                 ZIcon {
                     anchors.centerIn: parent
-                    name: videoPlayer.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
+                    name: root.videoPlaying ? "pause" : "play"
                     size: 18
                     color: "#FFFFFF"
                 }
@@ -261,7 +265,7 @@ Rectangle {
             }
 
             Text {
-                text: root.formatDuration(videoPlayer.position) + " / " + root.formatDuration(videoPlayer.duration)
+                text: root.formatDuration(root.videoPosition) + " / " + root.formatDuration(root.videoDuration)
                 color: "#E5E7EB"
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
@@ -271,10 +275,10 @@ Rectangle {
                 id: seekSlider
                 Layout.fillWidth: true
                 from: 0
-                to: Math.max(1, videoPlayer.duration)
-                value: pressed ? value : videoPlayer.position
+                to: Math.max(1, root.videoDuration)
+                value: pressed ? value : root.videoPosition
                 onMoved: {
-                    if (videoPlayer.seekable) videoPlayer.position = value;
+                    if (root.videoSeekable) videoPlayer.position = value;
                 }
                 background: Rectangle {
                     x: seekSlider.leftPadding
@@ -309,7 +313,7 @@ Rectangle {
                 color: muteBtnMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : ThemeManager.hoverClearColor
                 ZIcon {
                     anchors.centerIn: parent
-                    name: videoAudio.muted ? "volume_off" : "volume"
+                    name: root.videoMuted ? "volume_off" : "volume"
                     size: 18
                     color: "#FFFFFF"
                 }
@@ -318,7 +322,7 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: videoAudio.muted = !videoAudio.muted
+                    onClicked: if (videoPlayer) videoPlayer.audioOutput.muted = !videoPlayer.audioOutput.muted
                 }
             }
         }
@@ -418,7 +422,7 @@ Rectangle {
                                   : I18n.t("Mở ảnh gốc trong trình duyệt", "Open original in browser")
                 onClicked: Qt.openUrlExternally(root.current.url)
             }
-            ToolButtonIcon { icon: "close"; tip: I18n.t("Đóng (Esc)", "Close (Esc)"); onClicked: { videoPlayer.stop(); ImageViewerState.close(); } }
+            ToolButtonIcon { icon: "close"; tip: I18n.t("Đóng (Esc)", "Close (Esc)"); onClicked: { stopVideo(); ImageViewerState.close(); } }
         }
     }
 
@@ -468,7 +472,7 @@ Rectangle {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { videoPlayer.stop(); ImageViewerState.index = index; root.resetView(); }
+                onClicked: { stopVideo(); ImageViewerState.index = index; root.resetView(); }
             }
         }
     }

@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           zalos
-Version:        1.0.5
+Version:        1.0.6
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT
@@ -73,6 +73,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/%{name}/zcall-native/
 
 %changelog
+* Sat Nov 07 2026 Zalos Team <dev@zalos.local> - 1.0.6-1
+- Deduplicate messages by cliMsgId in MessageModel and offline.db (mobile resync duplicates) with a one-shot migration.
+- Render Zalo text emoticons (:v, :)), =)), :D, :P ...) as emoji with token boundaries.
+- Create the ImageViewer media player on demand so photos never initialise QtMultimedia.
+- Minify the GitHub Pages site into _site/ during deployment.
+
 * Fri Nov 06 2026 Zalos Team <dev@zalos.local> - 1.0.5-1
 - Telegram Desktop-inspired memory architecture: single-buffer MessageModel, zero-RAM raw_json duplication, scaled QImageReader decode, lazy ConversationInfoPanel, and background tray memory trimming.
 - Complete mobile history sync cleanup (cleanMobileSync) and 64-bit znoise resolution for mentions and quotes.

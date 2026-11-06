@@ -1221,7 +1221,7 @@
         <img src="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg"
           alt="Biểu tượng Zalos" data-en-alt="Zalos logo" class="brand-logo" width="28" height="28">
         <span>Zalos</span>
-        <span class="version-pill">v1.0.5</span>
+        <span class="version-pill">v1.0.6</span>
       </a>
 
       <nav aria-label="Điều hướng chính" data-en-aria="Main navigation">
@@ -1289,7 +1289,7 @@
               <svg aria-hidden="true" viewBox="0 0 24 24">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
               </svg>
-              <span data-en="Download release v1.0.5">Tải bản phát hành v1.0.5</span>
+              <span data-en="Download release v1.0.6">Tải bản phát hành v1.0.6</span>
             </a>
             <a href="#install" class="btn-secondary">
               <span data-en="Installation guide">Hướng dẫn cài đặt</span>
@@ -1525,8 +1525,8 @@
             </p>
             <ul class="pillar-list" role="list">
               <li
-                data-en="<strong>Flexible sign-in:</strong> scan a QR code, sign in with your phone number, or one-click auto-detect an active Zalo session from a Chromium-based browser profile (Chrome, Chromium, Brave, Edge, Vivaldi, Thorium) on the same machine.">
-                <strong>Đăng nhập linh hoạt:</strong> quét mã QR, đăng nhập bằng số điện thoại, hoặc bấm một nút để tự
+                data-en="<strong>Flexible sign-in:</strong> scan a QR code, or one-click auto-detect an active Zalo session from a Chromium-based browser profile (Chrome, Chromium, Brave, Edge, Vivaldi, Thorium) on the same machine.">
+                <strong>Đăng nhập linh hoạt:</strong> quét mã QR nhanh chóng, hoặc bấm một nút để tự
                 động nhận diện phiên Zalo đang hoạt động từ hồ sơ trình duyệt Chromium trên cùng máy (Chrome, Chromium,
                 Brave, Edge, Vivaldi, Thorium).
               </li>
@@ -1652,12 +1652,12 @@
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-deb">Sao chép</button>
                 <pre id="code-deb" class="code-pre" tabindex="0"><code># x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.5-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.0.5-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.6-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.0.6-1~ubuntu24.04_amd64.deb
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.5-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.0.5-1~ubuntu24.04_arm64.deb</code></pre>
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.6-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.0.6-1~ubuntu24.04_arm64.deb</code></pre>
               </div>
             </div>
 
@@ -1670,30 +1670,25 @@ sudo apt install ./zalos_1.0.5-1~ubuntu24.04_arm64.deb</code></pre>
                 <button type="button" class="copy-btn" data-copy-target="code-rpm">Sao chép</button>
                 <pre id="code-rpm" class="code-pre"
                   tabindex="0"><code># x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.5-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.6-1.fc43.x86_64.rpm
 
 # ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.5-1.fc43.aarch64.rpm</code></pre>
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.6-1.fc43.aarch64.rpm</code></pre>
               </div>
             </div>
 
             <!-- Panel: AppImage -->
             <div id="panel-appimage" role="tabpanel" aria-labelledby="tab-appimage" class="tab-panel" hidden>
               <p
-                data-en="A portable package that runs directly on openSUSE, Arch Linux, Debian and other distros without administrator rights:">
+                data-en="A portable package that runs directly on openSUSE, Arch Linux, Debian and other distros without administrator rights (x86_64; ARM64 users can use the .deb, RPM or Nix package):">
                 Gói di động chạy trực tiếp trên openSUSE, Arch Linux, Debian và các bản phân phối khác mà không cần
-                quyền quản trị:</p>
+                quyền quản trị (cho x86_64; người dùng ARM64 có thể dùng gói .deb, RPM hoặc Nix):</p>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-appimage">Sao chép</button>
                 <pre id="code-appimage" class="code-pre" tabindex="0"><code># x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.5-x86_64.AppImage
-chmod +x Zalos-1.0.5-x86_64.AppImage
-./Zalos-1.0.5-x86_64.AppImage
-
-# ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.5-aarch64.AppImage
-chmod +x Zalos-1.0.5-aarch64.AppImage
-./Zalos-1.0.5-aarch64.AppImage</code></pre>
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.6-x86_64.AppImage
+chmod +x Zalos-1.0.6-x86_64.AppImage
+./Zalos-1.0.6-x86_64.AppImage</code></pre>
               </div>
             </div>
 

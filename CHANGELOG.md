@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.6] - 2026-11-07
+
+### Added
+- **Text emoticons render as emoji**: Zalo shortcodes such as `:v`, `:)`, `=))`, `:D` and `:P` are converted inside
+  `linkify` with token boundaries, so clocks (`12:30`), URLs (`http://`, `:8080/v`) and identifiers in message text
+  are left untouched.
+
+### Fixed
+- **Duplicate messages after a mobile-history resync**: `MessageModel::mergeMessages` now reconciles incoming rows by
+  their non-zero `cliMsgId` (not only `local-…` echoes), so a phone-imported message whose `msgId` was missing
+  (`msgId == cliMsgId`) is replaced in place by the server copy instead of showing twice. `ZaloOfflineStore::saveMessage`
+  deletes any sibling row of the same conversation with the same `cli_msg_id`, and the one-shot
+  `dedup_cli_version=1` migration purges rows already duplicated in `offline.db`.
+- **Photo viewer no longer needs a media backend**: `ImageViewer` creates its `MediaPlayer` on demand, only when a
+  video is opened. Viewing a picture (chat photo, avatar, cover, chat background) never initialises `QtMultimedia`, so
+  the Qt 6.4 GStreamer backend can no longer crash on systems without `gstreamer1.0-plugins-base`.
+
+### Changed
+- **Minified GitHub Pages deployment**: the site is built from the readable `docs/` source into `_site/`
+  (`scripts/minify-pages.sh` + `packaging/pages/Dockerfile.pages`, `html-minifier-terser`) and deployed from there;
+  the workflow now also triggers on the minifier sources.
+- **Documentation**: refreshed sign-in copy, stated that the portable AppImage is published for x86_64 (ARM64 users
+  are pointed to `.deb`, RPM or Nix), and kept the real `~ubuntu24.04` asset names in the `.deb` examples.
+
 ## [1.0.5] - 2026-11-06
 
 ### Added

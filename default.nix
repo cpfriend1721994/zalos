@@ -2,7 +2,7 @@
 
 pkgs.stdenv.mkDerivation rec {
   pname = "zalos";
-  version = "1.0.5";
+  version = "1.0.6";
 
   # Only sources: never sessions (zsess.json), offline caches (.local/.config/.cache written by containers with
   # HOME=/workspace), screenshots, build trees or packages — the Nix store is world-readable.

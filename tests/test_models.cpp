@@ -56,6 +56,25 @@ private slots:
         QCOMPARE(model.latestMessageId("t"), QString("5002"));
     }
 
+    void testResyncDedupesByCliMsgId() {
+        MessageModel model;
+        model.loadConversation("t");
+        MessageItem synced; synced.id = "1700000000009"; synced.cliMsgId = "1700000000009"; synced.text = "x";
+        synced.ts = 5; synced.isMine = true;
+        model.mergeMessages("t", {synced});
+        MessageItem server = synced; server.id = "9001";
+        model.mergeMessages("t", {server});
+        QCOMPARE(model.rowCount(), 1);
+        QVERIFY(model.contains("t", "9001"));
+    }
+
+    void testEmoticonShortcodes() {
+        QVERIFY(MessageModel::linkify(QStringLiteral("hay :v")).contains(QString::fromUtf8("✌️")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("haha =))")).contains(QString::fromUtf8("🤣")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("12:30")).contains(QStringLiteral("12:30")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("https://a.b:8080/v")).contains(QStringLiteral("8080/v")));
+    }
+
     void testReadPointsAndConversationActions() {
         MessageModel msgs;
         MessageItem mine; mine.id = "100"; mine.isMine = true; mine.ts = 1;

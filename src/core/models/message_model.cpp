@@ -242,33 +242,41 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
     const bool isActive = !convId.isEmpty() && m_currentConvId == convId;
     QVector<MessageItem> working = isActive ? m_items : m_store.value(convId);
     QSet<QString> known;
-    QHash<QString, int> pendingByCliId;
+    QHash<QString, int> byCliId;
     for (int i = 0; i < working.size(); ++i) {
         known.insert(working[i].id);
-        if (working[i].id.startsWith(QLatin1String("local-")) && !working[i].cliMsgId.isEmpty()) {
-            pendingByCliId.insert(working[i].cliMsgId, i);
+        if (!working[i].cliMsgId.isEmpty() && working[i].cliMsgId != QLatin1String("0")) {
+            byCliId.insert(working[i].cliMsgId, i);
         }
     }
     bool added = false;
     bool needSort = false;
     for (const auto& m : items) {
         if (m.id.isEmpty() || known.contains(m.id)) continue;
-        known.insert(m.id);
-        const int pending = pendingByCliId.contains(m.cliMsgId) ? pendingByCliId.take(m.cliMsgId) : -1;
-        if (pending >= 0) {
-            const QString localId = working[pending].id;
+        const int existingIdx = (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0") && byCliId.contains(m.cliMsgId))
+                                ? byCliId.value(m.cliMsgId) : -1;
+        if (existingIdx >= 0) {
+            const QString oldId = working[existingIdx].id;
             MessageItem merged = m;
             if (merged.status.isEmpty()) merged.status = QStringLiteral("sent");
-            working[pending] = merged;
+            if (merged.reaction.isEmpty()) merged.reaction = working[existingIdx].reaction;
+            if (working[existingIdx].isRecalled) {
+                merged.isRecalled = true;
+                merged.text = working[existingIdx].text;
+            }
+            known.remove(oldId);
+            known.insert(merged.id);
+            working[existingIdx] = merged;
             if (isActive) {
-                for (int row = 0; row < m_items.size(); ++row) {
-                    if (m_items[row].id != localId) continue;
-                    m_items[row] = merged;
-                    emit dataChanged(index(row), index(row));
-                    break;
-                }
+                m_items[existingIdx] = merged;
+                emit dataChanged(index(existingIdx), index(existingIdx));
+                refreshRunsAround(existingIdx);
             }
             continue;
+        }
+        known.insert(m.id);
+        if (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0")) {
+            byCliId.insert(m.cliMsgId, working.size());
         }
         if (!working.isEmpty() && m.ts < working.last().ts) needSort = true;
         working.append(m);
@@ -611,6 +619,68 @@ QVariantMap MessageModel::getMessageById(const QString& msgId) const {
     return {};
 }
 
+namespace {
+QString convertEmoticons(const QString& text) {
+    if (text.isEmpty()) return text;
+    // Map standard emoticons (like :v, :3, :)), =)), :D, :P, etc.) to emoji
+    struct EmoticonRule {
+        const char* code;
+        const char* emoji;
+    };
+    static const EmoticonRule rules[] = {
+        {":-((", "😭"}, {":((", "😭"},
+        {":)))", "😆"}, {":))", "😆"},
+        {"=)))", "🤣"}, {"=))", "🤣"},
+        {":-D", "😀"}, {":D", "😀"}, {":d", "😀"},
+        {":-P", "😛"}, {":P", "😛"}, {":-p", "😛"}, {":p", "😛"},
+        {":-O", "😮"}, {":O", "😮"}, {":-o", "😮"}, {":o", "😮"},
+        {";-)", "😉"}, {";)", "😉"},
+        {":-)", "🙂"}, {":)", "🙂"},
+        {":-(", "🙁"}, {":(", "🙁"},
+        {":-*", "😘"}, {":*", "😘"},
+        {":-|", "😐"}, {":|", "😐"},
+        {":-/", "😕"}, {":/", "😕"},
+        {":-h", "👋"},
+        {":v", "✌️"}, {":V", "✌️"},
+        {":3", "😺"},
+        {":$", "😳"},
+        {":z", "😴"}, {":Z", "😴"},
+        {"8-)", "😎"}, {"B-)", "😎"}, {"b-)", "😎"},
+        {"<3", "❤️"},
+        {"/-heart", "❤️"}, {"/-strong", "💪"}, {"/-weak", "👎"},
+        {"/-ok", "👌"}, {"/-thanks", "🙏"}, {"/-rose", "🌹"},
+        {"/-beer", "🍺"}, {"/-coffee", "☕"}
+    };
+
+    QString res;
+    res.reserve(text.size());
+    int i = 0;
+    const int n = text.size();
+    while (i < n) {
+        bool matched = false;
+        for (const auto& r : rules) {
+            const int len = int(strlen(r.code));
+            if (i + len <= n && text.mid(i, len) == QLatin1String(r.code)) {
+                // Ensure boundary: not inside an identifier/word (e.g. not part of http:// or 12:30)
+                const bool startOk = (i == 0 || text.at(i - 1).isSpace() || QStringLiteral("([{\"\'`>").contains(text.at(i - 1)));
+                const bool endOk = (i + len == n || text.at(i + len).isSpace() || QStringLiteral(")]}\"\'`!?.,;:<").contains(text.at(i + len)));
+                if (startOk && endOk) {
+                    res += QString::fromUtf8(r.emoji);
+                    i += len;
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if (!matched) {
+            res += text.at(i);
+            ++i;
+        }
+    }
+    return res;
+}
+}
+
 QString MessageModel::linkify(const QString& text) {
     static const QRegularExpression url(QStringLiteral(R"((https?://[^\s<>"']+|www\.[^\s<>"']+))"));
     QString out;
@@ -620,12 +690,12 @@ QString MessageModel::linkify(const QString& text) {
         const auto m = it.next();
         QString link = m.captured(0);
         while (!link.isEmpty() && QStringLiteral(".,;:!?)]}").contains(link.back())) link.chop(1);
-        out += text.mid(last, m.capturedStart() - last).toHtmlEscaped();
+        out += convertEmoticons(text.mid(last, m.capturedStart() - last)).toHtmlEscaped();
         const QString href = link.startsWith(QLatin1String("www.")) ? "https://" + link : link;
         out += QStringLiteral("<a href=\"%1\">%2</a>").arg(href.toHtmlEscaped(), link.toHtmlEscaped());
         last = m.capturedStart() + link.size();
     }
-    out += text.mid(last).toHtmlEscaped();
+    out += convertEmoticons(text.mid(last)).toHtmlEscaped();
     return out.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
 }
 

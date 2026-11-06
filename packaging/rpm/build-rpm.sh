@@ -12,7 +12,7 @@ OUTPUT_DIR="${WORKSPACE_DIR}/dist"
 mkdir -p "${RPMBUILD_DIR}/"{BUILD,RPMS,SOURCES,SPECS,SRPMS} "${OUTPUT_DIR}"
 
 # 1. Create source tarball
-TARBALL_NAME="zalos-1.0.5.tar.gz"
+TARBALL_NAME="zalos-1.0.6.tar.gz"
 echo "==> Creating source tarball ${TARBALL_NAME}..."
 # Only project sources, from an explicit exclude list (mirrors .gitignore, .dockerignore and the Nix source
 # filter): never sessions (zsess.json), offline caches (.local/, .config/, .cache/), screenshots, build trees,
@@ -35,7 +35,7 @@ if [ ! -s /tmp/zalos-src-files ] || ! tr '\0' '\n' < /tmp/zalos-src-files | grep
     echo "❌ Source list is empty or has no CMakeLists.txt: refusing to tar ${WORKSPACE_DIR}" >&2
     exit 1
 fi
-tar -C "${WORKSPACE_DIR}" --transform 's,^,zalos-1.0.5/,' \
+tar -C "${WORKSPACE_DIR}" --transform 's,^,zalos-1.0.6/,' \
     -czf "${RPMBUILD_DIR}/SOURCES/${TARBALL_NAME}" --null -T /tmp/zalos-src-files
 
 # 2. Copy spec file

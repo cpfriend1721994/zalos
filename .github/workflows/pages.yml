@@ -5,6 +5,8 @@ on:
     branches: [ main ]
     paths:
       - 'docs/**'
+      - 'packaging/pages/**'
+      - 'scripts/minify-pages.sh'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -29,13 +31,16 @@ jobs:
         with:
           clean: true
 
+      - name: Minify site (docs/ -> _site/)
+        run: bash scripts/minify-pages.sh "${GITHUB_WORKSPACE}/_site"
+
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v6
 
       - name: Upload Artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: './docs'
+          path: './_site'
 
       - name: Deploy to GitHub Pages
         id: deployment

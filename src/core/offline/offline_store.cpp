@@ -304,6 +304,18 @@ void ZaloOfflineStore::migrateStorage() {
         setMeta("ttl_version", "2");
         m_db.commit();
     }
+    if (meta("dedup_cli_version") != QLatin1String("1")) {
+        m_db.transaction();
+        QSqlQuery d(m_db);
+        d.exec("DELETE FROM messages WHERE rowid IN ("
+               "SELECT m1.rowid FROM messages m1 "
+               "JOIN messages m2 ON m1.conv_id = m2.conv_id "
+               "AND m1.cli_msg_id = m2.cli_msg_id "
+               "AND m1.cli_msg_id IS NOT NULL AND m1.cli_msg_id <> '' AND m1.cli_msg_id <> '0' "
+               "AND (m1.rowid < m2.rowid OR (m1.id LIKE 'local-%' AND m2.id NOT LIKE 'local-%')));");
+        setMeta("dedup_cli_version", "1");
+        m_db.commit();
+    }
     if (meta("raw_codec") != QLatin1String("z1")) {
         m_db.transaction();
         QSqlQuery r(m_db);
@@ -593,6 +605,24 @@ QVector<Models::ConversationItem> ZaloOfflineStore::loadConversations() {
 bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageItem& item, const QJsonObject& raw,
                                    bool isGroup) {
     if (!m_db.isOpen() || item.id.isEmpty() || item.id.startsWith(QLatin1String("local-"))) return false;
+
+    // Deduplicate if there is already a message in this conversation with the same non-zero cliMsgId
+    if (!item.cliMsgId.isEmpty() && item.cliMsgId != QLatin1String("0")) {
+        QSqlQuery chk(m_db);
+        chk.prepare("SELECT id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND id <> :id LIMIT 1;");
+        chk.bindValue(":conv", convId);
+        chk.bindValue(":cli", item.cliMsgId);
+        chk.bindValue(":id", item.id);
+        if (chk.exec() && chk.next()) {
+            const QString existingId = chk.value(0).toString();
+            // Delete the old duplicate row so this newer/canonical message replaces it cleanly
+            QSqlQuery del(m_db);
+            del.prepare("DELETE FROM messages WHERE id = :oldId;");
+            del.bindValue(":oldId", existingId);
+            del.exec();
+        }
+    }
+
     if (!m_saveMessageQuery) {
         m_saveMessageQuery = std::make_unique<QSqlQuery>(m_db);
         m_saveMessageQuery->prepare("INSERT INTO messages (id, conv_id, sender_name, text, time_str, is_mine, is_e2ee, reaction, message_type, "

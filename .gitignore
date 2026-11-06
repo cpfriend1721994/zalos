@@ -4,6 +4,7 @@ build-ubuntu/
 build-deb/
 dist/
 dist-*/
+_site/
 *.AppImage
 *.rpm
 *.flatpak
