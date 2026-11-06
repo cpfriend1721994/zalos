@@ -3,9 +3,16 @@ project(zalos VERSION 1.0.4 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-ffunction-sections -fdata-sections)
+    add_link_options(-Wl,--gc-sections)
+endif()
 
 find_package(Qt6 6.4 REQUIRED COMPONENTS
     Core
@@ -296,8 +303,7 @@ if(BUILD_TESTING)
     )
     add_test(NAME test_protocol COMMAND test_protocol)
 
-    add_executable(test_e2e
-        tests/test_e2e.cpp
+    add_library(zalos_test_core OBJECT
         src/core/crypto/db_cross.cpp
         src/core/fs/file_utils.cpp
         src/core/media/media_utils.cpp
@@ -333,84 +339,9 @@ if(BUILD_TESTING)
         src/core/platform/system_tray.cpp
         src/core/platform/sound_engine.cpp
     )
-    target_compile_definitions(test_e2e PRIVATE ZALOS_TESTING ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    target_include_directories(test_e2e PRIVATE src src/core ${LZMA_INCLUDE_DIRS})
-    target_link_libraries(test_e2e PRIVATE
-        Qt6::Core
-        Qt6::Qml
-        Qt6::Quick
-        Qt6::Gui
-        Qt6::Widgets
-        Qt6::Network
-        Qt6::DBus
-        Qt6::Sql
-        Qt6::Test
-        Qt6::WebSockets
-        Qt6::Multimedia
-        OpenSSL::Crypto
-        ZLIB::ZLIB
-        SQLite::SQLite3
-        ${LZMA_LIBRARIES}
-        ${CMAKE_DL_LIBS}
-    )
-    add_test(NAME test_e2e COMMAND test_e2e)
-
-    # qt_add_qml_module's generated resources: .rcc/ up to Qt 6.4 (Ubuntu 24.04), .qt/rcc/ from Qt 6.5.
-    if(Qt6_VERSION VERSION_LESS 6.5)
-        set(ZALOS_QT_RCC_DIR ${CMAKE_CURRENT_BINARY_DIR}/.rcc)
-    else()
-        set(ZALOS_QT_RCC_DIR ${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc)
-    endif()
-    add_executable(test_system
-        tests/test_system.cpp
-        src/core/crypto/db_cross.cpp
-        src/core/fs/file_utils.cpp
-        src/core/media/media_utils.cpp
-        src/core/call/zcall_engine.cpp
-        src/core/call/call_bridge.cpp
-        src/core/call/camera_sender.cpp
-        src/core/call/h264_codec.cpp
-        src/core/call/peer_video.cpp
-        src/core/platform/desktop_notifications.cpp
-        src/core/platform/single_instance.cpp
-        src/core/network/message_scheduler.cpp
-        src/core/media/voice_recorder.cpp
-        src/core/platform/shortcut_map.cpp
-        src/core/platform/app_lock.cpp
-        src/core/platform/storage_manager.cpp
-        src/core/network/group_admin.cpp
-        src/core/network/label_manager.cpp
-        src/core/network/sticker_store.cpp
-        src/core/network/pin_board.cpp
-        src/core/models/message_search_model.cpp
-        src/core/models/rich_composer.cpp
-        src/core/sync/mobile_history_sync.cpp
-        src/core/offline/offline_store.cpp
-        src/core/network/zalo_crypto.cpp
-        src/core/network/zalo_session.cpp
-        src/core/network/zalo_api_client.cpp
-        src/core/network/zalo_client.cpp
-        src/core/network/qrcodegen.cpp
-        src/core/models/conversation_model.cpp
-        src/core/models/message_model.cpp
-        src/core/models/contact_model.cpp
-        src/core/platform/theme_manager.cpp
-        src/core/platform/system_tray.cpp
-        src/core/platform/avatar_image_provider.cpp
-        src/core/platform/icon_image_provider.cpp
-        src/core/platform/render_profile.cpp
-        src/core/platform/qml_singletons.h
-        src/core/platform/sound_engine.cpp
-        ${ZALOS_QT_RCC_DIR}/qrc_zalos_raw_qml_0.cpp
-        ${ZALOS_QT_RCC_DIR}/qrc_qmake_Zalos.cpp
-        # C++ QML types of the Zalos module (ZaloClient/ThemeManager/TrayController singletons, ...)
-        ${CMAKE_CURRENT_BINARY_DIR}/zalos_qmltyperegistrations.cpp
-    )
-    set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/zalos_qmltyperegistrations.cpp PROPERTIES GENERATED TRUE)
-    add_dependencies(test_system zalos)
-    target_compile_definitions(test_system PRIVATE ZALOS_TESTING ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    target_include_directories(test_system PRIVATE . src src/core src/core/models src/core/call src/core/offline src/core/network src/core/platform src/core/media ${LZMA_INCLUDE_DIRS})
-    target_link_libraries(test_system PRIVATE
+    target_compile_definitions(zalos_test_core PUBLIC ZALOS_TESTING ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_include_directories(zalos_test_core PUBLIC . src src/core src/core/models src/core/call src/core/offline src/core/network src/core/platform src/core/media ${LZMA_INCLUDE_DIRS})
+    target_link_libraries(zalos_test_core PUBLIC
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
@@ -430,6 +361,35 @@ if(BUILD_TESTING)
         ${LZMA_LIBRARIES}
         ${CMAKE_DL_LIBS}
     )
+
+    add_executable(test_e2e
+        tests/test_e2e.cpp
+        $<TARGET_OBJECTS:zalos_test_core>
+    )
+    target_link_libraries(test_e2e PRIVATE zalos_test_core)
+    add_test(NAME test_e2e COMMAND test_e2e)
+
+    # qt_add_qml_module's generated resources: .rcc/ up to Qt 6.4 (Ubuntu 24.04), .qt/rcc/ from Qt 6.5.
+    if(Qt6_VERSION VERSION_LESS 6.5)
+        set(ZALOS_QT_RCC_DIR ${CMAKE_CURRENT_BINARY_DIR}/.rcc)
+    else()
+        set(ZALOS_QT_RCC_DIR ${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc)
+    endif()
+    add_executable(test_system
+        tests/test_system.cpp
+        $<TARGET_OBJECTS:zalos_test_core>
+        src/core/platform/avatar_image_provider.cpp
+        src/core/platform/icon_image_provider.cpp
+        src/core/platform/render_profile.cpp
+        src/core/platform/qml_singletons.h
+        ${ZALOS_QT_RCC_DIR}/qrc_zalos_raw_qml_0.cpp
+        ${ZALOS_QT_RCC_DIR}/qrc_qmake_Zalos.cpp
+        # C++ QML types of the Zalos module (ZaloClient/ThemeManager/TrayController singletons, ...)
+        ${CMAKE_CURRENT_BINARY_DIR}/zalos_qmltyperegistrations.cpp
+    )
+    set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/zalos_qmltyperegistrations.cpp PROPERTIES GENERATED TRUE)
+    add_dependencies(test_system zalos)
+    target_link_libraries(test_system PRIVATE zalos_test_core)
     add_test(NAME test_system COMMAND test_system)
     # Keeps QML compiled to C++ (see 02-engineering-standards): fails if coverage drops below the floor.
     find_package(Python3 COMPONENTS Interpreter)

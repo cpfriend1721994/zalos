@@ -986,20 +986,32 @@ void ZaloClient::loadAccountData() {
     session->apiGet("profile", "/api/social/profile/getmute", {{"imei", session->imei()}},
                     [this](bool ok, const QJsonValue& data, const QString&, int) {
         if (!ok) return;
-        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
         const QJsonObject obj = data.toObject();
+        qint64 nowSec = obj.value("systemTime").toVariant().toLongLong();
+        if (nowSec > 100000000000LL) nowSec /= 1000;
+        if (nowSec <= 0) nowSec = QDateTime::currentSecsSinceEpoch();
+        QSet<QString> nextMuted;
+        QHash<QString, qint64> nextUntil;
         for (const char* key : {"chatEntries", "groupChatEntries"}) {
             for (const QJsonValue& v : obj.value(key).toArray()) {
                 const QJsonObject e = v.toObject();
+                const QString id = idOf(e.value("id"));
+                if (id.isEmpty()) continue;
+                const int muteMode = e.value("muteMode").toInt(0);
                 const qint64 duration = e.value("duration").toVariant().toLongLong();
                 const qint64 start = e.value("startTime").toVariant().toLongLong();
-                if (duration != -1 && start + duration < nowSec) continue;
-                const QString id = idOf(e.value("id"));
-                m_mutedIds.insert(id);
-                m_muteUntil.insert(id, duration > 0 ? (start + duration) * 1000 : 0);
+                const bool infinite = duration == -1 || muteMode == 2 || muteMode == 3;
+                if (!infinite && (duration == 0 || start + duration < nowSec)) continue;
+                nextMuted.insert(id);
+                nextUntil.insert(id, !infinite && duration > 0 ? (start + duration) * 1000 : 0);
                 m_conversationModel->setMuted(id, true);
             }
         }
+        for (const QString& oldId : std::as_const(m_mutedIds)) {
+            if (!nextMuted.contains(oldId)) m_conversationModel->setMuted(oldId, false);
+        }
+        m_mutedIds = std::move(nextMuted);
+        m_muteUntil = std::move(nextUntil);
         emit currentConversationChanged();
     });
 }
@@ -1723,8 +1735,24 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         item.messageType = "file";
         item.mediaUrl = obj.value("href").toString();
         item.href = item.mediaUrl;
-        item.text = obj.value("title").toString();
-        const QJsonObject params = QJsonDocument::fromJson(obj.value("params").toString().toUtf8()).object();
+        const QJsonValue rawParams = obj.value("params");
+        const QJsonObject params = rawParams.isString()
+            ? QJsonDocument::fromJson(rawParams.toString().toUtf8()).object() : rawParams.toObject();
+        QString title = obj.value("title").toString().trimmed();
+        QString ext = params.value("fileExt").toString().trimmed();
+        while (ext.startsWith('.')) ext.remove(0, 1);
+        if (title.isEmpty() || title.compare(QLatin1String("renewMedia"), Qt::CaseInsensitive) == 0) {
+            const QString urlFile = QUrl(item.href).fileName();
+            if (!urlFile.isEmpty() && urlFile.compare(QLatin1String("renewMedia"), Qt::CaseInsensitive) != 0) {
+                title = urlFile;
+            } else {
+                title = QStringLiteral("attachment-%1").arg(item.id.isEmpty() ? QString::number(item.ts) : item.id);
+            }
+        }
+        if (!ext.isEmpty() && !title.endsWith(QLatin1Char('.') + ext, Qt::CaseInsensitive)) {
+            title += QLatin1Char('.') + ext;
+        }
+        item.text = title;
         item.fileSize = params.value("fileSize").toVariant().toLongLong();
         label = L("[Tệp] ", "[File] ") + item.text;
     } else if (type == "chat.sticker") {
@@ -2715,6 +2743,11 @@ bool ZaloClient::loadOfflineCache() {
         }
     }
     const auto convs = m_offlineStore->loadConversations();
+    m_conversationModel->beginBatch();
+    struct BatchGuard {
+        Models::ConversationModel* model;
+        ~BatchGuard() { model->endBatch(); }
+    } batchGuard{m_conversationModel};
     for (const auto& c : convs) {
         Models::ConversationItem item = c;
         item.isOnline = false;
@@ -2939,7 +2972,7 @@ void ZaloClient::fetchBytes(const QString& url, std::function<void(const QByteAr
 
 QString ZaloClient::suggestedMediaFileName(const QString& url) const {
     QString name = QUrl(url).fileName();
-    if (name.isEmpty() || !name.contains('.')) {
+    if (name.isEmpty() || !name.contains('.') || name.compare(QLatin1String("renewMedia"), Qt::CaseInsensitive) == 0) {
         name = QStringLiteral("zalo-%1.jpg").arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss"));
     }
     return name;
@@ -3483,10 +3516,12 @@ void ZaloClient::handleSyncControl(const QString& actType, const QString& act, c
         if (act == "update") loadAccountData();
         else if (act == "online_status") refreshPresence();
     } else if (actType == "mute") {
-        const QString id = idOf(obj.value("toId"));
+        QString id = idOf(obj.value("toId"));
+        if (id.isEmpty()) id = idOf(obj.value("id"));
         if (id.isEmpty()) return;
+        const int muteMode = obj.value("muteMode").toInt(0);
         const qint64 duration = obj.value("duration").toVariant().toLongLong();
-        const bool mute = act == "set";
+        const bool mute = (act == "set") && (duration != 0 || muteMode == 2 || muteMode == 3);
         if (mute) {
             m_mutedIds.insert(id);
             m_muteUntil.insert(id, duration > 0 ? QDateTime::currentMSecsSinceEpoch() + duration * 1000 : 0);

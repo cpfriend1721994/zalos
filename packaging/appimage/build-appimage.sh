@@ -15,24 +15,31 @@ OUTPUT_DIR="${WORKSPACE_DIR}/dist"
 
 mkdir -p "${BUILD_DIR}" "${APP_DIR}" "${OUTPUT_DIR}"
 
-# 1. Compile with CMake
-echo "==> Configuring and compiling Zalos..."
-# The tree may come from another base image (e.g. a Fedora build before the AppImage moved to Ubuntu): a CMake
-# cache from a different distro points at missing Qt/OpenSSL paths, so start over when the distro changed.
+# 1. Compile with CMake (or reuse build-deb if already built in the same Ubuntu 24.04 environment)
 DISTRO_STAMP="$(. /etc/os-release && echo "${ID}-${VERSION_ID}")"
-if [ -f "${BUILD_DIR}/CMakeCache.txt" ] && [ "$(cat "${BUILD_DIR}/.distro" 2>/dev/null)" != "${DISTRO_STAMP}" ]; then
-    echo "==> Build tree from another distro: reconfiguring from scratch"
-    rm -rf "${BUILD_DIR:?}"
-fi
-mkdir -p "${BUILD_DIR}"
-echo "${DISTRO_STAMP}" > "${BUILD_DIR}/.distro"
-cmake -B "${BUILD_DIR}" -S "${WORKSPACE_DIR}" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/usr \
-    -DBUILD_TESTING=OFF \
-    -DZALOS_QML_AOT=OFF # runs on every host Qt >= 6.4 (see CMakeLists.txt)
+if [ -x "${WORKSPACE_DIR}/build-deb/zalos" ] && [ -f "${WORKSPACE_DIR}/build-deb/CMakeCache.txt" ] \
+   && [ ! "${WORKSPACE_DIR}/CMakeLists.txt" -nt "${WORKSPACE_DIR}/build-deb/CMakeCache.txt" ]; then
+    echo "==> Reusing Release build from build-deb..."
+    BUILD_DIR="${WORKSPACE_DIR}/build-deb"
+    cmake --build "${BUILD_DIR}" --config Release -j"$(nproc)"
+else
+    echo "==> Configuring and compiling Zalos..."
+    # The tree may come from another base image (e.g. a Fedora build before the AppImage moved to Ubuntu): a CMake
+    # cache from a different distro points at missing Qt/OpenSSL paths, so start over when the distro changed.
+    if [ -f "${BUILD_DIR}/CMakeCache.txt" ] && [ "$(cat "${BUILD_DIR}/.distro" 2>/dev/null)" != "${DISTRO_STAMP}" ]; then
+        echo "==> Build tree from another distro: reconfiguring from scratch"
+        rm -rf "${BUILD_DIR:?}"
+    fi
+    mkdir -p "${BUILD_DIR}"
+    echo "${DISTRO_STAMP}" > "${BUILD_DIR}/.distro"
+    cmake -B "${BUILD_DIR}" -S "${WORKSPACE_DIR}" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DBUILD_TESTING=OFF \
+        -DZALOS_QML_AOT=OFF # runs on every host Qt >= 6.4 (see CMakeLists.txt)
 
-cmake --build "${BUILD_DIR}" --config Release -j"$(nproc)"
+    cmake --build "${BUILD_DIR}" --config Release -j"$(nproc)"
+fi
 rm -rf "${APP_DIR}"
 DESTDIR="${APP_DIR}" cmake --install "${BUILD_DIR}" --strip
 

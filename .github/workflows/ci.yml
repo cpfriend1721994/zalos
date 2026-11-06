@@ -97,7 +97,6 @@ jobs:
           path: |
             dist/zalos-*.x86_64.rpm
             dist/zalos-*.aarch64.rpm
-            dist/zalos-*.src.rpm
           if-no-files-found: error
       - name: Reclaim disk (unused images + layer/build cache)
         if: always()
@@ -135,8 +134,7 @@ jobs:
           docker tag  "${base_image}" zalos-ubuntu:24.04-amd64
       - name: Build .deb + AppImage (x86_64)
         run: |
-          bash scripts/ci-package.sh zalos-ubuntu:24.04-amd64 linux/amd64 packaging/deb/build-deb.sh
-          bash scripts/ci-package.sh zalos-ubuntu:24.04-amd64 linux/amd64 packaging/appimage/build-appimage.sh
+          bash scripts/ci-package.sh zalos-ubuntu:24.04-amd64 linux/amd64 "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
       - name: Enable aarch64 emulation (binfmt)
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
       - name: Pull base for arm64
@@ -145,8 +143,7 @@ jobs:
           docker tag  "${base_image}" zalos-ubuntu:24.04-arm64
       - name: Build .deb + AppImage (aarch64, emulated)
         run: |
-          bash scripts/ci-package.sh zalos-ubuntu:24.04-arm64 linux/arm64 packaging/deb/build-deb.sh
-          bash scripts/ci-package.sh zalos-ubuntu:24.04-arm64 linux/arm64 packaging/appimage/build-appimage.sh
+          bash scripts/ci-package.sh zalos-ubuntu:24.04-arm64 linux/arm64 "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
       - uses: actions/upload-artifact@v7
         with:
           name: zalos-deb-appimage
@@ -181,8 +178,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: rm -rf dist
-      # The nix base pins nixos/nix with flakes pre-enabled (see Dockerfile.nix). The flake.lock refresh happens
-      # inside the container, so it is not committed back — the release archive is built from the pinned revision.
+      # The nix base pins nixos/nix with flakes pre-enabled (see Dockerfile.nix). Only the native x86_64 step refreshes
+      # flake.lock; the emulated aarch64 step reuses that exact lockfile without running `nix flake update` under QEMU.
       - name: Prebuilt base image (multiarch, from base-images.yml)
         run: echo "base_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-nix:latest" >> "$GITHUB_ENV"
       - name: Build Nix package (x86_64, against the newest nixos-unstable)

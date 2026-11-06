@@ -1,3 +1,5 @@
+%global debug_package %{nil}
+
 Name:           zalos
 Version:        1.0.4
 Release:        1%{?dist}
@@ -69,6 +71,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %changelog
 * Fri Nov 06 2026 Zalos Team <dev@zalos.local> - 1.0.4-1
 - First published release: bind-mount-free CI packaging, Nix sandbox fix for emulated aarch64.
+- Fix outgoing 1-1 video call camera state (zcall-native 2b93852), early file_done race, attachment extensions, and mute sync.
+- Optimize build speed and binary size across x86_64 and aarch64.
 - Repoint all metadata/homepage to cpfriend1721994 and AppStream id to io.github.cpfriend1721994.zalos.
 
 * Sat Oct 31 2026 Zalos Team <dev@zalos.local> - 1.0.0-1

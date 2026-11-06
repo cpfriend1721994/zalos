@@ -41,6 +41,7 @@ struct MessageItem {
     qint64 fileSize{0};
     QVector<MessageMention> mentions;
     QVariantMap extra;
+    mutable qint64 dayCache{-1};
 };
 
 class MessageModel : public QAbstractListModel {

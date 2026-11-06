@@ -83,6 +83,7 @@ void ZaloSession::logRealtime(const QString& line) const {
 void ZaloSession::reset() {
     disconnectRealtime();
     m_uploadWaiters.clear();
+    m_earlyFileDone.clear();
     m_secretKey.clear();
     m_uid.clear();
     m_loginInfo = {};
@@ -836,8 +837,21 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
                 }
                 const QString checksum = QString::fromLatin1(
                     QCryptographicHash::hash(content, QCryptographicHash::Md5).toHex());
+                auto awaitFileDone = [this, cb](const QString& fid, std::function<void(const QJsonObject&)> onDone) {
+                    const auto early = m_earlyFileDone.constFind(fid);
+                    if (early != m_earlyFileDone.constEnd()) {
+                        const QJsonObject data = early.value();
+                        m_earlyFileDone.erase(early);
+                        onDone(data);
+                        return;
+                    }
+                    m_uploadWaiters.insert(fid, std::move(onDone));
+                    QTimer::singleShot(120000, this, [this, fid, cb]() {
+                        if (m_uploadWaiters.remove(fid) > 0) cb(false, {}, QStringLiteral("upload_timeout"), -1);
+                    });
+                };
                 if (kind == UploadKind::Voice) {
-                    m_uploadWaiters.insert(fileId, [=, this](const QJsonObject& fileData) {
+                    awaitFileDone(fileId, [=, this](const QJsonObject& fileData) {
                         const QString aac = fileData.value("aac").toString();
                         const QString amr = fileData.value("amr").toString();
                         const QString voiceUrl = !amr.isEmpty() ? amr : !aac.isEmpty() ? aac
@@ -867,12 +881,9 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
                         apiPost("file", QString("/api/%1/forward?").arg(isGroup ? "group" : "message"),
                                 send, cb, {{"nretry", "0"}});
                     });
-                    QTimer::singleShot(120000, this, [=, this]() {
-                        if (m_uploadWaiters.remove(fileId) > 0) cb(false, {}, QStringLiteral("upload_timeout"), -1);
-                    });
                     return;
                 }
-                m_uploadWaiters.insert(fileId, [=, this](const QJsonObject& fileData) {
+                awaitFileDone(fileId, [=, this](const QJsonObject& fileData) {
                     const QString fileUrl = fileData.value("url").toString();
                     QJsonObject send{
                         {"fileId", fileId},
@@ -892,9 +903,6 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
                     send[isGroup ? "grid" : "toid"] = threadId;
                     apiPost("file", QString("/api/%1/asyncfile/msg?").arg(isGroup ? "group" : "message"),
                             send, cb, {{"nretry", "0"}});
-                });
-                QTimer::singleShot(120000, this, [=, this]() {
-                    if (m_uploadWaiters.remove(fileId) > 0) cb(false, {}, QStringLiteral("upload_timeout"), -1);
                 });
             });
         });
@@ -1958,7 +1966,12 @@ void ZaloSession::handleControls(const QJsonArray& controls) {
             const QJsonObject fileData = raw.isString()
                 ? QJsonDocument::fromJson(raw.toString().toUtf8()).object() : raw.toObject();
             auto waiter = m_uploadWaiters.take(fileId);
-            if (waiter) waiter(fileData);
+            if (waiter) {
+                waiter(fileData);
+            } else if (!fileId.isEmpty()) {
+                m_earlyFileDone.insert(fileId, fileData);
+                QTimer::singleShot(120000, this, [this, fileId]() { m_earlyFileDone.remove(fileId); });
+            }
         } else if (type == "voip") {
             emit voipControlReceived(content);
         } else if (type == "syncmsgmb" || type == "transfer_msg") {

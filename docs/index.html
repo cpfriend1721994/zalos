@@ -1,309 +1,2027 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zalos — Ứng dụng Zalo cho Linux</title>
-  <meta name="description" content="Zalos — ứng dụng Zalo cho Linux, mã nguồn mở, nhẹ và nhanh. Khóa ứng dụng bằng mã, chống nhìn trộm, thư mục nhãn, hẹn giờ gửi tin, việc cần làm — nhiều tính năng vượt trội hơn Zalo thường. Hỗ trợ x86_64 và ARM64, đóng gói .deb, RPM, AppImage và Nix.">
-  <link rel="icon" type="image/svg+xml" href="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg">
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="color-scheme" content="light dark">
   <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            zalo: {
-              DEFAULT: '#0068FF',
-              dark: '#0052CC',
-              light: '#E5EFFF'
-            }
-          }
+    try {
+      const savedScheme = localStorage.getItem("color-scheme");
+      if (savedScheme === "light" || savedScheme === "dark") {
+        document.querySelector('meta[name="color-scheme"]').content = savedScheme;
+      }
+    } catch (_) { }
+  </script>
+  <title data-en="Zalos — Native Qt6 Zalo Client for Linux">Zalos — Ứng dụng Zalo native Qt6 cho Linux</title>
+  <meta name="description"
+    data-en="Zalos — a native C++17 &amp; Qt6 Zalo app for Linux. Instant start-up, only ~40–65 MB RAM, fast Vietnamese search (even without diacritics), peek-proof screen, PIN lock, hidden chats, encrypted history sync from your phone and 1-1 voice/video calls. x86_64 &amp; ARM64 (AppImage, .deb, RPM, Nix)."
+    content="Zalos — ứng dụng Zalo native C++17 &amp; Qt6 cho Linux. Khởi động tức thì, chỉ ~40–65 MB RAM, tìm kiếm tiếng Việt siêu tốc (kể cả không dấu), chống nhìn lén, khóa mã PIN, ẩn trò chuyện, đồng bộ lịch sử mã hóa từ điện thoại và gọi thoại/video 1-1. Hỗ trợ x86_64 &amp; ARM64 (AppImage, .deb, RPM, Nix).">
+  <link rel="icon" type="image/svg+xml"
+    href="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <style>
+    @layer reset, tokens, base, layout, components, utilities;
+
+    @layer reset {
+
+      body,
+      h1,
+      h2,
+      h3,
+      h4,
+      p,
+      ul,
+      ol,
+      dl,
+      dd,
+      figure,
+      pre,
+      blockquote {
+        margin: 0;
+      }
+
+      ul[role="list"],
+      ol[role="list"] {
+        list-style: none;
+        padding: 0;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+
+      table {
+        border-collapse: collapse;
+        inline-size: 100%;
+      }
+    }
+
+    @layer tokens {
+      :root {
+        --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+        /* Light & Dark raw palettes */
+        --bg-canvas-light: #FAFAFA;
+        --bg-canvas-dark: #090A0F;
+        --bg-surface-light: #FFFFFF;
+        --bg-surface-dark: #10121A;
+        --bg-subtle-light: #F3F4F6;
+        --bg-subtle-dark: #161923;
+        --bg-elevated-light: #FFFFFF;
+        --bg-elevated-dark: #181B26;
+
+        --text-primary-light: #0F172A;
+        --text-primary-dark: #F1F5F9;
+        --text-secondary-light: #475569;
+        --text-secondary-dark: #94A3B8;
+        --text-muted-light: #64748B;
+        --text-muted-dark: #64748B;
+
+        --border-hairline-light: #E2E8F0;
+        --border-hairline-dark: #1E2330;
+        --border-strong-light: #CBD5E1;
+        --border-strong-dark: #2A3142;
+
+        --brand-light: #0068FF;
+        --brand-dark: #2B82FF;
+        --brand-hover-light: #0052CC;
+        --brand-hover-dark: #4793FF;
+        --brand-tint-light: #EBF3FF;
+        --brand-tint-dark: rgba(43, 130, 255, 0.14);
+
+        --ok-light: #059669;
+        --ok-dark: #34D399;
+        --warn-light: #D97706;
+        --warn-dark: #FBBF24;
+
+        /* Fallback assignments */
+        --bg-canvas: var(--bg-canvas-light);
+        --bg-surface: var(--bg-surface-light);
+        --bg-subtle: var(--bg-subtle-light);
+        --bg-elevated: var(--bg-elevated-light);
+        --text-primary: var(--text-primary-light);
+        --text-secondary: var(--text-secondary-light);
+        --text-muted: var(--text-muted-light);
+        --border-hairline: var(--border-hairline-light);
+        --border-strong: var(--border-strong-light);
+        --brand: var(--brand-light);
+        --brand-hover: var(--brand-hover-light);
+        --brand-tint: var(--brand-tint-light);
+        --status-ok: var(--ok-light);
+        --status-warn: var(--warn-light);
+
+        @media (prefers-color-scheme: dark) {
+          --bg-canvas: var(--bg-canvas-dark);
+          --bg-surface: var(--bg-surface-dark);
+          --bg-subtle: var(--bg-subtle-dark);
+          --bg-elevated: var(--bg-elevated-dark);
+          --text-primary: var(--text-primary-dark);
+          --text-secondary: var(--text-secondary-dark);
+          --text-muted: var(--text-muted-dark);
+          --border-hairline: var(--border-hairline-dark);
+          --border-strong: var(--border-strong-dark);
+          --brand: var(--brand-dark);
+          --brand-hover: var(--brand-hover-dark);
+          --brand-tint: var(--brand-tint-dark);
+          --status-ok: var(--ok-dark);
+          --status-warn: var(--warn-dark);
+        }
+
+        @supports (color: light-dark(white, black)) {
+          --bg-canvas: light-dark(var(--bg-canvas-light), var(--bg-canvas-dark));
+          --bg-surface: light-dark(var(--bg-surface-light), var(--bg-surface-dark));
+          --bg-subtle: light-dark(var(--bg-subtle-light), var(--bg-subtle-dark));
+          --bg-elevated: light-dark(var(--bg-elevated-light), var(--bg-elevated-dark));
+          --text-primary: light-dark(var(--text-primary-light), var(--text-primary-dark));
+          --text-secondary: light-dark(var(--text-secondary-light), var(--text-secondary-dark));
+          --text-muted: light-dark(var(--text-muted-light), var(--text-muted-dark));
+          --border-hairline: light-dark(var(--border-hairline-light), var(--border-hairline-dark));
+          --border-strong: light-dark(var(--border-strong-light), var(--border-strong-dark));
+          --brand: light-dark(var(--brand-light), var(--brand-dark));
+          --brand-hover: light-dark(var(--brand-hover-light), var(--brand-hover-dark));
+          --brand-tint: light-dark(var(--brand-tint-light), var(--brand-tint-dark));
+          --status-ok: light-dark(var(--ok-light), var(--ok-dark));
+          --status-warn: light-dark(var(--warn-light), var(--warn-dark));
+        }
+
+        color-scheme: light dark;
+        accent-color: var(--brand);
+
+        &:has(> head > meta[name="color-scheme"][content="dark"]) {
+          color-scheme: dark;
+          --bg-canvas: var(--bg-canvas-dark);
+          --bg-surface: var(--bg-surface-dark);
+          --bg-subtle: var(--bg-subtle-dark);
+          --bg-elevated: var(--bg-elevated-dark);
+          --text-primary: var(--text-primary-dark);
+          --text-secondary: var(--text-secondary-dark);
+          --text-muted: var(--text-muted-dark);
+          --border-hairline: var(--border-hairline-dark);
+          --border-strong: var(--border-strong-dark);
+          --brand: var(--brand-dark);
+          --brand-hover: var(--brand-hover-dark);
+          --brand-tint: var(--brand-tint-dark);
+          --status-ok: var(--ok-dark);
+          --status-warn: var(--warn-dark);
+        }
+
+        &:has(> head > meta[name="color-scheme"][content="light"]) {
+          color-scheme: light;
+          --bg-canvas: var(--bg-canvas-light);
+          --bg-surface: var(--bg-surface-light);
+          --bg-subtle: var(--bg-subtle-light);
+          --bg-elevated: var(--bg-elevated-light);
+          --text-primary: var(--text-primary-light);
+          --text-secondary: var(--text-secondary-light);
+          --text-muted: var(--text-muted-light);
+          --border-hairline: var(--border-hairline-light);
+          --border-strong: var(--border-strong-light);
+          --brand: var(--brand-light);
+          --brand-hover: var(--brand-hover-light);
+          --brand-tint: var(--brand-tint-light);
+          --status-ok: var(--ok-light);
+          --status-warn: var(--warn-light);
         }
       }
     }
-  </script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
-    body { font-family: 'Inter', sans-serif; }
-    code, pre { font-family: 'JetBrains Mono', monospace; }
+
+    @layer base {
+      html {
+        font-family: var(--font-sans);
+        background-color: var(--bg-canvas);
+        color: var(--text-primary);
+        line-height: 1.6;
+        scroll-behavior: smooth;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      code,
+      pre,
+      kbd,
+      samp {
+        font-family: var(--font-mono);
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      :where(a:any-link, button, summary, [tabindex="0"]):focus-visible {
+        outline: 2px solid var(--brand);
+        outline-offset: 2px;
+      }
+
+      .visually-hidden:where(:not(:focus-within, :active)) {
+        position: absolute !important;
+        clip-path: inset(50%) !important;
+        overflow: hidden !important;
+        inline-size: 1px !important;
+        block-size: 1px !important;
+        margin: -1px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        white-space: nowrap !important;
+      }
+
+      .skip-link:focus-visible {
+        position: fixed;
+        inset-block-start: 0.75rem;
+        inset-inline-start: 0.75rem;
+        z-index: 100;
+        padding: 0.5rem 1rem;
+        background: var(--bg-surface);
+        border: 1px solid var(--brand);
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.875rem;
+      }
+    }
+
+    @layer layout {
+      .container {
+        max-inline-size: 1160px;
+        margin-inline: auto;
+        padding-inline: 1.5rem;
+      }
+
+      .section {
+        padding-block: 4.5rem;
+        border-block-start: 1px solid var(--border-hairline);
+      }
+
+      .section-header {
+        margin-block-end: 2.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .section-eyebrow {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--brand);
+      }
+
+      .section-title {
+        font-size: clamp(1.5rem, 2.5vw, 2rem);
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        line-height: 1.25;
+      }
+
+      .section-desc {
+        color: var(--text-secondary);
+        max-inline-size: 68ch;
+        font-size: 1rem;
+      }
+    }
+
+    @layer components {
+
+      /* Top Bar */
+      .site-header {
+        position: sticky;
+        inset-block-start: 0;
+        z-index: 40;
+        background-color: color-mix(in srgb, var(--bg-canvas) 88%, transparent);
+        backdrop-filter: blur(10px);
+        border-block-end: 1px solid var(--border-hairline);
+      }
+
+      .header-inner {
+        block-size: 3.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .brand-lockup {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.625rem;
+        font-weight: 700;
+        font-size: 1.0625rem;
+        letter-spacing: -0.02em;
+      }
+
+      .brand-logo {
+        inline-size: 1.75rem;
+        block-size: 1.75rem;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .version-pill {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 500;
+        padding: 0.125rem 0.5rem;
+        border-radius: 4px;
+        background: var(--bg-subtle);
+        border: 1px solid var(--border-hairline);
+        color: var(--text-secondary);
+      }
+
+      .nav-links {
+        display: none;
+        align-items: center;
+        gap: 1.5rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+      }
+
+      @media (min-width: 820px) {
+        .nav-links {
+          display: flex;
+        }
+      }
+
+      .nav-links a:hover {
+        color: var(--text-primary);
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .icon-btn {
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-inline-size: 2.25rem;
+        min-block-size: 2.25rem;
+        padding: 0.375rem 0.625rem;
+        border-radius: 6px;
+        border: 1px solid var(--border-hairline);
+        background: var(--bg-surface);
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        gap: 0.375rem;
+        transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+      }
+
+      .icon-btn:hover {
+        border-color: var(--border-strong);
+        color: var(--text-primary);
+        background: var(--bg-subtle);
+      }
+
+      .icon-btn svg {
+        inline-size: 1rem;
+        block-size: 1rem;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.75;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      /* Language segmented switch (VI / EN) */
+      .lang-switch {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--border-hairline);
+        border-radius: 6px;
+        background: var(--bg-surface);
+        overflow: hidden;
+      }
+
+      .lang-btn {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        padding: 0.4rem 0.55rem;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
+      }
+
+      .lang-btn:hover {
+        color: var(--text-primary);
+      }
+
+      .lang-btn[aria-pressed="true"] {
+        background: var(--brand-tint);
+        color: var(--brand);
+      }
+
+      /* One-click light/dark toggle */
+      .theme-toggle-btn .i-sun {
+        display: none;
+      }
+
+      .theme-toggle-btn .i-moon {
+        display: inline-flex;
+      }
+
+      .theme-toggle-btn[data-mode="dark"] .i-sun {
+        display: inline-flex;
+      }
+
+      .theme-toggle-btn[data-mode="dark"] .i-moon {
+        display: none;
+      }
+
+      @media (max-width: 420px) {
+        .header-inner {
+          gap: 0.5rem;
+        }
+
+        .brand-lockup .version-pill {
+          display: none;
+        }
+      }
+
+      /* Hero */
+      .hero {
+        padding-block: 4rem 3.5rem;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2.75rem;
+        align-items: center;
+      }
+
+      @media (min-width: 980px) {
+        .hero-grid {
+          grid-template-columns: 1.05fr 0.95fr;
+          gap: 3rem;
+        }
+      }
+
+      .hero-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        padding: 0.25rem 0.625rem;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-hairline);
+        border-radius: 4px;
+        margin-block-end: 1.25rem;
+      }
+
+      .status-dot {
+        inline-size: 0.5rem;
+        block-size: 0.5rem;
+        border-radius: 50%;
+        background-color: var(--status-ok);
+      }
+
+      .hero-title {
+        font-size: clamp(2.125rem, 4vw, 3.125rem);
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        line-height: 1.12;
+        margin-block-end: 1.25rem;
+      }
+
+      .hero-lead {
+        font-size: 1.0625rem;
+        color: var(--text-secondary);
+        margin-block-end: 1.75rem;
+        max-inline-size: 58ch;
+      }
+
+      .hero-lead strong {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+
+      .hero-cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem;
+        margin-block-end: 1.75rem;
+      }
+
+      .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.6875rem 1.25rem;
+        border-radius: 6px;
+        background-color: var(--brand);
+        color: #FFFFFF;
+        font-weight: 600;
+        font-size: 0.9375rem;
+        border: 1px solid transparent;
+        transition: background-color 0.15s ease;
+      }
+
+      .btn-primary:hover {
+        background-color: var(--brand-hover);
+      }
+
+      .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.6875rem 1.125rem;
+        border-radius: 6px;
+        background-color: var(--bg-surface);
+        color: var(--text-primary);
+        font-weight: 500;
+        font-size: 0.9375rem;
+        border: 1px solid var(--border-strong);
+        transition: background-color 0.15s ease, border-color 0.15s ease;
+      }
+
+      .btn-secondary:hover {
+        background-color: var(--bg-subtle);
+      }
+
+      .btn-primary svg,
+      .btn-secondary svg {
+        inline-size: 1.0625rem;
+        block-size: 1.0625rem;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+      }
+
+      .hero-specs {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1.5rem;
+        padding-block-start: 1.25rem;
+        border-block-start: 1px solid var(--border-hairline);
+      }
+
+      .spec-item {
+        flex: 0 0 auto;
+      }
+
+      .spec-item dt {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-family: var(--font-mono);
+        white-space: nowrap;
+      }
+
+      .spec-item dd {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-block-start: 0.125rem;
+        white-space: nowrap;
+      }
+
+      /* App Window Wireframe Preview */
+      .app-preview {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.18);
+        font-size: 0.8125rem;
+        user-select: none;
+      }
+
+      .app-shot {
+        display: block;
+        inline-size: 100%;
+        block-size: auto;
+        background: #FFFFFF;
+      }
+
+      /* Light/Dark hero preview crossfade */
+      .app-shot-stack {
+        position: relative;
+      }
+
+      .app-shot-dark {
+        position: absolute;
+        inset: 0;
+        inline-size: 100%;
+        block-size: 100%;
+        opacity: 0;
+        transition: opacity 0.6s ease;
+        background: #17181C;
+      }
+
+      .app-preview[data-shot="dark"] .app-shot-dark {
+        opacity: 1;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .app-shot-dark {
+          transition: none;
+        }
+      }
+
+      .app-titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.875rem;
+        background: var(--bg-subtle);
+        border-block-end: 1px solid var(--border-hairline);
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+      }
+
+      .titlebar-tags {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+      }
+
+      .titlebar-tag {
+        padding: 0.0625rem 0.375rem;
+        border-radius: 3px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-hairline);
+        font-size: 0.6875rem;
+      }
+
+      .window-controls {
+        display: flex;
+        gap: 0.375rem;
+      }
+
+      .win-dot {
+        inline-size: 0.625rem;
+        block-size: 0.625rem;
+        border-radius: 50%;
+        border: 1px solid var(--border-strong);
+      }
+
+      .app-body {
+        display: grid;
+        grid-template-columns: 44px 190px 1fr;
+        min-block-size: 340px;
+      }
+
+      @media (max-width: 540px) {
+        .app-body {
+          grid-template-columns: 40px 1fr;
+        }
+
+        .app-convlist {
+          display: none;
+        }
+      }
+
+      .app-rail {
+        background: #005AE0;
+        color: #FFFFFF;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-block: 0.75rem;
+        gap: 0.625rem;
+      }
+
+      .rail-avatar {
+        inline-size: 1.75rem;
+        block-size: 1.75rem;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.22);
+        border: 1.5px solid rgba(255, 255, 255, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.75rem;
+        margin-block-end: 0.25rem;
+      }
+
+      .rail-item {
+        inline-size: 2rem;
+        block-size: 2rem;
+        border-radius: 6px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.625rem;
+        opacity: 0.78;
+        gap: 2px;
+      }
+
+      .rail-item.active {
+        background: rgba(255, 255, 255, 0.18);
+        opacity: 1;
+        font-weight: 600;
+      }
+
+      .rail-folder-tag {
+        inline-size: 0.375rem;
+        block-size: 0.375rem;
+        border-radius: 50%;
+      }
+
+      .app-convlist {
+        border-inline-end: 1px solid var(--border-hairline);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .conv-search {
+        margin: 0.625rem;
+        padding: 0.375rem 0.5rem;
+        background: var(--bg-subtle);
+        border: 1px solid var(--border-hairline);
+        border-radius: 4px;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .conv-item {
+        padding: 0.5rem 0.625rem;
+        border-block-end: 1px solid var(--border-hairline);
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+      }
+
+      .conv-item.active {
+        background: var(--brand-tint);
+      }
+
+      .conv-row-top {
+        display: flex;
+        justify-content: space-between;
+        font-weight: 600;
+        font-size: 0.75rem;
+      }
+
+      .conv-preview {
+        font-size: 0.6875rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .app-chat {
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-canvas);
+      }
+
+      .chat-header {
+        padding: 0.5rem 0.875rem;
+        background: var(--bg-surface);
+        border-block-end: 1px solid var(--border-hairline);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .chat-header-title {
+        font-weight: 600;
+        font-size: 0.8125rem;
+      }
+
+      .chat-header-sub {
+        font-size: 0.6875rem;
+        color: var(--text-muted);
+      }
+
+      .peeking-banner {
+        padding: 0.25rem 0.875rem;
+        background: var(--brand-tint);
+        border-block-end: 1px solid var(--border-hairline);
+        color: var(--brand);
+        font-size: 0.6875rem;
+        font-weight: 500;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .chat-messages {
+        padding: 0.75rem 0.875rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        flex: 1;
+      }
+
+      .msg-bubble {
+        max-inline-size: 84%;
+        padding: 0.5rem 0.6875rem;
+        border-radius: 6px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-hairline);
+        font-size: 0.75rem;
+        line-height: 1.45;
+      }
+
+      .msg-bubble.self {
+        align-self: flex-end;
+        background: var(--brand-tint);
+        border-color: color-mix(in srgb, var(--brand) 28%, var(--border-hairline));
+      }
+
+      .msg-quote {
+        border-inline-start: 2px solid var(--brand);
+        padding-inline-start: 0.5rem;
+        margin-block-end: 0.25rem;
+        font-size: 0.6875rem;
+        color: var(--text-secondary);
+      }
+
+      .msg-meta {
+        margin-block-start: 0.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--text-muted);
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
+
+      .chat-composer {
+        padding: 0.5rem 0.875rem;
+        background: var(--bg-surface);
+        border-block-start: 1px solid var(--border-hairline);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+      }
+
+      /* Curated Feature Pillars */
+      .pillars-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1px;
+        background: var(--border-hairline);
+        border: 1px solid var(--border-hairline);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      @media (min-width: 768px) {
+        .pillars-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      @media (min-width: 1040px) {
+        .pillars-grid {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+
+      .pillar-card {
+        background: var(--bg-surface);
+        padding: 1.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .pillar-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+      }
+
+      .pillar-tag {
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        padding: 0.125rem 0.5rem;
+        border-radius: 4px;
+        background: var(--bg-subtle);
+        border: 1px solid var(--border-hairline);
+        color: var(--text-secondary);
+      }
+
+      .pillar-title {
+        font-size: 1.125rem;
+        font-weight: 700;
+        letter-spacing: -0.015em;
+      }
+
+      .pillar-desc {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+      }
+
+      .pillar-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        font-size: 0.84375rem;
+        color: var(--text-secondary);
+        border-block-start: 1px solid var(--border-hairline);
+        padding-block-start: 1rem;
+      }
+
+      .pillar-list li {
+        position: relative;
+        padding-inline-start: 1.25rem;
+        line-height: 1.55;
+      }
+
+      .pillar-list li::before {
+        content: "—";
+        position: absolute;
+        inset-inline-start: 0;
+        font-family: var(--font-mono);
+        color: var(--brand);
+        font-weight: 600;
+      }
+
+      .pillar-list strong {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+
+      /* Engineering & Benchmark Table */
+      .table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--border-hairline);
+        border-radius: 8px;
+        background: var(--bg-surface);
+      }
+
+      .bench-table th,
+      .bench-table td {
+        padding: 0.875rem 1.125rem;
+        text-align: start;
+        border-block-end: 1px solid var(--border-hairline);
+        font-size: 0.875rem;
+      }
+
+      .bench-table thead th {
+        background: var(--bg-subtle);
+        font-weight: 600;
+        color: var(--text-primary);
+        font-size: 0.8125rem;
+      }
+
+      .bench-table tbody tr:last-child th,
+      .bench-table tbody tr:last-child td {
+        border-block-end: none;
+      }
+
+      .bench-table tbody th {
+        font-weight: 600;
+        color: var(--text-primary);
+        inline-size: 28%;
+      }
+
+      .col-highlight {
+        background: color-mix(in srgb, var(--brand-tint) 45%, transparent);
+        font-weight: 500;
+      }
+
+      .mono-val {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+      }
+
+      /* Install Tabs */
+      .install-layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2rem;
+      }
+
+      @media (min-width: 900px) {
+        .install-layout {
+          grid-template-columns: 1.35fr 0.65fr;
+        }
+      }
+
+      .terminal-box {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .tab-bar {
+        display: flex;
+        flex-wrap: wrap;
+        border-block-end: 1px solid var(--border-hairline);
+        background: var(--bg-subtle);
+      }
+
+      .tab-btn {
+        padding: 0.75rem 1.125rem;
+        border: none;
+        border-block-end: 2px solid transparent;
+        background: transparent;
+        font-size: 0.84375rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: color 0.15s ease, background-color 0.15s ease;
+      }
+
+      .tab-btn:hover {
+        color: var(--text-primary);
+      }
+
+      .tab-btn[aria-selected="true"] {
+        color: var(--brand);
+        border-block-end-color: var(--brand);
+        background: var(--bg-surface);
+      }
+
+      .tab-panel {
+        padding: 1.5rem;
+      }
+
+      .tab-panel[hidden] {
+        display: none;
+      }
+
+      .code-block-wrap {
+        position: relative;
+        margin-block-start: 0.75rem;
+      }
+
+      .code-pre {
+        color-scheme: dark;
+        background: #0B0D13;
+        color: #E2E8F0;
+        padding: 1rem 1.125rem;
+        padding-inline-end: 4.5rem;
+        border-radius: 6px;
+        border: 1px solid #1E2433;
+        overflow-x: auto;
+        font-size: 0.8125rem;
+        line-height: 1.65;
+      }
+
+      .copy-btn {
+        position: absolute;
+        inset-block-start: 0.625rem;
+        inset-inline-end: 0.625rem;
+        padding: 0.25rem 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        border-radius: 4px;
+        border: 1px solid #2E3648;
+        background: #161A24;
+        color: #CBD5E1;
+        cursor: pointer;
+      }
+
+      .copy-btn:hover {
+        background: #222836;
+        color: #FFFFFF;
+      }
+
+      .aside-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-hairline);
+        border-radius: 8px;
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        font-size: 0.875rem;
+      }
+
+      .aside-card h3 {
+        font-size: 0.9375rem;
+        font-weight: 700;
+      }
+
+      .inline-code {
+        font-family: var(--font-mono);
+        font-size: 0.78125rem;
+        padding: 0.125rem 0.375rem;
+        border-radius: 4px;
+        background: var(--bg-subtle);
+        border: 1px solid var(--border-hairline);
+      }
+
+      /* Transparency & Capability Accounting */
+      .scope-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem;
+      }
+
+      @media (min-width: 768px) {
+        .scope-grid {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+
+      .scope-box {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-hairline);
+        border-radius: 8px;
+        padding: 1.25rem 1.5rem;
+      }
+
+      .scope-box h3 {
+        font-size: 0.9375rem;
+        font-weight: 700;
+        margin-block-end: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .scope-box ul {
+        margin: 0;
+        padding-inline-start: 1.125rem;
+        color: var(--text-secondary);
+        font-size: 0.84375rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+      }
+
+      /* Footer */
+      .site-footer {
+        padding-block: 3rem;
+        border-block-start: 1px solid var(--border-hairline);
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+
+      .footer-inner {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        justify-content: space-between;
+      }
+
+      @media (min-width: 768px) {
+        .footer-inner {
+          flex-direction: row;
+          align-items: center;
+        }
+      }
+
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.25rem;
+      }
+
+      .footer-links a:hover {
+        color: var(--text-primary);
+        text-decoration: underline;
+      }
+    }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-200">
 
-  <!-- Navigation -->
-  <nav class="sticky top-0 z-50 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-xl bg-zalo flex items-center justify-center text-white font-bold text-lg shadow-sm">
-          Z
+<body>
+  <a href="#main-content" class="skip-link visually-hidden" data-en="Skip to main content">Chuyển tới nội dung chính</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="#" class="brand-lockup">
+        <img src="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg"
+          alt="Biểu tượng Zalos" data-en-alt="Zalos logo" class="brand-logo" width="28" height="28">
+        <span>Zalos</span>
+        <span class="version-pill">v1.0.4</span>
+      </a>
+
+      <nav aria-label="Điều hướng chính" data-en-aria="Main navigation">
+        <ul class="nav-links" role="list">
+          <li><a href="#features" data-en="Features">Tính năng</a></li>
+          <li><a href="#architecture" data-en="Performance">Hiệu năng</a></li>
+          <li><a href="#install" data-en="Install">Cài đặt</a></li>
+          <li><a href="#scope" data-en="Support">Hỗ trợ</a></li>
+        </ul>
+      </nav>
+
+      <div class="header-actions">
+        <div class="lang-switch" role="group" aria-label="Ngôn ngữ hiển thị" data-en-aria="Display language">
+          <button type="button" class="lang-btn" data-lang="vi" aria-pressed="true">VI</button>
+          <button type="button" class="lang-btn" data-lang="en" aria-pressed="false">EN</button>
         </div>
-        <span class="text-xl font-extrabold tracking-tight">Zalos</span>
-        <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 font-semibold border border-emerald-300 dark:border-emerald-800">v1.0.4</span>
-      </div>
-      <div class="flex items-center gap-4">
-        <a href="#highlights" class="hidden md:inline-block text-sm font-medium hover:text-zalo transition-colors">Vượt trội</a>
-        <a href="#features" class="hidden md:inline-block text-sm font-medium hover:text-zalo transition-colors">Tính năng</a>
-        <a href="#install" class="hidden md:inline-block text-sm font-medium hover:text-zalo transition-colors">Cài đặt</a>
-        <button id="themeToggle" class="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" title="Đổi giao diện Sáng / Tối">
-          <span class="dark:hidden">🌙</span>
-          <span class="hidden dark:inline">☀️</span>
+
+        <button type="button" id="themeToggle" class="icon-btn theme-toggle-btn" aria-label="Chọn giao diện sáng/tối"
+          data-en-aria="Toggle light/dark theme">
+          <svg class="i-moon" aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg class="i-sun" aria-hidden="true" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path
+              d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41">
+            </path>
+          </svg>
         </button>
-        <a href="https://github.com/cpfriend1721994/zalos" target="_blank" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm font-semibold hover:opacity-90 transition-opacity">
-          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+
+        <a href="https://github.com/cpfriend1721994/zalos" target="_blank" rel="noopener" class="icon-btn"
+          aria-label="Mã nguồn trên GitHub" data-en-aria="Source code on GitHub">
+          <svg aria-hidden="true" viewBox="0 0 24 24" style="fill: currentColor; stroke: none;">
+            <path
+              d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+          </svg>
           <span>GitHub</span>
         </a>
       </div>
     </div>
-  </nav>
-
-  <!-- Hero Section -->
-  <header class="max-w-6xl mx-auto px-4 sm:px-6 pt-16 pb-16 text-center">
-    <div class="inline-flex items-center gap-2 px-3 py-1 mb-6 rounded-full bg-zalo/10 dark:bg-zalo/20 text-zalo font-semibold text-xs border border-zalo/20">
-      🚀 Zalo cho Linux — nhiều hơn cả bản thường
-    </div>
-    <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight mb-6">
-      Zalo trên Linux <br class="hidden sm:inline">
-      <span class="text-transparent bg-clip-text bg-gradient-to-r from-zalo via-blue-600 to-indigo-600">Nhẹ, Mượt, Nhiều Tính Năng Hơn</span>
-    </h1>
-    <p class="max-w-2xl mx-auto text-lg text-slate-600 dark:text-slate-400 mb-8 leading-relaxed">
-      <strong>Zalos</strong> là ứng dụng Zalo cho Linux: nhẹ bộ nhớ, khởi động nhanh, chạy tự nhiên trên cả
-      <strong>Wayland và X11</strong> — và bổ sung hàng loạt tính năng mà bản Zalo thông thường không có:
-      khóa ứng dụng bằng mã, chống nhìn trộm, thư mục nhãn, hẹn giờ gửi tin và nhiều hơn nữa.
-    </p>
-
-    <!-- Download Buttons -->
-    <div class="flex flex-wrap items-center justify-center gap-4 mb-5">
-      <a href="https://github.com/cpfriend1721994/zalos/releases/latest" class="px-7 py-3.5 rounded-xl bg-zalo hover:bg-zalo-dark text-white font-bold shadow-lg shadow-zalo/25 hover:shadow-zalo/40 transition-all flex items-center gap-2">
-        <span>⬇️ Tải bản mới nhất</span>
-      </a>
-      <a href="#install" class="px-6 py-3.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 font-semibold transition-all flex items-center gap-2">
-        <span>📖 Hướng dẫn cài đặt</span>
-      </a>
-    </div>
-    <p class="text-xs text-slate-500 dark:text-slate-500">
-      x86_64 &amp; ARM64 (aarch64) · AppImage · .deb · RPM · Nix · Mã nguồn mở MIT
-    </p>
   </header>
 
-  <!-- Standout highlights: what you get beyond the usual Zalo -->
-  <section id="highlights" class="max-w-6xl mx-auto px-4 sm:px-6 py-16 border-t border-slate-200 dark:border-slate-800">
-    <div class="text-center mb-12">
-      <h2 class="text-3xl font-extrabold tracking-tight mb-3">Vượt Trội Hơn Zalo Thường</h2>
-      <p class="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">Những tính năng bạn sẽ không tìm thấy ở ứng dụng Zalo thông thường trên máy tính.</p>
-    </div>
-
-    <div class="grid md:grid-cols-2 gap-6">
-      <div class="p-6 rounded-2xl bg-gradient-to-br from-zalo/5 to-indigo-500/5 dark:from-zalo/10 dark:to-indigo-500/10 border border-zalo/20 flex gap-4">
-        <div class="w-12 h-12 shrink-0 rounded-xl bg-zalo/15 text-zalo flex items-center justify-center text-2xl">🔒</div>
+  <main id="main-content">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="container hero-grid">
         <div>
-          <h3 class="text-lg font-bold mb-1.5">Khóa ứng dụng bằng mã</h3>
-          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Đặt mã PIN riêng cho Zalos, tự khóa khi bạn rời máy, và tự ẩn nội dung thông báo khi đang khóa — bảo vệ tin nhắn trên máy dùng chung.</p>
+          <div class="hero-meta">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span data-en="Native C++17 &amp; Qt 6 · Wayland &amp; X11 · MIT License">C++17 &amp; Qt 6 Native · Wayland
+              &amp; X11 · MIT License</span>
+          </div>
+          <h1 class="hero-title" tabindex="-1" data-en="A native Zalo app for the Linux desktop.">
+            Ứng dụng Zalo native cho Linux Desktop.
+          </h1>
+          <p class="hero-lead"
+            data-en="<strong>Zalos</strong> is written entirely in <strong>C++17 and Qt 6 QML</strong>, replacing the heavy Electron browser wrapper with fast native graphics, instant offline storage and deep privacy protection.">
+            <strong>Zalos</strong> được viết hoàn toàn bằng <strong>C++17 và Qt 6 QML</strong>, thay thế kiến trúc trình
+            duyệt Electron nặng nề bằng giao diện tăng tốc phần cứng nhanh nhẹ, bộ nhớ đệm ngoại tuyến tức thì và cơ chế
+            bảo vệ quyền riêng tư chuyên sâu.
+          </p>
+
+          <div class="hero-cta-row">
+            <a href="https://github.com/cpfriend1721994/zalos/releases/latest" class="btn-primary">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+              </svg>
+              <span data-en="Download release v1.0.4">Tải bản phát hành v1.0.4</span>
+            </a>
+            <a href="#install" class="btn-secondary">
+              <span data-en="Installation guide">Hướng dẫn cài đặt</span>
+            </a>
+          </div>
+
+        </div>
+
+        <!-- Structural Preview of Zalos Interface -->
+        <figure class="app-preview" data-shot="light"
+          aria-label="Giao diện ứng dụng Zalos trên Linux — chế độ sáng và tối"
+          data-en-aria="Zalos app interface on Linux — light and dark themes">
+          <div class="app-titlebar">
+            <div class="titlebar-tags">
+              <span>Zalos</span>
+            </div>
+            <div class="window-controls" aria-hidden="true">
+              <span class="win-dot"></span>
+              <span class="win-dot"></span>
+              <span class="win-dot"></span>
+            </div>
+          </div>
+          <div class="app-shot-stack">
+            <img class="app-shot" src="assets/app-ui-light.png" width="1280" height="800" loading="eager"
+              data-en-alt="Zalos in light theme: blue navigation rail on the left, conversation list and a chat with a PDF file, a contact card and a photo, plus a composer bar with emoji, image, file, sticker, timer and voice controls."
+              alt="Zalos ở chế độ sáng: thanh điều hướng xanh bên trái, danh sách hội thoại, khung chat với tin nhắn tệp PDF, danh thiếp liên hệ và ảnh chụp, cùng thanh soạn thảo có emoji, ảnh, tệp, sticker, đồng hồ và giọng nói.">
+            <img class="app-shot app-shot-dark" src="assets/app-ui-dark.png" width="1280" height="800" loading="eager"
+              data-en-alt="The same Zalos chat screen in dark theme: near-black surfaces with light text, the same PDF file, contact card and photo, and the composer bar below."
+              alt="Zalos ở chế độ tối: cùng màn hình chat với nền gần đen, chữ sáng, tệp PDF, danh thiếp liên hệ và ảnh chụp, cùng thanh soạn thảo bên dưới.">
+          </div>
+        </figure>
+
+        <dl class="hero-specs">
+          <div class="spec-item">
+            <dt data-en="RAM usage">Bộ nhớ RAM</dt>
+            <dd>~40–65 MB</dd>
+          </div>
+          <div class="spec-item">
+            <dt data-en="App size">Kích thước ứng dụng</dt>
+            <dd>~5 MB</dd>
+          </div>
+          <div class="spec-item">
+            <dt data-en="CPU architecture">Kiến trúc CPU</dt>
+            <dd>x86_64 &amp; aarch64</dd>
+          </div>
+          <div class="spec-item">
+            <dt data-en="Packaging">Đóng gói</dt>
+            <dd>deb · RPM · AppImage · Nix</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- Curated Feature Pillars -->
+    <section id="features" class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-eyebrow" data-en="Core features">Tính năng cốt lõi</span>
+          <h2 class="section-title" data-en="Curated, practical value for Linux users">Chọn lọc những giá trị thực tế
+            cho người dùng Linux</h2>
+          <p class="section-desc"
+            data-en="Beyond a full Zalo desktop experience, Zalos fixes the pain points Linux users know well: heavy resource use, Vietnamese input, privacy and conversation organization.">
+            Không chỉ tái hiện đầy đủ giao thức Zalo trên máy tính, Zalos còn giải quyết triệt để các điểm yếu về tài
+            nguyên, bộ gõ tiếng Việt, quyền riêng tư và tổ chức hội thoại.
+          </p>
+        </div>
+
+        <div class="pillars-grid">
+          <!-- Pillar 1 -->
+          <article class="pillar-card">
+            <div class="pillar-head">
+              <h3 class="pillar-title" data-en="Native C++17 &amp; Qt 6 performance">Hiệu năng C++17 &amp; Qt 6 Native
+              </h3>
+              <span class="pillar-tag">Engine</span>
+            </div>
+            <p class="pillar-desc"
+              data-en="Drops the bulky Electron/Chromium engine in favour of high-performance C++ multitasking and hardware-accelerated graphics.">
+              Thoát khỏi bộ máy Electron/Chromium cồng kềnh, Zalos dùng đa luồng C++ hiệu suất cao và đồ họa tăng tốc
+              phần cứng.
+            </p>
+            <ul class="pillar-list" role="list">
+              <li
+                data-en="<strong>Tight memory control:</strong> old conversations are automatically released from RAM, keeping the app light even after hours of use.">
+                <strong>Kiểm soát bộ nhớ chặt chẽ:</strong> tự giải phóng các hội thoại cũ khỏi RAM, giữ ứng dụng nhẹ
+                nhàng sau nhiều giờ sử dụng.
+              </li>
+              <li
+                data-en="<strong>Adaptive graphics:</strong> picks the best renderer for your hardware; system fonts render crisp and sharp.">
+                <strong>Đồ họa thích ứng:</strong> tự động chọn cách kết xuất phù hợp với máy; chữ nghĩa hiển thị sắc
+                nét theo phông hệ thống.
+              </li>
+              <li
+                data-en="<strong>Resilient connection:</strong> instantly detects and recovers a stalled connection after resuming from suspend or switching Wi-Fi.">
+                <strong>Kết nối bền bỉ:</strong> tự phát hiện và khôi phục ngay khi bạn mở nắp máy sau khi ngủ đông hoặc
+                đổi mạng Wi-Fi.
+              </li>
+            </ul>
+          </article>
+
+          <!-- Pillar 2 -->
+          <article class="pillar-card">
+            <div class="pillar-head">
+              <h3 class="pillar-title" data-en="Offline &amp; history sync">Ngoại tuyến &amp; Đồng bộ lịch sử</h3>
+              <span class="pillar-tag">Storage</span>
+            </div>
+            <p class="pillar-desc"
+              data-en="Open the app and see every conversation instantly without waiting for the network, and pull your full history from your phone onto your computer.">
+              Mở ứng dụng là thấy ngay toàn bộ hội thoại mà không cần chờ mạng kết nối, đồng thời hỗ trợ kéo toàn bộ
+              lịch sử từ điện thoại sang máy tính.
+            </p>
+            <ul class="pillar-list" role="list">
+              <li
+                data-en="<strong>Durable offline storage:</strong> keeps every received message on your machine, so the app opens instantly even with no network.">
+                <strong>Lưu trữ ngoại tuyến bền vững:</strong> giữ toàn bộ tin nhắn ngay trên máy, mở app là thấy không
+                cần chờ mạng.
+              </li>
+              <li
+                data-en="<strong>Instant search:</strong> look up messages and contacts in real time, matching Vietnamese with or without diacritics.">
+                <strong>Tìm kiếm siêu tốc:</strong> tra cứu tin nhắn và danh bạ theo thời gian thực, hỗ trợ tiếng Việt
+                có dấu lẫn không dấu.
+              </li>
+              <li
+                data-en="<strong>Phone history sync:</strong> pulls your encrypted backup from your phone and decrypts it right on your computer.">
+                <strong>Đồng bộ lịch sử từ điện thoại:</strong> kéo toàn bộ tin nhắn được mã hóa từ điện thoại sang máy
+                tính, giải mã trực tiếp trên máy.
+              </li>
+            </ul>
+          </article>
+
+          <!-- Pillar 3 -->
+          <article class="pillar-card">
+            <div class="pillar-head">
+              <h3 class="pillar-title" data-en="Security &amp; privacy">Bảo mật &amp; Quyền riêng tư</h3>
+              <span class="pillar-tag">Privacy</span>
+            </div>
+            <p class="pillar-desc"
+              data-en="A toolkit to guard your screen and control your presence when working in an office or a public space.">
+              Bộ công cụ bảo vệ màn hình và kiểm soát trạng thái hoạt động khi làm việc ở văn phòng hoặc không gian công
+              cộng.
+            </p>
+            <ul class="pillar-list" role="list">
+              <li
+                data-en="<strong>Anti-peek (<code>Ctrl+Shift+H</code>):</strong> blurs message content until you hover, and hides sender names in system notifications.">
+                <strong>Chống nhìn lén (<code>Ctrl+Shift+H</code>):</strong> làm mờ nội dung tin nhắn cho đến khi rê
+                chuột vào và tự ẩn tên người gửi trong thông báo hệ thống.
+              </li>
+              <li
+                data-en="<strong>App lock with PIN:</strong> locks automatically when idle and hides notification content while locked.">
+                <strong>Khóa ứng dụng bằng mã PIN:</strong> tự khóa khi không sử dụng, che nội dung thông báo đẩy khi
+                đang khóa.
+              </li>
+              <li
+                data-en="<strong>PIN-protected hidden chats:</strong> Zalo-standard (unlock via PIN in the search box; no unread counts or notifications leak).">
+                <strong>Ẩn trò chuyện bằng PIN:</strong> chuẩn Zalo (mở bằng mã PIN tại ô tìm kiếm, không lộ số tin chưa
+                đọc hay thông báo hệ thống).
+              </li>
+              <li
+                data-en="<strong>Presence control:</strong> optionally block Sent receipts and Typing status, and sync privacy settings with the server.">
+                <strong>Kiểm soát trạng thái:</strong> tùy chọn chặn gửi tín hiệu "Đã xem", chặn trạng thái "Đang
+                nhập..." và đồng bộ cài đặt quyền riêng tư với máy chủ.
+              </li>
+            </ul>
+          </article>
+
+          <!-- Pillar 4 -->
+          <article class="pillar-card">
+            <div class="pillar-head">
+              <h3 class="pillar-title" data-en="Messaging &amp; media">Nhắn tin &amp; Đa phương tiện</h3>
+              <span class="pillar-tag">Messaging</span>
+            </div>
+            <p class="pillar-desc"
+              data-en="A complete modern messaging experience for daily work, from richly formatted text to large file transfers.">
+              Đầy đủ trải nghiệm nhắn tin hiện đại cho công việc hằng ngày, từ văn bản định dạng phong phú đến truyền
+              tải tệp dung lượng lớn.
+            </p>
+            <ul class="pillar-list" role="list">
+              <li
+                data-en="<strong>Text &amp; interactions:</strong> rich formatting (bold, italic, underline, colour, lists), quoted replies, multi-thread forwarding, <code>@All</code> mentions and a reaction detail panel.">
+                <strong>Văn bản &amp; tương tác:</strong> định dạng chữ (đậm, nghiêng, gạch chân, màu sắc, danh sách),
+                trả lời trích dẫn, chuyển tiếp nhiều hội thoại, nhắc tên <code>@All</code> và bảng chi tiết cảm xúc.
+              </li>
+              <li
+                data-en="<strong>Scheduled &amp; quick messages (<code>/quick</code>):</strong> auto-send at a set time and manage server-synced quick replies.">
+                <strong>Hẹn giờ &amp; Tin nhắn nhanh (<code>/quick</code>):</strong> lên lịch tự động gửi tin nhắn và
+                quản lý mẫu trả lời nhanh đồng bộ máy chủ.
+              </li>
+              <li
+                data-en="<strong>Media, stickers &amp; voice:</strong> record and play AAC voice notes, animated WebP stickers, reliable large-file transfers and an image viewer with 0.25x–8x zoom.">
+                <strong>Media, Sticker &amp; Thoại:</strong> ghi âm và phát tin nhắn thoại AAC, sticker WebP động, tải
+                tệp dung lượng lớn ổn định, trình xem ảnh phóng to 0.25x–8x.
+              </li>
+            </ul>
+          </article>
+
+          <!-- Pillar 5 -->
+          <article class="pillar-card">
+            <div class="pillar-head">
+              <h3 class="pillar-title" data-en="Organization &amp; group admin">Tổ chức &amp; Quản trị nhóm</h3>
+              <span class="pillar-tag">Workflow</span>
+            </div>
+            <p class="pillar-desc"
+              data-en="Tidy up hundreds of threads with label folders and a full set of group-management tools.">
+              Sắp xếp hàng trăm luồng công việc gọn gàng với thư mục nhãn và bộ công cụ quản trị nhóm đầy đủ.
+            </p>
+            <ul class="pillar-list" role="list">
+              <li
+                data-en="<strong>Telegram-style label folders:</strong> labels show as a vertical folder column above the nav rail for one-click filtering.">
+                <strong>Thư mục nhãn kiểu Telegram:</strong> hiển thị các nhãn phân loại thành cột thư mục dọc ngay trên
+                thanh điều hướng để lọc nhanh chỉ bằng 1 cú nhấp.
+              </li>
+              <li
+                data-en="<strong>Deep group admin:</strong> create polls and reminders, pin a newsfeed, browse members, assign co-admins and restrict messaging.">
+                <strong>Quản trị nhóm chuyên sâu:</strong> tạo bình chọn (Poll), nhắc hẹn (Reminder), bảng tin ghim,
+                duyệt thành viên, phân quyền phó nhóm, khóa quyền nhắn tin.
+              </li>
+              <li
+                data-en="<strong>Silent group exit:</strong> leave without spamming other members with a notice; supports auto-delete (1 / 7 / 14 days).">
+                <strong>Rời nhóm trong im lặng:</strong> tùy chọn rời khỏi nhóm mà không phát thông báo làm phiền các
+                thành viên còn lại; hỗ trợ tin nhắn tự xóa (1 / 7 / 14 ngày).
+              </li>
+            </ul>
+          </article>
+
+          <!-- Pillar 6 -->
+          <article class="pillar-card">
+            <div class="pillar-head">
+              <h3 class="pillar-title" data-en="Linux integration &amp; 1-1 calls">Hòa nhập Linux &amp; Gọi 1-1</h3>
+              <span class="pillar-tag">Desktop</span>
+            </div>
+            <p class="pillar-desc"
+              data-en="Respects Freedesktop standards across GNOME, KDE Plasma, Hyprland and Sway.">
+              Tôn trọng các tiêu chuẩn Freedesktop trên cả GNOME, KDE Plasma, Hyprland và Sway.
+            </p>
+            <ul class="pillar-list" role="list">
+              <li
+                data-en="<strong>Flexible sign-in:</strong> scan a QR code, sign in with your phone number, or one-click auto-detect an active Zalo session from a Chromium-based browser profile (Chrome, Chromium, Brave, Edge, Vivaldi, Thorium) on the same machine.">
+                <strong>Đăng nhập linh hoạt:</strong> quét mã QR, đăng nhập bằng số điện thoại, hoặc bấm một nút để tự
+                động nhận diện phiên Zalo đang hoạt động từ hồ sơ trình duyệt Chromium trên cùng máy (Chrome, Chromium,
+                Brave, Edge, Vivaldi, Thorium).
+              </li>
+              <li
+                data-en="<strong>System integration:</strong> flawless Vietnamese input with <code>Fcitx5</code> / <code>IBus</code> (no dropped characters on Enter), auto Light/Dark following your system theme, and quick replies straight from notifications.">
+                <strong>Tích hợp hệ thống:</strong> bộ gõ tiếng Việt <code>Fcitx5</code> / <code>IBus</code> không lỗi
+                mất chữ khi nhấn Enter, tự động đổi Sáng/Tối theo cài đặt hệ thống, trả lời nhanh trực tiếp từ thông báo
+                hệ thống.
+              </li>
+              <li
+                data-en="<strong>1-1 voice &amp; video calls:</strong> built-in call engine with video encoding and infrared (IR) camera filtering.">
+                <strong>Gọi thoại &amp; Video 1-1:</strong> engine gọi thoại tích hợp, kèm mã hóa video và lọc bỏ camera
+                hồng ngoại (IR).
+              </li>
+            </ul>
+          </article>
         </div>
       </div>
+    </section>
 
-      <div class="p-6 rounded-2xl bg-gradient-to-br from-rose-500/5 to-orange-500/5 dark:from-rose-500/10 dark:to-orange-500/10 border border-rose-500/20 flex gap-4">
-        <div class="w-12 h-12 shrink-0 rounded-xl bg-rose-500/15 text-rose-500 flex items-center justify-center text-2xl">🕶️</div>
-        <div>
-          <h3 class="text-lg font-bold mb-1.5">Chống nhìn trộm</h3>
-          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Tự làm mờ toàn bộ tin nhắn, chỉ hiện khi bạn rê chuột vào — yên tâm mở Zalo ở nơi đông người, bật/tắt bằng một phím tắt.</p>
+    <!-- Engineering Architecture & Benchmark Comparison -->
+    <section id="architecture" class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-eyebrow" data-en="Technical architecture">Kiến trúc kỹ thuật</span>
+          <h2 class="section-title" data-en="Real-world performance compared">So sánh hiệu năng thực tế</h2>
+          <p class="section-desc"
+            data-en="Instead of shipping a whole browser plus a swarm of helper processes like the Electron-based Zalo PC, Zalos runs directly on Linux and reuses the graphics libraries already on your system.">
+            Thay vì đóng gói nguyên một trình duyệt kèm hàng loạt tiến trình phụ như bản Zalo PC, Zalos chạy trực tiếp
+            trên nền tảng Linux và tận dụng thư viện đồ họa có sẵn.
+          </p>
+        </div>
+
+        <div class="table-wrap">
+          <table class="bench-table">
+            <caption class="visually-hidden"
+              data-en="Comparison of technical specs between Zalos Native Qt6 and Electron-based Zalo PC">Bảng so sánh
+              thông số kỹ thuật giữa Zalos Native Qt6 và Zalo PC Electron</caption>
+            <thead>
+              <tr>
+                <th scope="col" data-en="Metric">Tiêu chí kỹ thuật</th>
+                <th scope="col" class="col-highlight">Zalos (C++17 / Qt 6 QML)</th>
+                <th scope="col" data-en="Zalo PC / Web Wrapper (Electron)">Zalo PC / Web Wrapper (Electron)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row" data-en="RAM in use">Bộ nhớ RAM khi hoạt động</th>
+                <td class="col-highlight mono-val" data-en="~40 – 65 MB (self-managed memory)">~40 – 65 MB (tự quản lý
+                  bộ nhớ)</td>
+                <td class="mono-val" data-en="450 – 1,800+ MB (many processes)">450 – 1.800+ MB (nhiều tiến trình)</td>
+              </tr>
+              <tr>
+                <th scope="row" data-en="Main app size">Kích thước ứng dụng chính</th>
+                <td class="col-highlight mono-val" data-en="~2.1 MB (lean native build)">~2.1 MB (gọn nhẹ)</td>
+                <td class="mono-val" data-en="&gt; 250 MB (bundled browser)">&gt; 250 MB (kèm trình duyệt)</td>
+              </tr>
+              <tr>
+                <th scope="row" data-en="Multitasking &amp; decoding">Xử lý đa luồng &amp; giải mã</th>
+                <td class="col-highlight" data-en="Accelerated C++ multitasking">Đa luồng C++ tăng tốc giải mã</td>
+                <td data-en="Many intermediate JavaScript processes">Nhiều tiến trình JavaScript trung gian</td>
+              </tr>
+              <tr>
+                <th scope="row" data-en="Local storage &amp; search">Lưu trữ &amp; Tìm kiếm cục bộ</th>
+                <td class="col-highlight" data-en="Local database + instant search">Cơ sở dữ liệu cục bộ + tìm kiếm tức
+                  thì</td>
+                <td data-en="Browser-based storage">Lưu trữ của trình duyệt</td>
+              </tr>
+              <tr>
+                <th scope="row" data-en="Wayland display &amp; fonts">Hiển thị Wayland &amp; Phông chữ</th>
+                <td class="col-highlight" data-en="Native Wayland/X11, crisp system fonts">Wayland/X11 gốc, phông chữ
+                  sắc nét</td>
+                <td data-en="Runs in compatibility mode or needs manual flags">Chạy ở chế độ tương thích hoặc phải cấu
+                  hình tay</td>
+              </tr>
+              <tr>
+                <th scope="row" data-en="Extra privacy features">Tính năng quyền riêng tư bổ sung</th>
+                <td class="col-highlight" data-en="PIN app lock, anti-peek, block Sent/Typing, silent group exit">Khóa
+                  App PIN, Chống nhìn lén, Chặn Đã xem/Đang gõ, Rời nhóm im lặng</td>
+                <td data-en="Not supported">Không hỗ trợ</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
+    </section>
 
-      <div class="p-6 rounded-2xl bg-gradient-to-br from-emerald-500/5 to-teal-500/5 dark:from-emerald-500/10 dark:to-teal-500/10 border border-emerald-500/20 flex gap-4">
-        <div class="w-12 h-12 shrink-0 rounded-xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center text-2xl">🗂️</div>
-        <div>
-          <h3 class="text-lg font-bold mb-1.5">Thư mục nhãn</h3>
-          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Hiển thị các nhãn phân loại thành thư mục ngay trên thanh điều hướng kiểu Telegram — lọc nhanh công việc, gia đình, bạn bè chỉ bằng một cú nhấp.</p>
+    <!-- Installation Guide -->
+    <section id="install" class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-eyebrow" data-en="Package distribution">Phân phối gói</span>
+          <h2 class="section-title" data-en="Download &amp; install">Tải về &amp; Cài đặt</h2>
+          <p class="section-desc"
+            data-en="Every release ships ready-to-install packages for both <code>x86_64</code> and <code>aarch64</code> (ARM64), automatically tested on clean environments in CI.">
+            Mỗi bản phát hành cung cấp sẵn gói cài đặt cho cả hai kiến trúc <code>x86_64</code> và <code>aarch64</code>
+            (ARM64), được kiểm thử tự động trên môi trường sạch.
+          </p>
         </div>
-      </div>
 
-      <div class="p-6 rounded-2xl bg-gradient-to-br from-amber-500/5 to-yellow-500/5 dark:from-amber-500/10 dark:to-yellow-500/10 border border-amber-500/20 flex gap-4">
-        <div class="w-12 h-12 shrink-0 rounded-xl bg-amber-500/15 text-amber-600 flex items-center justify-center text-2xl">⏰</div>
-        <div>
-          <h3 class="text-lg font-bold mb-1.5">Hẹn giờ & tin nhắn nhanh</h3>
-          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Soạn trước và hẹn giờ gửi tin, lưu sẵn các mẫu tin nhắn nhanh để gửi lại chỉ trong vài giây.</p>
-        </div>
-      </div>
+        <div class="install-layout">
+          <div class="terminal-box">
+            <div class="tab-bar" role="tablist" aria-label="Chọn định dạng gói cài đặt Linux"
+              data-en-aria="Choose a Linux package format">
+              <button type="button" role="tab" id="tab-deb" aria-controls="panel-deb" aria-selected="true"
+                class="tab-btn">Ubuntu / Debian (.deb)</button>
+              <button type="button" role="tab" id="tab-rpm" aria-controls="panel-rpm" aria-selected="false"
+                class="tab-btn">Fedora (.rpm)</button>
+              <button type="button" role="tab" id="tab-appimage" aria-controls="panel-appimage" aria-selected="false"
+                class="tab-btn">AppImage</button>
+              <button type="button" role="tab" id="tab-nix" aria-controls="panel-nix" aria-selected="false"
+                class="tab-btn">Nix / NixOS</button>
+              <button type="button" role="tab" id="tab-source" aria-controls="panel-source" aria-selected="false"
+                class="tab-btn" data-en="Build from source">Build từ nguồn</button>
+            </div>
 
-      <div class="p-6 rounded-2xl bg-gradient-to-br from-purple-500/5 to-fuchsia-500/5 dark:from-purple-500/10 dark:to-fuchsia-500/10 border border-purple-500/20 flex gap-4">
-        <div class="w-12 h-12 shrink-0 rounded-xl bg-purple-500/15 text-purple-500 flex items-center justify-center text-2xl">🤫</div>
-        <div>
-          <h3 class="text-lg font-bold mb-1.5">Rời nhóm trong im lặng</h3>
-          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Rời khỏi nhóm mà không gửi thông báo cho các thành viên khác — kín đáo và lịch sự.</p>
-        </div>
-      </div>
+            <!-- Panel: DEB -->
+            <div id="panel-deb" role="tabpanel" aria-labelledby="tab-deb" class="tab-panel">
+              <p
+                data-en="For <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS and Zorin OS (installs required dependencies automatically):">
+                Dành cho <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS, Zorin OS (tự động cài đặt các gói phụ
+                thuộc cần thiết):</p>
+              <div class="code-block-wrap">
+                <button type="button" class="copy-btn" data-copy-target="code-deb">Sao chép</button>
+                <pre id="code-deb" class="code-pre" tabindex="0"><code># x86_64 (amd64)
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.4-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.0.4-1~ubuntu24.04_amd64.deb
 
-      <div class="p-6 rounded-2xl bg-gradient-to-br from-sky-500/5 to-blue-500/5 dark:from-sky-500/10 dark:to-blue-500/10 border border-sky-500/20 flex gap-4">
-        <div class="w-12 h-12 shrink-0 rounded-xl bg-sky-500/15 text-sky-500 flex items-center justify-center text-2xl">📋</div>
-        <div>
-          <h3 class="text-lg font-bold mb-1.5">Bôi đen & sao chép mọi thứ</h3>
-          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Chọn và sao chép nội dung tin nhắn lẫn thông tin hồ sơ; số điện thoại hiển thị gọn đẹp dạng +84 dễ đọc, dễ lưu.</p>
-        </div>
-      </div>
-    </div>
-  </section>
+# ARM64 (aarch64)
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.4-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.0.4-1~ubuntu24.04_arm64.deb</code></pre>
+              </div>
+            </div>
 
-  <!-- Full features grid -->
-  <section id="features" class="max-w-6xl mx-auto px-4 sm:px-6 py-16 border-t border-slate-200 dark:border-slate-800">
-    <div class="text-center mb-12">
-      <h2 class="text-3xl font-extrabold tracking-tight mb-3">Đầy Đủ Tính Năng</h2>
-      <p class="text-slate-600 dark:text-slate-400">Mọi thứ bạn cần cho một ứng dụng nhắn tin trên máy tính Linux hiện đại.</p>
-    </div>
+            <!-- Panel: RPM -->
+            <div id="panel-rpm" role="tabpanel" aria-labelledby="tab-rpm" class="tab-panel" hidden>
+              <p data-en="For <strong>Fedora 43+</strong> on both x86_64 workstations and ARM64 devices:">Dành cho
+                <strong>Fedora 43+</strong> trên cả máy trạm x86_64 và thiết bị ARM64:
+              </p>
+              <div class="code-block-wrap">
+                <button type="button" class="copy-btn" data-copy-target="code-rpm">Sao chép</button>
+                <pre id="code-rpm" class="code-pre"
+                  tabindex="0"><code># x86_64
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.4-1.fc43.x86_64.rpm
 
-    <div class="grid md:grid-cols-3 gap-6">
-      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-zalo flex items-center justify-center text-2xl mb-4">⚡</div>
-        <h3 class="text-lg font-bold mb-2">Nhẹ và nhanh</h3>
-        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Khởi động nhanh, dùng ít bộ nhớ, cuộn và chuyển hội thoại mượt ở mọi kích thước cửa sổ.</p>
-      </div>
+# ARM64 (aarch64)
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.4-1.fc43.aarch64.rpm</code></pre>
+              </div>
+            </div>
 
-      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="w-12 h-12 rounded-xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 flex items-center justify-center text-2xl mb-4">🖥️</div>
-        <h3 class="text-lg font-bold mb-2">Wayland & X11</h3>
-        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Chạy tự nhiên trên cả hai, nút điều khiển cửa sổ đầy đủ trên GNOME và KDE Plasma.</p>
-      </div>
-
-      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 flex items-center justify-center text-2xl mb-4">🎨</div>
-        <h3 class="text-lg font-bold mb-2">Giao diện sáng/tối</h3>
-        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Tự bám theo màu hệ thống theo thời gian thực, thiết kế bám sát Zalo trên máy tính.</p>
-      </div>
-
-      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center text-2xl mb-4">💬</div>
-        <h3 class="text-lg font-bold mb-2">Nhắn tin đầy đủ</h3>
-        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Chat đơn và nhóm, trả lời &amp; nhảy tới tin gốc, chuyển tiếp, cảm xúc, định dạng chữ, nhắc tên, tìm kiếm có dấu/không dấu.</p>
-      </div>
-
-      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="w-12 h-12 rounded-xl bg-teal-100 dark:bg-teal-950/60 text-teal-600 flex items-center justify-center text-2xl mb-4">📌</div>
-        <h3 class="text-lg font-bold mb-2">Ghim & Việc cần làm</h3>
-        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Ghim hội thoại và tin nhắn quan trọng, xem lại đầy đủ nội dung đã ghim, và quản lý danh sách Việc cần làm.</p>
-      </div>
-
-      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="w-12 h-12 rounded-xl bg-pink-100 dark:bg-pink-950/60 text-pink-600 flex items-center justify-center text-2xl mb-4">🎞️</div>
-        <h3 class="text-lg font-bold mb-2">Media & sticker</h3>
-        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Tin nhắn thoại, sticker động, gửi ảnh và tệp, xem ảnh với phóng to/xoay, thẻ bài viết chính thức có ảnh &amp; tiêu đề.</p>
-      </div>
-
-      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="w-12 h-12 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center text-2xl mb-4">📞</div>
-        <h3 class="text-lg font-bold mb-2">Gọi thoại & video</h3>
-        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Gọi thoại và gọi video ngay trong ứng dụng.</p>
-      </div>
-
-      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center text-2xl mb-4">🔔</div>
-        <h3 class="text-lg font-bold mb-2">Thông báo hệ thống</h3>
-        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Thông báo tích hợp hệ thống kèm trả lời nhanh, biểu tượng khay với số tin chưa đọc, thu nhỏ vào khay hệ thống.</p>
-      </div>
-
-      <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="w-12 h-12 rounded-xl bg-cyan-100 dark:bg-cyan-950/60 text-cyan-600 flex items-center justify-center text-2xl mb-4">🔄</div>
-        <h3 class="text-lg font-bold mb-2">Đồng bộ & ngoại tuyến</h3>
-        <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">Đồng bộ tin nhắn với mã hóa đầu-cuối (E2EE) và xem lại lịch sử hội thoại ngay cả khi mất kết nối.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Installation Guide -->
-  <section id="install" class="max-w-4xl mx-auto px-4 sm:px-6 py-16 border-t border-slate-200 dark:border-slate-800">
-    <div class="text-center mb-8">
-      <h2 class="text-3xl font-extrabold tracking-tight mb-3">Tải &amp; Cài Đặt</h2>
-      <p class="text-slate-600 dark:text-slate-400">Chọn định dạng phù hợp với bản phân phối Linux của bạn.</p>
-    </div>
-
-    <div class="mb-8 p-4 rounded-xl bg-zalo/5 dark:bg-zalo/10 border border-zalo/20 text-center text-sm text-slate-600 dark:text-slate-300">
-      Mỗi bản phát hành có <strong>file riêng cho x86_64 và ARM64 (aarch64)</strong> ở mọi định dạng — hãy chọn đúng kiến trúc máy của bạn.
-      <br class="hidden sm:inline">
-      Không chắc? Chạy <code class="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800">uname -m</code> trong terminal: <code class="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800">x86_64</code> hoặc <code class="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800">aarch64</code>.
-    </div>
-
-    <div class="text-center mb-10">
-      <a href="https://github.com/cpfriend1721994/zalos/releases/latest" class="inline-flex px-7 py-3.5 rounded-xl bg-zalo hover:bg-zalo-dark text-white font-bold shadow-lg shadow-zalo/25 hover:shadow-zalo/40 transition-all items-center gap-2">
-        <span>⬇️ Mở trang tải bản mới nhất</span>
-      </a>
-    </div>
-
-    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-      <div class="flex flex-wrap border-b border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-800/50 text-sm font-semibold">
-        <button onclick="setTab('appimage')" id="tab-appimage" class="px-5 py-3 border-b-2 border-zalo text-zalo bg-white dark:bg-slate-900">AppImage</button>
-        <button onclick="setTab('deb')" id="tab-deb" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Ubuntu / .deb</button>
-        <button onclick="setTab('rpm')" id="tab-rpm" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Fedora / RPM</button>
-        <button onclick="setTab('nixos')" id="tab-nixos" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">NixOS</button>
-      </div>
-
-      <div class="p-6">
-        <div id="content-appimage" class="space-y-4">
-          <p class="text-sm text-slate-600 dark:text-slate-400">Tải file AppImage đúng kiến trúc (<code>x86_64</code> hoặc <code>aarch64</code>), cấp quyền chạy và dùng ngay trên hầu hết các bản phân phối:</p>
-          <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-sm overflow-x-auto"><code># x86_64
+            <!-- Panel: AppImage -->
+            <div id="panel-appimage" role="tabpanel" aria-labelledby="tab-appimage" class="tab-panel" hidden>
+              <p
+                data-en="A portable package that runs directly on openSUSE, Arch Linux, Debian and other distros without administrator rights:">
+                Gói di động chạy trực tiếp trên openSUSE, Arch Linux, Debian và các bản phân phối khác mà không cần
+                quyền quản trị:</p>
+              <div class="code-block-wrap">
+                <button type="button" class="copy-btn" data-copy-target="code-appimage">Sao chép</button>
+                <pre id="code-appimage" class="code-pre" tabindex="0"><code># x86_64
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.4-x86_64.AppImage
 chmod +x Zalos-1.0.4-x86_64.AppImage
 ./Zalos-1.0.4-x86_64.AppImage
 
-# ARM64
+# ARM64 (aarch64)
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.4-aarch64.AppImage
 chmod +x Zalos-1.0.4-aarch64.AppImage
 ./Zalos-1.0.4-aarch64.AppImage</code></pre>
-        </div>
+              </div>
+            </div>
 
-        <div id="content-deb" class="space-y-4 hidden">
-          <p class="text-sm text-slate-600 dark:text-slate-400">Dành cho Ubuntu 24.04+ và các bản dựa trên nó (tải gói <code>amd64</code> hoặc <code>arm64</code>):</p>
-          <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-sm overflow-x-auto"><code>sudo apt install ./zalos_1.0.4-1~ubuntu24.04_amd64.deb
-# hoặc
-sudo apt install ./zalos_1.0.4-1~ubuntu24.04_arm64.deb</code></pre>
-        </div>
+            <!-- Panel: Nix -->
+            <div id="panel-nix" role="tabpanel" aria-labelledby="tab-nix" class="tab-panel" hidden>
+              <p data-en="Try it instantly, or install it permanently into your user profile via a Nix Flake:">Chạy thử
+                ngay hoặc cài đặt lâu dài vào hồ sơ người dùng thông qua Nix Flake:</p>
+              <div class="code-block-wrap">
+                <button type="button" class="copy-btn" data-copy-target="code-nix">Sao chép</button>
+                <pre id="code-nix" class="code-pre" tabindex="0"><code># Run directly, no install
+nix run github:cpfriend1721994/zalos
 
-        <div id="content-rpm" class="space-y-4 hidden">
-          <p class="text-sm text-slate-600 dark:text-slate-400">Dành cho Fedora 43+ (tải gói <code>x86_64</code> hoặc <code>aarch64</code>):</p>
-          <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-sm overflow-x-auto"><code>sudo dnf install ./zalos-1.0.4-1.fc43.x86_64.rpm
-# hoặc
-sudo dnf install ./zalos-1.0.4-1.fc43.aarch64.rpm</code></pre>
-        </div>
-
-        <div id="content-nixos" class="space-y-4 hidden">
-          <p class="text-sm text-slate-600 dark:text-slate-400">Chạy thử không cài, hoặc cài vào user profile:</p>
-          <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-sm overflow-x-auto"><code>nix run github:cpfriend1721994/zalos
+# Install into user profile
 nix profile install github:cpfriend1721994/zalos</code></pre>
+              </div>
+            </div>
+
+            <!-- Panel: Build from source -->
+            <div id="panel-source" role="tabpanel" aria-labelledby="tab-source" class="tab-panel" hidden>
+              <p
+                data-en="The entire build and test process is packaged in Docker/Podman to guarantee full reproducibility:">
+                Toàn bộ quy trình biên dịch và kiểm thử được đóng gói trong Docker/Podman để đảm bảo tính nhất quán
+                tuyệt đối:</p>
+              <div class="code-block-wrap">
+                <button type="button" class="copy-btn" data-copy-target="code-source">Sao chép</button>
+                <pre id="code-source" class="code-pre" tabindex="0"><code>git clone https://github.com/cpfriend1721994/zalos.git
+cd zalos
+
+docker compose run --rm build            # Compile binary
+docker compose run --rm test             # Run the CTest suite
+docker compose run --rm package-appimage # Package AppImage into dist/</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <aside class="aside-card" aria-label="Lưu ý phụ thuộc cho cuộc gọi và kiến trúc"
+            data-en-aria="Notes on call dependencies and architecture">
+            <h3 data-en="Check your CPU architecture">Kiểm tra kiến trúc máy</h3>
+            <p style="color: var(--text-secondary);"
+              data-en="Run <code class=&quot;inline-code&quot;>uname -m</code> in a terminal to see exactly which file to download (<code class=&quot;inline-code&quot;>x86_64</code> or <code class=&quot;inline-code&quot;>aarch64</code>).">
+              Chạy lệnh <code class="inline-code">uname -m</code> trong terminal để biết chính xác định dạng tệp cần tải
+              (<code class="inline-code">x86_64</code> hoặc <code class="inline-code">aarch64</code>).
+            </p>
+            <hr style="border: none; border-block-start: 1px solid var(--border-hairline); margin: 0;">
+            <h3 data-en="Voice &amp; video call dependencies">Phụ thuộc cho Gọi thoại &amp; Video</h3>
+            <p style="color: var(--text-secondary);"
+              data-en="The <code>.deb</code>, <code>.rpm</code> and <code>Nix</code> packages configure the call engine automatically. With <strong>AppImage</strong>, also install <code class=&quot;inline-code&quot;>nodejs</code>, <code class=&quot;inline-code&quot;>python3</code>, <code class=&quot;inline-code&quot;>libopus</code> and <code class=&quot;inline-code&quot;>pulseaudio-utils</code>.">
+              Các gói <code>.deb</code>, <code>.rpm</code> và <code>Nix</code> tự động cấu hình engine gọi thoại. Nếu
+              dùng <strong>AppImage</strong>, hãy cài đặt thêm <code class="inline-code">nodejs</code>, <code
+                class="inline-code">python3</code>, <code class="inline-code">libopus</code> và <code
+                class="inline-code">pulseaudio-utils</code>.
+            </p>
+            <p style="color: var(--text-secondary);"
+              data-en="To send camera video in 1-1 video calls, install the <strong>OpenH264</strong> library from your distro (<code class=&quot;inline-code&quot;>libopenh264-7</code> on Ubuntu or <code class=&quot;inline-code&quot;>openh264</code> on Fedora).">
+              Để truyền nhận hình ảnh camera trong cuộc gọi video 1-1, hãy cài đặt thư viện <strong>OpenH264</strong> từ
+              bản phân phối của bạn (<code class="inline-code">libopenh264-7</code> trên Ubuntu hoặc <code
+                class="inline-code">openh264</code> trên Fedora).
+            </p>
+          </aside>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Footer & Disclaimer -->
-  <footer class="max-w-6xl mx-auto px-4 sm:px-6 py-12 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
-    <p class="mb-3">
-      Phát hành dưới giấy phép <strong>MIT License</strong>. Dự án mã nguồn mở, phát triển bởi cộng đồng.
-    </p>
-    <p class="max-w-xl mx-auto text-slate-400 dark:text-slate-600">
-      <strong>Miễn trừ trách nhiệm:</strong> Zalos là dự án độc lập của cộng đồng mã nguồn mở, không trực thuộc, không được tài trợ hay đại diện bởi VNG Corporation hoặc Zalo. Tất cả logo và nhãn hiệu thuộc quyền sở hữu của các chủ sở hữu tương ứng.
-    </p>
+    <!-- Honest Capability Accounting -->
+    <section id="scope" class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-eyebrow" data-en="Feature transparency">Minh bạch tính năng</span>
+          <h2 class="section-title" data-en="Currently supported scope">Phạm vi hỗ trợ hiện tại</h2>
+          <p class="section-desc"
+            data-en="Zalos follows a principle of technical transparency: every feature is reported honestly according to what the current protocol can actually do, never simulating success.">
+            Zalos tuân thủ nguyên tắc minh bạch kỹ thuật: mọi tính năng đều được ghi nhận trung thực theo đúng khả năng
+            của giao thức hiện hành, không giả lập trạng thái thành công.
+          </p>
+        </div>
+
+        <div class="scope-grid">
+          <div class="scope-box">
+            <h3>
+              <span style="color: var(--status-ok);" aria-hidden="true">●</span>
+              <span data-en="Fully working &amp; verified">Hoạt động đầy đủ &amp; Đã kiểm chứng</span>
+            </h3>
+            <ul>
+              <li
+                data-en="QR sign-in, phone-number sign-in, and one-click browser-session import from Chromium-based browsers (Chrome/Brave/Edge/Vivaldi/Thorium).">
+                Đăng nhập QR, đăng nhập bằng số điện thoại &amp; tự nhận diện phiên từ trình duyệt Chromium
+                (Chrome/Brave/Edge/Vivaldi/Thorium).</li>
+              <li data-en="1-1, group and My-Cloud messaging, replies, multi-thread forwarding and recall.">Nhắn tin
+                1-1, Nhóm, Cloud của tôi, trả lời, chuyển tiếp nhiều luồng, thu hồi.</li>
+              <li data-en="Encrypted history sync from your phone and instant offline message cache.">Đồng bộ lịch sử
+                được mã hóa từ điện thoại và bộ nhớ đệm ngoại tuyến tức thì.</li>
+              <li
+                data-en="Instant Vietnamese search (even without diacritics), label folders on the nav rail, PIN-hidden conversations.">
+                Tìm kiếm tiếng Việt siêu tốc (kể cả không dấu), thư mục nhãn trên thanh điều hướng, ẩn hội thoại bằng mã
+                PIN.</li>
+              <li data-en="Record/play AAC voice notes, 1-1 voice and video calls.">Ghi âm/phát tin nhắn thoại AAC, gọi
+                thoại và gọi video 1-1.</li>
+            </ul>
+          </div>
+
+          <div class="scope-box">
+            <h3>
+              <span style="color: var(--status-warn);" aria-hidden="true">●</span>
+              <span data-en="Works locally on your machine">Hoạt động cục bộ trên máy</span>
+            </h3>
+            <ul>
+              <li
+                data-en="<strong>Scheduled send:</strong> stored per account on your machine and auto-sent while Zalos is open (or running in the system tray).">
+                <strong>Hẹn giờ gửi tin:</strong> lưu theo từng tài khoản trên máy và tự động gửi khi Zalos đang mở
+                (hoặc chạy dưới khay hệ thống).
+              </li>
+              <li
+                data-en="<strong>App lock &amp; anti-peek:</strong> protects the Linux desktop UI itself and Freedesktop push notifications.">
+                <strong>Khóa ứng dụng &amp; Chống nhìn lén:</strong> bảo vệ trực tiếp trên giao diện máy tính Linux và
+                thông báo đẩy Freedesktop.
+              </li>
+              <li
+                data-en="<strong>Block Sent / Typing:</strong> stops the app from sending status packets to the server when you read or type.">
+                <strong>Chặn Đã xem / Đang nhập:</strong> ngăn ứng dụng gửi gói tin trạng thái lên máy chủ khi bạn đọc
+                hoặc gõ phím.
+              </li>
+            </ul>
+          </div>
+
+          <div class="scope-box">
+            <h3>
+              <span style="color: var(--text-muted);" aria-hidden="true">●</span>
+              <span data-en="Not supported / Out of scope">Chưa hỗ trợ / Ngoài phạm vi</span>
+            </h3>
+            <ul>
+              <li
+                data-en="<strong>Group calls &amp; screen sharing:</strong> currently only 1-1 voice and video calls are supported.">
+                <strong>Gọi nhóm &amp; Chia sẻ màn hình:</strong> hiện mới hỗ trợ gọi thoại và gọi video cá nhân (1-1).
+              </li>
+              <li
+                data-en="<strong>Personal To-Do lists:</strong> the server restricts this to genuine Zalo PC sessions, so it was removed to avoid errors.">
+                <strong>Danh sách Việc cần làm (To-Do cá nhân):</strong> bị máy chủ giới hạn riêng cho phiên Zalo PC
+                chính hãng nên đã được lược bỏ để tránh báo lỗi.
+              </li>
+              <li
+                data-en="<strong>Parallel multi-account:</strong> the app is optimized for one signed-in account at a time.">
+                <strong>Đa tài khoản song song:</strong> ứng dụng thiết kế tối ưu cho 1 tài khoản đăng nhập tại một thời
+                điểm.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <p style="font-weight: 600; color: var(--text-primary); margin-block-end: 0.25rem;"
+          data-en="Zalos — Open source under the MIT License">
+          Zalos — Mã nguồn mở theo giấy phép MIT License
+        </p>
+        <p style="max-inline-size: 72ch;"
+          data-en="Disclaimer: Zalos is an independent open-source community project, not affiliated with, sponsored by or endorsed by VNG Corporation or Zalo. All trademarks belong to their respective owners.">
+          Miễn trừ trách nhiệm: Zalos là dự án độc lập của cộng đồng mã nguồn mở, không trực thuộc, không được tài trợ
+          hay chứng thực bởi VNG Corporation hoặc Zalo. Mọi nhãn hiệu thuộc quyền sở hữu của chủ sở hữu tương ứng.
+        </p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/cpfriend1721994/zalos" data-en="GitHub source">Mã nguồn GitHub</a>
+        <a href="https://github.com/cpfriend1721994/zalos/releases" data-en="Releases">Bản phát hành</a>
+        <a href="https://github.com/cpfriend1721994/zalos/issues" data-en="Issues &amp; feedback">Báo lỗi &amp; Góp
+          ý</a>
+        <a href="https://github.com/cpfriend1721994/zalos/blob/main/CHANGELOG.md" data-en="Changelog">Changelog</a>
+      </div>
+    </div>
   </footer>
 
   <script>
-    function setTab(tab) {
-      const tabs = ['appimage', 'deb', 'rpm', 'nixos'];
-      tabs.forEach(t => {
-        const btn = document.getElementById('tab-' + t);
-        const content = document.getElementById('content-' + t);
-        if (t === tab) {
-          btn.className = "px-5 py-3 border-b-2 border-zalo text-zalo bg-white dark:bg-slate-900";
-          content.classList.remove('hidden');
-        } else {
-          btn.className = "px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200";
-          content.classList.add('hidden');
-        }
-      });
-    }
+    // One-click light/dark toggle driven by the <meta name="color-scheme"> override
+    (function () {
+      const meta = document.querySelector('meta[name="color-scheme"]');
+      const btn = document.getElementById('themeToggle');
+      const mql = window.matchMedia('(prefers-color-scheme: dark)');
+      const preview = document.querySelector('.app-preview[data-shot]');
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+      let introLock = false;
 
-    const toggle = document.getElementById('themeToggle');
-    toggle.addEventListener('click', () => {
-      document.documentElement.classList.toggle('dark');
-      localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
-    });
-    if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      document.documentElement.classList.add('dark');
-    }
+      function renderedScheme() {
+        const c = meta.content;
+        if (c === 'dark' || c === 'light') return c;
+        return mql.matches ? 'dark' : 'light';
+      }
+
+      function syncIcon() {
+        btn.dataset.mode = renderedScheme();
+        if (preview && !introLock) preview.dataset.shot = renderedScheme();
+      }
+
+      btn.addEventListener('click', () => {
+        introLock = false;
+        const target = renderedScheme() === 'dark' ? 'light' : 'dark';
+        meta.content = target;
+        try { localStorage.setItem('color-scheme', target); } catch (_) { }
+        syncIcon();
+      });
+
+      mql.addEventListener('change', syncIcon);
+      window.addEventListener('storage', (e) => {
+        if (e.key !== 'color-scheme') return;
+        meta.content = e.newValue === 'light' || e.newValue === 'dark' ? e.newValue : 'light dark';
+        syncIcon();
+      });
+
+      // Opening showcase: start the preview on the opposite theme, then crossfade
+      // to the active one so the light/dark transition is visible on first load.
+      if (preview && !reducedMotion.matches) {
+        introLock = true;
+        const active = renderedScheme();
+        preview.dataset.shot = active === 'dark' ? 'light' : 'dark';
+        window.setTimeout(() => {
+          introLock = false;
+          syncIcon();
+        }, 1600);
+      }
+
+      syncIcon();
+    })();
+
+    // EN / VI language switch — Vietnamese is the source, data-en* carry English
+    (function () {
+      const LANG_KEY = 'lang';
+      const html = document.documentElement;
+      const langBtns = Array.from(document.querySelectorAll('.lang-btn'));
+      const copyBtns = Array.from(document.querySelectorAll('.copy-btn'));
+      const COPY_LABEL = { vi: 'Sao chép', en: 'Copy' };
+      const COPIED_LABEL = { vi: 'Đã chép ✓', en: 'Copied ✓' };
+
+      const nodes = [];
+      document.querySelectorAll('[data-en]').forEach((el) => {
+        if (el.tagName === 'TITLE') nodes.push({ el, kind: 'title', vi: el.textContent, en: el.getAttribute('data-en') });
+        else if (el.tagName === 'META') nodes.push({ el, kind: 'meta', vi: el.getAttribute('content'), en: el.getAttribute('data-en') });
+        else nodes.push({ el, kind: 'html', vi: el.innerHTML, en: el.getAttribute('data-en') });
+      });
+      document.querySelectorAll('[data-en-aria]').forEach((el) =>
+        nodes.push({ el, kind: 'aria', vi: el.getAttribute('aria-label'), en: el.getAttribute('data-en-aria') }));
+      document.querySelectorAll('[data-en-alt]').forEach((el) =>
+        nodes.push({ el, kind: 'alt', vi: el.getAttribute('alt'), en: el.getAttribute('data-en-alt') }));
+
+      let current = 'vi';
+
+      function render(lang) {
+        nodes.forEach((n) => {
+          const val = lang === 'en' ? n.en : n.vi;
+          if (val == null) return;
+          if (n.kind === 'title') n.el.textContent = val;
+          else if (n.kind === 'meta') n.el.setAttribute('content', val);
+          else if (n.kind === 'aria') n.el.setAttribute('aria-label', val);
+          else if (n.kind === 'alt') n.el.setAttribute('alt', val);
+          else n.el.innerHTML = val;
+        });
+      }
+
+      function syncCopyButtons() {
+        copyBtns.forEach((b) => { if (!b.dataset.copying) b.textContent = COPY_LABEL[current]; });
+      }
+
+      function setLang(lang, persist) {
+        current = lang === 'en' ? 'en' : 'vi';
+        html.lang = current;
+        render(current);
+        langBtns.forEach((b) => b.setAttribute('aria-pressed', b.dataset.lang === current ? 'true' : 'false'));
+        syncCopyButtons();
+        if (persist) { try { localStorage.setItem(LANG_KEY, current); } catch (_) { } }
+      }
+
+      langBtns.forEach((b) => b.addEventListener('click', () => setLang(b.dataset.lang, true)));
+
+      copyBtns.forEach((btn) => btn.addEventListener('click', async () => {
+        const codeEl = document.getElementById(btn.getAttribute('data-copy-target'));
+        if (!codeEl) return;
+        try {
+          await navigator.clipboard.writeText(codeEl.innerText.trim());
+          btn.dataset.copying = '1';
+          btn.textContent = COPIED_LABEL[current];
+          clearTimeout(btn._t);
+          btn._t = setTimeout(() => { delete btn.dataset.copying; btn.textContent = COPY_LABEL[current]; }, 1800);
+        } catch (_) { }
+      }));
+
+      window.addEventListener('storage', (e) => { if (e.key === LANG_KEY) setLang(e.newValue, false); });
+
+      let initial = 'vi';
+      try { if (localStorage.getItem(LANG_KEY) === 'en') initial = 'en'; } catch (_) { }
+      setLang(initial, false);
+    })();
+
+    // Accessible Tabs for Installation Guide
+    (function () {
+      const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+      const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+
+      function activateTab(selectedTab, moveFocus) {
+        tabs.forEach((tab) => {
+          const isSelected = tab === selectedTab;
+          tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+          tab.tabIndex = isSelected ? 0 : -1;
+        });
+        panels.forEach((panel) => {
+          panel.hidden = panel.id !== selectedTab.getAttribute('aria-controls');
+        });
+        if (moveFocus) selectedTab.focus();
+      }
+
+      tabs.forEach((tab, idx) => {
+        tab.tabIndex = idx === 0 ? 0 : -1;
+        tab.addEventListener('click', () => activateTab(tab, false));
+        tab.addEventListener('keydown', (e) => {
+          let targetIdx = null;
+          if (e.key === 'ArrowRight') targetIdx = (idx + 1) % tabs.length;
+          else if (e.key === 'ArrowLeft') targetIdx = (idx - 1 + tabs.length) % tabs.length;
+          else if (e.key === 'Home') targetIdx = 0;
+          else if (e.key === 'End') targetIdx = tabs.length - 1;
+
+          if (targetIdx !== null) {
+            e.preventDefault();
+            activateTab(tabs[targetIdx], true);
+          }
+        });
+      });
+    })();
   </script>
 </body>
+
 </html>

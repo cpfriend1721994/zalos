@@ -10,7 +10,7 @@ ApplicationWindow {
     height: 680
     minimumWidth: 380
     minimumHeight: 420
-    title: "Zalo"
+    title: "Zalos"
     color: ThemeManager.backgroundColor
 
     readonly property bool isCompactMode: width < 680

@@ -30,7 +30,8 @@ if [ -z "${BASE_IMAGE}" ] || [ -z "${PLATFORM}" ] || [ -z "${BUILD_SCRIPT}" ]; t
 fi
 
 # Per-run names: several targets share one daemon and runner, and an old container must never be reused.
-SLUG="zalos-package-$(basename "${BUILD_SCRIPT}" .sh)-"${PLATFORM//\//-}-$$
+SCRIPT_TAG=$(echo "${BUILD_SCRIPT}" | tr -cs 'a-zA-Z0-9' '-' | sed 's/^-//;s/-$//')
+SLUG="zalos-package-${SCRIPT_TAG}-${PLATFORM//\//-}-$$"
 IMAGE="${SLUG}"
 CONTAINER="${SLUG}"
 trap '"${DOCKER}" rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
@@ -63,11 +64,12 @@ echo "==> Target arch ${WANT_ARCH} on host $(uname -m): emulated=${EMULATED}"
 # HOME=/workspace and leave caches behind; keep the same rule here).
 echo "==> Running ${BUILD_SCRIPT}..."
 "${DOCKER}" run --name "${CONTAINER}" --platform "${PLATFORM}" -u 0:0 -e HOME=/tmp -e ZALOS_EMULATED="${EMULATED}" "${IMAGE}" \
-    bash "/workspace/${BUILD_SCRIPT}"
+    bash -eo pipefail -c "cd /workspace && ${BUILD_SCRIPT}"
 
 echo "==> Copying /workspace/dist out of the container..."
 mkdir -p "${DIST_DIR}"
 "${DOCKER}" cp "${CONTAINER}:/workspace/dist/." "${DIST_DIR}/"
+"${DOCKER}" cp "${CONTAINER}:/workspace/flake.lock" ./flake.lock >/dev/null 2>&1 || true
 ls -lh "${DIST_DIR}"
 
 "${DOCKER}" rmi -f "${IMAGE}" >/dev/null 2>&1 || true

@@ -41,9 +41,9 @@ tar -C "${WORKSPACE_DIR}" --transform 's,^,zalos-1.0.4/,' \
 # 2. Copy spec file
 cp "${WORKSPACE_DIR}/packaging/rpm/zalos.spec" "${RPMBUILD_DIR}/SPECS/"
 
-# 3. Build RPM package
+# 3. Build RPM package (binary RPM only; no SRPM needed for release artifacts)
 echo "==> Running rpmbuild..."
-rpmbuild --define "_topdir ${RPMBUILD_DIR}" -ba "${RPMBUILD_DIR}/SPECS/zalos.spec"
+rpmbuild --define "_topdir ${RPMBUILD_DIR}" -bb "${RPMBUILD_DIR}/SPECS/zalos.spec"
 
 # 4. Copy generated RPMs to dist
 cp -v "${RPMBUILD_DIR}/RPMS/"*/*.rpm "${OUTPUT_DIR}/" || true

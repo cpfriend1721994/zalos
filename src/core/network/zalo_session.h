@@ -278,6 +278,7 @@ private:
     QHash<int, int> m_pullPages;
     QHash<QString, int> m_preferredHost;
     QHash<QString, std::function<void(const QJsonObject& fileData)>> m_uploadWaiters;
+    QHash<QString, QJsonObject> m_earlyFileDone;
 };
 
 }

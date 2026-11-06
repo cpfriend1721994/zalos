@@ -18,6 +18,12 @@ int MessageModel::rowCount(const QModelIndex& parent) const {
 
 namespace {
 constexpr qint64 kGroupBreakMs = 30 * 60 * 1000;
+
+qint64 localDay(const MessageItem& m) {
+    if (m.dayCache < 0)
+        m.dayCache = QDateTime::fromMSecsSinceEpoch(m.ts).date().toJulianDay();
+    return m.dayCache;
+}
 }
 
 void MessageModel::refreshSenders() {
@@ -64,7 +70,7 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
             if (index.row() == 0) return true;
             const auto& prev = m_items.at(index.row() - 1);
             return prev.senderId != item.senderId || prev.isMine != item.isMine || item.ts - prev.ts > kGroupBreakMs
-                   || QDateTime::fromMSecsSinceEpoch(prev.ts).date() != QDateTime::fromMSecsSinceEpoch(item.ts).date();
+                   || localDay(prev) != localDay(item);
         }
         case LastInGroupRole: {
             int last = index.row();
@@ -72,12 +78,11 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
             if (last + 1 >= m_items.size()) return true;
             const auto& next = m_items.at(last + 1);
             return next.senderId != item.senderId || next.isMine != item.isMine || next.ts - item.ts > kGroupBreakMs
-                   || QDateTime::fromMSecsSinceEpoch(next.ts).date() != QDateTime::fromMSecsSinceEpoch(item.ts).date();
+                   || localDay(next) != localDay(item);
         }
         case DateSeparatorRole:
             return item.ts > 0 && (index.row() == 0
-                   || QDateTime::fromMSecsSinceEpoch(m_items.at(index.row() - 1).ts).date()
-                          != QDateTime::fromMSecsSinceEpoch(item.ts).date());
+                   || localDay(m_items.at(index.row() - 1)) != localDay(item));
         case UnreadMarkerRole: return !m_unreadMarkerId.isEmpty() && item.id == m_unreadMarkerId;
         case ShowStatusRole: {
             if (!item.isMine) return false;
@@ -157,7 +162,7 @@ bool MessageModel::joinsPrevious(int row) const {
     const auto& a = m_items.at(row - 1);
     const auto& b = m_items.at(row);
     return a.senderId == b.senderId && a.isMine == b.isMine && b.ts - a.ts <= kMediaRunGapMs && b.ts >= a.ts
-           && QDateTime::fromMSecsSinceEpoch(a.ts).date() == QDateTime::fromMSecsSinceEpoch(b.ts).date();
+           && localDay(a) == localDay(b);
 }
 
 void MessageModel::refreshRunsAround(int row) {

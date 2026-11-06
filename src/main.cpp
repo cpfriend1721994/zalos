@@ -65,12 +65,21 @@ bool hasInputContextPlugin(const QString& key) {
     return false;
 }
 
+const QByteArray& sessionBusOwnedNames() {
+    static const QByteArray names = [] {
+        QProcess proc;
+        proc.start("dbus-send", {"--session", "--print-reply", "--dest=org.freedesktop.DBus", "/org/freedesktop/DBus",
+                                 "org.freedesktop.DBus.ListNames"});
+        if (!proc.waitForFinished(1500) || proc.exitCode() != 0) return QByteArray{};
+        return proc.readAllStandardOutput();
+    }();
+    return names;
+}
+
 bool sessionBusHasName(const QString& name) {
-    QProcess proc;
-    proc.start("dbus-send", {"--session", "--print-reply", "--dest=org.freedesktop.DBus", "/org/freedesktop/DBus",
-                             "org.freedesktop.DBus.NameHasOwner", "string:" + name});
-    if (!proc.waitForFinished(1500) || proc.exitCode() != 0) return false;
-    return proc.readAllStandardOutput().contains("boolean true");
+    const QByteArray& reply = sessionBusOwnedNames();
+    if (reply.isEmpty()) return false;
+    return reply.contains('"' + name.toUtf8() + '"');
 }
 
 void configureInputMethod() {
