@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.0.0 LANGUAGES CXX)
+project(zalos VERSION 1.0.4 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -240,7 +240,7 @@ install(FILES assets/zalos.desktop
     DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
 )
 
-install(FILES assets/metainfo/com.github.zalos.Zalos.metainfo.xml
+install(FILES assets/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
     DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
 )
 

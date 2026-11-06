@@ -2,7 +2,7 @@
 
 pkgs.stdenv.mkDerivation rec {
   pname = "zalos";
-  version = "1.0.0";
+  version = "1.0.4";
 
   # Only sources: never sessions (zsess.json), offline caches (.local/.config/.cache written by containers with
   # HOME=/workspace), screenshots, build trees or packages — the Nix store is world-readable.
@@ -59,7 +59,7 @@ pkgs.stdenv.mkDerivation rec {
 
   meta = with pkgs.lib; {
     description = "Native Qt6 (C++/QML) desktop client for Zalo on Linux";
-    homepage = "https://github.com/zalos/zalos";
+    homepage = "https://github.com/cpfriend1721994/zalos";
     license = licenses.mit;
     platforms = platforms.linux;
     mainProgram = "zalos";

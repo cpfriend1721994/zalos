@@ -17,7 +17,7 @@ Builds and tests run inside containers, so you do not install a toolchain on you
 reproducible across distributions. You only need `docker` (or `podman`) with Compose, and Git.
 
 ```bash
-git clone https://github.com/zalos/zalos.git
+git clone https://github.com/cpfriend1721994/zalos.git
 cd zalos
 
 docker compose run --rm build       # compile

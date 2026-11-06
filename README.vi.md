@@ -4,12 +4,12 @@
 
 **Ứng dụng Zalo cho Linux — nhẹ và nhanh**
 
-[![CI/CD Pipeline](https://github.com/zalos/zalos/actions/workflows/ci.yml/badge.svg)](https://github.com/zalos/zalos/actions/workflows/ci.yml)
+[![CI/CD Pipeline](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml/badge.svg)](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#tính-năng)
-[![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#cài-đặt)
+[![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-tính-năng)
+[![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-cài-đặt)
 
-[English](README.md) | [Tiếng Việt](README.vi.md) | [Trang chủ](https://zalos.github.io)
+[English](README.md) | [Tiếng Việt](README.vi.md) | [Trang chủ](https://cpfriend1721994.github.io/zalos/)
 
 </div>
 
@@ -56,26 +56,26 @@ và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nh�
 
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
-wget https://github.com/zalos/zalos/releases/latest/download/zalos_1.0.0-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.0.0-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.4-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.0.4-1~ubuntu24.04_amd64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
-sudo dnf install https://github.com/zalos/zalos/releases/latest/download/zalos-1.0.0-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.4-1.fc43.x86_64.rpm
 ```
 
 ### NixOS / Nix
 ```bash
-nix run github:zalos/zalos            # chạy thử không cài
-nix profile install github:zalos/zalos
+nix run github:cpfriend1721994/zalos     # chạy thử không cài
+nix profile install github:cpfriend1721994/zalos
 ```
 
 ### AppImage (các bản phân phối khác)
 ```bash
-wget https://github.com/zalos/zalos/releases/latest/download/Zalos-1.0.0-x86_64.AppImage
-chmod +x Zalos-1.0.0-x86_64.AppImage
-./Zalos-1.0.0-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.4-x86_64.AppImage
+chmod +x Zalos-1.0.4-x86_64.AppImage
+./Zalos-1.0.4-x86_64.AppImage
 ```
 AppImage dùng môi trường runtime sẵn có của hệ thống; trên bản cài tối giản bạn có thể cần cài thêm các gói
 runtime desktop thông dụng.
@@ -104,7 +104,7 @@ do bản quyền sáng chế): Ubuntu `sudo apt install libopenh264-7`, Fedora `
 Quá trình build chạy trong container, nên chỉ cần `docker` (hoặc `podman`) kèm Compose và Git.
 
 ```bash
-git clone https://github.com/zalos/zalos.git
+git clone https://github.com/cpfriend1721994/zalos.git
 cd zalos
 
 docker compose run --rm build            # biên dịch

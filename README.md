@@ -4,12 +4,12 @@
 
 **A fast, native Zalo desktop client for Linux**
 
-[![CI/CD Pipeline](https://github.com/zalos/zalos/actions/workflows/ci.yml/badge.svg)](https://github.com/zalos/zalos/actions/workflows/ci.yml)
+[![CI/CD Pipeline](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml/badge.svg)](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#features)
-[![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#installation)
+[![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-features)
+[![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-installation)
 
-[English](README.md) | [Tiếng Việt](README.vi.md) | [Website](https://zalos.github.io)
+[English](README.md) | [Tiếng Việt](README.vi.md) | [Website](https://cpfriend1721994.github.io/zalos/)
 
 </div>
 
@@ -56,26 +56,26 @@ installed on the oldest and newest one in CI.
 
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
-wget https://github.com/zalos/zalos/releases/latest/download/zalos_1.0.0-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.0.0-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.4-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.0.4-1~ubuntu24.04_amd64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
-sudo dnf install https://github.com/zalos/zalos/releases/latest/download/zalos-1.0.0-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.4-1.fc43.x86_64.rpm
 ```
 
 ### NixOS / Nix
 ```bash
-nix run github:zalos/zalos            # run without installing
-nix profile install github:zalos/zalos
+nix run github:cpfriend1721994/zalos     # run without installing
+nix profile install github:cpfriend1721994/zalos
 ```
 
 ### AppImage (other distributions)
 ```bash
-wget https://github.com/zalos/zalos/releases/latest/download/Zalos-1.0.0-x86_64.AppImage
-chmod +x Zalos-1.0.0-x86_64.AppImage
-./Zalos-1.0.0-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.4-x86_64.AppImage
+chmod +x Zalos-1.0.4-x86_64.AppImage
+./Zalos-1.0.4-x86_64.AppImage
 ```
 The AppImage relies on your system's runtime; on a minimal install you may need the usual desktop
 runtime packages.
@@ -105,7 +105,7 @@ patent-licensing reasons): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo
 Builds run in containers, so the only prerequisites are `docker` (or `podman`) with Compose and Git.
 
 ```bash
-git clone https://github.com/zalos/zalos.git
+git clone https://github.com/cpfriend1721994/zalos.git
 cd zalos
 
 docker compose run --rm build            # compile

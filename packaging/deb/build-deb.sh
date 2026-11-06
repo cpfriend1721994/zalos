@@ -11,7 +11,7 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 BUILD_DIR="${WORKSPACE_DIR}/build-deb"
 PKG_DIR="${BUILD_DIR}/pkg"
 OUTPUT_DIR="${WORKSPACE_DIR}/dist"
-ZALOS_VERSION="1.0.0"
+ZALOS_VERSION="1.0.4"
 REVISION="1"
 ARCH="$(dpkg --print-architecture)"
 . /etc/os-release
@@ -60,7 +60,7 @@ Maintainer: Zalos Developers <noreply@zalos.invalid>
 Installed-Size: ${INSTALLED_SIZE}
 Section: net
 Priority: optional
-Homepage: https://github.com/zalos/zalos
+Homepage: https://github.com/cpfriend1721994/zalos
 Depends: ${SHLIB_DEPENDS}, ${QML_DEPENDS}, python3, nodejs, libopus0
 Recommends: libopenh264-7 | libopenh264-8, pulseaudio-utils | alsa-utils
 Description: Native Qt6 (C++/QML) desktop client for Zalo on Linux

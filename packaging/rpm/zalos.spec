@@ -1,9 +1,9 @@
 Name:           zalos
-Version:        1.0.0
+Version:        1.0.4
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT
-URL:            https://github.com/zalos/zalos
+URL:            https://github.com/cpfriend1721994/zalos
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cmake >= 3.22
@@ -62,11 +62,15 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_bindir}/%{name}
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{name}.svg
-%{_datadir}/metainfo/com.github.zalos.Zalos.metainfo.xml
+%{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
 %{_datadir}/%{name}/export_browser_cookies.py
 %{_datadir}/%{name}/zcall-native/
 
 %changelog
+* Fri Nov 06 2026 Zalos Team <dev@zalos.local> - 1.0.4-1
+- First published release: bind-mount-free CI packaging, Nix sandbox fix for emulated aarch64.
+- Repoint all metadata/homepage to cpfriend1721994 and AppStream id to io.github.cpfriend1721994.zalos.
+
 * Sat Oct 31 2026 Zalos Team <dev@zalos.local> - 1.0.0-1
 - Initial Qt6 release with GTK/Qt theming, Wayland/X11 and E2EE support.
 

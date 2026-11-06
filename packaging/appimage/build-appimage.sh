@@ -93,16 +93,16 @@ if [ ! -f "${TOOL}" ]; then
 fi
 
 # 4. Generate AppImage or fallback archive
-rm -f "${OUTPUT_DIR}/Zalos-1.0.0-${ARCH}.AppImage"
+rm -f "${OUTPUT_DIR}/Zalos-1.0.4-${ARCH}.AppImage"
 if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
     echo "==> Generating AppImage via appimagetool..."
-    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_DIR}/Zalos-1.0.0-${ARCH}.AppImage" || {
+    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_DIR}/Zalos-1.0.4-${ARCH}.AppImage" || {
         echo "Fallback to portable archive..."
-        tar -czf "${OUTPUT_DIR}/Zalos-1.0.0-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
+        tar -czf "${OUTPUT_DIR}/Zalos-1.0.4-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
     }
 else
     echo "==> Packaging portable AppDir bundle..."
-    tar -czf "${OUTPUT_DIR}/Zalos-1.0.0-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
+    tar -czf "${OUTPUT_DIR}/Zalos-1.0.4-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
 fi
 
 echo "✅ AppImage build step completed. Artifacts saved in dist/"

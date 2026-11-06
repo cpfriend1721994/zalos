@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.github.zalos.Zalos</id>
+  <id>io.github.cpfriend1721994.zalos</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Zalos</name>
@@ -20,26 +20,19 @@
     </ul>
   </description>
   <launchable type="desktop-id">zalos.desktop</launchable>
-  <screenshots>
-    <screenshot type="default">
-      <image>https://raw.githubusercontent.com/zalos/zalos/main/docs/screenshot.png</image>
-      <caption>Zalos Main Window with Dark Mode and Wayland CSD</caption>
-    </screenshot>
-  </screenshots>
-  <url type="homepage">https://zalos.github.io</url>
-  <url type="bugtracker">https://github.com/zalos/zalos/issues</url>
-  <url type="vcs-browser">https://github.com/zalos/zalos</url>
+  <url type="homepage">https://cpfriend1721994.github.io/zalos/</url>
+  <url type="bugtracker">https://github.com/cpfriend1721994/zalos/issues</url>
+  <url type="vcs-browser">https://github.com/cpfriend1721994/zalos</url>
   <developer_name>Zalos Contributors</developer_name>
   <provides>
     <binary>zalos</binary>
   </provides>
   <releases>
-    <release version="1.0.0" date="2026-10-31">
+    <release version="1.0.4" date="2026-11-06">
       <description>
-        <p>Initial release with pure Qt6 architecture, E2EE decryptor, and AppImage/RPM/Flatpak packaging.</p>
+        <p>First published release: pure Qt6 architecture, E2EE decryptor, and AppImage/RPM/.deb/Nix packaging for x86_64 and aarch64.</p>
       </description>
     </release>
   </releases>
   <content_rating type="oars-1.1"/>
 </component>
-
