@@ -118,6 +118,26 @@ Item {
                 smooth: true
             }
 
+            MouseArea {
+                anchors.fill: parent
+                enabled: (ZaloClient.profileCover || "").length > 0
+                hoverEnabled: true
+                cursorShape: (ZaloClient.profileCover || "").length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: {
+                    if ((ZaloClient.profileCover || "").length > 0) {
+                        ImageViewerState.show([{
+                            url: ZaloClient.profileCover,
+                            thumb: ZaloClient.profileCover,
+                            senderName: ZaloClient.profileDisplayName,
+                            isVideo: false
+                        }], 0);
+                    }
+                }
+                ToolTip.visible: containsMouse && (ZaloClient.profileCover || "").length > 0
+                ToolTip.delay: 600
+                ToolTip.text: I18n.t("Xem ảnh bìa", "View cover photo")
+            }
+
             Rectangle {
                 anchors.top: parent.top
                 anchors.right: parent.right
@@ -190,6 +210,26 @@ Item {
                 name: ZaloClient.profileDisplayName
                 showStatusDot: !ZaloClient.profileIsSelf
                 isOnline: !ZaloClient.isOfflineMode
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: (ZaloClient.profileAvatar || "").length > 0
+                hoverEnabled: true
+                cursorShape: (ZaloClient.profileAvatar || "").length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: {
+                    if ((ZaloClient.profileAvatar || "").length > 0) {
+                        ImageViewerState.show([{
+                            url: ZaloClient.profileAvatar,
+                            thumb: ZaloClient.profileAvatar,
+                            senderName: ZaloClient.profileDisplayName,
+                            isVideo: false
+                        }], 0);
+                    }
+                }
+                ToolTip.visible: containsMouse && (ZaloClient.profileAvatar || "").length > 0
+                ToolTip.delay: 600
+                ToolTip.text: I18n.t("Xem ảnh đại diện", "View avatar")
             }
 
             Rectangle {

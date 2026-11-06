@@ -981,6 +981,24 @@ Item {
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true
                                     }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: ZaloClient.currentConversationBackground.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                        onClicked: {
+                                            if (ZaloClient.currentConversationBackground.length > 0) {
+                                                ImageViewerState.show([{
+                                                    url: ZaloClient.currentConversationBackground,
+                                                    thumb: ZaloClient.currentConversationBackground,
+                                                    senderName: I18n.t("Hình nền trò chuyện", "Chat background"),
+                                                    isVideo: false
+                                                }], 0);
+                                            }
+                                        }
+                                        ToolTip.visible: containsMouse && ZaloClient.currentConversationBackground.length > 0
+                                        ToolTip.delay: 600
+                                        ToolTip.text: I18n.t("Xem hình nền", "View background")
+                                    }
                                 }
 
                                 ZButton {

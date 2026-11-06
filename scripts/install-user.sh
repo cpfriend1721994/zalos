@@ -11,8 +11,8 @@ SOURCE_INPUT="${1:-}"
 if [ -z "${SOURCE_INPUT}" ]; then
     if [ -f "${ROOT_DIR}/build/zalos" ]; then
         SOURCE_INPUT="${ROOT_DIR}/build/zalos"
-    elif [ -f "${ROOT_DIR}/dist/Zalos-1.0.4-x86_64.AppImage" ]; then
-        SOURCE_INPUT="${ROOT_DIR}/dist/Zalos-1.0.4-x86_64.AppImage"
+    elif [ -f "${ROOT_DIR}/dist/Zalos-1.0.5-x86_64.AppImage" ]; then
+        SOURCE_INPUT="${ROOT_DIR}/dist/Zalos-1.0.5-x86_64.AppImage"
     fi
 fi
 
@@ -40,7 +40,7 @@ fi
 echo "==> Creating desktop entry at ${APP_DIR}/zalos.desktop..."
 cat << EOF > "${APP_DIR}/zalos.desktop"
 [Desktop Entry]
-Name=Zalo
+Name=Zalos
 Comment=Zalo desktop client ported to Qt6 (C++/QML) for Linux
 Exec=${BIN_DIR}/zalos %u
 Icon=zalos

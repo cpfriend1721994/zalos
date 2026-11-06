@@ -17,11 +17,15 @@ mkdir -p "${BUILD_DIR}" "${APP_DIR}" "${OUTPUT_DIR}"
 
 # 1. Compile with CMake (or reuse build-deb if already built in the same Ubuntu 24.04 environment)
 DISTRO_STAMP="$(. /etc/os-release && echo "${ID}-${VERSION_ID}")"
+BUILD_JOBS="$(nproc)"
+if [ "${ZALOS_EMULATED:-0}" = "1" ] && [ "${BUILD_JOBS}" -gt 2 ]; then
+    BUILD_JOBS=2
+fi
 if [ -x "${WORKSPACE_DIR}/build-deb/zalos" ] && [ -f "${WORKSPACE_DIR}/build-deb/CMakeCache.txt" ] \
    && [ ! "${WORKSPACE_DIR}/CMakeLists.txt" -nt "${WORKSPACE_DIR}/build-deb/CMakeCache.txt" ]; then
     echo "==> Reusing Release build from build-deb..."
     BUILD_DIR="${WORKSPACE_DIR}/build-deb"
-    cmake --build "${BUILD_DIR}" --config Release -j"$(nproc)"
+    cmake --build "${BUILD_DIR}" --config Release -j"${BUILD_JOBS}"
 else
     echo "==> Configuring and compiling Zalos..."
     # The tree may come from another base image (e.g. a Fedora build before the AppImage moved to Ubuntu): a CMake
@@ -38,7 +42,7 @@ else
         -DBUILD_TESTING=OFF \
         -DZALOS_QML_AOT=OFF # runs on every host Qt >= 6.4 (see CMakeLists.txt)
 
-    cmake --build "${BUILD_DIR}" --config Release -j"$(nproc)"
+    cmake --build "${BUILD_DIR}" --config Release -j"${BUILD_JOBS}"
 fi
 rm -rf "${APP_DIR}"
 DESTDIR="${APP_DIR}" cmake --install "${BUILD_DIR}" --strip
@@ -100,16 +104,16 @@ if [ ! -f "${TOOL}" ]; then
 fi
 
 # 4. Generate AppImage or fallback archive
-rm -f "${OUTPUT_DIR}/Zalos-1.0.4-${ARCH}.AppImage"
+rm -f "${OUTPUT_DIR}/Zalos-1.0.5-${ARCH}.AppImage"
 if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
     echo "==> Generating AppImage via appimagetool..."
-    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_DIR}/Zalos-1.0.4-${ARCH}.AppImage" || {
+    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_DIR}/Zalos-1.0.5-${ARCH}.AppImage" || {
         echo "Fallback to portable archive..."
-        tar -czf "${OUTPUT_DIR}/Zalos-1.0.4-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
+        tar -czf "${OUTPUT_DIR}/Zalos-1.0.5-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
     }
 else
     echo "==> Packaging portable AppDir bundle..."
-    tar -czf "${OUTPUT_DIR}/Zalos-1.0.4-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
+    tar -czf "${OUTPUT_DIR}/Zalos-1.0.5-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
 fi
 
 echo "✅ AppImage build step completed. Artifacts saved in dist/"

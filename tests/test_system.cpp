@@ -3444,13 +3444,30 @@ private slots:
                  QString("https://x/full.jpg"));
         QCOMPARE(ZaloClient::backgroundOf({{"avatar", "https://x/av.jpg"}}), QString());
 
-        // Avatar mode dims the current conversation photo behind the messages.
+        // Avatar mode dims the current conversation photo behind the messages and updates on every conversation switch.
+        QSignalSpy bgSpy(&client, &ZaloClient::currentConversationBackgroundChanged);
         client.setGroupForTesting("grp-1", "Nh\u1ed3m th\u1eed", "https://x/group_av.jpg");
+        client.setUserForTesting("u-peer-2", "B\u1ea1n th\u1eed", "https://x/peer2_av.jpg");
         client.selectConversation("grp-1", "Nh\u1ee9m th\u1eed", "https://x/group_av.jpg");
         QCOMPARE(client.currentConversationBackground(), QString());
+        const int spyBeforeMode = bgSpy.count();
         client.setChatBackgroundMode("avatar");
         QCOMPARE(client.chatBackgroundMode(), QString("avatar"));
         QCOMPARE(client.currentConversationBackground(), QString("https://x/group_av.jpg"));
+        QCOMPARE(bgSpy.count(), spyBeforeMode + 1);
+
+        // Switching conversations in avatar mode must emit currentConversationBackgroundChanged and resolve fallback avatars.
+        client.selectConversation("u-peer-2", QString(), QString());
+        QCOMPARE(client.currentConversationBackground(), QString("https://x/peer2_av.jpg"));
+        QCOMPARE(bgSpy.count(), spyBeforeMode + 2);
+
+        client.openWelcomeScreen();
+        QCOMPARE(client.currentConversationBackground(), QString());
+        QCOMPARE(bgSpy.count(), spyBeforeMode + 3);
+
+        client.selectConversation("grp-1", "Nh\u1ee9m th\u1eed", "https://x/group_av.jpg");
+        QCOMPARE(client.currentConversationBackground(), QString("https://x/group_av.jpg"));
+        QCOMPARE(bgSpy.count(), spyBeforeMode + 4);
 
         // Unknown values collapse to "none".
         client.setChatBackgroundMode("wallpaper");
@@ -3480,6 +3497,84 @@ private slots:
         QSettings settings("Zalos", "ZalosApp");
         settings.remove("settings/chatBackgroundMode");
         settings.remove("settings/chatBackgroundImage");
+    }
+
+    // tdesktop-inspired memory optimizations:
+    // 1. AvatarImageProvider::decodeScaled downsamples at decode time via QImageReader::setScaledSize.
+    // 2. When offlineStore is usable, incoming messages persist raw JSON to SQLite without duplicating in m_rawMessages RAM.
+    // 3. trimMemoryForBackground() collapses resident threads to the active conversation and clears avatar RAM cache.
+    void testTdesktopMemoryOptimizations() {
+        // 1. Scaled decode from a 1600x900 PNG buffer into 96px circular and 320px cover targets.
+        QImage big(1600, 900, QImage::Format_RGB32);
+        big.fill(QColor("#0068FF"));
+        QByteArray pngBytes;
+        {
+            QBuffer out(&pngBytes);
+            QVERIFY(out.open(QIODevice::WriteOnly));
+            QVERIFY(big.save(&out, "PNG"));
+        }
+        {
+            QBuffer in(&pngBytes);
+            QVERIFY(in.open(QIODevice::ReadOnly));
+            const QImage avatarDecoded = AvatarImageProvider::decodeScaled(&in, 96, true);
+            QVERIFY(!avatarDecoded.isNull());
+            QCOMPARE( qMin(avatarDecoded.width(), avatarDecoded.height()), 96 );
+            QVERIFY(avatarDecoded.width() < 300);
+        }
+        {
+            QBuffer in(&pngBytes);
+            QVERIFY(in.open(QIODevice::ReadOnly));
+            const QImage coverDecoded = AvatarImageProvider::decodeScaled(&in, 320, false);
+            QVERIFY(!coverDecoded.isNull());
+            QCOMPARE(coverDecoded.width(), 320);
+            QCOMPARE(coverDecoded.height(), 180);
+        }
+
+        // 2 & 3. Zero m_rawMessages duplication when cacheUsable() is true + trimMemoryForBackground().
+        {
+            ZaloOfflineStore owner;
+            owner.bindOwner("me-opt");
+            owner.clearCache();
+            owner.bindOwner("me-opt");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("me-opt");
+
+        client.selectConversation("u-active", "Active Peer", "");
+        QJsonArray incoming;
+        for (int i = 1; i <= 5; ++i) {
+            const QString peer = QStringLiteral("u-cold-%1").arg(i);
+            client.selectConversation(peer, peer, "");
+            incoming.append(QJsonObject{
+                {"msgId", QStringLiteral("990%1").arg(i)},
+                {"cliMsgId", QStringLiteral("10%1").arg(i)},
+                {"uidFrom", peer},
+                {"idTo", "me-opt"},
+                {"msgType", "webchat"},
+                {"content", QStringLiteral("Hello %1").arg(i)},
+                {"ts", QString::number(1700000000000LL + i * 1000)}
+            });
+        }
+        client.selectConversation("u-active", "Active Peer", "");
+        emit client.apiClient()->session()->messagesReceived(incoming, false, false);
+
+        // Raw payloads are stored in SQLite, not duplicated in m_rawMessages RAM.
+        QCOMPARE(client.rawMessageCountForTesting(), 0);
+        QVERIFY(client.residentThreadCountForTesting() >= 5);
+
+        // Insert a dummy avatar into AvatarImageProvider's RAM cache to verify background trim clears it.
+        client.storage()->setAvatarMemoryCleaner([]() { AvatarImageProvider::clearMemCache(); });
+        AvatarImageProvider::insertMemCache("test-bg-trim-key", QImage(32, 32, QImage::Format_ARGB32));
+        QImage dummyOut;
+        QVERIFY(AvatarImageProvider::lookupMemCache("test-bg-trim-key", &dummyOut));
+
+        client.trimMemoryForBackground();
+        QCOMPARE(client.residentThreadCountForTesting(), 1);
+        QCOMPARE(client.currentConversationId(), QString("u-active"));
+        QVERIFY(!AvatarImageProvider::lookupMemCache("test-bg-trim-key", &dummyOut));
+
+        ZaloOfflineStore cleanup;
+        cleanup.clearCache();
     }
 
     // System theme (mode 2) reads surfaces/text/link from the platform palette snapshot, so it works
@@ -4248,6 +4343,16 @@ private slots:
         QTest::qWait(100);
         QVERIFY2(openItems > closedItems + 50, "settings must be created on open");
         QVERIFY2(itemCount() < openItems, "settings must be destroyed on close");
+
+        // ConversationInfoPanel is also lazy-loaded via Loader in ChatArea.qml when showConversationInfo is true.
+        QCOMPARE(client.showConversationInfo(), false);
+        QCOMPARE(window->findChild<QQuickItem*>("conversationInfoPanel"), nullptr);
+        client.setShowConversationInfo(true);
+        QTest::qWait(100);
+        QVERIFY(window->findChild<QQuickItem*>("conversationInfoPanel") != nullptr);
+        client.setShowConversationInfo(false);
+        QTest::qWait(100);
+        QCOMPARE(window->findChild<QQuickItem*>("conversationInfoPanel"), nullptr);
 
         const QList<QSize> sizes{{1920, 1080}, {960, 1080}, {1280, 720}, {640, 480}, {480, 540}};
         for (const QSize& size : sizes) {

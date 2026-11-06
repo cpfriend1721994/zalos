@@ -122,6 +122,7 @@ public:
     void pullMobileMessages(const QString& pcName, const QString& publicKey, qint64 fromSeqId, qint64 minSeqId,
                             bool isRetry, Callback cb);
     void cancelPullMobileMessages(const QString& pcName, const QString& publicKey, Callback cb);
+    void cleanMobileSync(const QString& publicKey, Callback cb);
     void fetchAliasList(int page, int count, Callback cb);
     void fetchUnreadMarks(Callback cb);
     void fetchNoisedIds(const QStringList& userIds, const QStringList& groupIds, Callback cb);

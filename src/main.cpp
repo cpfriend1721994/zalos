@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QLibraryInfo>
+#include <QPixmapCache>
 #include <QQuickWindow>
 #include <QImage>
 #include <QProcess>
@@ -149,7 +150,7 @@ int main(int argc, char* argv[]) {
         QDir().mkpath(logDir);
         const QByteArray logPath = QDir(logDir).filePath("zalos.log").toLocal8Bit();
         if (std::freopen(logPath.constData(), "a", stdout)) std::setvbuf(stdout, nullptr, _IOLBF, 0);
-        std::freopen(logPath.constData(), "a", stderr);
+        if (std::freopen(logPath.constData(), "a", stderr)) std::setvbuf(stderr, nullptr, _IOLBF, 0);
     }
 
     if (qEnvironmentVariableIsEmpty("QT_MESSAGE_PATTERN")) {
@@ -308,6 +309,22 @@ int main(int argc, char* argv[]) {
             Zalos::Core::Platform::RenderGuard::markFirstFrame();
             QObject::disconnect(*firstFrame);
         });
+        auto* bgTrimTimer = new QTimer(window);
+        bgTrimTimer->setSingleShot(true);
+        bgTrimTimer->setInterval(30000);
+        QObject::connect(bgTrimTimer, &QTimer::timeout, window, [window, &engine, zaloClient]() {
+            if (window->isVisible()) return;
+            zaloClient->trimMemoryForBackground();
+            QPixmapCache::clear();
+            engine.trimComponentCache();
+            engine.collectGarbage();
+            window->releaseResources();
+        });
+        QObject::connect(window, &QWindow::visibleChanged, bgTrimTimer, [bgTrimTimer](bool visible) {
+            if (visible) bgTrimTimer->stop();
+            else bgTrimTimer->start();
+        });
+        if (!window->isVisible()) bgTrimTimer->start();
         QObject::connect(window, &QQuickWindow::sceneGraphError, &app,
                          [renderProfile, &singleInstance](QQuickWindow::SceneGraphError, const QString& message) {
             std::cerr << "[zalos] scene graph error: " << message.toStdString() << std::endl;

@@ -1103,6 +1103,11 @@ void ZaloSession::cancelPullMobileMessages(const QString& pcName, const QString&
            {{"pc_name", pcName}, {"public_key", publicKey}, {"imei", m_imei}}, cb);
 }
 
+void ZaloSession::cleanMobileSync(const QString& publicKey, Callback cb) {
+    apiGet("file", "/api/message/delete_snapshot_mobile_msg",
+           {{"public_key", publicKey}, {"imei", m_imei}}, cb);
+}
+
 void ZaloSession::fetchAliasList(int page, int count, Callback cb) {
     apiGet("alias", "/api/alias/list", {{"page", page}, {"count", count}, {"imei", m_imei}}, cb);
 }

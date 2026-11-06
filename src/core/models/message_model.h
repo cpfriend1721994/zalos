@@ -105,7 +105,8 @@ public:
     void setStatus(const QString& convId, const QString& msgId, const QString& status);
     void markSeenUpTo(const QString& convId, const QString& msgId);
     bool contains(const QString& convId, const QString& msgId) const;
-    int threadSize(const QString& convId) const { return m_store.value(convId).size(); }
+    int threadSize(const QString& convId) const { return int(threadOf(convId).size()); }
+    bool isActiveThreadDuplicatedForTesting() const { return !m_currentConvId.isEmpty() && m_store.contains(m_currentConvId); }
     QString oldestMessageId(const QString& convId) const;
     qint64 oldestTimestamp(const QString& convId) const;
     QString latestMessageId(const QString& convId) const;
@@ -138,6 +139,8 @@ signals:
     void unreadMarkerChanged(int row);
 
 private:
+    QVector<MessageItem>& threadFor(const QString& convId);
+    const QVector<MessageItem>& threadOf(const QString& convId) const;
     void placeUnreadMarker();
     bool isRunTile(int row) const;
     bool joinsPrevious(int row) const;

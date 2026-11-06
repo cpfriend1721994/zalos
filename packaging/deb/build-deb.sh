@@ -11,7 +11,7 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 BUILD_DIR="${WORKSPACE_DIR}/build-deb"
 PKG_DIR="${BUILD_DIR}/pkg"
 OUTPUT_DIR="${WORKSPACE_DIR}/dist"
-ZALOS_VERSION="1.0.4"
+ZALOS_VERSION="1.0.5"
 REVISION="1"
 ARCH="$(dpkg --print-architecture)"
 . /etc/os-release
@@ -25,7 +25,11 @@ cmake -B "${BUILD_DIR}" -S "${WORKSPACE_DIR}" -G Ninja \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=OFF \
     -DZALOS_QML_AOT=OFF # runs on every newer Qt (see CMakeLists.txt)
-cmake --build "${BUILD_DIR}" -j"$(nproc)"
+BUILD_JOBS="$(nproc)"
+if [ "${ZALOS_EMULATED:-0}" = "1" ] && [ "${BUILD_JOBS}" -gt 2 ]; then
+    BUILD_JOBS=2
+fi
+cmake --build "${BUILD_DIR}" -j"${BUILD_JOBS}"
 
 rm -rf "${PKG_DIR}"
 DESTDIR="${PKG_DIR}" cmake --install "${BUILD_DIR}" --strip

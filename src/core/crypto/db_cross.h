@@ -23,7 +23,7 @@ struct AttachmentData {
 };
 
 struct MentionData {
-    int uid{0};
+    int64_t uid{0};
     int pos{0};
     int len{0};
     int type{0};

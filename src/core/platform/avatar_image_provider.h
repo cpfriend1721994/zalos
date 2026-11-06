@@ -13,6 +13,7 @@ public:
 
     QQuickImageResponse* requestImageResponse(const QString& id, const QSize& requestedSize) override;
 
+    static QImage decodeScaled(QIODevice* device, int targetWidth, bool circular);
     static QImage makeCircular(const QImage& source, int diameter);
     static QString cacheDirectory();
 

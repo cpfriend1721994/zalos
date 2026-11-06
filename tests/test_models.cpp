@@ -127,12 +127,16 @@ private slots:
         MessageItem p1; p1.id = "1"; p1.ts = 1; p1.messageType = "image"; p1.mediaUrl = "file:///thumb1.png"; p1.href = "file:///full1.png";
         MessageItem t1; t1.id = "2"; t1.ts = 2; t1.text = "hi";
         MessageItem p2; p2.id = "3"; p2.ts = 3; p2.messageType = "image"; p2.mediaUrl = "file:///only-thumb.png";
-        MessageItem gone; gone.id = "4"; gone.ts = 4; gone.messageType = "image"; gone.mediaUrl = "x"; gone.isRecalled = true;
-        model.mergeMessages("t", {p1, t1, p2, gone});
+        MessageItem v1; v1.id = "4"; v1.ts = 4; v1.messageType = "video"; v1.mediaUrl = "file:///vthumb.png"; v1.href = "file:///clip.mp4";
+        MessageItem gone; gone.id = "5"; gone.ts = 5; gone.messageType = "image"; gone.mediaUrl = "x"; gone.isRecalled = true;
+        model.mergeMessages("t", {p1, t1, p2, v1, gone});
         const QVariantList items = model.mediaItems();
-        QCOMPARE(items.size(), 2);
+        QCOMPARE(items.size(), 3);
         QCOMPARE(items.at(0).toMap().value("url").toString(), QString("file:///full1.png")); // original preferred
+        QCOMPARE(items.at(0).toMap().value("isVideo").toBool(), false);
         QCOMPARE(items.at(1).toMap().value("url").toString(), QString("file:///only-thumb.png"));
+        QCOMPARE(items.at(2).toMap().value("url").toString(), QString("file:///clip.mp4"));
+        QCOMPARE(items.at(2).toMap().value("isVideo").toBool(), true);
     }
 
     void testConversationModelInitial() {
@@ -271,6 +275,45 @@ private slots:
         QVariantList optsAfter = dataAfter.value("options").toList();
         QCOMPARE(optsAfter.at(0).toMap().value("voted").toBool(), true);
         QCOMPARE(optsAfter.at(0).toMap().value("votes").toInt(), 1);
+    }
+
+    // Active conversation lives exclusively in m_items while open (no duplicate QVector in m_store),
+    // and swaps cleanly into/out of m_store across conversation switches.
+    void testSingleBufferActiveConversation() {
+        MessageModel model;
+        MessageItem a1; a1.id = "101"; a1.text = "hello c1"; a1.ts = 10;
+        MessageItem b1; b1.id = "201"; b1.text = "hello c2"; b1.ts = 20;
+        model.mergeMessages("c1", {a1});
+        model.mergeMessages("c2", {b1});
+        QCOMPARE(model.threadSize("c1"), 1);
+        QCOMPARE(model.threadSize("c2"), 1);
+
+        model.loadConversation("c1");
+        QVERIFY(!model.isActiveThreadDuplicatedForTesting());
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.threadSize("c1"), 1);
+
+        // Mutating the open thread never re-inserts a duplicate copy into m_store.
+        MessageItem a2; a2.id = "102"; a2.text = "second c1"; a2.ts = 11;
+        model.mergeMessages("c1", {a2});
+        model.setReaction("c1", "101", "❤️ 1");
+        model.setStatus("c1", "102", "seen");
+        QVERIFY(!model.isActiveThreadDuplicatedForTesting());
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.threadSize("c1"), 2);
+
+        // Switching to c2 moves c1 into m_store and takes c2 into m_items.
+        model.loadConversation("c2");
+        QVERIFY(!model.isActiveThreadDuplicatedForTesting());
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.threadSize("c1"), 2);
+        QCOMPARE(model.threadSize("c2"), 1);
+        QCOMPARE(model.message("c1", "101").reaction, QString("❤️ 1"));
+
+        // Switching back to c1 restores both messages without loss.
+        model.loadConversation("c1");
+        QVERIFY(!model.isActiveThreadDuplicatedForTesting());
+        QCOMPARE(model.rowCount(), 2);
     }
 };
 

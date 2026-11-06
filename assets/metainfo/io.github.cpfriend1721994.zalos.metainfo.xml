@@ -28,6 +28,11 @@
     <binary>zalos</binary>
   </provides>
   <releases>
+    <release version="1.0.5" date="2026-11-06">
+      <description>
+        <p>Memory optimizations inspired by Telegram Desktop, complete mobile history sync with 64-bit znoise resolution, in-app video playback, avatar/background viewer, and ARM64 Nix build fixes.</p>
+      </description>
+    </release>
     <release version="1.0.4" date="2026-11-06">
       <description>
         <p>First published release: pure Qt6 architecture, E2EE decryptor, and AppImage/RPM/.deb/Nix packaging for x86_64 and aarch64.</p>

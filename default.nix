@@ -2,7 +2,7 @@
 
 pkgs.stdenv.mkDerivation rec {
   pname = "zalos";
-  version = "1.0.4";
+  version = "1.0.5";
 
   # Only sources: never sessions (zsess.json), offline caches (.local/.config/.cache written by containers with
   # HOME=/workspace), screenshots, build trees or packages — the Nix store is world-readable.
@@ -55,7 +55,7 @@ pkgs.stdenv.mkDerivation rec {
   cmakeFlags = [
     "-DCMAKE_BUILD_TYPE=Release"
     "-DBUILD_TESTING=OFF"
-  ];
+  ] ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isAarch64 "-DZALOS_QML_AOT=OFF";
 
   meta = with pkgs.lib; {
     description = "Native Qt6 (C++/QML) desktop client for Zalo on Linux";

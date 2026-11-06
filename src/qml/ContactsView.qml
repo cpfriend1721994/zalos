@@ -356,7 +356,16 @@ Rectangle {
                             height: 60
                             radius: 8
                             color: sentRowMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                            MouseArea { id: sentRowMouse; anchors.fill: parent; hoverEnabled: true }
+                            MouseArea {
+                                id: sentRowMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if ((sentRow.modelData.uid || "").length > 0)
+                                        ZaloClient.viewProfile(sentRow.modelData.uid);
+                                }
+                            }
                             RowLayout {
                                 anchors.fill: parent
                                 anchors.leftMargin: 10

@@ -264,11 +264,17 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
             ++skip;
             continue;
         }
-        const bool mine = !myPlainUid.isEmpty() && row.senderId == myPlainUid;
+        const bool mine = row.senderId == QLatin1String("0")
+                          || (!myPlainUid.isEmpty() && row.senderId == myPlainUid);
         QString uidFrom;
         QString idTo;
         if (conv.isGroup) {
-            uidFrom = mine ? QStringLiteral("0") : noised(row.senderId);
+            if (mine) {
+                uidFrom = QStringLiteral("0");
+            } else {
+                uidFrom = noised(row.senderId);
+                if (uidFrom.isEmpty()) uidFrom = row.senderId;
+            }
             idTo = thread;
         } else {
             uidFrom = mine ? QStringLiteral("0") : thread;
@@ -313,15 +319,32 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
             {"content", content},
             {"ttl", row.ttl},
         };
-        if (bin.quote.globalMsgId > 0) {
-            const QString owner = QString::number(bin.quote.ownerId);
-            msg["quote"] = QJsonObject{{"ownerId", noised(owner)},
+        if (bin.quote.globalMsgId > 0 || bin.quote.cliMsgId > 0 || !bin.quote.msg.empty()) {
+            const QString owner = bin.quote.ownerId > 0 ? QString::number(bin.quote.ownerId) : QString();
+            const QString noisedOwner = noised(owner);
+            msg["quote"] = QJsonObject{{"ownerId", noisedOwner.isEmpty() ? owner : noisedOwner},
                                        {"globalMsgId", QString::number(bin.quote.globalMsgId)},
                                        {"cliMsgId", QString::number(bin.quote.cliMsgId)},
                                        {"msg", str(bin.quote.msg)},
                                        {"attach", str(bin.quote.attach)},
                                        {"fromD", str(bin.quote.fromD)},
                                        {"ts", QString::number(bin.quote.ts)}};
+        }
+        if (!bin.mentions.empty()) {
+            QJsonArray mentionsArr;
+            for (const auto& m : bin.mentions) {
+                QString mUid;
+                if (m.uid < 0) {
+                    mUid = QStringLiteral("-1");
+                } else if (m.uid > 0) {
+                    const QString plain = QString::number(m.uid);
+                    mUid = noised(plain);
+                    if (mUid.isEmpty()) mUid = plain;
+                }
+                if (mUid.isEmpty()) continue;
+                mentionsArr.append(QJsonObject{{"uid", mUid}, {"pos", m.pos}, {"len", m.len}, {"type", m.type}});
+            }
+            if (!mentionsArr.isEmpty()) msg["mentions"] = mentionsArr;
         }
         out.append(msg);
     }
@@ -522,6 +545,9 @@ void MobileHistorySync::decryptAndRead() {
         }
         m_conversations = result->conversations;
         cleanup();
+        if (m_session && !m_keys.publicKeyBase64.isEmpty()) {
+            m_session->cleanMobileSync(m_keys.publicKeyBase64, [](bool, const QJsonValue&, const QString&, int) {});
+        }
         resolveIdsAndImport();
     });
     worker->start();
@@ -532,9 +558,26 @@ void MobileHistorySync::resolveIdsAndImport() {
     QSet<QString> groups;
     for (const auto& conv : std::as_const(m_conversations)) {
         (conv.isGroup ? groups : users).insert(conv.plainId);
-        if (!conv.isGroup) continue;
         for (const auto& row : conv.rows) {
-            if (!row.senderId.isEmpty() && row.senderId != m_myPlainUid && isDigits(row.senderId)) users.insert(row.senderId);
+            if (!row.senderId.isEmpty() && row.senderId != QLatin1String("0") && row.senderId != m_myPlainUid
+                && isDigits(row.senderId)) {
+                users.insert(row.senderId);
+            }
+            if (!row.binNet.isEmpty()) {
+                const auto bin = Crypto::DbCross::parseBinNet(
+                    reinterpret_cast<const uint8_t*>(row.binNet.constData()),
+                    static_cast<size_t>(row.binNet.size()));
+                if (bin.quote.ownerId > 0) {
+                    const QString qOwner = QString::number(bin.quote.ownerId);
+                    if (qOwner != m_myPlainUid) users.insert(qOwner);
+                }
+                for (const auto& m : bin.mentions) {
+                    if (m.uid > 0) {
+                        const QString mUid = QString::number(m.uid);
+                        if (mUid != m_myPlainUid) users.insert(mUid);
+                    }
+                }
+            }
         }
     }
     users.remove(m_myPlainUid);

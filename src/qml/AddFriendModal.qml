@@ -392,24 +392,39 @@ Item {
                             anchors.margins: 12
                             spacing: 12
 
-                            RowLayout {
+                            Item {
                                 Layout.fillWidth: true
-                                spacing: 12
+                                implicitHeight: foundProfileRow.implicitHeight
+                                RowLayout {
+                                    id: foundProfileRow
+                                    anchors.fill: parent
+                                    spacing: 12
 
-                                ZAvatar {
-                                    size: 48
-                                    avatarUrl: root.foundProfile.avatar || ""
-                                    name: root.foundProfile.name || ""
+                                    ZAvatar {
+                                        size: 48
+                                        avatarUrl: root.foundProfile.avatar || ""
+                                        name: root.foundProfile.name || ""
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: root.foundProfile.name || ""
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 15
+                                        font.bold: true
+                                        color: foundProfileMouse.containsMouse ? Theme.zaloBlue : ThemeManager.textColor
+                                        elide: Text.ElideRight
+                                    }
                                 }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: root.foundProfile.name || ""
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 15
-                                    font.bold: true
-                                    color: ThemeManager.textColor
-                                    elide: Text.ElideRight
+                                MouseArea {
+                                    id: foundProfileMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if ((root.foundProfile.uid || "").length > 0)
+                                            ZaloClient.viewProfile(root.foundProfile.uid);
+                                    }
                                 }
                             }
 

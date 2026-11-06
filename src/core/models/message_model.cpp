@@ -16,6 +16,18 @@ int MessageModel::rowCount(const QModelIndex& parent) const {
     return m_items.size();
 }
 
+QVector<MessageItem>& MessageModel::threadFor(const QString& convId) {
+    if (!convId.isEmpty() && convId == m_currentConvId) return m_items;
+    return m_store[convId];
+}
+
+const QVector<MessageItem>& MessageModel::threadOf(const QString& convId) const {
+    static const QVector<MessageItem> kEmpty;
+    if (!convId.isEmpty() && convId == m_currentConvId) return m_items;
+    const auto it = m_store.constFind(convId);
+    return it != m_store.constEnd() ? it.value() : kEmpty;
+}
+
 namespace {
 constexpr qint64 kGroupBreakMs = 30 * 60 * 1000;
 
@@ -185,9 +197,6 @@ void MessageModel::addMessage(const QString& text, bool isMine, const QString& s
     item.reaction = "";
     item.messageType = "text";
     m_items.append(item);
-    if (!m_currentConvId.isEmpty()) {
-        m_store[m_currentConvId] = m_items;
-    }
     endInsertRows();
 }
 
@@ -204,9 +213,6 @@ void MessageModel::addAttachmentMessage(const QString& type, const QString& text
     item.messageType = type;
     item.mediaUrl = url;
     m_items.append(item);
-    if (!m_currentConvId.isEmpty()) {
-        m_store[m_currentConvId] = m_items;
-    }
     endInsertRows();
 }
 
@@ -222,23 +228,25 @@ void MessageModel::addMessageDirect(const QString& convId, const QString& id, co
     item.messageType = messageType;
     item.mediaUrl = mediaUrl;
 
-    m_store[convId].append(item);
     if (m_currentConvId == convId) {
         beginInsertRows(QModelIndex(), m_items.size(), m_items.size());
         m_items.append(item);
         endInsertRows();
+    } else {
+        m_store[convId].append(item);
     }
 }
 
 void MessageModel::mergeMessages(const QString& convId, const QVector<MessageItem>& items) {
     if (items.isEmpty()) return;
-    auto& thread = m_store[convId];
+    const bool isActive = !convId.isEmpty() && m_currentConvId == convId;
+    QVector<MessageItem> working = isActive ? m_items : m_store.value(convId);
     QSet<QString> known;
     QHash<QString, int> pendingByCliId;
-    for (int i = 0; i < thread.size(); ++i) {
-        known.insert(thread[i].id);
-        if (thread[i].id.startsWith(QLatin1String("local-")) && !thread[i].cliMsgId.isEmpty()) {
-            pendingByCliId.insert(thread[i].cliMsgId, i);
+    for (int i = 0; i < working.size(); ++i) {
+        known.insert(working[i].id);
+        if (working[i].id.startsWith(QLatin1String("local-")) && !working[i].cliMsgId.isEmpty()) {
+            pendingByCliId.insert(working[i].cliMsgId, i);
         }
     }
     bool added = false;
@@ -248,11 +256,11 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         known.insert(m.id);
         const int pending = pendingByCliId.contains(m.cliMsgId) ? pendingByCliId.take(m.cliMsgId) : -1;
         if (pending >= 0) {
-            const QString localId = thread[pending].id;
+            const QString localId = working[pending].id;
             MessageItem merged = m;
             if (merged.status.isEmpty()) merged.status = QStringLiteral("sent");
-            thread[pending] = merged;
-            if (m_currentConvId == convId) {
+            working[pending] = merged;
+            if (isActive) {
                 for (int row = 0; row < m_items.size(); ++row) {
                     if (m_items[row].id != localId) continue;
                     m_items[row] = merged;
@@ -262,21 +270,27 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
             }
             continue;
         }
-        if (!thread.isEmpty() && m.ts < thread.last().ts) needSort = true;
-        thread.append(m);
+        if (!working.isEmpty() && m.ts < working.last().ts) needSort = true;
+        working.append(m);
         added = true;
     }
-    if (!added) return;
+    if (!added) {
+        if (!isActive) m_store.insert(convId, std::move(working));
+        return;
+    }
     if (needSort) {
-        std::stable_sort(thread.begin(), thread.end(), [](const MessageItem& a, const MessageItem& b) { return a.ts < b.ts; });
+        std::stable_sort(working.begin(), working.end(), [](const MessageItem& a, const MessageItem& b) { return a.ts < b.ts; });
     }
 
-    if (m_currentConvId != convId) return;
-    if (thread.size() > m_items.size() && std::equal(m_items.cbegin(), m_items.cend(), thread.cbegin(),
+    if (!isActive) {
+        m_store.insert(convId, std::move(working));
+        return;
+    }
+    if (working.size() > m_items.size() && std::equal(m_items.cbegin(), m_items.cend(), working.cbegin(),
             [](const MessageItem& a, const MessageItem& b) { return a.id == b.id; })) {
         const int before = m_items.size();
-        beginInsertRows(QModelIndex(), m_items.size(), thread.size() - 1);
-        m_items = thread;
+        beginInsertRows(QModelIndex(), m_items.size(), working.size() - 1);
+        m_items = std::move(working);
         endInsertRows();
         if (before > 0) {
             emit dataChanged(index(0), index(before - 1), {LastInGroupRole, ShowStatusRole});
@@ -289,7 +303,7 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         if (incoming > 0) emit incomingAppended(incoming);
     } else {
         beginResetModel();
-        m_items = thread;
+        m_items = std::move(working);
         endResetModel();
     }
     if (m_pendingUnread > 0) placeUnreadMarker();
@@ -338,17 +352,19 @@ int MessageModel::unreadMarkerRow() const {
 }
 
 void MessageModel::confirmMessage(const QString& convId, const QString& localId, const QString& serverId) {
-    auto& thread = m_store[convId];
+    auto& thread = threadFor(convId);
     const bool alreadyPresent = std::any_of(thread.cbegin(), thread.cend(),
                                             [&](const MessageItem& m) { return m.id == serverId; });
     if (alreadyPresent) {
         removeMessage(convId, localId);
         return;
     }
-    for (auto& m : thread) {
-        if (m.id == localId) { m.id = serverId; break; }
+    if (m_currentConvId != convId) {
+        for (auto& m : thread) {
+            if (m.id == localId) { m.id = serverId; break; }
+        }
+        return;
     }
-    if (m_currentConvId != convId) return;
     for (int row = 0; row < m_items.size(); ++row) {
         if (m_items[row].id == localId) {
             m_items[row].id = serverId;
@@ -360,10 +376,14 @@ void MessageModel::confirmMessage(const QString& convId, const QString& localId,
 }
 
 void MessageModel::removeMessage(const QString& convId, const QString& msgId) {
-    auto& thread = m_store[convId];
-    thread.erase(std::remove_if(thread.begin(), thread.end(), [&](const MessageItem& m) { return m.id == msgId; }),
-                 thread.end());
-    if (m_currentConvId != convId) return;
+    if (m_currentConvId != convId) {
+        auto it = m_store.find(convId);
+        if (it != m_store.end()) {
+            it->erase(std::remove_if(it->begin(), it->end(), [&](const MessageItem& m) { return m.id == msgId; }),
+                      it->end());
+        }
+        return;
+    }
     for (int row = 0; row < m_items.size(); ++row) {
         if (m_items[row].id == msgId) {
             beginRemoveRows(QModelIndex(), row, row);
@@ -379,10 +399,14 @@ namespace {
 template <typename Fn>
 void updateItem(QHash<QString, QVector<MessageItem>>& store, QVector<MessageItem>& visible, const QString& currentConv,
                 const QString& convId, const QString& msgId, Fn fn, MessageModel* model, const QList<int>& roles) {
-    for (auto& m : store[convId]) {
-        if (m.id == msgId) { fn(m); break; }
+    if (currentConv != convId) {
+        auto it = store.find(convId);
+        if (it == store.end()) return;
+        for (auto& m : *it) {
+            if (m.id == msgId) { fn(m); break; }
+        }
+        return;
     }
-    if (currentConv != convId) return;
     for (int row = 0; row < visible.size(); ++row) {
         if (visible[row].id == msgId) {
             fn(visible[row]);
@@ -428,7 +452,7 @@ void MessageModel::setStatus(const QString& convId, const QString& msgId, const 
 }
 
 void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
-    const auto thread = m_store.value(convId);
+    const auto thread = threadOf(convId);
     qint64 limit = -1;
     for (const auto& m : thread) {
         if (m.id == msgId) { limit = m.ts; break; }
@@ -442,20 +466,20 @@ void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
 }
 
 bool MessageModel::contains(const QString& convId, const QString& msgId) const {
-    const auto thread = m_store.value(convId);
+    const auto& thread = threadOf(convId);
     return std::any_of(thread.cbegin(), thread.cend(), [&](const MessageItem& m) { return m.id == msgId; });
 }
 
 qint64 MessageModel::oldestTimestamp(const QString& convId) const {
     qint64 oldest = 0;
-    for (const auto& m : m_store.value(convId)) {
+    for (const auto& m : threadOf(convId)) {
         if (m.ts > 0 && (oldest == 0 || m.ts < oldest)) oldest = m.ts;
     }
     return oldest;
 }
 
 QString MessageModel::oldestMessageId(const QString& convId) const {
-    for (const auto& m : m_store.value(convId)) {
+    for (const auto& m : threadOf(convId)) {
         bool numeric = false;
         m.id.toULongLong(&numeric);
         if (numeric) return m.id;
@@ -464,7 +488,7 @@ QString MessageModel::oldestMessageId(const QString& convId) const {
 }
 
 QString MessageModel::latestMessageId(const QString& convId) const {
-    const auto thread = m_store.value(convId);
+    const auto& thread = threadOf(convId);
     for (auto it = thread.crbegin(); it != thread.crend(); ++it) {
         bool numeric = false;
         it->id.toULongLong(&numeric);
@@ -474,7 +498,7 @@ QString MessageModel::latestMessageId(const QString& convId) const {
 }
 
 MessageItem MessageModel::message(const QString& convId, const QString& msgId) const {
-    for (const auto& m : m_store.value(convId)) {
+    for (const auto& m : threadOf(convId)) {
         if (m.id == msgId) return m;
     }
     return {};
@@ -485,7 +509,7 @@ int MessageModel::countIncomingAfter(const QString& convId, const QString& readP
     const qulonglong point = readPoint.toULongLong(&ok);
     if (!ok) return 0;
     int count = 0;
-    for (const auto& m : m_store.value(convId)) {
+    for (const auto& m : threadOf(convId)) {
         bool numeric = false;
         const qulonglong id = m.id.toULongLong(&numeric);
         if (numeric && id > point && !m.isMine && !m.isRecalled) ++count;
@@ -494,7 +518,7 @@ int MessageModel::countIncomingAfter(const QString& convId, const QString& readP
 }
 
 bool MessageModel::hasLocalEcho(const QString& convId) const {
-    const auto thread = m_store.value(convId);
+    const auto& thread = threadOf(convId);
     return std::any_of(thread.cbegin(), thread.cend(),
                        [](const MessageItem& m) { return m.id.startsWith(QLatin1String("local-")); });
 }
@@ -508,11 +532,15 @@ void MessageModel::removeMessagesUpTo(const QString& convId, const QString& last
         const qulonglong id = m.id.toULongLong(&numeric);
         return numeric && id <= last;
     };
-    auto& thread = m_store[convId];
-    thread.erase(std::remove_if(thread.begin(), thread.end(), older), thread.end());
-    if (m_currentConvId != convId) return;
+    if (m_currentConvId != convId) {
+        auto it = m_store.find(convId);
+        if (it != m_store.end()) {
+            it->erase(std::remove_if(it->begin(), it->end(), older), it->end());
+        }
+        return;
+    }
     beginResetModel();
-    m_items = thread;
+    m_items.erase(std::remove_if(m_items.begin(), m_items.end(), older), m_items.end());
     endResetModel();
 }
 
@@ -536,8 +564,14 @@ void MessageModel::loadConversation(const QString& conversationId) {
     beginResetModel();
     m_unreadMarkerId.clear();
     m_pendingUnread = 0;
-    m_currentConvId = conversationId;
-    m_items = m_store.value(conversationId);
+    if (conversationId != m_currentConvId) {
+        if (!m_currentConvId.isEmpty()) {
+            if (!m_items.isEmpty()) m_store.insert(m_currentConvId, std::move(m_items));
+            else m_store.remove(m_currentConvId);
+        }
+        m_currentConvId = conversationId;
+        m_items = conversationId.isEmpty() ? QVector<MessageItem>{} : m_store.take(conversationId);
+    }
     endResetModel();
 }
 
@@ -606,11 +640,18 @@ int MessageModel::rowOfMessage(const QString& msgId) const {
 QVariantList MessageModel::mediaItems() const {
     QVariantList out;
     for (const auto& m : m_items) {
-        if (m.messageType != QLatin1String("image") || m.isRecalled) continue;
+        if ((m.messageType != QLatin1String("image") && m.messageType != QLatin1String("video")) || m.isRecalled)
+            continue;
         const QString full = m.href.isEmpty() ? m.mediaUrl : m.href;
         if (full.isEmpty()) continue;
+        QString sName = m.senderName;
+        if (sName.isEmpty() && !m.isMine && m_senderResolver && !m.senderId.isEmpty()
+            && m.senderId != QLatin1String("0") && m.senderId != QLatin1String("system")) {
+            sName = m_senderResolver(m.senderId).first;
+        }
         out.append(QVariantMap{{"msgId", m.id}, {"url", full}, {"thumb", m.mediaUrl},
-                               {"senderName", m.senderName}, {"isMine", m.isMine}, {"ts", m.ts}});
+                               {"senderName", sName}, {"isMine", m.isMine}, {"ts", m.ts},
+                               {"isVideo", m.messageType == QLatin1String("video")}});
     }
     return out;
 }

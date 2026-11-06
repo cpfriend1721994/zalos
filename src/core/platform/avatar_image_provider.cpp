@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 
+#include <QBuffer>
 #include <QCache>
 #include <QCryptographicHash>
 #include <QDir>
@@ -53,18 +54,25 @@ public:
 
         if (url.isLocalFile() || url.scheme() == "qrc") {
             const QString path = url.isLocalFile() ? url.toLocalFile() : ":" + url.path();
-            finishWith(QImage(path));
+            QFile file(path);
+            finishWith(file.open(QIODevice::ReadOnly)
+                           ? AvatarImageProvider::decodeScaled(&file, m_diameter, m_circular)
+                           : QImage());
             return;
         }
         if (QFile::exists(cachePath)) {
-            QImage cached(cachePath);
-            if (!cached.isNull()) {
-                QFile touched(cachePath);
-                if (touched.open(QIODevice::ReadWrite)) {
-                    touched.setFileTime(QDateTime::currentDateTime(), QFileDevice::FileModificationTime);
+            QFile cachedFile(cachePath);
+            if (cachedFile.open(QIODevice::ReadOnly)) {
+                const QImage cached = AvatarImageProvider::decodeScaled(&cachedFile, m_diameter, m_circular);
+                cachedFile.close();
+                if (!cached.isNull()) {
+                    QFile touched(cachePath);
+                    if (touched.open(QIODevice::ReadWrite)) {
+                        touched.setFileTime(QDateTime::currentDateTime(), QFileDevice::FileModificationTime);
+                    }
+                    finishWith(cached);
+                    return;
                 }
-                finishWith(cached);
-                return;
             }
         }
         if (!url.isValid() || !url.scheme().startsWith("http")) {
@@ -109,18 +117,30 @@ public:
                 fetch(nam, retry, cachePath, false);
                 return;
             }
-            QImage image;
+            const auto waiters = inflight().take(key);
+            QByteArray bytes;
+            bool ok = false;
             if (reply->error() == QNetworkReply::NoError && reply->isOpen()) {
-                const QByteArray bytes = reply->readAll();
-                image.loadFromData(bytes);
-                if (!image.isNull()) {
+                bytes = reply->readAll();
+                QBuffer checkBuf(&bytes);
+                if (checkBuf.open(QIODevice::ReadOnly)) {
+                    QImageReader probe(&checkBuf);
+                    ok = probe.canRead();
+                }
+                if (ok) {
                     QFile out(cachePath);
                     if (out.open(QIODevice::WriteOnly)) out.write(bytes);
                 }
             }
-            const auto waiters = inflight().take(key);
             for (const auto& w : waiters) {
-                if (w) w->finishWith(image);
+                if (!w) continue;
+                if (!ok) {
+                    w->finishWith({});
+                    continue;
+                }
+                QBuffer buf(&bytes);
+                buf.open(QIODevice::ReadOnly);
+                w->finishWith(AvatarImageProvider::decodeScaled(&buf, w->m_diameter, w->m_circular));
             }
         });
     }
@@ -196,6 +216,26 @@ void AvatarImageProvider::insertMemCache(const QString& key, const QImage& image
 void AvatarImageProvider::clearMemCache() {
     QMutexLocker locker(&s_memCacheMutex);
     s_memCache.clear();
+}
+
+QImage AvatarImageProvider::decodeScaled(QIODevice* device, int targetWidth, bool circular) {
+    if (!device) return {};
+    QImageReader reader(device);
+    reader.setAutoTransform(true);
+    const QSize orig = reader.size();
+    const int d = qMax(8, targetWidth);
+    if (orig.isValid() && orig.width() > 0 && orig.height() > 0 && d > 0) {
+        if (circular) {
+            const int minSide = qMin(orig.width(), orig.height());
+            if (minSide > d) {
+                reader.setScaledSize(orig.scaled(d, d, Qt::KeepAspectRatioByExpanding));
+            }
+        } else if (orig.width() > d) {
+            const int scaledH = qMax(1, int((qint64(orig.height()) * d + orig.width() / 2) / orig.width()));
+            reader.setScaledSize(QSize(d, scaledH));
+        }
+    }
+    return reader.read();
 }
 
 QImage AvatarImageProvider::makeCircular(const QImage& source, int diameter) {

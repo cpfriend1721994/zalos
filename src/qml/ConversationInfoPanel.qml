@@ -73,6 +73,7 @@ Rectangle {
         return (ms < Date.now() ? I18n.t("Quá hạn ", "Overdue ") : I18n.t("Hạn ", "Due ")) + text;
     }
 
+    Component.onCompleted: { root.refreshMembers(); root.refreshShared(); }
     onVisibleChanged: { root.refreshMembers(); root.refreshShared(); }
     Connections {
         target: ZaloClient
@@ -354,14 +355,25 @@ Rectangle {
 
                         MouseArea {
                             anchors.fill: parent
-                            cursorShape: !ZaloClient.currentConversationIsGroup ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            hoverEnabled: true
+                            cursorShape: (!ZaloClient.currentConversationIsGroup || ZaloClient.currentConversationAvatar.length > 0)
+                                         ? Qt.PointingHandCursor : Qt.ArrowCursor
                             onClicked: {
                                 if (!ZaloClient.currentConversationIsGroup) {
                                     ZaloClient.viewProfile(ZaloClient.currentConversationId);
+                                } else if (ZaloClient.currentConversationAvatar.length > 0) {
+                                    ImageViewerState.show([{
+                                        url: ZaloClient.currentConversationAvatar,
+                                        thumb: ZaloClient.currentConversationAvatar,
+                                        senderName: ZaloClient.currentConversationName,
+                                        isVideo: false
+                                    }], 0);
                                 }
                             }
-                            ToolTip.visible: containsMouse && !ZaloClient.currentConversationIsGroup
-                            ToolTip.text: I18n.t("Xem thông tin cá nhân", "View profile")
+                            ToolTip.visible: containsMouse && (!ZaloClient.currentConversationIsGroup || ZaloClient.currentConversationAvatar.length > 0)
+                            ToolTip.text: !ZaloClient.currentConversationIsGroup
+                                          ? I18n.t("Xem thông tin cá nhân", "View profile")
+                                          : I18n.t("Xem ảnh đại diện nhóm", "View group avatar")
                         }
 
                         Rectangle {
@@ -1096,10 +1108,7 @@ Rectangle {
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        if (mediaCell.modelData.isVideo) Qt.openUrlExternally(mediaCell.modelData.url);
-                                        else root.openViewer(mediaCell.modelData.msgId);
-                                    }
+                                    onClicked: root.openViewer(mediaCell.modelData.msgId)
                                 }
                             }
                         }

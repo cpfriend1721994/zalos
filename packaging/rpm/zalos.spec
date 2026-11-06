@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           zalos
-Version:        1.0.4
+Version:        1.0.5
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT
@@ -52,7 +52,11 @@ for E2EE message synchronization.
 
 %build
 %cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DZALOS_QML_AOT=OFF
+%ifarch aarch64
+%cmake_build -- -j2
+%else
 %cmake_build
+%endif
 
 %install
 %cmake_install
@@ -69,6 +73,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/%{name}/zcall-native/
 
 %changelog
+* Fri Nov 06 2026 Zalos Team <dev@zalos.local> - 1.0.5-1
+- Telegram Desktop-inspired memory architecture: single-buffer MessageModel, zero-RAM raw_json duplication, scaled QImageReader decode, lazy ConversationInfoPanel, and background tray memory trimming.
+- Complete mobile history sync cleanup (cleanMobileSync) and 64-bit znoise resolution for mentions and quotes.
+- In-app video player in ImageViewer, clickable avatars/cover photos/chat backgrounds, and reactive avatar-mode chat backgrounds.
+- Fix emulated aarch64 Nix OOM (disable QML AOT on aarch64, cap build cores to 2) and silence freopen unused-result warning.
+
 * Fri Nov 06 2026 Zalos Team <dev@zalos.local> - 1.0.4-1
 - First published release: bind-mount-free CI packaging, Nix sandbox fix for emulated aarch64.
 - Fix outgoing 1-1 video call camera state (zcall-native 2b93852), early file_done race, attachment extensions, and mute sync.

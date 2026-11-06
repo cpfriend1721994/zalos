@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import QtMultimedia
 import Zalos
 
 Rectangle {
@@ -12,6 +13,7 @@ Rectangle {
     readonly property var items: ImageViewerState.items
     readonly property int count: items.length
     readonly property var current: count > 0 ? items[ImageViewerState.index] : ({})
+    readonly property bool isVideo: !!(root.current && root.current.isVideo)
     property real zoom: 1.0
     property real angle: 0
     readonly property real minZoom: 0.25
@@ -25,10 +27,12 @@ Rectangle {
     }
     function go(delta: int): void {
         if (count < 2) return;
+        videoPlayer.stop();
         ImageViewerState.index = (ImageViewerState.index + delta + count) % count;
         resetView();
     }
     function zoomBy(factor: real): void {
+        if (root.isVideo) return;
         zoom = Math.max(minZoom, Math.min(maxZoom, zoom * factor));
         if (zoom <= 1.0) { photo.x = 0; photo.y = 0; }
     }
@@ -36,29 +40,68 @@ Rectangle {
         if (!ts) return "";
         return Qt.formatDateTime(new Date(ts), "HH:mm dd/MM/yyyy");
     }
+    function formatDuration(ms: real): string {
+        if (!ms || ms < 0) return "00:00";
+        const totalSec = Math.floor(ms / 1000);
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        return (m < 10 ? "0" + m : String(m)) + ":" + (s < 10 ? "0" + s : String(s));
+    }
+    function toggleVideoPlayback(): void {
+        if (!root.isVideo) return;
+        if (videoPlayer.playbackState === MediaPlayer.PlayingState) videoPlayer.pause();
+        else videoPlayer.play();
+    }
 
-    Component.onCompleted: forceActiveFocus()
-    Keys.onEscapePressed: ImageViewerState.close()
+    onCurrentChanged: {
+        videoPlayer.stop();
+        if (root.isVideo && root.current.url) {
+            videoPlayer.source = root.current.url;
+            videoPlayer.play();
+        } else {
+            videoPlayer.source = "";
+        }
+    }
+
+    Component.onCompleted: {
+        forceActiveFocus();
+        if (root.isVideo && root.current.url) {
+            videoPlayer.source = root.current.url;
+            videoPlayer.play();
+        }
+    }
+    Component.onDestruction: videoPlayer.stop()
+    Keys.onEscapePressed: { videoPlayer.stop(); ImageViewerState.close(); }
     Keys.onLeftPressed: go(-1)
     Keys.onRightPressed: go(1)
     Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal) { zoomBy(1.25); event.accepted = true; }
+        if (event.key === Qt.Key_Space && root.isVideo) { root.toggleVideoPlayback(); event.accepted = true; }
+        else if (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal) { zoomBy(1.25); event.accepted = true; }
         else if (event.key === Qt.Key_Minus) { zoomBy(0.8); event.accepted = true; }
         else if (event.key === Qt.Key_0) { resetView(); event.accepted = true; }
-        else if (event.key === Qt.Key_R) { angle += (event.modifiers & Qt.ShiftModifier) ? -90 : 90; event.accepted = true; }
-        else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C) { ZaloClient.copyImage(current.url); event.accepted = true; }
+        else if (event.key === Qt.Key_R && !root.isVideo) { angle += (event.modifiers & Qt.ShiftModifier) ? -90 : 90; event.accepted = true; }
+        else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C && !root.isVideo) { ZaloClient.copyImage(current.url); event.accepted = true; }
         else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_S) { saveDialog.open(); event.accepted = true; }
+    }
+
+    MediaPlayer {
+        id: videoPlayer
+        audioOutput: AudioOutput {
+            id: videoAudio
+            muted: false
+        }
+        videoOutput: videoOut
     }
 
     MouseArea {
         anchors.fill: parent
-        onClicked: ImageViewerState.close()
+        onClicked: { videoPlayer.stop(); ImageViewerState.close(); }
     }
 
     Item {
         id: stage
         anchors.top: topBar.bottom
-        anchors.bottom: strip.visible ? strip.top : parent.bottom
+        anchors.bottom: videoControls.visible ? videoControls.top : (strip.visible ? strip.top : parent.bottom)
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: 16
@@ -66,9 +109,10 @@ Rectangle {
 
         Image {
             id: photo
+            visible: !root.isVideo
             width: stage.width
             height: stage.height
-            source: root.current.url || ""
+            source: !root.isVideo ? (root.current.url || "") : ""
             asynchronous: true
             cache: true
             fillMode: Image.PreserveAspectFit
@@ -91,28 +135,67 @@ Rectangle {
             }
             DragHandler {
                 id: dragHandler
-                enabled: root.zoom > 1.0
+                enabled: !root.isVideo && root.zoom > 1.0
                 target: photo
             }
         }
 
+        VideoOutput {
+            id: videoOut
+            visible: root.isVideo
+            anchors.fill: parent
+            fillMode: VideoOutput.PreserveAspectFit
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.toggleVideoPlayback()
+            }
+
+            Rectangle {
+                visible: root.isVideo && videoPlayer.playbackState !== MediaPlayer.PlayingState
+                         && videoPlayer.error === MediaPlayer.NoError
+                anchors.centerIn: parent
+                width: 64
+                height: 64
+                radius: 32
+                color: Qt.rgba(0, 0, 0, 0.6)
+                ZIcon { anchors.centerIn: parent; name: "play"; size: 32; color: "#FFFFFF" }
+            }
+        }
+
         WheelHandler {
+            enabled: !root.isVideo
             target: null
             onWheel: function(event) { root.zoomBy(event.angleDelta.y > 0 ? 1.15 : 1 / 1.15); }
         }
 
         BusyIndicator {
             anchors.centerIn: parent
-            running: photo.status === Image.Loading
+            running: (!root.isVideo && photo.status === Image.Loading)
+                     || (root.isVideo && (videoPlayer.mediaStatus === MediaPlayer.LoadingMedia
+                                          || videoPlayer.mediaStatus === MediaPlayer.BufferingMedia))
             visible: running
         }
-        Text {
+        ColumnLayout {
             anchors.centerIn: parent
-            visible: photo.status === Image.Error
-            text: I18n.t("Không tải được ảnh", "Couldn't load the picture")
-            color: "#CFD3D8"
-            font.family: Theme.fontFamily
-            font.pixelSize: 14
+            visible: (!root.isVideo && photo.status === Image.Error)
+                     || (root.isVideo && videoPlayer.error !== MediaPlayer.NoError)
+            spacing: 10
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: root.isVideo ? I18n.t("Không phát được video trực tiếp trong ứng dụng", "Couldn't play the video in-app")
+                                   : I18n.t("Không tải được ảnh", "Couldn't load the picture")
+                color: "#CFD3D8"
+                font.family: Theme.fontFamily
+                font.pixelSize: 14
+            }
+            ZButton {
+                visible: root.isVideo && String(root.current.url || "").length > 0
+                Layout.alignment: Qt.AlignHCenter
+                text: I18n.t("Mở bằng trình phát ngoài", "Open in external player")
+                onClicked: Qt.openUrlExternally(root.current.url)
+            }
         }
 
         Repeater {
@@ -134,6 +217,108 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.go(modelData.step)
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        id: videoControls
+        visible: root.isVideo
+        anchors.bottom: strip.visible ? strip.top : parent.bottom
+        anchors.bottomMargin: strip.visible ? 8 : 16
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width - 48, 640)
+        height: 44
+        radius: 22
+        color: Qt.rgba(0, 0, 0, 0.65)
+        MouseArea { anchors.fill: parent }
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 12
+            anchors.rightMargin: 14
+            spacing: 10
+
+            Rectangle {
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                radius: 16
+                color: playBtnMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : ThemeManager.hoverClearColor
+                ZIcon {
+                    anchors.centerIn: parent
+                    name: videoPlayer.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
+                    size: 18
+                    color: "#FFFFFF"
+                }
+                MouseArea {
+                    id: playBtnMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.toggleVideoPlayback()
+                }
+            }
+
+            Text {
+                text: root.formatDuration(videoPlayer.position) + " / " + root.formatDuration(videoPlayer.duration)
+                color: "#E5E7EB"
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+            }
+
+            Slider {
+                id: seekSlider
+                Layout.fillWidth: true
+                from: 0
+                to: Math.max(1, videoPlayer.duration)
+                value: pressed ? value : videoPlayer.position
+                onMoved: {
+                    if (videoPlayer.seekable) videoPlayer.position = value;
+                }
+                background: Rectangle {
+                    x: seekSlider.leftPadding
+                    y: seekSlider.topPadding + seekSlider.availableHeight / 2 - height / 2
+                    implicitWidth: 200
+                    implicitHeight: 4
+                    width: seekSlider.availableWidth
+                    height: implicitHeight
+                    radius: 2
+                    color: Qt.rgba(1, 1, 1, 0.25)
+                    Rectangle {
+                        width: seekSlider.visualPosition * parent.width
+                        height: parent.height
+                        color: Theme.zaloBlue
+                        radius: 2
+                    }
+                }
+                handle: Rectangle {
+                    x: seekSlider.leftPadding + seekSlider.visualPosition * (seekSlider.availableWidth - width)
+                    y: seekSlider.topPadding + seekSlider.availableHeight / 2 - height / 2
+                    implicitWidth: 12
+                    implicitHeight: 12
+                    radius: 6
+                    color: "#FFFFFF"
+                }
+            }
+
+            Rectangle {
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                radius: 16
+                color: muteBtnMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : ThemeManager.hoverClearColor
+                ZIcon {
+                    anchors.centerIn: parent
+                    name: videoAudio.muted ? "volume_off" : "volume"
+                    size: 18
+                    color: "#FFFFFF"
+                }
+                MouseArea {
+                    id: muteBtnMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: videoAudio.muted = !videoAudio.muted
                 }
             }
         }
@@ -215,19 +400,25 @@ Rectangle {
                 }
             }
 
-            ToolButtonIcon { icon: "zoom_out"; tip: I18n.t("Thu nhỏ (−)", "Zoom out (−)"); onClicked: root.zoomBy(0.8) }
-            ToolButtonIcon { label: Math.round(root.zoom * 100) + "%"; tip: I18n.t("Vừa khung (0)", "Fit (0)"); onClicked: root.resetView() }
-            ToolButtonIcon { icon: "zoom_in"; tip: I18n.t("Phóng to (+)", "Zoom in (+)"); onClicked: root.zoomBy(1.25) }
-            ToolButtonIcon { icon: "rotate"; tip: I18n.t("Xoay (R)", "Rotate (R)"); onClicked: root.angle += 90 }
-            ToolButtonIcon { icon: "copy"; tip: I18n.t("Sao chép ảnh (Ctrl+C)", "Copy picture (Ctrl+C)"); onClicked: ZaloClient.copyImage(root.current.url) }
-            ToolButtonIcon { icon: "download"; tip: I18n.t("Lưu ảnh (Ctrl+S)", "Save picture (Ctrl+S)"); onClicked: saveDialog.open() }
+            ToolButtonIcon { visible: !root.isVideo; icon: "zoom_out"; tip: I18n.t("Thu nhỏ (−)", "Zoom out (−)"); onClicked: root.zoomBy(0.8) }
+            ToolButtonIcon { visible: !root.isVideo; label: Math.round(root.zoom * 100) + "%"; tip: I18n.t("Vừa khung (0)", "Fit (0)"); onClicked: root.resetView() }
+            ToolButtonIcon { visible: !root.isVideo; icon: "zoom_in"; tip: I18n.t("Phóng to (+)", "Zoom in (+)"); onClicked: root.zoomBy(1.25) }
+            ToolButtonIcon { visible: !root.isVideo; icon: "rotate"; tip: I18n.t("Xoay (R)", "Rotate (R)"); onClicked: root.angle += 90 }
+            ToolButtonIcon { visible: !root.isVideo; icon: "copy"; tip: I18n.t("Sao chép ảnh (Ctrl+C)", "Copy picture (Ctrl+C)"); onClicked: ZaloClient.copyImage(root.current.url) }
+            ToolButtonIcon {
+                icon: "download"
+                tip: root.isVideo ? I18n.t("Lưu video (Ctrl+S)", "Save video (Ctrl+S)")
+                                  : I18n.t("Lưu ảnh (Ctrl+S)", "Save picture (Ctrl+S)")
+                onClicked: saveDialog.open()
+            }
             ToolButtonIcon {
                 visible: String(root.current.url || "").startsWith("http")
                 icon: "open_external"
-                tip: I18n.t("Mở ảnh gốc trong trình duyệt", "Open original in browser")
+                tip: root.isVideo ? I18n.t("Mở video trong trình duyệt", "Open video in browser")
+                                  : I18n.t("Mở ảnh gốc trong trình duyệt", "Open original in browser")
                 onClicked: Qt.openUrlExternally(root.current.url)
             }
-            ToolButtonIcon { icon: "close"; tip: I18n.t("Đóng (Esc)", "Close (Esc)"); onClicked: ImageViewerState.close() }
+            ToolButtonIcon { icon: "close"; tip: I18n.t("Đóng (Esc)", "Close (Esc)"); onClicked: { videoPlayer.stop(); ImageViewerState.close(); } }
         }
     }
 
@@ -265,20 +456,33 @@ Rectangle {
                 sourceSize.width: 112
                 sourceSize.height: 112
             }
+            Rectangle {
+                visible: !!(modelData.isVideo)
+                anchors.centerIn: parent
+                width: 22
+                height: 22
+                radius: 11
+                color: Qt.rgba(0, 0, 0, 0.6)
+                ZIcon { anchors.centerIn: parent; name: "play"; size: 12; color: "#FFFFFF" }
+            }
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { ImageViewerState.index = index; root.resetView(); }
+                onClicked: { videoPlayer.stop(); ImageViewerState.index = index; root.resetView(); }
             }
         }
     }
 
     FileDialog {
         id: saveDialog
-        title: I18n.t("Lưu ảnh", "Save picture")
+        title: root.isVideo ? I18n.t("Lưu video", "Save video") : I18n.t("Lưu ảnh", "Save picture")
         fileMode: FileDialog.SaveFile
         currentFile: "file:///" + ZaloClient.suggestedMediaFileName(root.current.url || "")
-        nameFilters: [I18n.t("Hình ảnh (*.jpg *.jpeg *.png *.webp *.gif)", "Images (*.jpg *.jpeg *.png *.webp *.gif)")]
+        nameFilters: root.isVideo
+            ? [I18n.t("Video (*.mp4 *.mov *.webm *.mkv)", "Videos (*.mp4 *.mov *.webm *.mkv)"),
+               I18n.t("Tất cả tệp (*)", "All files (*)")]
+            : [I18n.t("Hình ảnh (*.jpg *.jpeg *.png *.webp *.gif)", "Images (*.jpg *.jpeg *.png *.webp *.gif)"),
+               I18n.t("Tất cả tệp (*)", "All files (*)")]
         onAccepted: ZaloClient.saveMediaTo(root.current.url, selectedFile.toString())
     }
 }

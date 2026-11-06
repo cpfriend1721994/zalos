@@ -1415,9 +1415,9 @@ Rectangle {
                                 Text {
                                     id: senderNameText
                                     visible: !msgRow.mine && ZaloClient.currentConversationIsGroup && model.firstInGroup
-                                             && model.senderName.length > 0
+                                             && (model.senderName.length > 0 || (model.senderId.length > 0 && model.senderId !== "system"))
                                     Layout.bottomMargin: 4
-                                    text: model.senderName
+                                    text: model.senderName.length > 0 ? model.senderName : I18n.t("Người dùng Zalo", "Zalo user")
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 12
                                     color: senderNameMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor
@@ -1495,12 +1495,10 @@ Rectangle {
                                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                                             ToolTip.visible: containsMouse && msgRow.messageType === "video"
                                             ToolTip.delay: 600
-                                            ToolTip.text: I18n.t("Mở video trong trình duyệt", "Open video in browser")
+                                            ToolTip.text: I18n.t("Xem video", "Watch video")
                                             onClicked: function(mouse) {
                                                 if (mouse.button === Qt.RightButton) {
                                                     root.openMessageMenu(mediaMouse, msgRow.menuInfo, mouse.x, mouse.y);
-                                                } else if (msgRow.messageType === "video") {
-                                                    if (msgRow.href.length > 0) Qt.openUrlExternally(msgRow.href);
                                                 } else {
                                                     root.openViewer(msgRow.msgId);
                                                 }
@@ -1820,36 +1818,50 @@ Rectangle {
                                                 readonly property string uid: model.extra.uid || ""
                                                 readonly property string phone: model.extra.phone || ""
                                                 spacing: 8
-                                                RowLayout {
+                                                Item {
                                                     Layout.fillWidth: true
-                                                    spacing: 10
-                                                    ZAvatar {
-                                                        size: 48
-                                                        avatarUrl: msgRow.mediaUrl
-                                                        name: msgRow.text
+                                                    implicitHeight: contactHeaderRow.implicitHeight
+                                                    RowLayout {
+                                                        id: contactHeaderRow
+                                                        anchors.fill: parent
+                                                        spacing: 10
+                                                        ZAvatar {
+                                                            size: 48
+                                                            avatarUrl: msgRow.mediaUrl
+                                                            name: msgRow.text
+                                                        }
+                                                        ColumnLayout {
+                                                            Layout.fillWidth: true
+                                                            spacing: 2
+                                                            Text {
+                                                                Layout.fillWidth: true
+                                                                text: msgRow.text
+                                                                elide: Text.ElideRight
+                                                                font.family: Theme.fontFamily
+                                                                font.pixelSize: 15
+                                                                font.weight: Font.DemiBold
+                                                                color: contactHeaderMouse.containsMouse && contactCard.uid.length > 0
+                                                                       ? Theme.zaloBlue : ThemeManager.textColor
+                                                            }
+                                                            Text {
+                                                                Layout.fillWidth: true
+                                                                text: contactCard.phone.length > 0 ? contactCard.phone
+                                                                      : (model.extra.official ? I18n.t("Official Account", "Official Account")
+                                                                                              : I18n.t("Danh thiếp Zalo", "Zalo contact card"))
+                                                                elide: Text.ElideRight
+                                                                font.family: Theme.fontFamily
+                                                                font.pixelSize: 12
+                                                                color: ThemeManager.secondaryTextColor
+                                                            }
+                                                        }
                                                     }
-                                                    ColumnLayout {
-                                                        Layout.fillWidth: true
-                                                        spacing: 2
-                                                        Text {
-                                                            Layout.fillWidth: true
-                                                            text: msgRow.text
-                                                            elide: Text.ElideRight
-                                                            font.family: Theme.fontFamily
-                                                            font.pixelSize: 15
-                                                            font.weight: Font.DemiBold
-                                                            color: ThemeManager.textColor
-                                                        }
-                                                        Text {
-                                                            Layout.fillWidth: true
-                                                            text: contactCard.phone.length > 0 ? contactCard.phone
-                                                                  : (model.extra.official ? I18n.t("Official Account", "Official Account")
-                                                                                          : I18n.t("Danh thiếp Zalo", "Zalo contact card"))
-                                                            elide: Text.ElideRight
-                                                            font.family: Theme.fontFamily
-                                                            font.pixelSize: 12
-                                                            color: ThemeManager.secondaryTextColor
-                                                        }
+                                                    MouseArea {
+                                                        id: contactHeaderMouse
+                                                        anchors.fill: parent
+                                                        enabled: contactCard.uid.length > 0
+                                                        hoverEnabled: true
+                                                        cursorShape: contactCard.uid.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                                        onClicked: if (contactCard.uid.length > 0) ZaloClient.viewProfile(contactCard.uid)
                                                     }
                                                 }
                                                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: ThemeManager.dividerColor }
@@ -2544,25 +2556,39 @@ Rectangle {
                 spacing: 10
                 Rectangle { Layout.preferredWidth: 3; Layout.fillHeight: true; Layout.topMargin: 8; Layout.bottomMargin: 8; color: Theme.zaloBlue }
                 ZIcon { name: "reply"; size: 16; color: Theme.zaloBlue }
-                ColumnLayout {
+                Item {
                     Layout.fillWidth: true
-                    spacing: 1
-                    Text {
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 12
-                        font.bold: true
-                        color: ThemeManager.textColor
-                        text: I18n.t("Trả lời ", "Replying to ") + (ZaloClient.replyTarget.senderName || "")
+                    Layout.fillHeight: true
+                    ColumnLayout {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 1
+                        Text {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            font.bold: true
+                            color: ThemeManager.textColor
+                            text: I18n.t("Trả lời ", "Replying to ") + (ZaloClient.replyTarget.senderName || "")
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            color: ThemeManager.secondaryTextColor
+                            text: ZaloClient.replyTarget.text || ""
+                        }
                     }
-                    Text {
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 12
-                        color: ThemeManager.secondaryTextColor
-                        text: ZaloClient.replyTarget.text || ""
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (ZaloClient.replyTarget.id)
+                                root.jumpToMessage(ZaloClient.replyTarget.id, "");
+                        }
                     }
                 }
                 Rectangle {
@@ -3446,10 +3472,18 @@ Rectangle {
         }
     }
 
-    ConversationInfoPanel {
-        id: conversationInfoPanel
+    Loader {
+        id: conversationInfoLoader
+        objectName: "conversationInfoLoader"
+        active: ZaloClient.showConversationInfo
+        visible: active
         Layout.fillHeight: true
         Layout.fillWidth: root.infoOverlay
+        Layout.preferredWidth: active ? 280 : 0
+        sourceComponent: ConversationInfoPanel {
+            objectName: "conversationInfoPanel"
+            anchors.fill: parent
+        }
     }
     }
 

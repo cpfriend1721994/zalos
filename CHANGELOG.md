@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.5] - 2026-11-06
+
+### Added
+- **In-app video playback (`ImageViewer`)**: clicking a video message or shared video tile now opens the built-in
+  `ImageViewer` with a `QtMultimedia` `MediaPlayer` + `VideoOutput` and play/pause/seek controls instead of handing
+  the remote URL to an external browser.
+- **Full-resolution avatar, cover & background preview**: clicking any user/group avatar (`UserProfileModal`,
+  `ConversationInfoPanel`), profile cover banner, or custom chat background thumbnail in `SettingsModal` opens it in
+  the in-app `ImageViewer`.
+- **Click-to-copy phone number**: clicking a user's phone number in `UserProfileModal` copies it to the clipboard and
+  shows a localized confirmation toast.
+- **Background memory trim when hidden to tray (`ZaloClient::trimMemoryForBackground`)**: 30 seconds after the main
+  window is hidden to the system tray, Zalos evicts cold resident conversations down to the active thread, clears the
+  in-RAM avatar LRU cache, `QPixmapCache`, QML component/JS heaps, releases scene-graph GPU textures
+  (`QQuickWindow::releaseResources()`), and returns freed heap pages to the OS via `malloc_trim(0)`.
+
+### Fixed
+- **Emulated `aarch64` Nix CI OOM crash (`exit code 137` / `SIGKILL`) & compiler warning**: disabled QML AOT C++
+  code generation on `aarch64` in `default.nix` (matching RPM, `.deb` and AppImage, cutting 46 heavy `_qml.cpp`
+  translation units under QEMU), capped emulated parallel compile jobs to `-j2` (`cores = 2` in `nix.conf`,
+  `zalos.spec`, `build-deb.sh` and `build-appimage.sh`), and checked the return value of `std::freopen(..., stderr)`
+  in `main.cpp` to silence `-Wunused-result` under `_FORTIFY_SOURCE=3`.
+- **Duplicate CI workflow triggers**: removed `branches: [ main ]` and `pull_request` triggers from `ci.yml` so
+  normal pushes to `main` no longer queue redundant skipped CD runs, and scoped `base-images.yml` `push` to
+  `branches: [ main ]` so pushing a `v*` release tag never triggers a duplicate base-image build.
+- **Mobile history sync cleanup & 64-bit ID resolution**: called `delete_snapshot_mobile_msg` (`cleanMobileSync`)
+  immediately after decrypting a mobile backup archive to remove temporary snapshots on Zalo's servers, and extended
+  `/api/znoise` plain-to-noised UID resolution to 64-bit `MentionData::uid` and `quote.ownerId` fields so `@mentions`
+  and quoted replies imported from phone backups remain clickable.
+- **Clickable sender names & mentions after mobile sync**: added on-demand `fetchGroupMembersInfo` fallback in
+  `ZaloClient::viewProfile` and a `"Người dùng Zalo"` / `"Zalo user"` sender-name fallback in `ChatArea.qml` so
+  clicking sender headers, `@mentions` or quoted messages always opens the profile modal even before group rosters
+  finish resolving.
+- **Avatar-mode chat background reactivity**: connected `currentConversationChanged` to
+  `currentConversationBackgroundChanged` and resolved fallback conversation avatars in `selectConversation`, fixing a
+  bug where the `"Theo ảnh đại diện"` (`"avatar"`) chat background did not update when switching conversations.
+
+### Performance
+- **Single-buffer `MessageModel` (zero dual-buffering & zero CoW detach)**: the active conversation now lives
+  exclusively in `m_items` while open and swaps into/out of `m_store` via `std::move` on conversation switch,
+  eliminating duplicate `QVector<MessageItem>` storage and copy-on-write detachments on every message mutation.
+- **Zero-RAM `m_rawMessages` duplication when `offline.db` is active**: incoming messages write their compressed raw
+  JSON directly to SQLite without keeping a duplicate `QJsonObject` in `m_rawMessages` RAM; rare operations (pin,
+  forward, quote) read `raw_json` on demand from `offline.db`.
+- **Scaled-on-decode images (`AvatarImageProvider::decodeScaled`)**: local files, disk-cached files and network buffers
+  now use `QImageReader::setScaledSize` during decode instead of allocating a full-resolution 2K/4K `RGBA8888` buffer
+  before downscaling.
+- **Lazy `ConversationInfoPanel` instantiation**: wrapped `ConversationInfoPanel` in a `Loader` bound to
+  `ZaloClient.showConversationInfo` in `ChatArea.qml` so its 1,200-line QML subtree is only created when the right
+  sidebar is open and destroyed when closed.
+
 ## [1.0.4] - 2026-11-06
 
 First published multi-architecture release (supersedes the unpublished `v1.0.1`–`v1.0.3` tags). Ships the full

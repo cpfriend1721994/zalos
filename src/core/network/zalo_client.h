@@ -226,7 +226,7 @@ public:
     QString currentConversationId() const { return m_currentConvId; }
     QString currentConversationName() const { return m_currentConvName; }
     QString currentConversationAvatar() const { return m_currentConvAvatar; }
-    QString currentConversationBackground();
+    QString currentConversationBackground() const;
     bool currentConversationIsGroup() const;
     QString composerLockReason() const;
     bool composerLockDeletable() const { return m_readOnlyThreads.contains(m_currentConvId); }
@@ -292,7 +292,7 @@ public:
     Q_INVOKABLE void openConversationWithContact(const QString& id, const QString& name, const QString& avatarUrl);
     Call::ZCallEngine* callEngine() const { return m_callEngine; }
     Offline::ZaloOfflineStore* offlineStore() const { return m_offlineStore; }
-    static constexpr int kCacheParseVersion = 3;
+    static constexpr int kCacheParseVersion = 4;
     ZaloApiClient* apiClient() const { return m_apiClient; }
 
     bool showSettingsModal() const { return m_showSettingsModal; }
@@ -322,6 +322,9 @@ public:
     static QString undoTargetOf(const QJsonObject& msg);
     static QString backgroundOf(const QJsonObject& profile);
     void noteAccountFlagsForTesting(const QString& uid, const QJsonObject& profile) { noteAccountFlags(uid, profile); }
+    int residentThreadCountForTesting() const { return int(m_residentThreads.size()); }
+    int rawMessageCountForTesting() const { return int(m_rawMessages.size()); }
+    Q_INVOKABLE void trimMemoryForBackground();
     bool profileLoading() const;
 
     bool showAddFriendModal() const { return m_showAddFriendModal; }
@@ -772,7 +775,7 @@ private:
     bool cacheUsable() const;
     bool isThreadResident(const QString& convId) const;
     void touchResidentThread(const QString& convId);
-    void evictColdThreads();
+    void evictColdThreads(int maxResident = 12);
     void rememberMessageId(const QString& msgId);
     void releaseFreedMemory();
     void fetchBytes(const QString& url, std::function<void(const QByteArray& data, const QString& error)> done);

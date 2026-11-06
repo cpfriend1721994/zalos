@@ -274,8 +274,10 @@ static void ParseMentionLite(const uint8_t* buf, size_t n, MentionData& out) {
     std::string err;
     TlvBoxLite tlv;
     if (!tlv.Parse(buf, n, err)) return;
+    int64_t i64 = 0;
     int i = 0;
-    if (tlv.GetIntValue(0x65, i)) out.uid = i;
+    if (tlv.GetInt64Value(0x65, i64)) out.uid = i64;
+    else if (tlv.GetIntValue(0x65, i)) out.uid = i;
     if (tlv.GetIntValue(0x66, i)) out.pos = i;
     if (tlv.GetIntValue(0x67, i)) out.len = i;
     if (tlv.GetIntValue(0x68, i)) out.type = i;
