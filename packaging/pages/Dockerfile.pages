@@ -8,9 +8,9 @@ COPY docs/ ./src/
 RUN mkdir -p /app/out \
     && bunx html-minifier-terser \
         --collapse-whitespace \
+        --conservative-collapse \
         --remove-comments \
         --remove-redundant-attributes \
-        --minify-css true \
         --minify-js true \
         -o /app/out/index.html /app/src/index.html \
     && cp -r /app/src/assets /app/out/assets

@@ -44,6 +44,16 @@ mkdir -p "$(dirname "${OUT_DIR}")"
 "${DOCKER}" rm -f "${CONTAINER_ID}" >/dev/null
 "${DOCKER}" rmi -f "${IMAGE}" >/dev/null 2>&1 || true
 
+echo "==> Verifying the cascade layers survived minification..."
+SRC_LAYERS=$(grep -o '@layer ' "${ROOT_DIR}/docs/index.html" | wc -l || true)
+OUT_LAYERS=$(grep -o '@layer ' "${OUT_DIR}/index.html" | wc -l || true)
+SRC_MEDIA=$(grep -o '@media ' "${ROOT_DIR}/docs/index.html" | wc -l || true)
+OUT_MEDIA=$(grep -o '@media ' "${OUT_DIR}/index.html" | wc -l || true)
+if [ "${SRC_LAYERS}" -ne "${OUT_LAYERS}" ] || [ "${SRC_MEDIA}" -ne "${OUT_MEDIA}" ]; then
+  echo "❌ Minifier dropped CSS (@layer ${SRC_LAYERS}->${OUT_LAYERS}, @media ${SRC_MEDIA}->${OUT_MEDIA}); refusing to deploy." >&2
+  exit 1
+fi
+
 echo "==> Result:"
 SRC_SIZE=$(du -h "${ROOT_DIR}/docs/index.html" | cut -f1)
 MIN_SIZE=$(du -h "${OUT_DIR}/index.html" | cut -f1)
