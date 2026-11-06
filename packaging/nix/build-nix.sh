@@ -14,12 +14,25 @@ cd "${WORKSPACE_DIR}"
 # Safe directory for git inside container
 git config --global --add safe.directory "*" || true
 
-# Enable flakes and nix-command in nix.conf if not already present
+# Enable flakes and nix-command in nix.conf.
+# The Nix sandbox filters syscalls with seccomp, and a seccomp BPF program is only accepted for the architecture of
+# the *kernel*: in an aarch64 container emulated by QEMU on an x86_64 host, loading it fails with
+# "unable to load seccomp BPF program: Invalid argument" and the build dies while setting up the environment. So an
+# emulated run (ZALOS_EMULATED=1, set by scripts/ci-package.sh and by the package-*-arm64 compose services) turns
+# the sandbox off: a throwaway CI container that builds this project itself has nothing for the sandbox to isolate
+# against, and the native x86_64 run keeps it enabled.
 mkdir -p ~/.config/nix
-cat << 'EOF' > ~/.config/nix/nix.conf
+NIX_SANDBOX=true
+if [ "${ZALOS_EMULATED:-0}" = "1" ]; then
+    NIX_SANDBOX=false
+    echo "==> Emulated architecture detected: disabling the Nix sandbox (seccomp BPF cannot load under QEMU)"
+fi
+cat << EOF > ~/.config/nix/nix.conf
 experimental-features = nix-command flakes
 substituters = https://cache.nixos.org
 trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+sandbox = ${NIX_SANDBOX}
+filter-syscalls = ${NIX_SANDBOX}
 EOF
 
 echo "==> Building Zalos package via default.nix..."
@@ -35,8 +48,8 @@ if command -v nix &>/dev/null; then
     echo "==> nixpkgs ${NIXPKGS_REV}"
     nix-build -o /tmp/nix-result -E "import ./default.nix { pkgs = import (builtins.fetchTarball {
         url = \"https://github.com/NixOS/nixpkgs/archive/${NIXPKGS_REV}.tar.gz\"; sha256 = \"${NIXPKGS_HASH}\"; }) {}; }"
-    tar -czf "${OUTPUT_DIR}/zalos-1.0.0-$(uname -m)-nixos.tar.gz" -C /tmp/nix-result .
-    echo "✅ Nix package archive saved: dist/zalos-1.0.0-$(uname -m)-nixos.tar.gz"
+    tar -czf "${OUTPUT_DIR}/zalos-1.0.4-$(uname -m)-nixos.tar.gz" -C /tmp/nix-result .
+    echo "✅ Nix package archive saved: dist/zalos-1.0.4-$(uname -m)-nixos.tar.gz"
 else
     echo "❌ Neither nix-build nor nix command found."
     exit 1

@@ -286,4 +286,7 @@ services:
     working_dir: /workspace
     environment:
       - NIX_CONFIG=experimental-features = nix-command flakes
+      # aarch64 under QEMU on an x86_64 kernel: seccomp BPF (the Nix sandbox) cannot load for a foreign
+      # architecture, so build-nix.sh disables the sandbox for emulated runs.
+      - ZALOS_EMULATED=1
     command: bash /workspace/packaging/nix/build-nix.sh
