@@ -721,11 +721,11 @@ void CallBridge::resetUi() {
     emit cameraStateChanged();
 }
 
-void CallBridge::accept() {
-    const bool cam = m_isVideoMode && cameraAvailable();
+void CallBridge::accept(bool camStartOff) {
+    const bool cam = !camStartOff && m_isVideoMode && cameraAvailable();
     m_cameraOn = cam;
     m_cameraOffAnnounced = false;
-    sendUi({{"action", "accept"}, {"camStartOff", !cam}});
+    sendUi({{"action", "accept"}, {"camStartOff", camStartOff || !cam}});
     emit cameraStateChanged();
 }
 void CallBridge::reject() { sendUi({{"action", "reject"}}); }

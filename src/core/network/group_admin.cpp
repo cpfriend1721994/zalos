@@ -394,7 +394,7 @@ void GroupAdmin::join() {
         if (!self) return;
         const QVariantMap p = self->m_preview;
         const bool current = p.value("link").toString() == link;
-        if (!ok && code != 178) {
+        if (!ok && code != 178 && code != 240) {
             if (current) {
                 self->m_preview.remove("joining");
                 self->m_preview.insert("error", self->t("Không tham gia được nhóm: ", "Could not join the group: ") + self->err(e, code));
@@ -403,7 +403,7 @@ void GroupAdmin::join() {
             return;
         }
         const QString groupId = p.value("groupId").toString();
-        if (p.value("needsApproval").toBool() && code != 178) {
+        if ((p.value("needsApproval").toBool() || code == 240) && code != 178) {
             self->notice(self->t("Đã gửi yêu cầu tham gia. Chờ trưởng hoặc phó nhóm duyệt.",
                                  "Join request sent. Waiting for the group's owner or deputies."));
         } else {

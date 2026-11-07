@@ -330,11 +330,18 @@ Rectangle {
                 onClicked: root.call.reject()
             }
             CircleButton {
-                visible: root.phase === "incoming" && !!root.call && root.call.canAnswer
+                visible: root.phase === "incoming" && !!root.call && root.call.canAnswer && root.call.isVideo
                 icon: "phone"
+                tint: "#0068FF"
+                tip: I18n.t("Trả lời không camera", "Answer without camera")
+                onClicked: root.call.accept(true)
+            }
+            CircleButton {
+                visible: root.phase === "incoming" && !!root.call && root.call.canAnswer
+                icon: root.call && root.call.isVideo ? "camera" : "phone"
                 tint: "#2BB673"
-                tip: I18n.t("Trả lời", "Answer")
-                onClicked: root.call.accept()
+                tip: root.call && root.call.isVideo ? I18n.t("Trả lời bằng video", "Answer with video") : I18n.t("Trả lời", "Answer")
+                onClicked: root.call.accept(false)
             }
             PillButton {
                 visible: root.phase === "connected" || root.phase === "connecting" || root.phase === "outgoing"

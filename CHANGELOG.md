@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.7] - 2026-11-07
+
+### Added
+- **Draft attachments bar & multi-file queuing**: Pasted clipboard images (`Ctrl+V`) and selected files are held in an
+  interactive draft preview bar above the composer instead of sending immediately. Multiple files can be attached,
+  inspected with thumbnails/chips, removed individually (`✕`), cleared with `Esc` or "Clear all", and sent together with
+  message text on Enter.
+- **Image viewer drawing and annotation canvas**: `ImageViewer` includes interactive drawing tools (freehand pen,
+  rectangle box, arrow pointer, text note), color selector palette, undo (`Ctrl+Z`), canvas clear, annotated clipboard
+  copy (`Ctrl+C`), and print media support (`Ctrl+P`).
+- **Desktop and window state integration**: Restores window geometry, dimensions, and maximized state across launches;
+  dynamic tray menu hide/show toggle; Unity/KDE dock unread message counter badge; portal screen grab with auto-hide window;
+  and customizable chat background opacity slider (5% to 80%).
+- **Call engine enhancements**: Option to accept video calls audio-only ("Answer without camera"), automatic filtering
+  out of infrared/facial authentication sensors for standard webcam binding, and outgoing ringback sound effect.
+- **Packaging**: ARM64 (aarch64) packaging added across RPM, .deb, and AppImage artifacts.
+
+### Fixed
+- **Photo viewer tool button rendering**: Fixed drawing tool button background scope binding to avoid solid white icon button bug.
+- **Message echo status transition**: Local echo status transitions cleanly to `"sent"` when server acknowledgement is merged.
+- **Zalo video call log identification**: Correctly identifies call types across wire codes (`calltype == 1`, `3`, `6`).
+- **Delivered receipt updates**: WebSocket `cmd = 502/522` events mark delivered receipts in real time.
+
 ## [1.0.6] - 2026-11-07
 
 ### Added

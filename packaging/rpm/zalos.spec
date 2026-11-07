@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           zalos
-Version:        1.0.6
+Version:        1.0.7
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT
@@ -73,6 +73,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/%{name}/zcall-native/
 
 %changelog
+* Sat Nov 07 2026 Zalos Team <dev@zalos.local> - 1.0.7-1
+- Interactive draft attachments bar for pasted clipboard images (Ctrl+V) and multi-file queueing.
+- In-app ImageViewer annotation canvas (pen, rect, arrow, text, undo, print, clipboard copy).
+- Window geometry persistence, dock unread counter badge, and chat background opacity controls.
+- Audio-only answering for incoming video calls, automatic IR webcam filter, and outgoing ringback tone.
+
 * Sat Nov 07 2026 Zalos Team <dev@zalos.local> - 1.0.6-1
 - Deduplicate messages by cliMsgId in MessageModel and offline.db (mobile resync duplicates) with a one-shot migration.
 - Render Zalo text emoticons (:v, :)), =)), :D, :P ...) as emoji with token boundaries.

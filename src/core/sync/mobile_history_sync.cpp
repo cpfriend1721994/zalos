@@ -667,7 +667,8 @@ void MobileHistorySync::importNextChunk() {
     setState(Importing, L("Đang nhập tin nhắn (%1/%2 hội thoại)...", "Importing messages (%1/%2 conversations)...")
                             .arg(m_importIndex).arg(m_conversations.size()), progress);
     const quint64 gen = m_generation;
-    QTimer::singleShot(1, this, [this, gen]() {
+    const int delayMs = (messages.size() > 500) ? 25 : (messages.size() > 100 ? 10 : 2);
+    QTimer::singleShot(delayMs, this, [this, gen]() {
         if (gen == m_generation) importNextChunk();
     });
 }

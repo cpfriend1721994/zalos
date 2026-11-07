@@ -17,12 +17,56 @@ ApplicationWindow {
 
     flags: Qt.Window
 
-    Component.onCompleted: I18n.setLanguage(ZaloClient.appLanguage)
+    Component.onCompleted: {
+        I18n.setLanguage(ZaloClient.appLanguage)
+        var geom = ZaloClient.windowGeometry()
+        if (geom.width && geom.width >= minimumWidth) mainWindow.width = geom.width
+        if (geom.height && geom.height >= minimumHeight) mainWindow.height = geom.height
+        if (geom.x !== undefined && geom.x >= 0 && geom.y !== undefined && geom.y >= 0) {
+            mainWindow.x = geom.x
+            mainWindow.y = geom.y
+        }
+        if (geom.maximized) mainWindow.visibility = Window.Maximized
+        ZaloClient.notifyWindowVisibility(mainWindow.visible && mainWindow.visibility !== Window.Hidden)
+    }
+
+    function recordGeometry() {
+        if (mainWindow.visibility === Window.Maximized) {
+            ZaloClient.saveWindowGeometry(mainWindow.x, mainWindow.y, mainWindow.width, mainWindow.height, true)
+        } else if (mainWindow.visibility === Window.Windowed || mainWindow.visibility === Window.AutomaticVisibility) {
+            ZaloClient.saveWindowGeometry(mainWindow.x, mainWindow.y, mainWindow.width, mainWindow.height, false)
+        }
+    }
+
+    onXChanged: geomSaveTimer.restart()
+    onYChanged: geomSaveTimer.restart()
+    onWidthChanged: geomSaveTimer.restart()
+    onHeightChanged: geomSaveTimer.restart()
+    onVisibilityChanged: {
+        recordGeometry()
+        ZaloClient.notifyWindowVisibility(mainWindow.visible && mainWindow.visibility !== Window.Hidden)
+    }
+    onVisibleChanged: {
+        ZaloClient.notifyWindowVisibility(mainWindow.visible && mainWindow.visibility !== Window.Hidden)
+    }
+
+    Timer {
+        id: geomSaveTimer
+        interval: 400
+        repeat: false
+        onTriggered: mainWindow.recordGeometry()
+    }
 
     Connections {
         target: ZaloClient
         function onAppLanguageChanged() {
             if (I18n.currentLanguage !== ZaloClient.appLanguage) I18n.setLanguage(ZaloClient.appLanguage);
+        }
+        function onRequestHideForScreenshot() {
+            mainWindow.hide()
+        }
+        function onRequestRestoreAfterScreenshot() {
+            mainWindow.showAndActivate()
         }
     }
     Connections {
@@ -43,6 +87,7 @@ ApplicationWindow {
     }
 
     onClosing: (close) => {
+        mainWindow.recordGeometry();
         if (ZaloClient.closeToTray && ZaloClient.trayAvailable) {
             close.accepted = false;
             mainWindow.hide();

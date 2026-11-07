@@ -1,4 +1,5 @@
 #include "camera_sender.h"
+#include "core/media/media_utils.h"
 
 #include <QCamera>
 #include <QCameraDevice>
@@ -18,7 +19,11 @@ CameraSender::~CameraSender() {
 }
 
 bool CameraSender::cameraAvailable() {
-    return !QMediaDevices::videoInputs().isEmpty();
+    const auto inputs = QMediaDevices::videoInputs();
+    for (const auto& dev : inputs) {
+        if (!Media::MediaUtils::isIrCamera(dev.description())) return true;
+    }
+    return false;
 }
 
 bool CameraSender::encoderAvailable() {
@@ -31,7 +36,15 @@ bool CameraSender::start(QString* error) {
         if (error) *error = QStringLiteral("no_encoder");
         return false;
     }
-    const QCameraDevice device = QMediaDevices::defaultVideoInput();
+    QCameraDevice device;
+    const auto inputs = QMediaDevices::videoInputs();
+    for (const auto& dev : inputs) {
+        if (!Media::MediaUtils::isIrCamera(dev.description())) {
+            device = dev;
+            break;
+        }
+    }
+    if (device.isNull()) device = QMediaDevices::defaultVideoInput();
     if (device.isNull()) {
         if (error) *error = QStringLiteral("no_camera");
         return false;

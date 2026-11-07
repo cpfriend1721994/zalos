@@ -71,9 +71,10 @@ public:
     void fetchCloudHistory(const QString& threadId, bool isMyCloud, const QString& beforeMsgId, int count,
                            Callback cb);
     void sendText(const QString& threadId, bool isGroup, const QString& text, Callback cb,
-                  const QString& cliMsgId = QString(), const QJsonArray& styles = QJsonArray());
+                  const QString& cliMsgId = QString(), const QJsonArray& styles = QJsonArray(), qint64 ttl = 0);
     void sendQuote(const QString& threadId, bool isGroup, const QString& text, const QJsonObject& quoted, Callback cb,
-                   const QString& cliMsgId = QString(), const QJsonArray& styles = QJsonArray());
+                   const QString& cliMsgId = QString(), const QJsonArray& styles = QJsonArray(),
+                   const QJsonArray& mentions = QJsonArray(), qint64 ttl = 0);
     void setUnreadMark(const QString& threadId, bool isGroup, bool unread, Callback cb);
     void deleteConversation(const QString& threadId, bool isGroup, const QJsonObject& lastMsg, Callback cb);
     void setMute(const QString& threadId, bool isGroup, qint64 seconds, Callback cb);
@@ -89,9 +90,10 @@ public:
     void sendTyping(const QString& threadId, bool isGroup, Callback cb);
 
     void sendAttachment(const QString& threadId, bool isGroup, const QString& filePath, const QString& caption,
-                        Callback cb);
-    void sendVoice(const QString& threadId, bool isGroup, const QString& filePath, const QString& clientId, Callback cb);
-    void sendSticker(const QString& threadId, bool isGroup, qint64 stickerId, qint64 cateId, int type, Callback cb);
+                        Callback cb, const QString& sendClientId = QString(), qint64 ttl = 0);
+    void sendVoice(const QString& threadId, bool isGroup, const QString& filePath, const QString& clientId, Callback cb, qint64 ttl = 0);
+    void sendSticker(const QString& threadId, bool isGroup, qint64 stickerId, qint64 cateId, int type, Callback cb,
+                     const QString& cliMsgId = QString(), qint64 ttl = 0);
     void uploadProfileAvatar(const QString& imagePath, Callback cb);
     void uploadGroupAvatar(const QString& groupId, const QString& imagePath, Callback cb);
     void searchStickers(const QString& keyword, Callback cb);
@@ -167,9 +169,9 @@ public:
     void fetchPollDetail(qint64 pollId, Callback cb);
     void parseLink(const QString& link, Callback cb);
     void sendLink(const QString& threadId, bool isGroup, const QString& text, const QJsonObject& preview,
-                  Callback cb);
+                  Callback cb, const QString& cliMsgId = QString(), qint64 ttl = 0);
     void sendMention(const QString& groupId, const QString& text, const QJsonArray& mentions, Callback cb,
-                     const QString& cliMsgId = QString(), const QJsonArray& styles = QJsonArray());
+                     const QString& cliMsgId = QString(), const QJsonArray& styles = QJsonArray(), qint64 ttl = 0);
     static QString textPropertiesJson(const QJsonArray& styles);
     void sendDelivered(const QString& threadId, bool isGroup, const QJsonArray& msgs, Callback cb);
     void fetchQuickMessages(Callback cb);
@@ -208,6 +210,7 @@ public:
     bool isRealtimeConnected() const { return m_realtimeReady; }
     void requestOldMessages(bool isGroup, const QString& lastMsgId = QString());
     void requestOldReactions(bool isGroup);
+    bool canPullQueue(int cmd, int subCmd) const;
     QList<QPair<int, int>> serverQueues() const { return m_serverQueues; }
 
     static QList<QPair<int, int>> queuesFromAuth(const QJsonObject& auth);
@@ -224,6 +227,7 @@ signals:
     void reactionsReceived(const QJsonArray& reactions, bool isGroup);
     void typingReceived(const QString& threadId, const QString& userId, bool isGroup);
     void seenReceived(const QString& threadId, const QString& msgId, const QString& userId, bool isGroup);
+    void deliveredReceived(const QString& threadId, const QString& msgId, bool isGroup);
     void readPointsReceived(const QJsonArray& clearUnreads);
     void friendEventReceived(const QString& action, const QJsonValue& data);
     void voipControlReceived(const QJsonObject& content);
@@ -251,10 +255,15 @@ private:
     void requestServerInfo();
     void sendWs(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey = QStringLiteral("req_id"));
     void onWsBinary(const QByteArray& frame);
-    enum class UploadKind { Photo, File, Voice };
+#ifdef ZALOS_TESTING
+public:
+    void injectWsBinaryForTesting(const QByteArray& frame) { onWsBinary(frame); }
+private:
+#endif
+    enum class UploadKind { Photo, File, Voice, Video };
     void uploadChunks(const QString& threadId, bool isGroup, const QByteArray& content, const QString& fileName,
                       UploadKind kind, int width, int height, const QString& caption, Callback cb,
-                      const QString& sendClientId = QString());
+                      const QString& sendClientId = QString(), qint64 ttl = 0);
     int sharefileSetting(const char* key, int fallback) const;
 
     QNetworkAccessManager* m_nam{nullptr};

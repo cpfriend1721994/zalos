@@ -437,8 +437,9 @@ QVector<ZaloOfflineStore::SearchHit> ZaloOfflineStore::searchMessages(const QStr
 qint64 ZaloOfflineStore::messageTs(const QString& msgId, QString* convId) const {
     if (!m_db.isOpen() || msgId.isEmpty()) return 0;
     QSqlQuery q(m_db);
-    q.prepare("SELECT ts, conv_id FROM messages WHERE id = :id;");
+    q.prepare("SELECT ts, conv_id FROM messages WHERE id = :id OR cli_msg_id = :cli LIMIT 1;");
     q.bindValue(":id", msgId);
+    q.bindValue(":cli", msgId);
     if (!q.exec() || !q.next()) return 0;
     if (convId) *convId = q.value(1).toString();
     return q.value(0).toLongLong();
@@ -615,11 +616,12 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
         chk.bindValue(":id", item.id);
         if (chk.exec() && chk.next()) {
             const QString existingId = chk.value(0).toString();
-            // Delete the old duplicate row so this newer/canonical message replaces it cleanly
-            QSqlQuery del(m_db);
-            del.prepare("DELETE FROM messages WHERE id = :oldId;");
-            del.bindValue(":oldId", existingId);
-            del.exec();
+            if (existingId.startsWith(QLatin1String("local-"))) {
+                QSqlQuery del(m_db);
+                del.prepare("DELETE FROM messages WHERE id = :oldId;");
+                del.bindValue(":oldId", existingId);
+                del.exec();
+            }
         }
     }
 
@@ -637,7 +639,8 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
                   "THEN excluded.reaction ELSE messages.reaction END, "
                   "message_type = CASE WHEN messages.is_recalled = 1 THEN messages.message_type ELSE excluded.message_type END, "
                   "media_url = CASE WHEN messages.is_recalled = 1 THEN '' ELSE excluded.media_url END, ts = excluded.ts, sender_id = excluded.sender_id, "
-                  "sender_avatar = excluded.sender_avatar, status = excluded.status, "
+                  "sender_avatar = excluded.sender_avatar, "
+                  "status = CASE WHEN messages.status = 'seen' THEN messages.status ELSE excluded.status END, "
                   "is_recalled = MAX(messages.is_recalled, excluded.is_recalled), "
                   "cli_msg_id = excluded.cli_msg_id, quote_msg_id = excluded.quote_msg_id, "
                   "quote_sender = excluded.quote_sender, quote_text = excluded.quote_text, is_group = excluded.is_group, "

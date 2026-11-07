@@ -5,6 +5,8 @@
 #include <QPainter>
 #include <QFont>
 #include <QStyle>
+#include <QDBusConnection>
+#include <QDBusMessage>
 
 namespace Zalos::Core::Platform {
 
@@ -65,11 +67,32 @@ void SystemTrayController::retranslate() {
     refreshIconAndTooltip();
 }
 
+void SystemTrayController::setWindowVisible(bool visible) {
+    if (m_openAction) {
+        m_openAction->setText(visible ? L(QStringLiteral("Ẩn Zalos"), QStringLiteral("Hide Zalos"))
+                                      : L(QStringLiteral("Mở Zalos"), QStringLiteral("Open Zalos")));
+    }
+}
+
 void SystemTrayController::setUnreadCount(int count, bool hasMentions) {
     if (m_unreadCount == count && m_hasMentions == hasMentions) return;
     m_unreadCount = count;
     m_hasMentions = hasMentions;
     refreshIconAndTooltip();
+
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (bus.isConnected()) {
+        QDBusMessage signal = QDBusMessage::createSignal(
+            QStringLiteral("/com/canonical/unity/launcherentry/zalos"),
+            QStringLiteral("com.canonical.Unity.LauncherEntry"),
+            QStringLiteral("Update"));
+        QVariantMap properties;
+        properties.insert(QStringLiteral("count"), qint64(m_unreadCount));
+        properties.insert(QStringLiteral("count-visible"), m_unreadCount > 0);
+        properties.insert(QStringLiteral("urgent"), m_hasMentions);
+        signal << QStringLiteral("application://zalos.desktop") << properties;
+        bus.send(signal);
+    }
 }
 
 void SystemTrayController::setHasMentions(bool hasMentions) {

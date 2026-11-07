@@ -28,6 +28,11 @@
     <binary>zalos</binary>
   </provides>
   <releases>
+    <release version="1.0.7" date="2026-11-07">
+      <description>
+        <p>Interactive draft attachments bar for multi-file queueing, in-app image viewer annotation canvas with drawing tools, window geometry persistence, dock unread counter, audio-only incoming call acceptance, and ARM64 AppImage release packaging.</p>
+      </description>
+    </release>
     <release version="1.0.6" date="2026-11-07">
       <description>
         <p>Duplicate-message fix for mobile history resync (cliMsgId dedup), text emoticons rendered as emoji, a photo viewer that no longer initialises a media backend, and a minified GitHub Pages deployment.</p>

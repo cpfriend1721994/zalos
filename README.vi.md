@@ -56,13 +56,13 @@ và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nh�
 
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.6-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.0.6-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.0.7-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.0.7-1~ubuntu24.04_amd64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.6-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.0.7-1.fc43.x86_64.rpm
 ```
 
 ### NixOS / Nix
@@ -73,9 +73,15 @@ nix profile install github:cpfriend1721994/zalos
 
 ### AppImage (các bản phân phối khác)
 ```bash
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.6-x86_64.AppImage
-chmod +x Zalos-1.0.6-x86_64.AppImage
-./Zalos-1.0.6-x86_64.AppImage
+# x86_64
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.7-x86_64.AppImage
+chmod +x Zalos-1.0.7-x86_64.AppImage
+./Zalos-1.0.7-x86_64.AppImage
+
+# ARM64 (aarch64)
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.0.7-aarch64.AppImage
+chmod +x Zalos-1.0.7-aarch64.AppImage
+./Zalos-1.0.7-aarch64.AppImage
 ```
 AppImage dùng môi trường runtime sẵn có của hệ thống; trên bản cài tối giản bạn có thể cần cài thêm các gói
 runtime desktop thông dụng.

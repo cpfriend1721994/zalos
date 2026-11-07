@@ -69,7 +69,9 @@ private slots:
     }
 
     void testEmoticonShortcodes() {
-        QVERIFY(MessageModel::linkify(QStringLiteral("hay :v")).contains(QString::fromUtf8("✌️")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hay :v")).contains(QStringLiteral("qrc:/Zalos/assets/icons/pacman.png")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hay :V")).contains(QStringLiteral("qrc:/Zalos/assets/icons/pacman.png")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("peace :v:")).contains(QString::fromUtf8("✌️")));
         QVERIFY(MessageModel::linkify(QStringLiteral("haha =))")).contains(QString::fromUtf8("🤣")));
         QVERIFY(MessageModel::linkify(QStringLiteral("12:30")).contains(QStringLiteral("12:30")));
         QVERIFY(MessageModel::linkify(QStringLiteral("https://a.b:8080/v")).contains(QStringLiteral("8080/v")));
@@ -105,6 +107,21 @@ private slots:
         model.mergeMessages("t", {m});
         QCOMPARE(model.data(model.index(0), MessageModel::QuoteTextRole).toString(), QString("orig"));
         QCOMPARE(model.data(model.index(0), MessageModel::QuoteSenderRole).toString(), QString("Fixture"));
+    }
+
+    void testForwardedAndExpireRoles() {
+        MessageModel model;
+        model.loadConversation("t");
+        MessageItem m;
+        m.id = "f1";
+        m.text = "test";
+        m.isForwarded = true;
+        m.isE2EE = true;
+        m.expireOn = 1800000000000LL;
+        model.mergeMessages("t", {m});
+        QCOMPARE(model.data(model.index(0), MessageModel::IsForwardedRole).toBool(), true);
+        QCOMPARE(model.data(model.index(0), MessageModel::IsE2EERole).toBool(), true);
+        QCOMPARE(model.data(model.index(0), MessageModel::ExpireOnRole).toLongLong(), 1800000000000LL);
     }
 
     // Zalo-style presentation roles: runs by sender (30 min), date pills, status only on the newest own message.

@@ -60,6 +60,8 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
         case TimeRole: return item.timeStr;
         case IsMineRole: return item.isMine;
         case IsE2EERole: return item.isE2EE;
+        case IsForwardedRole: return item.isForwarded;
+        case ExpireOnRole: return item.expireOn;
         case ReactionRole: return item.reaction;
         case MessageTypeRole: return item.messageType;
         case MediaUrlRole: return item.mediaUrl;
@@ -135,6 +137,8 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
         {TimeRole, "time"},
         {IsMineRole, "isMine"},
         {IsE2EERole, "isE2EE"},
+        {IsForwardedRole, "isForwarded"},
+        {ExpireOnRole, "expireOn"},
         {ReactionRole, "reaction"},
         {MessageTypeRole, "messageType"},
         {MediaUrlRole, "mediaUrl"},
@@ -255,10 +259,20 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         if (m.id.isEmpty() || known.contains(m.id)) continue;
         const int existingIdx = (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0") && byCliId.contains(m.cliMsgId))
                                 ? byCliId.value(m.cliMsgId) : -1;
-        if (existingIdx >= 0) {
+        if (existingIdx >= 0 && (working[existingIdx].id.startsWith(QLatin1String("local-")) || working[existingIdx].senderId == m.senderId)) {
             const QString oldId = working[existingIdx].id;
             MessageItem merged = m;
-            if (merged.status.isEmpty()) merged.status = QStringLiteral("sent");
+            if (merged.status.isEmpty()) {
+                if (working[existingIdx].id.startsWith(QLatin1String("local-"))) {
+                    merged.status = QStringLiteral("sent");
+                } else {
+                    merged.status = working[existingIdx].status.isEmpty() ? QStringLiteral("sent") : working[existingIdx].status;
+                }
+            } else if (working[existingIdx].status == QStringLiteral("seen") && merged.status == QStringLiteral("sent")) {
+                merged.status = QStringLiteral("seen");
+            } else if (working[existingIdx].status == QStringLiteral("delivered") && merged.status == QStringLiteral("sent")) {
+                merged.status = QStringLiteral("delivered");
+            }
             if (merged.reaction.isEmpty()) merged.reaction = working[existingIdx].reaction;
             if (working[existingIdx].isRecalled) {
                 merged.isRecalled = true;
@@ -473,6 +487,20 @@ void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
     }
 }
 
+void MessageModel::markDeliveredUpTo(const QString& convId, const QString& msgId) {
+    const auto thread = threadOf(convId);
+    qint64 limit = -1;
+    for (const auto& m : thread) {
+        if (m.id == msgId) { limit = m.ts; break; }
+    }
+    if (limit < 0 && !thread.isEmpty()) limit = thread.last().ts;
+    for (const auto& m : thread) {
+        if (m.isMine && m.ts <= limit && m.status != "seen" && m.status != "delivered" && !m.id.startsWith("local-")) {
+            setStatus(convId, m.id, "delivered");
+        }
+    }
+}
+
 bool MessageModel::contains(const QString& convId, const QString& msgId) const {
     const auto& thread = threadOf(convId);
     return std::any_of(thread.cbegin(), thread.cend(), [&](const MessageItem& m) { return m.id == msgId; });
@@ -641,8 +669,8 @@ QString convertEmoticons(const QString& text) {
         {":-|", "😐"}, {":|", "😐"},
         {":-/", "😕"}, {":/", "😕"},
         {":-h", "👋"},
-        {":v", "✌️"}, {":V", "✌️"},
-        {":3", "😺"},
+        {":v:", "✌️"},
+        {":v", "ICON_PACMAN_PLACEHOLDER"}, {":V", "ICON_PACMAN_PLACEHOLDER"},
         {":$", "😳"},
         {":z", "😴"}, {":Z", "😴"},
         {"8-)", "😎"}, {"B-)", "😎"}, {"b-)", "😎"},
@@ -696,6 +724,8 @@ QString MessageModel::linkify(const QString& text) {
         last = m.capturedStart() + link.size();
     }
     out += convertEmoticons(text.mid(last)).toHtmlEscaped();
+    out.replace(QStringLiteral("ICON_PACMAN_PLACEHOLDER"),
+                QStringLiteral("<img src=\"qrc:/Zalos/assets/icons/pacman.png\" width=\"20\" height=\"20\" style=\"vertical-align:middle;\"/>"));
     return out.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
 }
 

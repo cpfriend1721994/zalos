@@ -55,8 +55,8 @@ if command -v nix &>/dev/null; then
     echo "==> nixpkgs ${NIXPKGS_REV}"
     nix-build -o /tmp/nix-result -E "import ./default.nix { pkgs = import (builtins.fetchTarball {
         url = \"https://github.com/NixOS/nixpkgs/archive/${NIXPKGS_REV}.tar.gz\"; sha256 = \"${NIXPKGS_HASH}\"; }) {}; }"
-    tar -czf "${OUTPUT_DIR}/zalos-1.0.6-$(uname -m)-nixos.tar.gz" -C /tmp/nix-result .
-    echo "✅ Nix package archive saved: dist/zalos-1.0.6-$(uname -m)-nixos.tar.gz"
+    tar -czf "${OUTPUT_DIR}/zalos-1.0.7-$(uname -m)-nixos.tar.gz" -C /tmp/nix-result .
+    echo "✅ Nix package archive saved: dist/zalos-1.0.7-$(uname -m)-nixos.tar.gz"
 else
     echo "❌ Neither nix-build nor nix command found."
     exit 1

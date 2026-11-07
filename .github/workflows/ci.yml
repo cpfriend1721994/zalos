@@ -143,6 +143,31 @@ jobs:
       - name: Build .deb + AppImage (aarch64, emulated)
         run: |
           bash scripts/ci-package.sh zalos-ubuntu:24.04-arm64 linux/arm64 "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
+      # If emulated appimagetool inside the container fell back to AppDir.tar.gz, cross-package it using
+      # native x86_64 appimagetool on the host runner with ARCH=aarch64 (embeds runtime-aarch64 cleanly).
+      - name: Cross-package aarch64 AppImage (if emulated appimagetool fell back)
+        run: |
+          if [ ! -f dist/Zalos-*-aarch64.AppImage ] && ls dist/Zalos-*-aarch64-AppDir.tar.gz 1>/dev/null 2>&1; then
+            echo "==> Cross-packaging aarch64 AppImage from AppDir bundle..."
+            mkdir -p /tmp/appdir-arm64
+            ARCHIVE=$(ls dist/Zalos-*-aarch64-AppDir.tar.gz | head -1)
+            tar -xzf "${ARCHIVE}" -C /tmp/appdir-arm64
+            TOOL="/tmp/tools/appimagetool-x86_64"
+            mkdir -p /tmp/tools
+            if [ ! -f "${TOOL}" ]; then
+              curl -sSfL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+              chmod +x "${TOOL}"
+            fi
+            OUT="${ARCHIVE%-AppDir.tar.gz}.AppImage"
+            ARCH=aarch64 "${TOOL}" --appimage-extract-and-run /tmp/appdir-arm64 "${OUT}"
+            rm -rf /tmp/appdir-arm64 "${ARCHIVE}"
+          fi
+          echo "==> dist contents after Ubuntu packaging:"
+          ls -lh dist/
+      - name: Verify both x86_64 and aarch64 AppImages exist
+        run: |
+          ls -la dist/Zalos-*-x86_64.AppImage
+          ls -la dist/Zalos-*-aarch64.AppImage
       - uses: actions/upload-artifact@v7
         with:
           name: zalos-deb-appimage

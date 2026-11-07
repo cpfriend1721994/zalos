@@ -88,7 +88,7 @@ public:
     Q_INVOKABLE void startVoiceCall(const QString& peerId, const QString& peerName, const QString& peerAvatar);
     Q_INVOKABLE void startVideoCall(const QString& peerId, const QString& peerName, const QString& peerAvatar);
     Q_INVOKABLE void setCamera(bool on);
-    Q_INVOKABLE void accept();
+    Q_INVOKABLE void accept(bool camStartOff = false);
     Q_INVOKABLE void reject();
     Q_INVOKABLE void hangup();
     Q_INVOKABLE void setMuted(bool muted);

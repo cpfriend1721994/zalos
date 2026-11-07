@@ -24,6 +24,8 @@ struct MessageItem {
     QString timeStr;
     bool isMine{false};
     bool isE2EE{false};
+    bool isForwarded{false};
+    qint64 expireOn{0};
     QString reaction;
     QString messageType{"text"};
     QString mediaUrl;
@@ -56,6 +58,8 @@ public:
         TimeRole,
         IsMineRole,
         IsE2EERole,
+        IsForwardedRole,
+        ExpireOnRole,
         ReactionRole,
         MessageTypeRole,
         MediaUrlRole,
@@ -104,6 +108,7 @@ public:
     void setSticker(const QString& convId, const QString& msgId, const QVariantMap& info);
     void setStatus(const QString& convId, const QString& msgId, const QString& status);
     void markSeenUpTo(const QString& convId, const QString& msgId);
+    void markDeliveredUpTo(const QString& convId, const QString& msgId);
     bool contains(const QString& convId, const QString& msgId) const;
     int threadSize(const QString& convId) const { return int(threadOf(convId).size()); }
     bool isActiveThreadDuplicatedForTesting() const { return !m_currentConvId.isEmpty() && m_store.contains(m_currentConvId); }

@@ -12,6 +12,7 @@ ARCH="$(uname -m)"
 BUILD_DIR="${WORKSPACE_DIR}/build-appimage"
 APP_DIR="${BUILD_DIR}/AppDir"
 OUTPUT_DIR="${WORKSPACE_DIR}/dist"
+VERSION=$(grep -m1 'project(zalos VERSION' "${WORKSPACE_DIR}/CMakeLists.txt" | sed -E 's/.*VERSION ([0-9.]+).*/\1/')
 
 mkdir -p "${BUILD_DIR}" "${APP_DIR}" "${OUTPUT_DIR}"
 
@@ -99,21 +100,34 @@ mkdir -p /tmp/tools
 TOOL="/tmp/tools/appimagetool-${ARCH}"
 if [ ! -f "${TOOL}" ]; then
     echo "==> Downloading appimagetool (${ARCH})..."
-    curl -sSL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage" || true
-    chmod +x "${TOOL}" || true
+    curl -sSfL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage" || rm -f "${TOOL}"
+    [ -f "${TOOL}" ] && chmod +x "${TOOL}" || true
 fi
 
 # 4. Generate AppImage or fallback archive
-rm -f "${OUTPUT_DIR}/Zalos-1.0.6-${ARCH}.AppImage"
+rm -f "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}-AppDir.tar.gz"
+BUILT=0
 if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
     echo "==> Generating AppImage via appimagetool..."
-    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_DIR}/Zalos-1.0.6-${ARCH}.AppImage" || {
-        echo "Fallback to portable archive..."
-        tar -czf "${OUTPUT_DIR}/Zalos-1.0.6-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
+    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" && BUILT=1 || {
+        echo "==> Direct appimagetool run failed; trying extracted appimagetool..."
+        (
+            cd /tmp/tools
+            rm -rf "squashfs-root-${ARCH}"
+            "${TOOL}" --appimage-extract >/dev/null 2>&1 || true
+            if [ -d squashfs-root ]; then
+                mv squashfs-root "squashfs-root-${ARCH}"
+                ARCH="${ARCH}" "./squashfs-root-${ARCH}/AppRun" "${APP_DIR}" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage"
+            fi
+        ) && BUILT=1 || echo "==> Emulated appimagetool execution unavailable in this environment."
     }
+fi
+
+if [ "${BUILT}" = "1" ] && [ -f "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" ]; then
+    echo "✅ Generated ${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage"
 else
-    echo "==> Packaging portable AppDir bundle..."
-    tar -czf "${OUTPUT_DIR}/Zalos-1.0.6-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
+    echo "==> Packaging portable AppDir bundle (CI cross-packager will wrap into .AppImage if emulated)..."
+    tar -czf "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
 fi
 
 echo "✅ AppImage build step completed. Artifacts saved in dist/"

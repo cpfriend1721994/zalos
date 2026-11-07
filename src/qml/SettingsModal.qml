@@ -959,6 +959,55 @@ Item {
                                                 "The chat area uses the theme's default colour."))
                             }
 
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                visible: ZaloClient.chatBackgroundMode !== "none"
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: I18n.t("Độ mờ đục hình nền", "Background opacity")
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 13
+                                        color: ThemeManager.textColor
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: Math.round(ZaloClient.chatBackgroundOpacity * 100) + "%"
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 13
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+                                }
+
+                                Slider {
+                                    id: opacitySlider
+                                    Layout.fillWidth: true
+                                    from: 0.05
+                                    to: 0.80
+                                    stepSize: 0.05
+                                    value: ZaloClient.chatBackgroundOpacity
+                                    onMoved: ZaloClient.chatBackgroundOpacity = value
+                                    background: Rectangle {
+                                        x: opacitySlider.leftPadding
+                                        y: opacitySlider.topPadding + opacitySlider.availableHeight / 2 - height / 2
+                                        implicitWidth: 200
+                                        implicitHeight: 4
+                                        width: opacitySlider.availableWidth
+                                        height: implicitHeight
+                                        radius: 2
+                                        color: ThemeManager.borderColor
+                                        Rectangle {
+                                            width: opacitySlider.visualPosition * parent.width
+                                            height: parent.height
+                                            color: Theme.zaloBlue
+                                            radius: 2
+                                        }
+                                    }
+                                }
+                            }
+
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 10

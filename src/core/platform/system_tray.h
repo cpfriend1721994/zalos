@@ -26,6 +26,7 @@ public:
     void setHasMentions(bool hasMentions);
     void setAntiPeeking(bool on);
     void setLanguage(const QString& lang);
+    void setWindowVisible(bool visible);
     bool isVisible() const;
 
 signals:

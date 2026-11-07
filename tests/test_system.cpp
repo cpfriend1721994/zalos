@@ -3275,6 +3275,78 @@ private slots:
         QCOMPARE(d.value("people").toList().size(), 1);
     }
 
+    void testReactionSnapshotAndFallbackIds() {
+        ZaloClient client;
+        client.setMyUidForTesting("u-me");
+
+        // 1. Snapshot with object shape: reacts.reactions.<uid>.<rType>
+        const QJsonObject msgWithReacts{
+            {"msgId", "m-snap1"},
+            {"cliMsgId", "c-snap1"},
+            {"uidFrom", "u-friend"},
+            {"idTo", "u-me"},
+            {"msgType", "webchat"},
+            {"content", "Hello snapshot"},
+            {"reacts", QJsonObject{
+                {"reactions", QJsonObject{
+                    {"u-friend", QJsonObject{{"5", 2}}}, // 2 hearts
+                    {"u-other", QJsonObject{{"3", 1}}}   // 1 like
+                }}
+            }}
+        };
+        const Zalos::Core::Models::MessageItem item1 = client.toMessageItemForTesting(msgWithReacts, false);
+        QCOMPARE(item1.reaction, QString::fromUtf8("❤️👍 3"));
+
+        // 2. Snapshot with array shape: reacts.reactions: [{rIcon: "/-heart", count: 2}]
+        const QJsonObject msgWithArrayReacts{
+            {"msgId", "m-snap2"},
+            {"cliMsgId", "c-snap2"},
+            {"uidFrom", "u-friend"},
+            {"idTo", "u-me"},
+            {"msgType", "webchat"},
+            {"content", "Hello array"},
+            {"reacts", QJsonObject{
+                {"reactions", QJsonArray{
+                    QJsonObject{{"rIcon", "/-strong"}, {"count", 1}}
+                }}
+            }}
+        };
+        const Zalos::Core::Models::MessageItem item2 = client.toMessageItemForTesting(msgWithArrayReacts, false);
+        QCOMPARE(item2.reaction, QString::fromUtf8("👍"));
+
+        // 3. Fallback to cMsgID when gMsgID is "0"
+        const QJsonObject rMsgWithZeroGMsg{
+            {"msgId", "ev-cmsg"},
+            {"uidFrom", "u-friend"},
+            {"idTo", "u-me"},
+            {"content", QJsonObject{
+                {"rIcon", "/-heart"},
+                {"rType", 5},
+                {"rMsg", QJsonArray{
+                    QJsonObject{{"gMsgID", "0"}, {"cMsgID", "c-client-target"}}
+                }}
+            }}
+        };
+        client.handleReactionsForTesting(QJsonArray{rMsgWithZeroGMsg}, false);
+        const QVariantMap d = client.reactionDetails("c-client-target");
+        QVERIFY(d.value("known").toBool());
+        QCOMPARE(d.value("total").toInt(), 1);
+        QCOMPARE(d.value("people").toList().first().toMap().value("uid").toString(), QString("u-friend"));
+
+        // 4. Forwarded and E2EE metadata
+        const QJsonObject fwdMsg{
+            {"msgId", "m-fwd"},
+            {"uidFrom", "u-friend"},
+            {"idTo", "u-me"},
+            {"content", "Forwarded text"},
+            {"reference", QJsonObject{{"fw", 1}}},
+            {"e2eeStatus", 1}
+        };
+        const Zalos::Core::Models::MessageItem itemFwd = client.toMessageItemForTesting(fwdMsg, false);
+        QVERIFY(itemFwd.isForwarded);
+        QVERIFY(itemFwd.isE2EE);
+    }
+
     // Pinned messages (Zalo PC PinTopic): list parsing for groups (items/boardVersion/pinLimit) and 1-1 (data = JSON
     // strings/version), topic built from a message, isPinned, controls that trigger a reload, offline refusal.
     void testPinBoard() {
@@ -3493,10 +3565,25 @@ private slots:
         QVERIFY(client.chatBackgroundImage().isEmpty());
         QCOMPARE(client.currentConversationBackground(), QString());
 
+        // Regression test: setting chatBackgroundMode to "none" while legacy useAvatarAsChatBackground=true
+        // must preserve "none" and scrub the legacy setting.
+        {
+            QSettings legacySettings("Zalos", "ZalosApp");
+            legacySettings.setValue("settings/useAvatarAsChatBackground", true);
+            legacySettings.setValue("settings/chatBackgroundMode", "none");
+        }
+        {
+            ZaloClient clientNone;
+            QCOMPARE(clientNone.chatBackgroundMode(), QString("none"));
+            QSettings legacySettings("Zalos", "ZalosApp");
+            QVERIFY(!legacySettings.contains("settings/useAvatarAsChatBackground"));
+        }
+
         // Leave no residue for the tests that run after this one.
         QSettings settings("Zalos", "ZalosApp");
         settings.remove("settings/chatBackgroundMode");
         settings.remove("settings/chatBackgroundImage");
+        settings.remove("settings/useAvatarAsChatBackground");
     }
 
     // tdesktop-inspired memory optimizations:
@@ -3572,6 +3659,120 @@ private slots:
         QCOMPARE(client.residentThreadCountForTesting(), 1);
         QCOMPARE(client.currentConversationId(), QString("u-active"));
         QVERIFY(!AvatarImageProvider::lookupMemCache("test-bg-trim-key", &dummyOut));
+
+        ZaloOfflineStore cleanup;
+        cleanup.clearCache();
+    }
+
+    // Comprehensive memory lifecycle, bounded RSS scaling, navigation thrash, and 4K image downsampling gate.
+    void testComprehensiveMemoryLifecycle() {
+        auto getVmRssKb = []() -> qint64 {
+            QFile f("/proc/self/status");
+            if (!f.open(QIODevice::ReadOnly)) return 0;
+            for (const QByteArray& line : f.readAll().split('\n')) {
+                if (line.startsWith("VmRSS:")) {
+                    return line.mid(6).trimmed().split(' ').first().toLongLong();
+                }
+            }
+            return 0;
+        };
+
+        const qint64 initialRss = getVmRssKb();
+
+        // Stage 1: Zero-Duplication & Cold-Storage Ingestion
+        {
+            ZaloOfflineStore owner;
+            owner.bindOwner("u-mem-audit");
+            owner.clearCache();
+            owner.bindOwner("u-mem-audit");
+        }
+
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-mem-audit");
+
+        const qint64 baseTs = 1700000000000LL;
+        for (int c = 0; c < 30; ++c) {
+            QJsonArray batch;
+            const QString convId = QString("u-audit-conv-%1").arg(c);
+            for (int m = 0; m < 100; ++m) {
+                const int id = c * 100 + m;
+                batch.append(QJsonObject{
+                    {"msgId", QString::number(1000000 + id)},
+                    {"cliMsgId", QString::number(id)},
+                    {"uidFrom", m % 2 == 0 ? "0" : convId},
+                    {"idTo", m % 2 == 0 ? convId : "u-mem-audit"},
+                    {"msgType", "webchat"},
+                    {"content", QString("Audit message payload #%1 for testing RAM scaling").arg(id)},
+                    {"ts", QString::number(baseTs + id)}
+                });
+            }
+            emit client.apiClient()->session()->messagesReceived(batch, false, true);
+        }
+
+        QCOMPARE(client.conversationModel()->rowCount(), 30);
+        QCOMPARE(client.rawMessageCountForTesting(), 0);
+
+        const qint64 rssAfterIngestion = getVmRssKb();
+        qInfo("[MemoryAudit] Ingestion (3,000 msgs): Initial RSS = %lld kB, Post-Ingestion = %lld kB (+%lld kB)",
+              initialRss, rssAfterIngestion, rssAfterIngestion - initialRss);
+        // SQLite page cache, schema overhead, and conversation metadata for 3,000 messages must remain under 65MB.
+        QVERIFY2(rssAfterIngestion - initialRss < 65000, "Cold message ingestion exceeded bounded RSS limit!");
+
+        // Stage 2: Navigation & LRU Cache Eviction (Leak Prevention)
+        for (int round = 0; round < 2; ++round) {
+            for (int c = 0; c < 30; ++c) {
+                client.selectConversation(QString("u-audit-conv-%1").arg(c), "Peer", "");
+            }
+        }
+
+        QCOMPARE(client.currentConversationId(), QString("u-audit-conv-29"));
+        QVERIFY2(client.residentThreadCountForTesting() <= 12,
+                 "Resident thread LRU eviction failed: more than 12 threads held in RAM!");
+        QCOMPARE(client.messageModel()->threadSize("u-audit-conv-0"), 0);
+
+        // Stage 3: Large Image Downscaling Spike Suppression
+#ifdef __GLIBC__
+        const size_t heapBeforeImage = mallinfo2().uordblks;
+#endif
+        QImage highRes4K(3840, 2160, QImage::Format_RGB32);
+        highRes4K.fill(QColor("#0068FF"));
+        QByteArray encodedJpg;
+        {
+            QBuffer buffer(&encodedJpg);
+            buffer.open(QIODevice::WriteOnly);
+            highRes4K.save(&buffer, "JPG", 85);
+        }
+
+        {
+            QBuffer inBuf(&encodedJpg);
+            inBuf.open(QIODevice::ReadOnly);
+            const QImage thumb = AvatarImageProvider::decodeScaled(&inBuf, 96, true);
+            QVERIFY(!thumb.isNull());
+            QCOMPARE(qMin(thumb.width(), thumb.height()), 96);
+        }
+
+#ifdef __GLIBC__
+        const size_t heapAfterImage = mallinfo2().uordblks;
+        const size_t imageHeapDelta = heapAfterImage > heapBeforeImage ? (heapAfterImage - heapBeforeImage) : 0;
+        qInfo("[MemoryAudit] 4K Image Scaled Decode Heap Delta: %zu bytes (~%zu kB)",
+              imageHeapDelta, imageHeapDelta / 1024);
+        QVERIFY2(imageHeapDelta < 16 * 1024 * 1024, "Image decode triggered full-resolution heap spike!");
+#endif
+
+        // Stage 4: Background Trim (Minimize-to-Tray working-set collapse)
+        client.storage()->setAvatarMemoryCleaner([]() { AvatarImageProvider::clearMemCache(); });
+        AvatarImageProvider::insertMemCache("audit-avatar-1", QImage(64, 64, QImage::Format_ARGB32));
+        AvatarImageProvider::insertMemCache("audit-avatar-2", QImage(64, 64, QImage::Format_ARGB32));
+
+        QImage probe;
+        QVERIFY(AvatarImageProvider::lookupMemCache("audit-avatar-1", &probe));
+
+        client.trimMemoryForBackground();
+
+        QCOMPARE(client.residentThreadCountForTesting(), 1);
+        QCOMPARE(client.currentConversationId(), QString("u-audit-conv-29"));
+        QVERIFY(!AvatarImageProvider::lookupMemCache("audit-avatar-1", &probe));
+        QVERIFY(!AvatarImageProvider::lookupMemCache("audit-avatar-2", &probe));
 
         ZaloOfflineStore cleanup;
         cleanup.clearCache();
@@ -4486,6 +4687,84 @@ private slots:
         client.logout();
         QTest::qWait(200);
         window->grabWindow().save("/workspace/build/test_qr_view.png");
+    }
+
+    // Network chaos, malformed JSON fuzzing, and resilient error recovery gate.
+    void testNetworkChaosAndMalformedJsonFuzzing() {
+        ZaloClient client;
+        auto* session = client.apiClient()->session();
+
+        // 1. Binary frames with corrupted or truncated headers (< 4 bytes)
+        session->injectWsBinaryForTesting(QByteArray());
+        session->injectWsBinaryForTesting(QByteArray("\x01"));
+        session->injectWsBinaryForTesting(QByteArray("\x01\x02\x03"));
+
+        // 2. Malformed JSON payloads after 4-byte header
+        // cmd 501, subCmd 0 (userLive) with completely invalid non-JSON payload
+        QByteArray malformedFrame("\x01\xf5\x01\x00{invalid-json-payload-broken", 32);
+        session->injectWsBinaryForTesting(malformedFrame);
+
+        // 3. Fuzzed TMessage JSON objects: missing keys, inverted types, null values
+        QJsonArray fuzzedBatch;
+        // Null values
+        fuzzedBatch.append(QJsonObject{{"msgId", QJsonValue::Null}, {"cliMsgId", QJsonValue::Null}, {"content", QJsonValue::Null}});
+        // Inverted types: int instead of string, array instead of object
+        fuzzedBatch.append(QJsonObject{{"msgId", 12345}, {"cliMsgId", 67890}, {"uidFrom", 999}, {"content", QJsonArray{1, 2, 3}}});
+        // Missing essential keys
+        fuzzedBatch.append(QJsonObject{{"randomField", "chaos"}});
+        // Truncated timestamps and out-of-range numbers
+        fuzzedBatch.append(QJsonObject{{"msgId", "999999"}, {"cliMsgId", "c-chaos"}, {"ts", "invalid-ts-number"}, {"content", "safe text"}});
+
+        // Emit through live session: must be handled gracefully without SIGSEGV or invariant breach
+        emit session->messagesReceived(fuzzedBatch, false, false);
+        QVERIFY(client.conversationModel() != nullptr);
+
+        // 4. Out-of-order & Duplicate packet arrival test
+        QJsonArray outOfOrderBatch;
+        const qint64 tNow = 1700000000000LL;
+        // Newer message arrives first
+        outOfOrderBatch.append(QJsonObject{{"msgId", "801"}, {"cliMsgId", "c-801"}, {"uidFrom", "u-chaos"}, {"idTo", "u-me"},
+                                           {"msgType", "webchat"}, {"content", "Message 2 (newer)"}, {"ts", QString::number(tNow + 2000)}});
+        // Older message arrives second
+        outOfOrderBatch.append(QJsonObject{{"msgId", "800"}, {"cliMsgId", "c-800"}, {"uidFrom", "u-chaos"}, {"idTo", "u-me"},
+                                           {"msgType", "webchat"}, {"content", "Message 1 (older)"}, {"ts", QString::number(tNow + 1000)}});
+        emit session->messagesReceived(outOfOrderBatch, false, false);
+
+        client.selectConversation("u-chaos", "Chaos Peer", "");
+        QCOMPARE(client.messageModel()->rowCount(), 2);
+        // Model must preserve proper chronological order based on timestamp
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(), QString("800"));
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(1), MessageModel::IdRole).toString(), QString("801"));
+
+        // Duplicate replay packet must be cleanly deduplicated by cliMsgId
+        QJsonArray duplicateBatch;
+        duplicateBatch.append(QJsonObject{{"msgId", "801"}, {"cliMsgId", "c-801"}, {"uidFrom", "u-chaos"}, {"idTo", "u-me"},
+                                          {"msgType", "webchat"}, {"content", "Message 2 (duplicate replay)"}, {"ts", QString::number(tNow + 2000)}});
+        emit session->messagesReceived(duplicateBatch, false, false);
+        QCOMPARE(client.messageModel()->rowCount(), 2); // Count remains 2, no ghost duplicate rows
+    }
+
+    // Corrupted SQLite recovery and graceful degradation test.
+    void testCorruptedStorageRecovery() {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        const QString dbPath = tempDir.filePath("corrupted_offline.db");
+
+        // Create a corrupted file with random garbage bytes instead of SQLite header
+        {
+            QFile f(dbPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("CORRUPTED_GARBAGE_HEADER_NOT_SQLITE3_DATABASE_FILE_TEST");
+            f.close();
+        }
+
+        // OfflineStore must not crash; it should catch the initialization failure safely
+        ZaloOfflineStore store;
+        const bool openResult = store.initializeDatabase(dbPath);
+        // Either recovers/recreates or returns false safely without crashing
+        if (!openResult) {
+            QVERIFY(!store.isDatabaseOpen());
+        }
     }
 };
 

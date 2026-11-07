@@ -5,7 +5,7 @@ echo "=========================================================="
 echo "🧪 Testing Zalos AppImage"
 echo "=========================================================="
 
-APPIMAGE_FILE=$(ls /workspace/dist/Zalos-*.AppImage 2>/dev/null | head -n 1)
+APPIMAGE_FILE=$(ls -v /workspace/dist/Zalos-*-x86_64.AppImage 2>/dev/null | tail -n 1)
 if [ -z "${APPIMAGE_FILE}" ]; then
     echo "❌ No AppImage found in dist/. Please build it first: podman compose run --rm package-appimage"
     exit 1

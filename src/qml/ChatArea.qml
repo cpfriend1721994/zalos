@@ -147,12 +147,62 @@ Rectangle {
         if (draftSaveTimer.running && root.draftConvId.length > 0) ZaloClient.setDraft(root.draftConvId, msgInput.text);
     }
 
+    ListModel {
+        id: draftAttachmentsModel
+    }
+
+    function addDraftAttachment(item: var): void {
+        if (!item || !item.url) return;
+        const targetUrl = "" + item.url;
+        for (let i = 0; i < draftAttachmentsModel.count; ++i) {
+            if (draftAttachmentsModel.get(i).url === targetUrl) return;
+        }
+        draftAttachmentsModel.append({
+            "url": targetUrl,
+            "name": "" + (item.name || ""),
+            "isImage": !!item.isImage,
+            "isVideo": !!item.isVideo,
+            "fileSize": Number(item.size || 0)
+        });
+    }
+
+    function addDraftFile(fileUrlOrPath: string): void {
+        if (!fileUrlOrPath || fileUrlOrPath.length === 0) return;
+        const info = ZaloClient.fileInfoForUrl(fileUrlOrPath);
+        if (info && info.url) root.addDraftAttachment(info);
+    }
+
+    function removeDraftAttachment(idx: int): void {
+        if (idx >= 0 && idx < draftAttachmentsModel.count) {
+            draftAttachmentsModel.remove(idx);
+        }
+    }
+
     function sendComposer(): void {
         Qt.inputMethod.commit();
         const text = msgInput.text;
-        if (text.trim() === "") return;
-        const mentions = ZaloClient.currentConversationIsGroup ? root.collectMentions(text) : [];
-        ZaloClient.sendComposedMessage(text, mentions, ZaloClient.composer.styles());
+        const trimmed = text.trim();
+        const attCount = draftAttachmentsModel.count;
+        if (trimmed === "" && attCount === 0) return;
+
+        if (attCount > 0) {
+            const hasText = trimmed.length > 0;
+            if (attCount === 1 && hasText && draftAttachmentsModel.get(0).isImage) {
+                ZaloClient.sendFile(draftAttachmentsModel.get(0).url, trimmed);
+            } else {
+                if (hasText) {
+                    const mentions = ZaloClient.currentConversationIsGroup ? root.collectMentions(text) : [];
+                    ZaloClient.sendComposedMessage(text, mentions, ZaloClient.composer.styles());
+                }
+                for (let i = 0; i < attCount; ++i) {
+                    ZaloClient.sendFile(draftAttachmentsModel.get(i).url, "");
+                }
+            }
+            draftAttachmentsModel.clear();
+        } else {
+            const mentions = ZaloClient.currentConversationIsGroup ? root.collectMentions(text) : [];
+            ZaloClient.sendComposedMessage(text, mentions, ZaloClient.composer.styles());
+        }
         msgInput.text = "";
         ZaloClient.composer.clearFormatting(0, 0);
         root.mentionPicks = [];
@@ -323,6 +373,7 @@ Rectangle {
             root.closeSearch();
             root.mentionPicks = [];
             root.closeSuggestions();
+            draftAttachmentsModel.clear();
             root.swapDraft();
             root.newBelow = 0;
             pinBar.expanded = false;
@@ -2609,6 +2660,113 @@ Rectangle {
         }
 
         Rectangle {
+            id: draftAttachmentsBar
+            Layout.fillWidth: true
+            visible: draftAttachmentsModel.count > 0 && ZaloClient.composerLockReason.length === 0
+            implicitHeight: 76
+            color: ThemeManager.surfaceColor
+            border.color: ThemeManager.borderColor
+            border.width: 1
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 10
+
+                Text {
+                    text: I18n.t("Đính kèm:", "Attachments:") + " (" + draftAttachmentsModel.count + ")"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    font.bold: true
+                    color: ThemeManager.secondaryTextColor
+                }
+
+                ListView {
+                    id: draftList
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    orientation: ListView.Horizontal
+                    spacing: 8
+                    clip: true
+                    model: draftAttachmentsModel
+                    delegate: Rectangle {
+                        id: draftChip
+                        required property string url
+                        required property string name
+                        required property bool isImage
+                        required property bool isVideo
+                        required property int index
+                        width: draftChip.isImage ? 56 : Math.min(180, draftNameText.implicitWidth + 48)
+                        height: 56
+                        anchors.verticalCenter: parent.verticalCenter
+                        radius: 6
+                        color: ThemeManager.hoverColor
+                        border.color: ThemeManager.borderColor
+                        border.width: 1
+                        clip: true
+
+                        Image {
+                            visible: draftChip.isImage
+                            anchors.fill: parent
+                            source: draftChip.isImage ? draftChip.url : ""
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            sourceSize.width: 112
+                            sourceSize.height: 112
+                        }
+
+                        RowLayout {
+                            visible: !draftChip.isImage
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 24
+                            spacing: 6
+                            ZIcon {
+                                name: draftChip.isVideo ? "camera" : "file"
+                                size: 18
+                                color: Theme.zaloBlue
+                            }
+                            Text {
+                                id: draftNameText
+                                Layout.fillWidth: true
+                                text: draftChip.name
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 11
+                                color: ThemeManager.textColor
+                                elide: Text.ElideMiddle
+                            }
+                        }
+
+                        Rectangle {
+                            anchors.top: parent.top
+                            anchors.right: parent.right
+                            anchors.margins: 2
+                            width: 18
+                            height: 18
+                            radius: 9
+                            color: removeDraftMouse.containsMouse ? "#D32F2F" : Qt.rgba(0, 0, 0, 0.6)
+                            ZIcon { anchors.centerIn: parent; name: "close"; size: 10; color: "#FFFFFF" }
+                            MouseArea {
+                                id: removeDraftMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.removeDraftAttachment(draftChip.index)
+                            }
+                        }
+                    }
+                }
+
+                ZButton {
+                    variant: "secondary"
+                    text: I18n.t("Xóa hết", "Clear all")
+                    onClicked: draftAttachmentsModel.clear()
+                }
+            }
+        }
+
+        Rectangle {
             id: blockedBanner
             objectName: "blockedBanner"
             visible: ZaloClient.currentConversationBlocked && ZaloClient.composerLockReason.length === 0
@@ -3235,7 +3393,20 @@ Rectangle {
                             placeholderTextColor: ThemeManager.placeholderColor
 
                             Keys.onPressed: function(event) {
-                                if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_B) {
+                                if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
+                                    const clipItems = ZaloClient.getClipboardAttachments();
+                                    if (clipItems.length > 0) {
+                                        for (var ci = 0; ci < clipItems.length; ci++) {
+                                            root.addDraftAttachment(clipItems[ci]);
+                                        }
+                                        event.accepted = true;
+                                        return;
+                                    }
+                                } else if (event.key === Qt.Key_Escape && draftAttachmentsModel.count > 0) {
+                                    draftAttachmentsModel.clear();
+                                    event.accepted = true;
+                                    return;
+                                } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_B) {
                                     event.accepted = true;
                                     root.applyStyle("b");
                                 } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_I) {
@@ -3440,7 +3611,7 @@ Rectangle {
                         }
 
                         Rectangle {
-                            visible: msgInput.text.trim() !== ""
+                            visible: msgInput.text.trim() !== "" || draftAttachmentsModel.count > 0
                             width: 30
                             height: 30
                             radius: 15
@@ -4691,18 +4862,24 @@ Rectangle {
     FileDialog {
         id: imageFileDialog
         title: I18n.t("Chọn hình ảnh để gửi", "Select photo to send")
+        fileMode: FileDialog.OpenFiles
         nameFilters: ["Hình ảnh (*.png *.jpg *.jpeg *.gif *.webp *.bmp)", "Tất cả các tệp (*.*)"]
         onAccepted: {
-            ZaloClient.sendFile(selectedFile.toString());
+            for (var i = 0; i < selectedFiles.length; i++) {
+                root.addDraftFile(selectedFiles[i].toString());
+            }
         }
     }
 
     FileDialog {
         id: documentFileDialog
         title: I18n.t("Chọn tệp tin đính kèm", "Select document to attach")
+        fileMode: FileDialog.OpenFiles
         nameFilters: ["Tất cả các tệp (*.*)"]
         onAccepted: {
-            ZaloClient.sendFile(selectedFile.toString());
+            for (var j = 0; j < selectedFiles.length; j++) {
+                root.addDraftFile(selectedFiles[j].toString());
+            }
         }
     }
 }

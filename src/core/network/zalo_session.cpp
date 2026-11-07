@@ -454,7 +454,8 @@ void ZaloSession::fetchCloudHistory(const QString& threadId, bool isMyCloud, con
 }
 
 void ZaloSession::sendQuote(const QString& threadId, bool isGroup, const QString& text, const QJsonObject& quoted,
-                            Callback cb, const QString& cliMsgId, const QJsonArray& styles) {
+                            Callback cb, const QString& cliMsgId, const QJsonArray& styles,
+                            const QJsonArray& mentions, qint64 ttl) {
     const QJsonValue content = quoted.value("content");
     QJsonObject params{
         {"message", text},
@@ -466,7 +467,7 @@ void ZaloSession::sendQuote(const QString& threadId, bool isGroup, const QString
         {"qmsgTs", quoted.value("ts")},
         {"qmsg", content.isString() ? content.toString() : QString()},
         {"qmsgTTL", quoted.value("ttl").toInt(0)},
-        {"ttl", 0},
+        {"ttl", ttl},
     };
     if (isGroup) {
         QJsonObject attach;
@@ -481,6 +482,9 @@ void ZaloSession::sendQuote(const QString& threadId, bool isGroup, const QString
         params["grid"] = threadId;
         params["visibility"] = 0;
         params["qmsgAttach"] = compactJson(attach);
+        if (!mentions.isEmpty()) {
+            params["mentionInfo"] = QString::fromUtf8(QJsonDocument(mentions).toJson(QJsonDocument::Compact));
+        }
         if (const QString props = textPropertiesJson(styles); !props.isEmpty()) params["textProperties"] = props;
         apiPost("group", "/api/group/quote", params, cb);
     } else {
@@ -547,9 +551,9 @@ QString ZaloSession::textPropertiesJson(const QJsonArray& styles) {
 }
 
 void ZaloSession::sendText(const QString& threadId, bool isGroup, const QString& text, Callback cb,
-                           const QString& cliMsgId, const QJsonArray& styles) {
+                           const QString& cliMsgId, const QJsonArray& styles, qint64 ttl) {
     const qint64 clientId = cliMsgId.isEmpty() ? QDateTime::currentMSecsSinceEpoch() : cliMsgId.toLongLong();
-    QJsonObject params{{"message", text}, {"clientId", clientId}, {"ttl", 0}};
+    QJsonObject params{{"message", text}, {"clientId", clientId}, {"ttl", ttl}};
     const QString props = textPropertiesJson(styles);
     if (!props.isEmpty()) params.insert("textProperties", props);
     if (isGroup) {
@@ -609,10 +613,12 @@ void ZaloSession::createGroup(const QString& name, const QStringList& members, C
 
 void ZaloSession::addReaction(const QString& threadId, bool isGroup, const QJsonObject& msg, const QString& rIcon,
                               int rType, Callback cb) {
+    const QString mType = msg.value("msgType").toString();
+    const int reactMsgType = (mType == "chat.sticker" || msg.contains("stickerId")) ? 5 : 1;
     const QJsonObject message{
         {"rMsg", QJsonArray{QJsonObject{{"gMsgID", msg.value("msgId").toVariant().toLongLong()},
                                         {"cMsgID", msg.value("cliMsgId").toVariant().toLongLong()},
-                                        {"msgType", 1}}}},
+                                        {"msgType", reactMsgType}}}},
         {"rIcon", rIcon},
         {"rType", rType},
         {"source", 6},
@@ -704,7 +710,7 @@ int ZaloSession::sharefileSetting(const char* key, int fallback) const {
 }
 
 void ZaloSession::sendAttachment(const QString& threadId, bool isGroup, const QString& filePath,
-                                 const QString& caption, Callback cb) {
+                                 const QString& caption, Callback cb, const QString& sendClientId, qint64 ttl) {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
         cb(false, {}, QStringLiteral("file_unreadable"), -1);
@@ -725,30 +731,32 @@ void ZaloSession::sendAttachment(const QString& threadId, bool isGroup, const QS
     }
 
     const bool isImage = (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp");
+    const bool isVideo = (ext == "mp4" || ext == "mov" || ext == "webm" || ext == "mkv" || ext == "avi");
     QSize size;
     if (isImage) size = QImageReader(filePath).size();
-    uploadChunks(threadId, isGroup, file.readAll(), info.fileName(), isImage ? UploadKind::Photo : UploadKind::File,
-                 size.width(), size.height(), caption, cb);
+    const UploadKind kind = isImage ? UploadKind::Photo : (isVideo ? UploadKind::Video : UploadKind::File);
+    uploadChunks(threadId, isGroup, file.readAll(), info.fileName(), kind,
+                 size.width(), size.height(), caption, cb, sendClientId, ttl);
 }
 
 void ZaloSession::sendVoice(const QString& threadId, bool isGroup, const QString& filePath, const QString& clientId,
-                            Callback cb) {
+                            Callback cb, qint64 ttl) {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly) || file.size() <= 0) {
         cb(false, {}, QStringLiteral("file_unreadable"), -1);
         return;
     }
     uploadChunks(threadId, isGroup, file.readAll(), QFileInfo(filePath).fileName(), UploadKind::Voice, 0, 0, {}, cb,
-                 clientId);
+                 clientId, ttl);
 }
 
 void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByteArray& content,
                                const QString& fileName, UploadKind kind, int width, int height, const QString& caption,
-                               Callback cb, const QString& sendClientId) {
+                               Callback cb, const QString& sendClientId, qint64 ttl) {
     const bool isImage = kind == UploadKind::Photo;
     const int chunkSize = qMax(65536, sharefileSetting("chunk_size_file", 3145728));
     const int totalChunk = int((content.size() + chunkSize - 1) / chunkSize);
-    const qint64 clientId = QDateTime::currentMSecsSinceEpoch();
+    const qint64 clientId = sendClientId.isEmpty() ? QDateTime::currentMSecsSinceEpoch() : sendClientId.toLongLong();
     const QString base = serviceUrl("file");
     if (base.isEmpty()) {
         cb(false, {}, QStringLiteral("not_logged_in"), -1);
@@ -816,7 +824,7 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
                         {"thumbUrl", res.value("thumbUrl")},
                         {"hdSize", QString::number(content.size())},
                         {"zsource", -1},
-                        {"ttl", 0},
+                        {"ttl", ttl},
                         {"jcp", "{\"convertible\":\"jxl\"}"},
                     };
                     if (isGroup) {
@@ -893,12 +901,12 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
                         {"totalSize", content.size()},
                         {"fileName", fileName},
                         {"clientId", res.value("clientFileId")},
-                        {"fType", 1},
+                        {"fType", kind == UploadKind::Video ? 2 : 1},
                         {"fileCount", 0},
                         {"fdata", "{}"},
                         {"fileUrl", fileUrl},
                         {"zsource", -1},
-                        {"ttl", 0},
+                        {"ttl", ttl},
                     };
                     send[isGroup ? "grid" : "toid"] = threadId;
                     apiPost("file", QString("/api/%1/asyncfile/msg?").arg(isGroup ? "group" : "message"),
@@ -992,14 +1000,16 @@ void ZaloSession::postMultipartFile(const QString& url, const QJsonObject& param
 }
 
 void ZaloSession::sendSticker(const QString& threadId, bool isGroup, qint64 stickerId, qint64 cateId, int type,
-                              Callback cb) {
+                              Callback cb, const QString& cliMsgId, qint64 ttl) {
+    const qint64 clientId = cliMsgId.isEmpty() ? QDateTime::currentMSecsSinceEpoch() : cliMsgId.toLongLong();
     QJsonObject params{
         {"stickerId", stickerId},
         {"cateId", cateId},
         {"type", type},
-        {"clientId", QDateTime::currentMSecsSinceEpoch()},
+        {"clientId", clientId},
         {"imei", m_imei},
         {"zsource", 101},
+        {"ttl", ttl},
     };
     params[isGroup ? "grid" : "toid"] = threadId;
     if (isGroup) apiPost("group", "/api/group/sticker", params, cb, {{"nretry", "0"}});
@@ -1150,7 +1160,8 @@ void ZaloSession::parseLink(const QString& link, Callback cb) {
 }
 
 void ZaloSession::sendLink(const QString& threadId, bool isGroup, const QString& text, const QJsonObject& preview,
-                           Callback cb) {
+                           Callback cb, const QString& cliMsgId, qint64 ttl) {
+    const qint64 clientId = cliMsgId.isEmpty() ? QDateTime::currentMSecsSinceEpoch() : cliMsgId.toLongLong();
     QJsonObject params{
         {"msg", text},
         {"href", preview.value("href")},
@@ -1160,8 +1171,8 @@ void ZaloSession::sendLink(const QString& threadId, bool isGroup, const QString&
         {"thumb", preview.value("thumb")},
         {"type", 2},
         {"media", compactJson(preview.value("media").toObject())},
-        {"ttl", 0},
-        {"clientId", QDateTime::currentMSecsSinceEpoch()},
+        {"ttl", ttl},
+        {"clientId", clientId},
     };
     if (isGroup) {
         params["grid"] = threadId;
@@ -1175,7 +1186,7 @@ void ZaloSession::sendLink(const QString& threadId, bool isGroup, const QString&
 }
 
 void ZaloSession::sendMention(const QString& groupId, const QString& text, const QJsonArray& mentions, Callback cb,
-                              const QString& cliMsgId, const QJsonArray& styles) {
+                              const QString& cliMsgId, const QJsonArray& styles, qint64 ttl) {
     QJsonArray valid;
     for (const QJsonValue& v : mentions) {
         const QJsonObject m = v.toObject();
@@ -1186,13 +1197,13 @@ void ZaloSession::sendMention(const QString& groupId, const QString& text, const
         valid.append(QJsonObject{{"pos", pos}, {"uid", uid}, {"len", len}, {"type", uid == "-1" ? 1 : 0}});
     }
     if (valid.isEmpty()) {
-        sendText(groupId, true, text, cb, cliMsgId, styles);
+        sendText(groupId, true, text, cb, cliMsgId, styles, ttl);
         return;
     }
     const qint64 clientId = cliMsgId.isEmpty() ? QDateTime::currentMSecsSinceEpoch() : cliMsgId.toLongLong();
     QJsonObject params{{"message", text}, {"clientId", clientId},
                        {"mentionInfo", QString::fromUtf8(QJsonDocument(valid).toJson(QJsonDocument::Compact))},
-                       {"visibility", 0}, {"ttl", 0}, {"grid", groupId}};
+                       {"visibility", 0}, {"ttl", ttl}, {"grid", groupId}};
     if (const QString props = textPropertiesJson(styles); !props.isEmpty()) params.insert("textProperties", props);
     apiPost("group", "/api/group/mention", params, cb, {{"nretry", "0"}});
 }
@@ -1769,7 +1780,15 @@ void ZaloSession::requestOldMessages(bool isGroup, const QString& lastMsgId) {
 }
 
 void ZaloSession::requestOldReactions(bool isGroup) {
-    sendWs(isGroup ? 611 : 610, 1, {{"first", true}, {"lastId", QJsonValue(QJsonValue::Null)}, {"preIds", QJsonArray()}});
+    const int cmd = isGroup ? 611 : 610;
+    if (!canPullQueue(cmd, 1)) return;
+    sendWs(cmd, 1, {{"first", true}, {"lastId", QJsonValue(QJsonValue::Null)}, {"preIds", QJsonArray()}});
+}
+
+bool ZaloSession::canPullQueue(int cmd, int subCmd) const {
+    if (m_serverQueues.isEmpty()) return true;
+    const QPair<int, int> pair(cmd, subCmd);
+    return m_serverQueues.contains(pair);
 }
 
 void ZaloSession::sendWs(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey) {
@@ -1825,10 +1844,19 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
     const bool groupOld = cmd == 511 && subCmd == 1;
     const bool offlineMsgs = cmd == 513 || cmd == 514 || cmd == 515 || cmd == 517 || cmd == 518 || cmd == 534
                              || cmd == 570;
-    const bool known = userLive || groupLive || userOld || groupOld || offlineMsgs || cmd == 533 || cmd == 601
-                       || cmd == 602 || cmd == 603 || cmd == 604 || cmd == 612 || cmd == 610 || cmd == 611
-                       || cmd == 502 || cmd == 522;
-    if (!known) return;
+
+    auto isKnownCommand = [cmd, userLive, groupLive, userOld, groupOld, offlineMsgs]() -> bool {
+        if (userLive || groupLive || userOld || groupOld || offlineMsgs) return true;
+        switch (cmd) {
+        case 502: case 522: case 533:
+        case 601: case 602: case 603: case 604:
+        case 610: case 611: case 612:
+            return true;
+        default:
+            return false;
+        }
+    };
+    if (!isKnownCommand()) return;
 
     bool ok = false;
     const QByteArray json = ZaloCrypto::decodeEventData(parsed.value("data").toString(),
@@ -1874,7 +1902,9 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
         for (const QJsonValue& v : data.value("actions").toArray()) {
             const QJsonObject action = v.toObject();
             if (action.value("act_type").toString() != "typing") continue;
-            const QJsonObject t = QJsonDocument::fromJson("{" + action.value("data").toString().toUtf8() + "}").object();
+            QString rawData = action.value("data").toString().trimmed();
+            if (!rawData.startsWith('{') && !rawData.isEmpty()) rawData = "{" + rawData + "}";
+            const QJsonObject t = QJsonDocument::fromJson(rawData.toUtf8()).object();
             const bool isGroup = action.value("act").toString() == "gtyping";
             const QString uid = t.value("uid").toVariant().toString();
             emit typingReceived(isGroup ? t.value("gid").toVariant().toString() : uid, uid, isGroup);
@@ -1883,6 +1913,14 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
     }
 
     if (cmd == 502 || cmd == 522) {
+        for (const QJsonValue& v : data.value("delivereds").toArray()) {
+            const QJsonObject del = v.toObject();
+            const QString thread = del.value(cmd == 522 ? "groupId" : "idTo").toVariant().toString();
+            const QString msgId = del.value("msgId").toVariant().toString();
+            if (!thread.isEmpty() && !msgId.isEmpty()) {
+                emit deliveredReceived(thread, msgId, cmd == 522);
+            }
+        }
         if (cmd == 502) {
             for (const QJsonValue& v : data.value("seens").toArray()) {
                 const QJsonObject seen = v.toObject();
@@ -1983,7 +2021,17 @@ void ZaloSession::handleControls(const QJsonArray& controls) {
             emit mobileSyncControlReceived(content);
         } else if (type == "fr") {
             const QString act = content.value("act").toString();
-            if (act != "req") emit friendEventReceived(act, content.value("data"));
+            if (act == "pin_create" || act == "pin_unpin") {
+                QJsonValue cdata = content.value("data");
+                const QString raw = cdata.toString().trimmed();
+                if (raw.startsWith('{') || raw.startsWith('[')) {
+                    const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+                    cdata = doc.isArray() ? QJsonValue(doc.array()) : QJsonValue(doc.object());
+                }
+                emit controlReceived("pin_board", act, cdata);
+            } else if (act != "req") {
+                emit friendEventReceived(act, content.value("data"));
+            }
         } else if (!type.isEmpty()) {
             QJsonValue data = content.value("data");
             const QString raw = data.toString().trimmed();

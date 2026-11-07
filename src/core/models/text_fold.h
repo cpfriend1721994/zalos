@@ -2,6 +2,8 @@
 
 #include <QString>
 #include <QStringList>
+#include <QStringView>
+#include <QVector>
 
 namespace Zalos::Core::Models {
 
@@ -21,12 +23,16 @@ inline QStringList foldTerms(const QString& query) {
     return foldForSearch(query).simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
 }
 
-inline bool containsAllTerms(const QString& foldedHaystack, const QStringList& terms) {
+inline bool containsAllTerms(QStringView foldedHaystack, const QStringList& terms) {
     if (terms.isEmpty()) return false;
     for (const QString& t : terms) {
-        if (!foldedHaystack.contains(t)) return false;
+        if (!foldedHaystack.contains(QStringView(t))) return false;
     }
     return true;
+}
+
+inline bool containsAllTerms(const QString& foldedHaystack, const QStringList& terms) {
+    return containsAllTerms(QStringView(foldedHaystack), terms);
 }
 
 }

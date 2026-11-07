@@ -164,6 +164,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool notifySound READ notifySound WRITE setNotifySound NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool antiPeeking READ antiPeeking WRITE setAntiPeeking NOTIFY settingsChanged FINAL)
     Q_PROPERTY(QString chatBackgroundMode READ chatBackgroundMode WRITE setChatBackgroundMode NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(qreal chatBackgroundOpacity READ chatBackgroundOpacity WRITE setChatBackgroundOpacity NOTIFY settingsChanged FINAL)
     Q_PROPERTY(QString chatBackgroundImage READ chatBackgroundImage NOTIFY chatBackgroundImageChanged FINAL)
     Q_PROPERTY(QString currentConversationBackground READ currentConversationBackground NOTIFY currentConversationBackgroundChanged FINAL)
     Q_PROPERTY(bool showLabelFolders READ showLabelFolders WRITE setShowLabelFolders NOTIFY settingsChanged FINAL)
@@ -184,6 +185,9 @@ class ZaloClient : public QObject {
 
     Q_PROPERTY(QVariantList quickMessages READ quickMessages NOTIFY quickMessagesChanged FINAL)
     Q_PROPERTY(QString playingVoiceId READ playingVoiceId NOTIFY voicePlaybackChanged FINAL)
+    Q_PROPERTY(qint64 voicePosition READ voicePosition NOTIFY voicePlaybackChanged FINAL)
+    Q_PROPERTY(qint64 voiceDuration READ voiceDuration NOTIFY voicePlaybackChanged FINAL)
+    Q_PROPERTY(qreal voicePlaybackRate READ voicePlaybackRate WRITE setVoicePlaybackRate NOTIFY voicePlaybackChanged FINAL)
 
     Q_PROPERTY(bool showOnlineStatus READ showOnlineStatus NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool displaySeenStatus READ displaySeenStatus NOTIFY serverSettingsChanged FINAL)
@@ -362,6 +366,8 @@ public:
     Q_INVOKABLE void leaveGroup(const QString& groupId, bool silent = false);
 
     Q_INVOKABLE bool tryPasteClipboardImage();
+    Q_INVOKABLE QVariantList getClipboardAttachments();
+    Q_INVOKABLE QVariantMap fileInfoForUrl(const QString& fileUrlOrPath);
 
     bool hasPinnedMessage() const;
     QString currentPinnedMessageId() const;
@@ -395,6 +401,8 @@ public:
 
     QString chatBackgroundMode() const { return m_chatBackgroundMode; }
     void setChatBackgroundMode(const QString& mode);
+    qreal chatBackgroundOpacity() const { return m_chatBackgroundOpacity; }
+    void setChatBackgroundOpacity(qreal opacity);
 
     QString chatBackgroundImage() const { return m_chatBackgroundImage; }
     Q_INVOKABLE void setChatBackgroundImage(const QString& urlOrPath);
@@ -520,7 +528,13 @@ public:
     Q_INVOKABLE void removeReminder(const QString& reminderId);
     Q_INVOKABLE void createNote(const QString& title);
     QString playingVoiceId() const { return m_playingVoiceId; }
+    qint64 voicePosition() const;
+    qint64 voiceDuration() const;
+    qreal voicePlaybackRate() const { return m_voicePlaybackRate; }
     Q_INVOKABLE void toggleVoice(const QString& msgId, const QString& url);
+    Q_INVOKABLE void seekVoice(qint64 positionMs);
+    Q_INVOKABLE void setVoicePlaybackRate(qreal rate);
+    Q_INVOKABLE bool isVoiceFailed(const QString& msgId) const { return m_voiceErrors.contains(msgId); }
 
     Q_INVOKABLE void openWelcomeScreen();
     Q_INVOKABLE void selectConversation(const QString& id, const QString& name, const QString& avatar);
@@ -633,9 +647,13 @@ public:
 #ifdef ZALOS_TESTING
     void triggerSimulatedIncomingCall(const QString& callerName = "Người gọi Zalo");
 #endif
-    Q_INVOKABLE void answerCall();
+    Q_INVOKABLE void answerCall(bool withCamera = true);
     Q_INVOKABLE void declineCall();
-    Q_INVOKABLE void requestScreenshot();
+    Q_INVOKABLE void requestScreenshot(bool hideWindow = false);
+    Q_INVOKABLE void printMedia(const QString& url);
+    Q_INVOKABLE QVariantMap windowGeometry() const;
+    Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height, bool maximized);
+    Q_INVOKABLE void notifyWindowVisibility(bool visible);
     Q_SLOT void onScreenshotResponse(uint response, const QVariantMap& results);
 
     Q_INVOKABLE QVariantMap getDiskUsage(const QString& path = QString());
@@ -716,6 +734,8 @@ signals:
     void stickersFound(const QVariantList& stickers);
     void replyTargetChanged();
     void scheduledMessagesChanged();
+    void requestHideForScreenshot();
+    void requestRestoreAfterScreenshot();
 
 private:
     struct Profile {
@@ -812,6 +832,7 @@ private:
     void refreshReactionSummary(const QString& convId, const QString& msgId);
     void handleTyping(const QString& threadId, const QString& userId, bool isGroup);
     void handleSeen(const QString& threadId, const QString& msgId, const QString& userId, bool isGroup);
+    void handleDeliveredReceipt(const QString& threadId, const QString& msgId, bool isGroup);
     void sendSeenForCurrent();
     void refreshPresence();
     void loadLabels();
@@ -836,7 +857,7 @@ private:
     bool hasReactions(const QString& msgId);
     void addReactionEvent(const QString& msgId, const QString& uid, const QString& icon, const QString& eventId, qint64 ts);
     void dropPendingReaction(const QString& msgId, const QString& icon);
-    void clearReactionsOf(const QString& msgId, const QString& uid);
+    void clearReactionsOf(const QString& msgId, const QString& uid, qint64 clearTs = 0);
     QSet<QString> m_brokenMedia;
     int m_brokenMediaRevision{0};
     QSet<QString> m_onlineIds;
@@ -846,6 +867,7 @@ private:
     static constexpr qint64 kMinPlausibleEpochMs = 946684800000LL;
     QSet<QString> m_seenSent;
     QHash<QString, qint64> m_typingUntil;
+    QHash<QString, QString> m_typingUser;
     QHash<QString, QList<QPair<QString, QString>>> m_stickerWaiters;
     QStringList m_stickerQueue;
     QHash<QString, int> m_stickerAttempts;
@@ -921,6 +943,8 @@ private:
     bool m_loadingReminders{false};
     QMediaPlayer* m_voicePlayer{nullptr};
     QString m_playingVoiceId;
+    qreal m_voicePlaybackRate{1.0};
+    QSet<QString> m_voiceErrors;
     QHash<QString, QString> m_aliases;
     bool m_realtimeWasUp{false};
     QTimer* m_labelDebounce{nullptr};
@@ -1017,6 +1041,7 @@ private:
     bool m_notifySound{false};
     bool m_antiPeeking{false};
     QString m_chatBackgroundMode{QStringLiteral("none")};
+    qreal m_chatBackgroundOpacity{0.15};
     QString m_chatBackgroundImage;
     bool m_showLabelFolders{false};
     bool m_startHiddenInTray{false};
