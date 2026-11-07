@@ -22,8 +22,8 @@ on:
         default: false
 
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -152,26 +152,7 @@ jobs:
             mkdir -p /tmp/tools/bin /tmp/appdir-arm64
             if ! command -v file &>/dev/null; then
               echo "==> Setting up file utility shim for appimagetool..."
-              cat << 'EOF' > /tmp/tools/bin/file
-#!/usr/bin/env python3
-import sys, os
-brief = any(a in ("-b", "--brief") for a in sys.argv[1:])
-for arg in sys.argv[1:]:
-    if arg.startswith("-"): continue
-    desc = "data"
-    if os.path.exists(arg):
-        try:
-            with open(arg, "rb") as f:
-                h = f.read(32)
-            if h.startswith(b"\x89PNG\r\n\x1a\n"): desc = "PNG image data, 256 x 256"
-            elif h.startswith(b"\x7fELF"): desc = "ELF 64-bit LSB executable"
-            elif b"<svg" in h or arg.endswith(".svg"): desc = "SVG Scalable Vector Graphics image"
-            elif b"[Desktop Entry]" in h or arg.endswith(".desktop"): desc = "desktop configuration file"
-            elif h.startswith(b"#!"): desc = "POSIX shell script text executable"
-        except Exception:
-            pass
-    print(desc if brief else f"{arg}: {desc}")
-EOF
+              cp scripts/file-shim.py /tmp/tools/bin/file
               chmod +x /tmp/tools/bin/file
               (sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends file) 2>/dev/null || true
             fi
