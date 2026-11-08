@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -13,6 +14,9 @@ Item {
     property string searchMode: "phone"
     property bool hasResult: false
     property var foundProfile: ({})
+    readonly property string foundUid: root.foundProfile.uid || ""
+    readonly property string foundAvatar: root.foundProfile.avatar || ""
+    readonly property string foundName: root.foundProfile.name || ""
     property string searchError: ""
     property bool requestPending: false
     property string requestMessage: ""
@@ -39,7 +43,7 @@ Item {
         return I18n.t("Xin chào, mình là ", "Hi, I'm ") + ZaloClient.currentUserName;
     }
 
-    function triggerSearch() {
+    function triggerSearch(): void {
         root.hasResult = false;
         root.requestMessage = "";
         if (root.searchMode === "username") {
@@ -80,7 +84,7 @@ Item {
 
     Connections {
         target: ZaloClient
-        function onUserSearchFinished(ok, profile, message) {
+        function onUserSearchFinished(ok: bool, profile: var, message: string): void {
             if (!root.searching)
                 return;
             root.searching = false;
@@ -98,7 +102,7 @@ Item {
                                  "No user found with this phone number.");
             }
         }
-        function onFriendRequestFinished(ok, message) {
+        function onFriendRequestFinished(ok: bool, message: string): void {
             if (!root.requestPending)
                 return;
             root.requestPending = false;
@@ -211,27 +215,31 @@ Item {
                                 { key: "username", vi: "Tên người dùng", en: "Username" }
                             ]
                             Rectangle {
+                                id: modePill
                                 required property var modelData
-                                readonly property bool on: root.searchMode === modelData.key
+                                readonly property string modeKey: modePill.modelData.key || ""
+                                readonly property string modeVi: modePill.modelData.vi || ""
+                                readonly property string modeEn: modePill.modelData.en || ""
+                                readonly property bool on: root.searchMode === modePill.modeKey
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 34
                                 radius: 8
-                                color: on ? Theme.zaloBlueLight : ThemeManager.hoverColor
-                                border.color: on ? Theme.zaloBlue : ThemeManager.borderColor
+                                color: modePill.on ? Theme.zaloBlueLight : ThemeManager.hoverColor
+                                border.color: modePill.on ? Theme.zaloBlue : ThemeManager.borderColor
                                 border.width: 1
                                 Text {
                                     anchors.centerIn: parent
-                                    text: I18n.t(parent.modelData.vi, parent.modelData.en)
+                                    text: I18n.t(modePill.modeVi, modePill.modeEn)
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 13
-                                    font.bold: parent.on
-                                    color: parent.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
+                                    font.bold: modePill.on
+                                    color: modePill.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
                                 }
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        root.searchMode = parent.modelData.key;
+                                        root.searchMode = modePill.modeKey;
                                         root.hasResult = false;
                                         root.searchError = "";
                                         phoneInput.text = "";
@@ -402,13 +410,13 @@ Item {
 
                                     ZAvatar {
                                         size: 48
-                                        avatarUrl: root.foundProfile.avatar || ""
-                                        name: root.foundProfile.name || ""
+                                        avatarUrl: root.foundAvatar
+                                        name: root.foundName
                                     }
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: root.foundProfile.name || ""
+                                        text: root.foundName
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 15
                                         font.bold: true
@@ -422,8 +430,8 @@ Item {
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        if ((root.foundProfile.uid || "").length > 0)
-                                            ZaloClient.viewProfile(root.foundProfile.uid);
+                                        if (root.foundUid.length > 0)
+                                            ZaloClient.viewProfile(root.foundUid);
                                     }
                                 }
                             }
@@ -499,8 +507,7 @@ Item {
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
-                                            var p = root.foundProfile;
-                                            ZaloClient.openConversationWithContact(p.uid, p.name || "", p.avatar || "");
+                                            ZaloClient.openConversationWithContact(root.foundUid, root.foundName, root.foundAvatar);
                                             root.closeModal();
                                         }
                                     }

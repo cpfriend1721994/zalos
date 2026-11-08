@@ -140,10 +140,26 @@ qint64 StorageManager::pruneDirectory(const QString& dir, qint64 limitBytes, qin
 }
 
 qint64 StorageManager::prune() {
+    cleanTemporaryFiles();
     qint64 freed = pruneDirectory(directory("avatars"), qint64(m_avatarLimitMb) * kMb, qint64(m_maxAgeDays) * kDayMs);
     freed += pruneDirectory(directory("voice"), -1, kDayMs);
     if (freed > 0) emit usageChanged();
     return freed;
+}
+
+void StorageManager::cleanTemporaryFiles() {
+    const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    if (tempDir.isEmpty()) return;
+    QDir dir(tempDir);
+    const QStringList filters = {"zalos_paste_*", "zalos_fwd_*", "zalos_annotated_*", "zalos_print_*"};
+    const QFileInfoList list = dir.entryInfoList(filters, QDir::Files | QDir::NoSymLinks);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    constexpr qint64 kMaxAgeMs = 15 * 60 * 1000;
+    for (const QFileInfo& fi : list) {
+        if (now - fi.lastModified().toMSecsSinceEpoch() > kMaxAgeMs) {
+            QFile::remove(fi.absoluteFilePath());
+        }
+    }
 }
 
 }

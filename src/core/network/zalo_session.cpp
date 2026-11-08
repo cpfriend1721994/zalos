@@ -672,22 +672,32 @@ void ZaloSession::deleteMessage(const QString& threadId, bool isGroup, const QJs
 }
 
 void ZaloSession::sendSeen(const QString& threadId, bool isGroup, const QJsonArray& msgs, Callback cb) {
-    if (msgs.isEmpty()) return;
+    if (msgs.isEmpty() || threadId.isEmpty()) return;
     auto flag = [](const QJsonValue& v) { return v.isUndefined() || v.isNull() ? -1 : 0; };
     QJsonArray data;
+    QJsonArray msgIds;
     for (const QJsonValue& v : msgs) {
         const QJsonObject m = v.toObject();
         const QString idTo = m.value("idTo").toVariant().toString();
+        const QString msgId = m.value("msgId").toVariant().toString();
+        bool ok = false;
+        qint64 numId = msgId.toLongLong(&ok);
+        if (ok && numId > 0) {
+            msgIds.append(numId);
+        }
+        qint64 ts = m.value("ts").toVariant().toLongLong();
+        if (ts <= 0) ts = m.value("sendDttm").toVariant().toLongLong();
+        if (ts <= 0) ts = -1;
         data.append(QJsonObject{
             {"cmi", m.value("cliMsgId").toVariant().toString()},
-            {"gmi", m.value("msgId").toVariant().toString()},
+            {"gmi", msgId},
             {"si", m.value("uidFrom").toVariant().toString()},
-            {"di", idTo == m_uid ? QStringLiteral("0") : idTo},
+            {"di", isGroup || idTo != m_uid ? idTo : QStringLiteral("0")},
             {"mt", m.value("msgType").toString()},
             {"st", flag(m.value("st"))},
             {"at", flag(m.value("at"))},
             {"cmd", flag(m.value("cmd"))},
-            {"ts", m.value("ts").toVariant().toLongLong() || m.value("ts").toVariant().toString() == "0" ? 0 : -1},
+            {"ts", ts},
         });
     }
     QJsonObject infos{{"data", data}, {isGroup ? "grid" : "senderId", threadId}};
@@ -695,6 +705,19 @@ void ZaloSession::sendSeen(const QString& threadId, bool isGroup, const QJsonArr
     if (isGroup) params["imei"] = m_imei;
     if (isGroup) apiPost("group", "/api/group/seenv2", params, cb, {{"nretry", "0"}});
     else apiPost("chat", "/api/message/seenv2", params, cb, {{"nretry", "0"}});
+
+    if (!msgIds.isEmpty()) {
+        QJsonObject v1Params;
+        v1Params.insert("msg_ids", msgIds);
+        auto noop = [](bool, const QJsonValue&, const QString&, int) {};
+        if (isGroup) {
+            v1Params.insert("grid", threadId.toLongLong());
+            apiPost("group", "/api/group/seen", v1Params, noop, {{"nretry", "0"}});
+        } else {
+            v1Params.insert("senderId", threadId.toLongLong());
+            apiPost("chat", "/api/message/seen", v1Params, noop, {{"nretry", "0"}});
+        }
+    }
 }
 
 void ZaloSession::sendTyping(const QString& threadId, bool isGroup, Callback cb) {
@@ -1134,11 +1157,15 @@ void ZaloSession::fetchNoisedIds(const QStringList& userIds, const QStringList& 
 QNetworkReply* ZaloSession::getWithCookies(const QUrl& url) {
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader, m_userAgent.isEmpty() ? kDefaultUserAgent : m_userAgent);
-    QStringList parts;
-    for (const QNetworkCookie& c : m_jar->cookiesForUrl(QUrl(QStringLiteral("https://chat.zalo.me/")))) {
-        parts << QString::fromUtf8(c.name()) + "=" + QString::fromUtf8(c.value());
+    const QString host = url.host().toLower();
+    if (host.endsWith(QLatin1String(".zalo.me")) || host.endsWith(QLatin1String(".zdn.vn"))
+        || host.endsWith(QLatin1String(".zadn.vn")) || host == QLatin1String("zalo.me")) {
+        QStringList parts;
+        for (const QNetworkCookie& c : m_jar->cookiesForUrl(QUrl(QStringLiteral("https://chat.zalo.me/")))) {
+            parts << QString::fromUtf8(c.name()) + "=" + QString::fromUtf8(c.value());
+        }
+        if (!parts.isEmpty()) req.setRawHeader("Cookie", parts.join("; ").toUtf8());
     }
-    if (!parts.isEmpty()) req.setRawHeader("Cookie", parts.join("; ").toUtf8());
     req.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
     req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);

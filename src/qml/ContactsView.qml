@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -464,7 +465,15 @@ Rectangle {
 
                         delegate: Rectangle {
                             id: contactRow
-                            required property var model
+                            required property string id
+                            required property string name
+                            required property string avatarUrl
+                            required property bool isGroup
+                            required property int memberCount
+                            required property bool isOnline
+                            required property string category
+                            required property string subtitle
+
                             width: contactsList.width
                             radius: 8
                             color: rowMouse.containsMouse ? root.hoverColor() : ThemeManager.hoverClearColor
@@ -475,9 +484,9 @@ Rectangle {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: ZaloClient.openConversationWithContact(model.id, model.name, model.avatarUrl)
+                                onClicked: ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl)
                             }
-                            readonly property bool isInvite: model.category === "invites"
+                            readonly property bool isInvite: contactRow.category === "invites"
                             height: isInvite ? 76 : 64
 
                             RowLayout {
@@ -493,26 +502,26 @@ Rectangle {
                                     ZAvatar {
                                         anchors.fill: parent
                                         size: 44
-                                        avatarUrl: model.avatarUrl || ""
-                                        name: model.name
-                                        isGroup: model.isGroup
-                                        memberCount: model.memberCount
-                                        memberAvatars: model.isGroup ? ZaloClient.groupComposite(model.id, model.memberCount) : []
-                                        isOnline: model.isOnline
+                                        avatarUrl: contactRow.avatarUrl || ""
+                                        name: contactRow.name
+                                        isGroup: contactRow.isGroup
+                                        memberCount: contactRow.memberCount
+                                        memberAvatars: contactRow.isGroup ? ZaloClient.groupComposite(contactRow.id, contactRow.memberCount) : []
+                                        isOnline: contactRow.isOnline
                                         showStatusDot: true
                                     }
 
                                     MouseArea {
                                         anchors.fill: parent
-                                        cursorShape: !model.isGroup ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                        cursorShape: !contactRow.isGroup ? Qt.PointingHandCursor : Qt.ArrowCursor
                                         onClicked: {
-                                            if (!model.isGroup) {
-                                                ZaloClient.viewProfile(model.id);
+                                            if (!contactRow.isGroup) {
+                                                ZaloClient.viewProfile(contactRow.id);
                                             } else {
-                                                ZaloClient.openConversationWithContact(model.id, model.name, model.avatarUrl);
+                                                ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl);
                                             }
                                         }
-                                        ToolTip.visible: containsMouse && !model.isGroup
+                                        ToolTip.visible: containsMouse && !contactRow.isGroup
                                         ToolTip.text: I18n.t("Xem thông tin", "View profile")
                                     }
                                 }
@@ -523,7 +532,7 @@ Rectangle {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: model.name
+                                        text: contactRow.name
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 14
@@ -531,8 +540,8 @@ Rectangle {
                                     }
                                     Text {
                                         Layout.fillWidth: true
-                                        visible: contactRow.isInvite && (model.subtitle || "").length > 0
-                                        text: model.subtitle || ""
+                                        visible: contactRow.isInvite && (contactRow.subtitle || "").length > 0
+                                        text: contactRow.subtitle || ""
                                         elide: Text.ElideRight
                                         maximumLineCount: 2
                                         wrapMode: Text.Wrap

@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Templates as T
@@ -283,27 +284,31 @@ Rectangle {
                     ]
 
                     Item {
+                        id: tabItem
                         required property var modelData
+                        readonly property string tabKey: tabItem.modelData.key || ""
+                        readonly property string tabVi: tabItem.modelData.vi || ""
+                        readonly property string tabEn: tabItem.modelData.en || ""
                         readonly property bool selected: ZaloClient.conversationModel.viewMode === "normal"
-                                                         && ZaloClient.conversationModel.activeCategory === modelData.key
+                                                         && ZaloClient.conversationModel.activeCategory === tabItem.tabKey
                         height: parent.height
                         width: tabLabel.implicitWidth
 
                         Text {
                             id: tabLabel
                             anchors.centerIn: parent
-                            text: I18n.t(modelData.vi, modelData.en)
+                            text: I18n.t(tabItem.tabVi, tabItem.tabEn)
                             font.family: Theme.fontFamily
-                            font.bold: parent.selected
+                            font.bold: tabItem.selected
                             font.pixelSize: 13
-                            color: parent.selected ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                            color: tabItem.selected ? Theme.zaloBlue : ThemeManager.secondaryTextColor
                         }
 
                         Rectangle {
                             anchors.bottom: parent.bottom
                             width: parent.width
                             height: 2
-                            color: parent.selected ? Theme.zaloBlue : "transparent"
+                            color: tabItem.selected ? Theme.zaloBlue : "transparent"
                         }
 
                         MouseArea {
@@ -311,7 +316,7 @@ Rectangle {
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 ZaloClient.conversationModel.setViewMode("normal");
-                                ZaloClient.conversationModel.setCategoryFilter(modelData.key);
+                                ZaloClient.conversationModel.setCategoryFilter(tabItem.tabKey);
                             }
                         }
                     }
@@ -392,11 +397,15 @@ Rectangle {
                         Repeater {
                             model: ZaloClient.labels.labels
                             LabelMenuRow {
+                                id: labelRow
                                 required property var modelData
-                                dotColor: modelData.color
-                                labelText: modelData.text
-                                checked: ZaloClient.conversationModel.labelFilter === modelData.id
-                                onTriggered: { ZaloClient.conversationModel.setLabelFilter(modelData.id); labelFilterMenu.close(); }
+                                readonly property string dotCol: labelRow.modelData.color || ""
+                                readonly property string labelTitle: labelRow.modelData.text || ""
+                                readonly property int labelId: labelRow.modelData.id || 0
+                                dotColor: labelRow.dotCol
+                                labelText: labelRow.labelTitle
+                                checked: ZaloClient.conversationModel.labelFilter === labelRow.labelId
+                                onTriggered: { ZaloClient.conversationModel.setLabelFilter(labelRow.labelId); labelFilterMenu.close(); }
                             }
                         }
                         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; Layout.topMargin: 3; Layout.bottomMargin: 3; color: ThemeManager.borderColor }
@@ -570,6 +579,27 @@ Rectangle {
 
             delegate: Rectangle {
                 id: itemDelegate
+                required property string id
+                required property string name
+                required property string avatarUrl
+                required property bool isOnline
+                required property bool isGroup
+                required property int memberCount
+                required property var memberAvatars
+                required property int unreadCount
+                required property bool isPinned
+                required property bool isMuted
+                required property bool isHidden
+                required property bool isTyping
+                required property string draft
+                required property string lastMessage
+                required property string senderPrefix
+                required property string tag
+                required property string tagColor
+                required property double lastTs
+                required property string timestamp
+                required property int labelId
+
                 width: convList.width
                 height: 72
                 color: "transparent"
@@ -581,9 +611,9 @@ Rectangle {
                     anchors.topMargin: 2
                     anchors.bottomMargin: 2
                     radius: 8
-                    color: ZaloClient.currentConversationId === model.id ? ThemeManager.selectedColor
+                    color: ZaloClient.currentConversationId === itemDelegate.id ? ThemeManager.selectedColor
                          : mouseArea.containsMouse ? ThemeManager.hoverColor
-                         : model.isPinned ? ThemeManager.pinnedColor : "transparent"
+                         : itemDelegate.isPinned ? ThemeManager.pinnedColor : "transparent"
                     Behavior on color { ColorAnimation { duration: 130 } }
                 }
 
@@ -595,13 +625,13 @@ Rectangle {
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: function(mouse) {
                         if (mouse.button === Qt.RightButton) {
-                            root.openConvMenu(model.id, model.isPinned, model.isMuted, model.unreadCount > 0,
-                                              ZaloClient.isMarkedUnread(model.id), model.labelId, false,
+                            root.openConvMenu(itemDelegate.id, itemDelegate.isPinned, itemDelegate.isMuted, itemDelegate.unreadCount > 0,
+                                              ZaloClient.isMarkedUnread(itemDelegate.id), itemDelegate.labelId, false,
                                               mouseArea.mapToItem(root, mouse.x, mouse.y));
                             return;
                         }
-                        if (ZaloClient.needsHiddenPin(model.id)) ZaloClient.requestHiddenFlow("open", model.id, false);
-                        else ZaloClient.selectConversation(model.id, model.name, model.avatarUrl);
+                        if (ZaloClient.needsHiddenPin(itemDelegate.id)) ZaloClient.requestHiddenFlow("open", itemDelegate.id, false);
+                        else ZaloClient.selectConversation(itemDelegate.id, itemDelegate.name, itemDelegate.avatarUrl);
                     }
                 }
 
@@ -614,13 +644,13 @@ Rectangle {
                     ZAvatar {
                         Layout.alignment: Qt.AlignVCenter
                         size: 48
-                        avatarUrl: (model.avatarUrl && model.avatarUrl.length > 0) ? model.avatarUrl : ""
-                        name: model.name
-                        isOnline: model.isOnline
-                        isGroup: model.isGroup
-                        memberCount: model.memberCount
-                        memberAvatars: model.memberAvatars || []
-                        showStatusDot: !model.isGroup
+                        avatarUrl: (itemDelegate.avatarUrl && itemDelegate.avatarUrl.length > 0) ? itemDelegate.avatarUrl : ""
+                        name: itemDelegate.name
+                        isOnline: itemDelegate.isOnline
+                        isGroup: itemDelegate.isGroup
+                        memberCount: itemDelegate.memberCount
+                        memberAvatars: itemDelegate.memberAvatars || []
+                        showStatusDot: !itemDelegate.isGroup
                     }
 
                     ColumnLayout {
@@ -633,11 +663,11 @@ Rectangle {
                             Layout.preferredHeight: 20
 
                             Text {
-                                text: model.name && model.name.length > 0
-                                      ? model.name
-                                      : (model.isGroup ? I18n.t("Nhóm chưa đặt tên", "Unnamed group") : I18n.t("Người dùng Zalo", "Zalo user"))
+                                text: itemDelegate.name && itemDelegate.name.length > 0
+                                      ? itemDelegate.name
+                                      : (itemDelegate.isGroup ? I18n.t("Nhóm chưa đặt tên", "Unnamed group") : I18n.t("Người dùng Zalo", "Zalo user"))
                                 font.family: Theme.fontFamily
-                                font.weight: model.unreadCount > 0 ? Font.DemiBold : (model.isPinned ? Font.Medium : Font.Normal)
+                                font.weight: itemDelegate.unreadCount > 0 ? Font.DemiBold : (itemDelegate.isPinned ? Font.Medium : Font.Normal)
                                 font.pixelSize: 14
                                 color: ThemeManager.textColor
                                 elide: Text.ElideRight
@@ -646,10 +676,10 @@ Rectangle {
 
                             Text {
                                 visible: text.length > 0
-                                text: convList.relativeTime(model.lastTs, model.timestamp)
+                                text: convList.relativeTime(itemDelegate.lastTs, itemDelegate.timestamp)
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 11
-                                color: model.unreadCount > 0 ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                                color: itemDelegate.unreadCount > 0 ? Theme.zaloBlue : ThemeManager.secondaryTextColor
                                 Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                             }
                         }
@@ -661,47 +691,47 @@ Rectangle {
 
                             Text {
                                 text: {
-                                    if (model.isHidden) return I18n.t("Trò chuyện ẩn", "Hidden conversation");
-                                    if (model.isTyping) return I18n.t("Đang soạn tin...", "Typing...");
-                                    if (model.draft.length > 0 && model.id !== ZaloClient.currentConversationId) {
-                                        return I18n.t("[Bản nháp] ", "[Draft] ") + model.draft.replace(/\n/g, " ");
+                                    if (itemDelegate.isHidden) return I18n.t("Trò chuyện ẩn", "Hidden conversation");
+                                    if (itemDelegate.isTyping) return I18n.t("Đang soạn tin...", "Typing...");
+                                    if (itemDelegate.draft.length > 0 && itemDelegate.id !== ZaloClient.currentConversationId) {
+                                        return I18n.t("[Bản nháp] ", "[Draft] ") + itemDelegate.draft.replace(/\n/g, " ");
                                     }
-                                    if (model.lastMessage && model.lastMessage.length > 0) {
-                                        return (model.senderPrefix ? model.senderPrefix : "") + model.lastMessage;
+                                    if (itemDelegate.lastMessage && itemDelegate.lastMessage.length > 0) {
+                                        return (itemDelegate.senderPrefix ? itemDelegate.senderPrefix : "") + itemDelegate.lastMessage;
                                     }
-                                    if (model.isGroup) {
-                                        return model.memberCount > 0
-                                               ? (model.memberCount + I18n.t(" thành viên", " members"))
+                                    if (itemDelegate.isGroup) {
+                                        return itemDelegate.memberCount > 0
+                                               ? (itemDelegate.memberCount + I18n.t(" thành viên", " members"))
                                                : I18n.t("Chưa có tin nhắn", "No messages yet");
                                     }
-                                    if (model.isOnline) {
+                                    if (itemDelegate.isOnline) {
                                         return I18n.t("Đang hoạt động", "Active now");
                                     }
                                     return I18n.t("Chưa có tin nhắn", "No messages yet");
                                 }
-                                font.italic: model.isTyping
+                                font.italic: itemDelegate.isTyping
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
-                                color: model.isTyping ? Theme.zaloBlue
-                                     : (model.draft.length > 0 && model.id !== ZaloClient.currentConversationId) ? Theme.badgeRed
-                                     : (!model.lastMessage && model.isOnline) ? Theme.onlineGreen
-                                     : (model.unreadCount > 0 ? ThemeManager.textColor : ThemeManager.secondaryTextColor)
-                                font.weight: model.unreadCount > 0 ? Font.Medium : Font.Normal
+                                color: itemDelegate.isTyping ? Theme.zaloBlue
+                                     : (itemDelegate.draft.length > 0 && itemDelegate.id !== ZaloClient.currentConversationId) ? Theme.badgeRed
+                                     : (!itemDelegate.lastMessage && itemDelegate.isOnline) ? Theme.onlineGreen
+                                     : (itemDelegate.unreadCount > 0 ? ThemeManager.textColor : ThemeManager.secondaryTextColor)
+                                font.weight: itemDelegate.unreadCount > 0 ? Font.Medium : Font.Normal
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
 
                             Rectangle {
-                                visible: model.tag && model.tag.length > 0
+                                visible: itemDelegate.tag && itemDelegate.tag.length > 0
                                 height: 16
                                 width: tagText.implicitWidth + 8
                                 radius: 3
-                                color: (model.tagColor && model.tagColor.length > 0) ? model.tagColor : Theme.zaloBlue
+                                color: (itemDelegate.tagColor && itemDelegate.tagColor.length > 0) ? itemDelegate.tagColor : Theme.zaloBlue
 
                                 Text {
                                     id: tagText
                                     anchors.centerIn: parent
-                                    text: model.tag ? model.tag : ""
+                                    text: itemDelegate.tag ? itemDelegate.tag : ""
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 9
                                     font.bold: true
@@ -712,14 +742,14 @@ Rectangle {
                             ZIcon {
                                 name: "bell_off"
                                 size: 12
-                                visible: model.isMuted
+                                visible: itemDelegate.isMuted
                                 color: ThemeManager.secondaryTextColor
                             }
 
                             ZIcon {
                                 name: "pin"
                                 size: 12
-                                visible: model.isPinned
+                                visible: itemDelegate.isPinned
                                 color: ThemeManager.secondaryTextColor
                             }
 
@@ -728,14 +758,14 @@ Rectangle {
                                 height: 18
                                 radius: 9
                                 color: Theme.badgeRed
-                                visible: model.unreadCount > 0
-                                scale: model.unreadCount > 0 ? 1.0 : 0.0
+                                visible: itemDelegate.unreadCount > 0
+                                scale: itemDelegate.unreadCount > 0 ? 1.0 : 0.0
                                 Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
 
                                 Text {
                                     id: unreadBadgeText
                                     anchors.centerIn: parent
-                                    text: model.unreadCount > 99 ? "99+" : model.unreadCount
+                                    text: itemDelegate.unreadCount > 99 ? "99+" : itemDelegate.unreadCount
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 10
                                     font.bold: true

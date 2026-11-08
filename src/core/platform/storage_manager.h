@@ -32,6 +32,7 @@ public:
 
     void setAvatarMemoryCleaner(std::function<void()> cleaner) { m_avatarMemoryCleaner = std::move(cleaner); }
     void cleanAvatarMemory() const { if (m_avatarMemoryCleaner) m_avatarMemoryCleaner(); }
+    static void cleanTemporaryFiles();
 
     static QString directory(const QString& key);
     static qint64 pruneDirectory(const QString& dir, qint64 limitBytes, qint64 maxAgeMs);

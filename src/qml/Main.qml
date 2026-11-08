@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -152,6 +153,8 @@ ApplicationWindow {
                     Repeater {
                         model: 3
                         Rectangle {
+                            id: splashDot
+                            required property int index
                             width: 6
                             height: 6
                             radius: 3
@@ -159,10 +162,10 @@ ApplicationWindow {
                             SequentialAnimation on y {
                                 running: startupSplash.visible
                                 loops: Animation.Infinite
-                                PauseAnimation { duration: index * 140 }
+                                PauseAnimation { duration: splashDot.index * 140 }
                                 PropertyAnimation { to: -5; duration: 280; easing.type: Easing.OutQuad }
                                 PropertyAnimation { to: 0; duration: 280; easing.type: Easing.InQuad }
-                                PauseAnimation { duration: (2 - index) * 140 }
+                                PauseAnimation { duration: (2 - splashDot.index) * 140 }
                             }
                         }
                     }

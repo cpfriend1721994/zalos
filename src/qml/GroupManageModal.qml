@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -52,27 +53,34 @@ Item {
     component SettingRow: RowLayout {
         id: settingRow
         required property var modelData
+        readonly property string sKey: settingRow.modelData.key || ""
+        readonly property string sVi: settingRow.modelData.vi || ""
+        readonly property string sEn: settingRow.modelData.en || ""
+        readonly property bool sInverted: !!settingRow.modelData.inverted
         Layout.fillWidth: true
         spacing: 12
-        readonly property bool serverValue: ZaloClient.groupAdmin.settings[settingRow.modelData.key] === true
+        readonly property bool serverValue: ZaloClient.groupAdmin.settings[settingRow.sKey] === true
         Text {
             Layout.fillWidth: true
             wrapMode: Text.Wrap
-            text: I18n.t(settingRow.modelData.vi, settingRow.modelData.en)
+            text: I18n.t(settingRow.sVi, settingRow.sEn)
             font.family: Theme.fontFamily
             font.pixelSize: 13
             color: ThemeManager.textColor
         }
         ZSwitch {
             enabled: root.canEdit && root.settingsKnown
-            checked: settingRow.modelData.inverted ? !settingRow.serverValue : settingRow.serverValue
-            onToggled: (on) => ZaloClient.groupAdmin.setSetting(settingRow.modelData.key, settingRow.modelData.inverted ? !on : on)
+            checked: settingRow.sInverted ? !settingRow.serverValue : settingRow.serverValue
+            onToggled: (on) => ZaloClient.groupAdmin.setSetting(settingRow.sKey, settingRow.sInverted ? !on : on)
         }
     }
 
     component PersonRow: RowLayout {
         id: personRow
         required property var modelData
+        readonly property string pAvatar: personRow.modelData.avatar || ""
+        readonly property string pName: personRow.modelData.name || ""
+        readonly property string pId: personRow.modelData.id || ""
         default property alias actions: actionRow.data
         Layout.fillWidth: true
         spacing: 10
@@ -80,21 +88,21 @@ Item {
             Layout.preferredWidth: 32
             Layout.preferredHeight: 32
             size: 32
-            avatarUrl: personRow.modelData.avatar
-            name: personRow.modelData.name
+            avatarUrl: personRow.pAvatar
+            name: personRow.pName
             showStatusDot: false
         }
         Text {
             Layout.fillWidth: true
             elide: Text.ElideRight
-            text: personRow.modelData.name.length > 0 ? personRow.modelData.name : personRow.modelData.id
+            text: personRow.pName.length > 0 ? personRow.pName : personRow.pId
             font.family: Theme.fontFamily
             font.pixelSize: 13
             color: ThemeManager.textColor
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: ZaloClient.viewProfile(personRow.modelData.id)
+                onClicked: ZaloClient.viewProfile(personRow.pId)
             }
         }
         Row { id: actionRow; spacing: 6 }

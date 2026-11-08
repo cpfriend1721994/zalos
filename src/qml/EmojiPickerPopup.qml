@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -32,32 +33,34 @@ Rectangle {
             Repeater {
                 model: [I18n.t("Biểu tượng cảm xúc", "Emoji"), I18n.t("Nhãn dán", "Stickers")]
                 Item {
+                    id: tabItem
                     required property int index
                     required property string modelData
+                    readonly property bool current: root.tab === tabItem.index
                     implicitWidth: tabLabel.implicitWidth
                     implicitHeight: 28
 
                     Text {
                         id: tabLabel
                         anchors.centerIn: parent
-                        text: modelData
+                        text: tabItem.modelData
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
-                        font.bold: root.tab === index
-                        color: root.tab === index ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                        font.bold: tabItem.current
+                        color: tabItem.current ? Theme.zaloBlue : ThemeManager.secondaryTextColor
                     }
                     Rectangle {
                         anchors.bottom: parent.bottom
                         width: parent.width
                         height: 2
-                        color: root.tab === index ? Theme.zaloBlue : "transparent"
+                        color: tabItem.current ? Theme.zaloBlue : "transparent"
                     }
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            root.tab = index;
-                            if (index === 1) {
+                            root.tab = tabItem.index;
+                            if (tabItem.index === 1) {
                                 ZaloClient.stickers.load();
                                 stickerSearch.forceActiveFocus();
                             }
@@ -89,6 +92,7 @@ Rectangle {
                 "✨", "💪", "😎", "🌹", "💔", "👎", "🙌", "🤗"
             ]
             delegate: Rectangle {
+                id: emojiCell
                 required property string modelData
                 width: GridView.view.cellWidth
                 height: 44
@@ -97,7 +101,7 @@ Rectangle {
 
                 Text {
                     anchors.centerIn: parent
-                    text: modelData
+                    text: emojiCell.modelData
                     font.pixelSize: 22
                 }
                 MouseArea {
@@ -105,7 +109,7 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.emojiSelected(modelData)
+                    onClicked: root.emojiSelected(emojiCell.modelData)
                 }
             }
         }
@@ -187,23 +191,26 @@ Rectangle {
             delegate: Rectangle {
                 id: pack
                 required property var modelData
-                readonly property bool active: ZaloClient.stickers.searchQuery.length === 0 && ZaloClient.stickers.currentCategory === pack.modelData.id
+                readonly property int packId: pack.modelData.id !== undefined ? pack.modelData.id : -1
+                readonly property string packIconUrl: pack.modelData.iconUrl || ""
+                readonly property string packName: pack.modelData.name || ""
+                readonly property bool active: ZaloClient.stickers.searchQuery.length === 0 && ZaloClient.stickers.currentCategory === pack.packId
                 width: 40
                 height: 40
                 radius: 8
                 color: pack.active ? ThemeManager.selectedColor : (packMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
                 ZIcon {
-                    visible: pack.modelData.id === -1
+                    visible: pack.packId === -1
                     anchors.centerIn: parent
                     name: "clock"
                     size: 20
                     color: pack.active ? Theme.zaloBlue : ThemeManager.iconColor
                 }
                 Image {
-                    visible: pack.modelData.id !== -1
+                    visible: pack.packId !== -1
                     anchors.fill: parent
                     anchors.margins: 5
-                    source: pack.modelData.iconUrl || ""
+                    source: pack.packIconUrl
                     asynchronous: true
                     fillMode: Image.PreserveAspectFit
                     sourceSize.width: 64
@@ -215,11 +222,11 @@ Rectangle {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         stickerSearch.text = "";
-                        ZaloClient.stickers.selectCategory(pack.modelData.id);
+                        ZaloClient.stickers.selectCategory(pack.packId);
                     }
                 }
-                ToolTip.visible: packMouse.containsMouse && (pack.modelData.name || pack.modelData.id === -1)
-                ToolTip.text: pack.modelData.id === -1 ? I18n.t("Gần đây", "Recent") : (pack.modelData.name || "")
+                ToolTip.visible: packMouse.containsMouse && (pack.packName.length > 0 || pack.packId === -1)
+                ToolTip.text: pack.packId === -1 ? I18n.t("Gần đây", "Recent") : pack.packName
             }
         }
     }

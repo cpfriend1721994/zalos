@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Templates as T
@@ -149,7 +150,11 @@ Item {
                     id: labelRow
                     required property var modelData
                     required property int index
-                    readonly property bool editing: root.editingId === labelRow.modelData.id
+                    readonly property int labelRowId: labelRow.modelData.id || 0
+                    readonly property string labelRowColor: labelRow.modelData.color || ""
+                    readonly property string labelRowText: labelRow.modelData.text || ""
+                    readonly property int labelRowCount: labelRow.modelData.count || 0
+                    readonly property bool editing: root.editingId === labelRow.labelRowId
                     width: list.width
                     height: editing ? editCol.implicitHeight + 16 : 44
                     radius: 8
@@ -162,17 +167,17 @@ Item {
                         anchors.leftMargin: 10
                         anchors.rightMargin: 6
                         spacing: 10
-                        Rectangle { Layout.preferredWidth: 14; Layout.preferredHeight: 14; radius: 7; color: labelRow.modelData.color }
+                        Rectangle { Layout.preferredWidth: 14; Layout.preferredHeight: 14; radius: 7; color: labelRow.labelRowColor }
                         Text {
                             Layout.fillWidth: true
-                            text: labelRow.modelData.text
+                            text: labelRow.labelRowText
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
                             color: ThemeManager.textColor
                         }
                         Text {
-                            text: I18n.t("%1 hội thoại", "%1 chats").arg(labelRow.modelData.count)
+                            text: I18n.t("%1 hội thoại", "%1 chats").arg(labelRow.labelRowCount)
                             font.family: Theme.fontFamily
                             font.pixelSize: 11
                             color: ThemeManager.secondaryTextColor
@@ -181,21 +186,21 @@ Item {
                             icon: "arrow_up"
                             tip: I18n.t("Lên", "Up")
                             enabled: labelRow.index > 0 && !ZaloClient.labels.busy
-                            onTriggered: ZaloClient.labels.move(labelRow.modelData.id, -1)
+                            onTriggered: ZaloClient.labels.move(labelRow.labelRowId, -1)
                         }
                         IconAction {
                             icon: "arrow_down"
                             tip: I18n.t("Xuống", "Down")
                             enabled: labelRow.index < root.labelList.length - 1 && !ZaloClient.labels.busy
-                            onTriggered: ZaloClient.labels.move(labelRow.modelData.id, 1)
+                            onTriggered: ZaloClient.labels.move(labelRow.labelRowId, 1)
                         }
                         IconAction {
                             icon: "edit"
                             tip: I18n.t("Sửa", "Edit")
                             onTriggered: {
                                 root.error = "";
-                                root.editColor = labelRow.modelData.color;
-                                root.editingId = labelRow.modelData.id;
+                                root.editColor = labelRow.labelRowColor;
+                                root.editingId = labelRow.labelRowId;
                             }
                         }
                         IconAction {
@@ -203,8 +208,8 @@ Item {
                             danger: true
                             tip: I18n.t("Xóa", "Delete")
                             onTriggered: {
-                                root.deleteId = labelRow.modelData.id;
-                                root.deleteName = labelRow.modelData.text;
+                                root.deleteId = labelRow.labelRowId;
+                                root.deleteName = labelRow.labelRowText;
                                 deleteDialog.open();
                             }
                         }

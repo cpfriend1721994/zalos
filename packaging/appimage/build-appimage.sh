@@ -19,8 +19,8 @@ mkdir -p "${BUILD_DIR}" "${APP_DIR}" "${OUTPUT_DIR}"
 # 1. Compile with CMake (or reuse build-deb if already built in the same Ubuntu 24.04 environment)
 DISTRO_STAMP="$(. /etc/os-release && echo "${ID}-${VERSION_ID}")"
 BUILD_JOBS="$(nproc)"
-if [ "${ZALOS_EMULATED:-0}" = "1" ] && [ "${BUILD_JOBS}" -gt 2 ]; then
-    BUILD_JOBS=2
+if [ "${ZALOS_EMULATED:-0}" = "1" ] && [ "${BUILD_JOBS}" -gt 5 ]; then
+    BUILD_JOBS=5
 fi
 if [ -x "${WORKSPACE_DIR}/build-deb/zalos" ] && [ -f "${WORKSPACE_DIR}/build-deb/CMakeCache.txt" ] \
    && [ ! "${WORKSPACE_DIR}/CMakeLists.txt" -nt "${WORKSPACE_DIR}/build-deb/CMakeCache.txt" ]; then
@@ -88,6 +88,8 @@ chmod +x "${APP_DIR}/AppRun"
 
 cp "${WORKSPACE_DIR}/assets/zalos.desktop" "${APP_DIR}/zalos.desktop"
 cp "${WORKSPACE_DIR}/assets/icons/zalos.svg" "${APP_DIR}/zalos.svg"
+mkdir -p "${APP_DIR}/usr/share/metainfo"
+cp "${WORKSPACE_DIR}/assets/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml" "${APP_DIR}/usr/share/metainfo/zalos.appdata.xml"
 
 # Convert SVG to PNG for AppImage icon specification
 if command -v rsvg-convert &>/dev/null; then
@@ -109,7 +111,16 @@ rm -f "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" "${OUTPUT_DIR}/Zalos-${V
 BUILT=0
 if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
     echo "==> Generating AppImage via appimagetool..."
-    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" && BUILT=1 || {
+    RUNTIME_FILE="/tmp/tools/runtime-${ARCH}"
+    if [ ! -f "${RUNTIME_FILE}" ]; then
+        OFFSET=$("${TOOL}" --appimage-offset 2>/dev/null || true)
+        if [ -n "${OFFSET}" ] && [ "${OFFSET}" -gt 0 ] 2>/dev/null; then
+            head -c "${OFFSET}" "${TOOL}" > "${RUNTIME_FILE}" || rm -f "${RUNTIME_FILE}"
+        fi
+    fi
+    RUNTIME_ARGS=(-n)
+    [ -s "${RUNTIME_FILE}" ] && RUNTIME_ARGS+=(--runtime-file "${RUNTIME_FILE}")
+    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${RUNTIME_ARGS[@]}" "${APP_DIR}" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" && BUILT=1 || {
         echo "==> Direct appimagetool run failed; trying extracted appimagetool..."
         (
             cd /tmp/tools
@@ -117,7 +128,7 @@ if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
             "${TOOL}" --appimage-extract >/dev/null 2>&1 || true
             if [ -d squashfs-root ]; then
                 mv squashfs-root "squashfs-root-${ARCH}"
-                ARCH="${ARCH}" "./squashfs-root-${ARCH}/AppRun" "${APP_DIR}" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage"
+                ARCH="${ARCH}" "./squashfs-root-${ARCH}/AppRun" "${RUNTIME_ARGS[@]}" "${APP_DIR}" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage"
             fi
         ) && BUILT=1 || echo "==> Emulated appimagetool execution unavailable in this environment."
     }

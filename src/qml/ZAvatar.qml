@@ -29,8 +29,10 @@ Item {
         return key.length > 0 ? palette[Math.abs(hash)] : ThemeManager.inputFillHoverColor;
     }
 
-    function initials(text: var): string {
-        var parts = (text || "").trim().split(/\s+/).filter(function(p) { return p.length > 0; });
+    function initials(text: string): string {
+        var trimmed = (text || "").trim();
+        if (trimmed.length === 0) return "";
+        var parts = trimmed.split(/\s+/).filter(function(p) { return p.length > 0; });
         if (parts.length === 0) return "";
         if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
         return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();

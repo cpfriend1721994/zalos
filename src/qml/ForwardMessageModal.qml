@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -318,16 +319,25 @@ Item {
                 spacing: 4
                 ScrollBar.vertical: ScrollBar { active: true; width: 6 }
                 delegate: TargetRow {
-                    required property var model
+                    id: targetRowDelegate
+                    required property string id
+                    required property string name
+                    required property string avatarUrl
+                    required property bool isGroup
+                    required property int memberCount
+                    required property bool isHidden
+                    required property var memberAvatars
+                    required property string lastMessage
+
                     width: targetList.width
-                    rowId: model.id
-                    rowName: model.name || (model.isGroup ? I18n.t("Nhóm", "Group") : I18n.t("Người dùng Zalo", "Zalo user"))
-                    rowAvatar: model.avatarUrl || ""
-                    rowIsGroup: model.isGroup
-                    rowMemberCount: model.memberCount
-                    rowHidden: model.isHidden
-                    rowMembers: model.memberAvatars || []
-                    rowSub: model.lastMessage || (model.isGroup ? I18n.t("Nhóm", "Group") : I18n.t("Cá nhân", "Direct"))
+                    rowId: targetRowDelegate.id
+                    rowName: targetRowDelegate.name || (targetRowDelegate.isGroup ? I18n.t("Nhóm", "Group") : I18n.t("Người dùng Zalo", "Zalo user"))
+                    rowAvatar: targetRowDelegate.avatarUrl || ""
+                    rowIsGroup: targetRowDelegate.isGroup
+                    rowMemberCount: targetRowDelegate.memberCount
+                    rowHidden: targetRowDelegate.isHidden
+                    rowMembers: targetRowDelegate.memberAvatars || []
+                    rowSub: targetRowDelegate.lastMessage || (targetRowDelegate.isGroup ? I18n.t("Nhóm", "Group") : I18n.t("Cá nhân", "Direct"))
                 }
             }
 

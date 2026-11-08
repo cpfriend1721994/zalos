@@ -165,7 +165,7 @@ jobs:
               chmod +x "${TOOL}"
             fi
             OUT="${ARCHIVE%-AppDir.tar.gz}.AppImage"
-            ARCH=aarch64 "${TOOL}" --appimage-extract-and-run /tmp/appdir-arm64 "${OUT}"
+            ARCH=aarch64 "${TOOL}" --appimage-extract-and-run -n /tmp/appdir-arm64 "${OUT}"
             rm -rf /tmp/appdir-arm64 "${ARCHIVE}"
           fi
           echo "==> dist contents after Ubuntu packaging:"

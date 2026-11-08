@@ -1,0 +1,34 @@
+#pragma once
+
+#ifdef __cplusplus
+#include <QtCore/QByteArray>
+#include <QtCore/QDateTime>
+#include <QtCore/QDir>
+#include <QtCore/QFileInfo>
+#include <QtCore/QHash>
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+#include <QtCore/QJsonValue>
+#include <QtCore/QList>
+#include <QtCore/QMap>
+#include <QtCore/QObject>
+#include <QtCore/QPair>
+#include <QtCore/QSet>
+#include <QtCore/QString>
+#include <QtCore/QStringList>
+#include <QtCore/QTimer>
+#include <QtCore/QUrl>
+#include <QtCore/QVariant>
+#include <QtCore/QVariantList>
+#include <QtCore/QVariantMap>
+#include <QtCore/QVector>
+#include <QtGui/QColor>
+#include <QtGui/QImage>
+#include <algorithm>
+#include <functional>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+#endif

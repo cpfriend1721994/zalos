@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
@@ -35,7 +36,7 @@ Rectangle {
             ZaloClient.copyImage(root.current.url)
         }
     }
-    property var videoPlayer: null
+    property MediaPlayer videoPlayer: null
     readonly property bool videoPlaying: !!videoPlayer && videoPlayer.playbackState === MediaPlayer.PlayingState
     readonly property bool videoLoading: !!videoPlayer && (videoPlayer.mediaStatus === MediaPlayer.LoadingMedia
                                                            || videoPlayer.mediaStatus === MediaPlayer.BufferingMedia)
@@ -45,6 +46,12 @@ Rectangle {
     readonly property real videoDuration: videoPlayer ? videoPlayer.duration : 0
     readonly property bool videoSeekable: !!videoPlayer && videoPlayer.seekable
 
+    function requestCanvasRepaint(): void {
+        if (canvasLoader.item) {
+            canvasLoader.item.requestPaint();
+        }
+    }
+
     function resetView(): void {
         zoom = 1.0;
         angle = 0;
@@ -52,7 +59,7 @@ Rectangle {
         photo.y = 0;
         strokes = [];
         annotating = false;
-        if (drawCanvas) drawCanvas.requestPaint();
+        requestCanvasRepaint();
     }
     function go(delta: int): void {
         if (count < 2) return;
@@ -100,7 +107,7 @@ Rectangle {
         if (root.isVideo && root.current.url) loadVideo(root.current.url);
     }
     Component.onDestruction: stopVideo()
-    Keys.onEscapePressed: { stopVideo(); ImageViewerState.close(); }
+    Keys.onEscapePressed: { root.stopVideo(); ImageViewerState.close(); }
     Keys.onLeftPressed: go(-1)
     Keys.onRightPressed: go(1)
     Keys.onPressed: function(event) {
@@ -115,7 +122,7 @@ Rectangle {
         else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Z && root.annotating) {
             if (root.strokes.length > 0) {
                 root.strokes.pop();
-                drawCanvas.requestPaint();
+                root.requestCanvasRepaint();
             }
             event.accepted = true;
         }
@@ -176,109 +183,117 @@ Rectangle {
                 target: photo
             }
 
-            Canvas {
-                id: drawCanvas
+            Loader {
+                id: canvasLoader
                 anchors.centerIn: parent
                 width: photo.paintedWidth
                 height: photo.paintedHeight
-                visible: root.annotating && !root.isVideo && photo.status === Image.Ready
+                active: root.annotating && !root.isVideo && photo.status === Image.Ready
+                visible: active
                 z: 2
-                onPaint: {
-                    var ctx = getContext("2d")
-                    ctx.clearRect(0, 0, width, height)
-                    for (var i = 0; i < root.strokes.length; i++) {
-                        var s = root.strokes[i]
-                        ctx.strokeStyle = s.color
-                        ctx.fillStyle = s.color
-                        ctx.lineWidth = 3
-                        ctx.lineCap = "round"
-                        ctx.lineJoin = "round"
-                        if (s.type === "pen" && s.points && s.points.length > 1) {
-                            ctx.beginPath()
-                            ctx.moveTo(s.points[0].x, s.points[0].y)
-                            for (var j = 1; j < s.points.length; j++) ctx.lineTo(s.points[j].x, s.points[j].y)
-                            ctx.stroke()
-                        } else if (s.type === "rect") {
-                            ctx.strokeRect(s.x, s.y, s.w, s.h)
-                        } else if (s.type === "arrow") {
-                            ctx.beginPath()
-                            ctx.moveTo(s.x1, s.y1)
-                            ctx.lineTo(s.x2, s.y2)
-                            ctx.stroke()
-                            var angle = Math.atan2(s.y2 - s.y1, s.x2 - s.x1)
-                            ctx.beginPath()
-                            ctx.moveTo(s.x2, s.y2)
-                            ctx.lineTo(s.x2 - 14 * Math.cos(angle - Math.PI / 6), s.y2 - 14 * Math.sin(angle - Math.PI / 6))
-                            ctx.lineTo(s.x2 - 14 * Math.cos(angle + Math.PI / 6), s.y2 - 14 * Math.sin(angle + Math.PI / 6))
-                            ctx.closePath()
-                            ctx.fill()
-                        } else if (s.type === "text") {
-                            ctx.font = "bold 16px sans-serif"
-                            ctx.fillText(s.text, s.x, s.y)
-                        }
-                    }
-                    if (root.currentStroke) {
-                        var cs = root.currentStroke
-                        ctx.strokeStyle = cs.color
-                        ctx.fillStyle = cs.color
-                        ctx.lineWidth = 3
-                        ctx.lineCap = "round"
-                        ctx.lineJoin = "round"
-                        if (cs.type === "pen" && cs.points && cs.points.length > 1) {
-                            ctx.beginPath()
-                            ctx.moveTo(cs.points[0].x, cs.points[0].y)
-                            for (var k = 1; k < cs.points.length; k++) ctx.lineTo(cs.points[k].x, cs.points[k].y)
-                            ctx.stroke()
-                        } else if (cs.type === "rect") {
-                            ctx.strokeRect(cs.x, cs.y, cs.w, cs.h)
-                        } else if (cs.type === "arrow") {
-                            ctx.beginPath()
-                            ctx.moveTo(cs.x1, cs.y1)
-                            ctx.lineTo(cs.x2, cs.y2)
-                            ctx.stroke()
-                        }
-                    }
-                }
-
-                MouseArea {
-                    id: drawMouse
+                sourceComponent: Canvas {
+                    id: drawCanvas
                     anchors.fill: parent
-                    enabled: root.annotating && !root.isVideo
-                    cursorShape: Qt.CrossCursor
-                    preventStealing: true
-                    onPressed: function(mouse) {
-                        if (root.currentDrawTool === "pen") {
-                            root.currentStroke = { type: "pen", color: root.drawColor.toString(), points: [{x: mouse.x, y: mouse.y}] }
-                        } else if (root.currentDrawTool === "rect") {
-                            root.currentStroke = { type: "rect", color: root.drawColor.toString(), startX: mouse.x, startY: mouse.y, x: mouse.x, y: mouse.y, w: 0, h: 0 }
-                        } else if (root.currentDrawTool === "arrow") {
-                            root.currentStroke = { type: "arrow", color: root.drawColor.toString(), x1: mouse.x, y1: mouse.y, x2: mouse.x, y2: mouse.y }
-                        } else if (root.currentDrawTool === "text") {
-                            textInputDialog.targetX = mouse.x
-                            textInputDialog.targetY = mouse.y
-                            textInputDialog.open()
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.clearRect(0, 0, width, height)
+                        for (var i = 0; i < root.strokes.length; i++) {
+                            var s = root.strokes[i]
+                            ctx.strokeStyle = s.color
+                            ctx.fillStyle = s.color
+                            ctx.lineWidth = 3
+                            ctx.lineCap = "round"
+                            ctx.lineJoin = "round"
+                            if (s.type === "pen" && s.points && s.points.length > 1) {
+                                ctx.beginPath()
+                                ctx.moveTo(s.points[0].x, s.points[0].y)
+                                for (var j = 1; j < s.points.length; j++) ctx.lineTo(s.points[j].x, s.points[j].y)
+                                ctx.stroke()
+                            } else if (s.type === "rect") {
+                                ctx.strokeRect(s.x, s.y, s.w, s.h)
+                            } else if (s.type === "arrow") {
+                                ctx.beginPath()
+                                ctx.moveTo(s.x1, s.y1)
+                                ctx.lineTo(s.x2, s.y2)
+                                ctx.stroke()
+                                var angle = Math.atan2(s.y2 - s.y1, s.x2 - s.x1)
+                                ctx.beginPath()
+                                ctx.moveTo(s.x2, s.y2)
+                                ctx.lineTo(s.x2 - 14 * Math.cos(angle - Math.PI / 6), s.y2 - 14 * Math.sin(angle - Math.PI / 6))
+                                ctx.lineTo(s.x2 - 14 * Math.cos(angle + Math.PI / 6), s.y2 - 14 * Math.sin(angle + Math.PI / 6))
+                                ctx.closePath()
+                                ctx.fill()
+                            } else if (s.type === "text") {
+                                ctx.font = "bold 16px sans-serif"
+                                ctx.fillText(s.text, s.x, s.y)
+                            }
                         }
-                    }
-                    onPositionChanged: function(mouse) {
-                        if (!root.currentStroke) return
-                        if (root.currentDrawTool === "pen") {
-                            root.currentStroke.points.push({x: mouse.x, y: mouse.y})
-                        } else if (root.currentDrawTool === "rect") {
-                            root.currentStroke.x = Math.min(root.currentStroke.startX, mouse.x)
-                            root.currentStroke.y = Math.min(root.currentStroke.startY, mouse.y)
-                            root.currentStroke.w = Math.abs(mouse.x - root.currentStroke.startX)
-                            root.currentStroke.h = Math.abs(mouse.y - root.currentStroke.startY)
-                        } else if (root.currentDrawTool === "arrow") {
-                            root.currentStroke.x2 = mouse.x
-                            root.currentStroke.y2 = mouse.y
-                        }
-                        drawCanvas.requestPaint()
-                    }
-                    onReleased: function(mouse) {
                         if (root.currentStroke) {
-                            root.strokes.push(root.currentStroke)
-                            root.currentStroke = null
+                            var cs = root.currentStroke
+                            ctx.strokeStyle = cs.color
+                            ctx.fillStyle = cs.color
+                            ctx.lineWidth = 3
+                            ctx.lineCap = "round"
+                            ctx.lineJoin = "round"
+                            if (cs.type === "pen" && cs.points && cs.points.length > 1) {
+                                ctx.beginPath()
+                                ctx.moveTo(cs.points[0].x, cs.points[0].y)
+                                for (var k = 1; k < cs.points.length; k++) ctx.lineTo(cs.points[k].x, cs.points[k].y)
+                                ctx.stroke()
+                            } else if (cs.type === "rect") {
+                                ctx.strokeRect(cs.x, cs.y, cs.w, cs.h)
+                            } else if (cs.type === "arrow") {
+                                ctx.beginPath()
+                                ctx.moveTo(cs.x1, cs.y1)
+                                ctx.lineTo(cs.x2, cs.y2)
+                                ctx.stroke()
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        id: drawMouse
+                        anchors.fill: parent
+                        enabled: root.annotating && !root.isVideo
+                        cursorShape: Qt.CrossCursor
+                        preventStealing: true
+                        onPressed: function(mouse) {
+                            if (root.currentDrawTool === "pen") {
+                                root.currentStroke = { type: "pen", color: root.drawColor.toString(), points: [{x: mouse.x, y: mouse.y}] }
+                            } else if (root.currentDrawTool === "rect") {
+                                root.currentStroke = { type: "rect", color: root.drawColor.toString(), startX: mouse.x, startY: mouse.y, x: mouse.x, y: mouse.y, w: 0, h: 0 }
+                            } else if (root.currentDrawTool === "arrow") {
+                                root.currentStroke = { type: "arrow", color: root.drawColor.toString(), x1: mouse.x, y1: mouse.y, x2: mouse.x, y2: mouse.y }
+                            } else if (root.currentDrawTool === "text") {
+                                textInputDialogLoader.active = true;
+                                if (textInputDialogLoader.item) {
+                                    textInputDialogLoader.item.targetX = mouse.x;
+                                    textInputDialogLoader.item.targetY = mouse.y;
+                                    textInputDialogLoader.item.open();
+                                }
+                            }
+                        }
+                        onPositionChanged: function(mouse) {
+                            if (!root.currentStroke) return
+                            if (root.currentDrawTool === "pen") {
+                                root.currentStroke.points.push({x: mouse.x, y: mouse.y})
+                            } else if (root.currentDrawTool === "rect") {
+                                root.currentStroke.x = Math.min(root.currentStroke.startX, mouse.x)
+                                root.currentStroke.y = Math.min(root.currentStroke.startY, mouse.y)
+                                root.currentStroke.w = Math.abs(mouse.x - root.currentStroke.startX)
+                                root.currentStroke.h = Math.abs(mouse.y - root.currentStroke.startY)
+                            } else if (root.currentDrawTool === "arrow") {
+                                root.currentStroke.x2 = mouse.x
+                                root.currentStroke.y2 = mouse.y
+                            }
                             drawCanvas.requestPaint()
+                        }
+                        onReleased: function(mouse) {
+                            if (root.currentStroke) {
+                                root.strokes.push(root.currentStroke)
+                                root.currentStroke = null
+                                drawCanvas.requestPaint()
+                            }
                         }
                     }
                 }
@@ -578,7 +593,7 @@ Rectangle {
                                   : I18n.t("Mở ảnh gốc trong trình duyệt", "Open original in browser")
                 onClicked: Qt.openUrlExternally(root.current.url)
             }
-            ToolButtonIcon { icon: "close"; tip: I18n.t("Đóng (Esc)", "Close (Esc)"); onClicked: { stopVideo(); ImageViewerState.close(); } }
+            ToolButtonIcon { icon: "close"; tip: I18n.t("Đóng (Esc)", "Close (Esc)"); onClicked: { root.stopVideo(); ImageViewerState.close(); } }
         }
     }
 
@@ -628,7 +643,7 @@ Rectangle {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { stopVideo(); ImageViewerState.index = index; root.resetView(); }
+                onClicked: { root.stopVideo(); ImageViewerState.index = index; root.resetView(); }
             }
         }
     }
@@ -646,145 +661,153 @@ Rectangle {
         onAccepted: ZaloClient.saveMediaTo(root.current.url, selectedFile.toString())
     }
 
-    Rectangle {
-        id: annotationBar
-        visible: root.annotating && !root.isVideo
+    Loader {
+        id: annotationBarLoader
         anchors.top: topBar.bottom
         anchors.topMargin: 12
         anchors.horizontalCenter: parent.horizontalCenter
-        height: 44
-        implicitWidth: annotateRow.implicitWidth + 28
-        radius: 22
-        color: Qt.rgba(20 / 255, 20 / 255, 20 / 255, 0.88)
-        border.color: Qt.rgba(1, 1, 1, 0.15)
-        border.width: 1
         z: 10
+        active: root.annotating && !root.isVideo
+        visible: active
+        sourceComponent: Rectangle {
+            id: annotationBar
+            height: 44
+            implicitWidth: annotateRow.implicitWidth + 28
+            radius: 22
+            color: Qt.rgba(20 / 255, 20 / 255, 20 / 255, 0.88)
+            border.color: Qt.rgba(1, 1, 1, 0.15)
+            border.width: 1
 
-        RowLayout {
-            id: annotateRow
-            anchors.fill: parent
-            anchors.leftMargin: 14
-            anchors.rightMargin: 14
-            spacing: 8
+            RowLayout {
+                id: annotateRow
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 8
 
-            component AnnotateToolBtn: Rectangle {
-                id: atb
-                property string tool: ""
-                property string icon: ""
-                property string tip: ""
-                width: 32
-                height: 32
-                radius: 16
-                color: root.currentDrawTool === atb.tool ? Theme.zaloBlue : (atbMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : ThemeManager.hoverClearColor)
-                ZIcon { anchors.centerIn: parent; name: atb.icon; size: 18; color: "#FFFFFF" }
-                MouseArea {
-                    id: atbMouse
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    ToolTip.visible: containsMouse && atb.tip.length > 0
-                    ToolTip.delay: 300
-                    ToolTip.text: atb.tip
-                    onClicked: root.currentDrawTool = atb.tool
-                }
-            }
-
-            AnnotateToolBtn { tool: "pen"; icon: "edit"; tip: I18n.t("Bút vẽ tự do", "Freehand pen") }
-            AnnotateToolBtn { tool: "rect"; icon: "expand"; tip: I18n.t("Vẽ khung chữ nhật", "Rectangle frame") }
-            AnnotateToolBtn { tool: "arrow"; icon: "forward"; tip: I18n.t("Vẽ mũi tên", "Arrow") }
-            AnnotateToolBtn { tool: "text"; icon: "format_text"; tip: I18n.t("Chèn chữ", "Text note") }
-
-            Rectangle { width: 1; height: 24; color: Qt.rgba(1, 1, 1, 0.2) }
-
-            Repeater {
-                model: ["#FF3B30", "#FFCC00", "#34C759", "#007AFF", "#FFFFFF"]
-                delegate: Rectangle {
-                    required property string modelData
-                    width: 22
-                    height: 22
-                    radius: 11
-                    color: modelData
-                    border.color: root.drawColor === modelData ? "#FFFFFF" : Qt.rgba(0, 0, 0, 0.3)
-                    border.width: root.drawColor === modelData ? 2 : 1
-                    scale: root.drawColor === modelData ? 1.15 : 1.0
+                component AnnotateToolBtn: Rectangle {
+                    id: atb
+                    property string tool: ""
+                    property string icon: ""
+                    property string tip: ""
+                    width: 32
+                    height: 32
+                    radius: 16
+                    color: root.currentDrawTool === atb.tool ? Theme.zaloBlue : (atbMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : ThemeManager.hoverClearColor)
+                    ZIcon { anchors.centerIn: parent; name: atb.icon; size: 18; color: "#FFFFFF" }
                     MouseArea {
+                        id: atbMouse
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.drawColor = modelData
+                        ToolTip.visible: containsMouse && atb.tip.length > 0
+                        ToolTip.delay: 300
+                        ToolTip.text: atb.tip
+                        onClicked: root.currentDrawTool = atb.tool
                     }
                 }
-            }
 
-            Rectangle { width: 1; height: 24; color: Qt.rgba(1, 1, 1, 0.2) }
+                AnnotateToolBtn { tool: "pen"; icon: "edit"; tip: I18n.t("Bút vẽ tự do", "Freehand pen") }
+                AnnotateToolBtn { tool: "rect"; icon: "expand"; tip: I18n.t("Vẽ khung chữ nhật", "Rectangle frame") }
+                AnnotateToolBtn { tool: "arrow"; icon: "forward"; tip: I18n.t("Vẽ mũi tên", "Arrow") }
+                AnnotateToolBtn { tool: "text"; icon: "format_text"; tip: I18n.t("Chèn chữ", "Text note") }
 
-            Rectangle {
-                width: 32
-                height: 32
-                radius: 16
-                color: undoMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : ThemeManager.hoverClearColor
-                ZIcon { anchors.centerIn: parent; name: "undo"; size: 18; color: root.strokes.length > 0 ? "#FFFFFF" : "#777777" }
-                MouseArea {
-                    id: undoMouse
-                    anchors.fill: parent
-                    enabled: root.strokes.length > 0
-                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                    ToolTip.visible: containsMouse
-                    ToolTip.delay: 300
-                    ToolTip.text: I18n.t("Hoàn tác (Ctrl+Z)", "Undo (Ctrl+Z)")
-                    onClicked: {
-                        root.strokes.pop()
-                        drawCanvas.requestPaint()
+                Rectangle { width: 1; height: 24; color: Qt.rgba(1, 1, 1, 0.2) }
+
+                Repeater {
+                    model: ["#FF3B30", "#FFCC00", "#34C759", "#007AFF", "#FFFFFF"]
+                    delegate: Rectangle {
+                        required property string modelData
+                        width: 22
+                        height: 22
+                        radius: 11
+                        color: modelData
+                        border.color: root.drawColor === modelData ? "#FFFFFF" : Qt.rgba(0, 0, 0, 0.3)
+                        border.width: root.drawColor === modelData ? 2 : 1
+                        scale: root.drawColor === modelData ? 1.15 : 1.0
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.drawColor = modelData
+                        }
                     }
                 }
-            }
 
-            Rectangle {
-                width: 32
-                height: 32
-                radius: 16
-                color: clearMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : ThemeManager.hoverClearColor
-                ZIcon { anchors.centerIn: parent; name: "trash"; size: 18; color: root.strokes.length > 0 ? "#FFFFFF" : "#777777" }
-                MouseArea {
-                    id: clearMouse
-                    anchors.fill: parent
-                    enabled: root.strokes.length > 0
-                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                    ToolTip.visible: containsMouse
-                    ToolTip.delay: 300
-                    ToolTip.text: I18n.t("Xóa toàn bộ nét vẽ", "Clear all drawings")
-                    onClicked: {
-                        root.strokes = []
-                        drawCanvas.requestPaint()
+                Rectangle { width: 1; height: 24; color: Qt.rgba(1, 1, 1, 0.2) }
+
+                Rectangle {
+                    width: 32
+                    height: 32
+                    radius: 16
+                    color: undoMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : ThemeManager.hoverClearColor
+                    ZIcon { anchors.centerIn: parent; name: "undo"; size: 18; color: root.strokes.length > 0 ? "#FFFFFF" : "#777777" }
+                    MouseArea {
+                        id: undoMouse
+                        anchors.fill: parent
+                        enabled: root.strokes.length > 0
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        ToolTip.visible: containsMouse
+                        ToolTip.delay: 300
+                        ToolTip.text: I18n.t("Hoàn tác (Ctrl+Z)", "Undo (Ctrl+Z)")
+                        onClicked: {
+                            root.strokes.pop()
+                            root.requestCanvasRepaint()
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 32
+                    height: 32
+                    radius: 16
+                    color: clearMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : ThemeManager.hoverClearColor
+                    ZIcon { anchors.centerIn: parent; name: "trash"; size: 18; color: root.strokes.length > 0 ? "#FFFFFF" : "#777777" }
+                    MouseArea {
+                        id: clearMouse
+                        anchors.fill: parent
+                        enabled: root.strokes.length > 0
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        ToolTip.visible: containsMouse
+                        ToolTip.delay: 300
+                        ToolTip.text: I18n.t("Xóa toàn bộ nét vẽ", "Clear all drawings")
+                        onClicked: {
+                            root.strokes = []
+                            root.requestCanvasRepaint()
+                        }
                     }
                 }
             }
         }
     }
 
-    Dialog {
-        id: textInputDialog
-        property real targetX: 0
-        property real targetY: 0
-        title: I18n.t("Nhập ghi chú", "Enter note")
-        anchors.centerIn: parent
-        modal: true
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        ZTextField {
-            id: annotationField
-            width: 260
-            placeholderText: I18n.t("Nội dung ghi chú...", "Note text...")
-            focus: true
-        }
-        onAccepted: {
-            if (annotationField.text.trim().length > 0) {
-                root.strokes.push({
-                    type: "text",
-                    color: root.drawColor.toString(),
-                    text: annotationField.text.trim(),
-                    x: targetX,
-                    y: targetY
-                })
-                annotationField.text = ""
-                drawCanvas.requestPaint()
+    Loader {
+        id: textInputDialogLoader
+        active: false
+        sourceComponent: Dialog {
+            id: textInputDialog
+            property real targetX: 0
+            property real targetY: 0
+            title: I18n.t("Nhập ghi chú", "Enter note")
+            anchors.centerIn: parent
+            modal: true
+            standardButtons: Dialog.Ok | Dialog.Cancel
+            ZTextField {
+                id: annotationField
+                width: 260
+                placeholderText: I18n.t("Nội dung ghi chú...", "Note text...")
+                focus: true
+            }
+            onAccepted: {
+                if (annotationField.text.trim().length > 0) {
+                    root.strokes.push({
+                        type: "text",
+                        color: root.drawColor.toString(),
+                        text: annotationField.text.trim(),
+                        x: targetX,
+                        y: targetY
+                    })
+                    annotationField.text = ""
+                    root.requestCanvasRepaint()
+                }
             }
         }
     }

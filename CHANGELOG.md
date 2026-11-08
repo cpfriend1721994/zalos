@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.8] - 2026-11-08
+
+### Added
+- **Chat background blur overlay & refined layout**: Layered dynamic blur effect (`ZChatBackgroundBlur`) for custom chat
+  backgrounds with customizable opacity and darkness sliders, allowing readable text and hiding low-resolution image artifacts.
+  Strict layout boundary clipping ensures background visuals never bleed into navigation rails or conversation info panels.
+- **Original resolution cover & avatar assets**: Full-resolution image loading for profile cover photos and avatars
+  without downscaling artifacts in avatar view and background preview modes.
+- **Precompiled Headers & CI build speedup**: Added `pch.h` for core headers, suppressed redundant DWARF symbol emissions
+  on aarch64, and expanded parallel compilation workers to `-j5` across RPM, .deb, AppImage, and Nix packaging.
+- **Pure-bash version resolver for Nix packages**: Standalone regex-based metadata resolver in `build-nix.sh` running in
+  minimal environments without external utilities.
+
+### Fixed
+- **Unread message badge resurrection**: Resolved unread counter reappearing upon app restart for previously read conversations
+  via dual seen dispatch (v1 `/api/message/seen` and `/api/group/seen` with exact message IDs alongside v2 `/api/message/seenv2`)
+  and local fallback read cursor advancement.
+- **AppImage AppStream packaging & runtime download timeouts**: Silenced AppStream upstream metadata warnings and extracted
+  the type2 runtime directly from `appimagetool` to eliminate HTTP 504 gateway timeout risks.
+- **VoIP call reject status handling**: Proper call teardown and event propagation for status code 160 when the callee rejects an incoming call.
+- **Cookie domain scoping**: Scoped session cookie injection strictly to service endpoints (`.zalo.me`, `.zdn.vn`, `.zadn.vn`).
+- **QML AOT compilation coverage**: Enforced bound component delegates across screens and popups to ensure type safety and high AOT compilation rates.
+
 ## [1.0.7] - 2026-11-07
 
 ### Added

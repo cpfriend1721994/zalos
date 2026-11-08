@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -7,12 +8,24 @@ Item {
     id: root
     anchors.fill: parent
     readonly property var preview: ZaloClient.groupAdmin.preview
-    readonly property bool hasGroup: (root.preview.groupId || "").length > 0
+    readonly property string previewGroupId: root.preview.groupId || ""
+    readonly property string previewLink: root.preview.link || ""
+    readonly property bool previewLoading: root.preview.loading === true
+    readonly property string previewError: root.preview.error || ""
+    readonly property string previewAvatar: root.preview.avatar || ""
+    readonly property string previewName: root.preview.name || ""
+    readonly property int previewTotalMember: root.preview.totalMember || 0
+    readonly property string previewDesc: root.preview.desc || ""
+    readonly property var previewMembers: root.preview.members || []
+    readonly property bool previewNeedsApproval: root.preview.needsApproval === true
+    readonly property bool previewIsMember: root.preview.isMember === true
+    readonly property bool previewJoining: root.preview.joining === true
+    readonly property bool hasGroup: root.previewGroupId.length > 0
 
     function close(): void { ZaloClient.groupAdmin.closeJoin(); }
 
     Component.onCompleted: {
-        linkField.text = root.preview.link || "";
+        linkField.text = root.previewLink;
         if (linkField.text.length === 0) linkField.forceActiveFocus();
     }
 
@@ -79,23 +92,23 @@ Item {
                 ZButton {
                     variant: "secondary"
                     text: I18n.t("Xem", "Open")
-                    enabled: linkField.text.trim().length > 0 && !root.preview.loading
+                    enabled: linkField.text.trim().length > 0 && !root.previewLoading
                     onClicked: ZaloClient.groupAdmin.previewLink(linkField.text)
                 }
             }
 
             Text {
-                visible: root.preview.loading === true
+                visible: root.previewLoading
                 text: I18n.t("Đang tải thông tin nhóm…", "Loading the group…")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: ThemeManager.secondaryTextColor
             }
             Text {
-                visible: (root.preview.error || "").length > 0
+                visible: root.previewError.length > 0
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
-                text: root.preview.error || ""
+                text: root.previewError
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.badgeRed
@@ -110,15 +123,15 @@ Item {
                     Layout.preferredWidth: 72
                     Layout.preferredHeight: 72
                     size: 72
-                    avatarUrl: root.preview.avatar || ""
-                    name: root.preview.name || ""
+                    avatarUrl: root.previewAvatar
+                    name: root.previewName
                     showStatusDot: false
                 }
                 Text {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: root.preview.name || ""
+                    text: root.previewName
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
                     font.bold: true
@@ -127,19 +140,19 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
-                    text: I18n.t("%1 thành viên", "%1 members").arg(root.preview.totalMember || 0)
+                    text: I18n.t("%1 thành viên", "%1 members").arg(root.previewTotalMember)
                     font.family: Theme.fontFamily
                     font.pixelSize: 12
                     color: ThemeManager.secondaryTextColor
                 }
                 Text {
-                    visible: (root.preview.desc || "").length > 0
+                    visible: root.previewDesc.length > 0
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
                     maximumLineCount: 4
                     elide: Text.ElideRight
-                    text: root.preview.desc || ""
+                    text: root.previewDesc
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                     color: ThemeManager.textColor
@@ -148,20 +161,23 @@ Item {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: -6
                     Repeater {
-                        model: root.preview.members || []
+                        model: root.previewMembers
                         ZAvatar {
+                            id: previewMemberAvatar
                             required property var modelData
+                            readonly property string mAvatar: previewMemberAvatar.modelData.avatar || ""
+                            readonly property string mName: previewMemberAvatar.modelData.name || ""
                             width: 28
                             height: 28
                             size: 28
-                            avatarUrl: modelData.avatar
-                            name: modelData.name
+                            avatarUrl: previewMemberAvatar.mAvatar
+                            name: previewMemberAvatar.mName
                             showStatusDot: false
                         }
                     }
                 }
                 Text {
-                    visible: root.preview.needsApproval === true && root.preview.isMember !== true
+                    visible: root.previewNeedsApproval && !root.previewIsMember
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
@@ -173,10 +189,10 @@ Item {
                 }
                 ZButton {
                     Layout.fillWidth: true
-                    enabled: root.preview.joining !== true
-                    text: root.preview.isMember === true ? I18n.t("Mở nhóm", "Open group")
-                          : root.preview.joining === true ? I18n.t("Đang tham gia…", "Joining…")
-                          : root.preview.needsApproval === true ? I18n.t("Gửi yêu cầu tham gia", "Ask to join")
+                    enabled: !root.previewJoining
+                    text: root.previewIsMember ? I18n.t("Mở nhóm", "Open group")
+                          : root.previewJoining ? I18n.t("Đang tham gia…", "Joining…")
+                          : root.previewNeedsApproval ? I18n.t("Gửi yêu cầu tham gia", "Ask to join")
                           : I18n.t("Tham gia nhóm", "Join group")
                     onClicked: ZaloClient.groupAdmin.join()
                 }

@@ -1,7 +1,10 @@
 %global debug_package %{nil}
+%undefine _include_minidebuginfo
+%undefine _Include_gdb_index
+%global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.0.7
+Version:        1.0.8
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT
@@ -51,9 +54,13 @@ for E2EE message synchronization.
 %setup -q
 
 %build
+%ifarch aarch64
+export CFLAGS="$(echo %{build_cflags} | sed 's/-g[a-z0-9=-]*//g')"
+export CXXFLAGS="$(echo %{build_cxxflags} | sed 's/-g[a-z0-9=-]*//g') -g0 -DNDEBUG"
+%endif
 %cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DZALOS_QML_AOT=OFF
 %ifarch aarch64
-%cmake_build -- -j2
+%cmake_build -- -j5
 %else
 %cmake_build
 %endif
@@ -73,6 +80,13 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/%{name}/zcall-native/
 
 %changelog
+* Sun Nov 08 2026 Zalos Team <dev@zalos.local> - 1.0.8-1
+- Fix unread badge resurrection across restarts via dual seen dispatch and client-side fallback read points.
+- High-res cover/avatar photos and layered chat background blur effect with proper layout clipping.
+- Speed up aarch64 packaging on CI runners using precompiled headers, DWARF suppression, and increased concurrency.
+- Fix AppImage AppStream packaging warnings and self-extract type2 runtime to protect against 504 gateway timeouts.
+- Sync upstream zcall-native (callee status code 160) and scope session cookies to Zalo domains.
+
 * Sat Nov 07 2026 Zalos Team <dev@zalos.local> - 1.0.7-1
 - Interactive draft attachments bar for pasted clipboard images (Ctrl+V) and multi-file queueing.
 - In-app ImageViewer annotation canvas (pen, rect, arrow, text, undo, print, clipboard copy).

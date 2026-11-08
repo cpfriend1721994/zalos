@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Templates as T
@@ -15,10 +16,8 @@ Rectangle {
     border.color: ThemeManager.borderColor
     border.width: 1
 
-    readonly property bool hasPinState: typeof ZaloClient.currentConversationPinned === "boolean"
-    readonly property bool hasMuteState: typeof ZaloClient.currentConversationMuted === "boolean"
-    readonly property bool isPinned: hasPinState && ZaloClient.currentConversationPinned
-    readonly property bool isMuted: hasMuteState && ZaloClient.currentConversationMuted
+    readonly property bool isPinned: ZaloClient.currentConversationPinned
+    readonly property bool isMuted: ZaloClient.currentConversationMuted
     readonly property bool hasConversation: ZaloClient.currentConversationId.length > 0
 
     property var members: []
@@ -408,6 +407,7 @@ Rectangle {
                     }
 
                     RowLayout {
+                        id: nameEditRow
                         Layout.alignment: Qt.AlignHCenter
                         Layout.fillWidth: true
                         spacing: 6
@@ -415,7 +415,7 @@ Rectangle {
                         property bool isEditingName: false
 
                         Text {
-                            visible: !parent.isEditingName
+                            visible: !nameEditRow.isEditingName
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: ZaloClient.currentConversationName
@@ -429,7 +429,7 @@ Rectangle {
                         }
 
                         Rectangle {
-                            visible: !parent.isEditingName && root.hasConversation
+                            visible: !nameEditRow.isEditingName && root.hasConversation
                             width: 24
                             height: 24
                             radius: 12
@@ -441,7 +441,7 @@ Rectangle {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    parent.parent.isEditingName = true
+                                    nameEditRow.isEditingName = true
                                     nameEditField.text = ZaloClient.currentConversationName
                                     nameEditField.forceActiveFocus()
                                 }
@@ -452,7 +452,7 @@ Rectangle {
 
                         TextField {
                             id: nameEditField
-                            visible: parent.isEditingName
+                            visible: nameEditRow.isEditingName
                             Layout.fillWidth: true
                             color: ThemeManager.textColor
                             font.family: Theme.fontFamily
@@ -471,12 +471,12 @@ Rectangle {
                                         ZaloClient.changeFriendAlias(ZaloClient.currentConversationId, text.trim())
                                     }
                                 }
-                                parent.isEditingName = false
+                                nameEditRow.isEditingName = false
                             }
                         }
 
                         Rectangle {
-                            visible: parent.isEditingName
+                            visible: nameEditRow.isEditingName
                             width: 24
                             height: 24
                             radius: 12
@@ -493,7 +493,7 @@ Rectangle {
                                             ZaloClient.changeFriendAlias(ZaloClient.currentConversationId, nameEditField.text.trim())
                                         }
                                     }
-                                    parent.parent.isEditingName = false
+                                    nameEditRow.isEditingName = false
                                 }
                             }
                         }
@@ -508,9 +508,7 @@ Rectangle {
                         actionEnabled: root.hasConversation
                         iconName: root.isMuted ? "bell_off" : "bell"
                         active: root.isMuted
-                        caption: !root.hasMuteState ? I18n.t("Bật/tắt thông báo", "Mute / unmute")
-                                 : (root.isMuted ? I18n.t("Bật thông báo", "Unmute")
-                                                 : I18n.t("Tắt thông báo", "Mute"))
+                        caption: root.isMuted ? I18n.t("Bật thông báo", "Unmute") : I18n.t("Tắt thông báo", "Mute")
                         onTriggered: ZaloClient.muteConversation(ZaloClient.currentConversationId)
                     }
 
@@ -518,9 +516,7 @@ Rectangle {
                         actionEnabled: root.hasConversation
                         iconName: "pin"
                         active: root.isPinned
-                        caption: !root.hasPinState ? I18n.t("Ghim/bỏ ghim", "Pin / unpin")
-                                 : (root.isPinned ? I18n.t("Bỏ ghim", "Unpin")
-                                                  : I18n.t("Ghim hội thoại", "Pin chat"))
+                        caption: root.isPinned ? I18n.t("Bỏ ghim", "Unpin") : I18n.t("Ghim hội thoại", "Pin chat")
                         onTriggered: ZaloClient.pinConversation(ZaloClient.currentConversationId)
                     }
 
@@ -858,6 +854,10 @@ Rectangle {
                         delegate: Rectangle {
                             id: remRow
                             required property var modelData
+                            readonly property string remEmoji: remRow.modelData.emoji || ""
+                            readonly property string remTitle: remRow.modelData.title || ""
+                            readonly property double remStartTime: remRow.modelData.startTime || 0
+                            readonly property string remId: remRow.modelData.id || ""
                             Layout.fillWidth: true
                             implicitHeight: 42
                             radius: 6
@@ -869,7 +869,7 @@ Rectangle {
                                 anchors.rightMargin: 4
                                 spacing: 8
                                 Text {
-                                    text: remRow.modelData.emoji && remRow.modelData.emoji.length > 0 ? remRow.modelData.emoji : "⏰"
+                                    text: remRow.remEmoji.length > 0 ? remRow.remEmoji : "⏰"
                                     font.pixelSize: 16
                                 }
                                 ColumnLayout {
@@ -877,7 +877,7 @@ Rectangle {
                                     spacing: 0
                                     Text {
                                         Layout.fillWidth: true
-                                        text: remRow.modelData.title
+                                        text: remRow.remTitle
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
@@ -886,7 +886,7 @@ Rectangle {
                                     Text {
                                         Layout.fillWidth: true
                                         visible: text.length > 0
-                                        text: root.dueLabel(remRow.modelData.startTime)
+                                        text: root.dueLabel(remRow.remStartTime)
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 11
                                         color: ThemeManager.secondaryTextColor
@@ -903,7 +903,7 @@ Rectangle {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: ZaloClient.removeReminder(remRow.modelData.id)
+                                        onClicked: ZaloClient.removeReminder(remRow.remId)
                                     }
                                 }
                             }
@@ -966,8 +966,13 @@ Rectangle {
                         delegate: Rectangle {
                             id: memberRow
                             required property var modelData
-                            readonly property bool canManage: !memberRow.modelData.isMe
-                                && (root.myRole === "owner" || (root.myRole === "admin" && memberRow.modelData.role === "member"))
+                            readonly property string memberId: memberRow.modelData.id || ""
+                            readonly property string memberName: memberRow.modelData.name || ""
+                            readonly property string memberAvatar: memberRow.modelData.avatar || ""
+                            readonly property string memberRole: memberRow.modelData.role || "member"
+                            readonly property bool memberIsMe: !!memberRow.modelData.isMe
+                            readonly property bool canManage: !memberRow.memberIsMe
+                                && (root.myRole === "owner" || (root.myRole === "admin" && memberRow.memberRole === "member"))
                             Layout.fillWidth: true
                             implicitHeight: 44
                             radius: 6
@@ -983,8 +988,8 @@ Rectangle {
                                     Layout.preferredWidth: 32
                                     Layout.preferredHeight: 32
                                     size: 32
-                                    avatarUrl: memberRow.modelData.avatar
-                                    name: memberRow.modelData.name
+                                    avatarUrl: memberRow.memberAvatar
+                                    name: memberRow.memberName
                                     showStatusDot: false
                                 }
                                 ColumnLayout {
@@ -992,16 +997,16 @@ Rectangle {
                                     spacing: 0
                                     Text {
                                         Layout.fillWidth: true
-                                        text: (memberRow.modelData.name.length > 0 ? memberRow.modelData.name : I18n.t("Đang tải tên…", "Loading name…"))
-                                              + (memberRow.modelData.isMe ? I18n.t(" (Bạn)", " (You)") : "")
+                                        text: (memberRow.memberName.length > 0 ? memberRow.memberName : I18n.t("Đang tải tên…", "Loading name…"))
+                                              + (memberRow.memberIsMe ? I18n.t(" (Bạn)", " (You)") : "")
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
-                                        color: memberRow.modelData.name.length > 0 ? ThemeManager.textColor : ThemeManager.secondaryTextColor
+                                        color: memberRow.memberName.length > 0 ? ThemeManager.textColor : ThemeManager.secondaryTextColor
                                     }
                                     Text {
-                                        visible: memberRow.modelData.role !== "member"
-                                        text: memberRow.modelData.role === "owner" ? I18n.t("Trưởng nhóm", "Owner") : I18n.t("Phó nhóm", "Deputy")
+                                        visible: memberRow.memberRole !== "member"
+                                        text: memberRow.memberRole === "owner" ? I18n.t("Trưởng nhóm", "Owner") : I18n.t("Phó nhóm", "Deputy")
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 11
                                         color: Theme.zaloBlue
@@ -1027,7 +1032,7 @@ Rectangle {
                                 anchors.fill: parent
                                 z: -1
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: if (!memberRow.modelData.isMe) ZaloClient.viewProfile(memberRow.modelData.id)
+                                onClicked: if (!memberRow.memberIsMe) ZaloClient.viewProfile(memberRow.memberId)
                             }
 
                             Menu {
@@ -1035,20 +1040,20 @@ Rectangle {
                                 MenuItem {
                                     visible: root.myRole === "owner"
                                     height: visible ? implicitHeight : 0
-                                    text: memberRow.modelData.role === "admin" ? I18n.t("Gỡ quyền phó nhóm", "Remove as deputy")
+                                    text: memberRow.memberRole === "admin" ? I18n.t("Gỡ quyền phó nhóm", "Remove as deputy")
                                                                                : I18n.t("Thêm làm phó nhóm", "Make deputy")
-                                    onTriggered: ZaloClient.setGroupDeputy(ZaloClient.currentConversationId, memberRow.modelData.id,
-                                                                           memberRow.modelData.role !== "admin")
+                                    onTriggered: ZaloClient.setGroupDeputy(ZaloClient.currentConversationId, memberRow.memberId,
+                                                                           memberRow.memberRole !== "admin")
                                 }
                                 MenuItem {
                                     visible: root.myRole === "owner"
                                     height: visible ? implicitHeight : 0
                                     text: I18n.t("Chuyển quyền trưởng nhóm", "Transfer ownership")
-                                    onTriggered: root.askConfirm("owner", memberRow.modelData.id, memberRow.modelData.name)
+                                    onTriggered: root.askConfirm("owner", memberRow.memberId, memberRow.memberName)
                                 }
                                 MenuItem {
                                     text: I18n.t("Xóa khỏi nhóm", "Remove from group")
-                                    onTriggered: root.askConfirm("kick", memberRow.modelData.id, memberRow.modelData.name)
+                                    onTriggered: root.askConfirm("kick", memberRow.memberId, memberRow.memberName)
                                 }
                                 MenuItem {
                                     text: I18n.t("Chặn khỏi nhóm", "Block from group")

@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -550,7 +551,10 @@ Item {
                                 Rectangle {
                                     id: tabItem
                                     required property var modelData
-                                    readonly property bool active: root.currentTab === modelData.key
+                                    readonly property string tabKey: tabItem.modelData.key || ""
+                                    readonly property string tabIconName: tabItem.modelData.icon || ""
+                                    readonly property string tabLabel: tabItem.modelData.label || ""
+                                    readonly property bool active: root.currentTab === tabItem.tabKey
 
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 40
@@ -564,7 +568,7 @@ Item {
                                         anchors.left: root.compact ? undefined : parent.left
                                         anchors.leftMargin: 12
                                         anchors.horizontalCenter: root.compact ? parent.horizontalCenter : undefined
-                                        name: tabItem.modelData.icon
+                                        name: tabItem.tabIconName
                                         size: 18
                                         color: tabItem.active ? Theme.zaloBlue : ThemeManager.secondaryTextColor
                                     }
@@ -576,7 +580,7 @@ Item {
                                         anchors.right: parent.right
                                         anchors.rightMargin: 8
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: tabItem.modelData.label
+                                        text: tabItem.tabLabel
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
                                         font.bold: tabItem.active
@@ -1538,6 +1542,10 @@ Item {
                                 delegate: Rectangle {
                                     id: usageRow
                                     required property var modelData
+                                    readonly property string itemKey: usageRow.modelData.key || ""
+                                    readonly property real itemBytes: usageRow.modelData.bytes || 0
+                                    readonly property int itemFiles: usageRow.modelData.files || 0
+                                    readonly property bool itemClearable: !!usageRow.modelData.clearable
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 52
                                     radius: 10
@@ -1553,13 +1561,13 @@ Item {
                                             Layout.alignment: Qt.AlignVCenter
                                             spacing: 0
                                             Text {
-                                                text: storageTab.labelFor(usageRow.modelData.key)
+                                                text: storageTab.labelFor(usageRow.itemKey)
                                                 color: ThemeManager.textColor
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 13
                                             }
                                             Text {
-                                                text: storageTab.sizeText(usageRow.modelData.bytes) + " · " + usageRow.modelData.files
+                                                text: storageTab.sizeText(usageRow.itemBytes) + " · " + usageRow.itemFiles
                                                       + I18n.t(" tệp", " files")
                                                 color: ThemeManager.secondaryTextColor
                                                 font.family: Theme.fontFamily
@@ -1570,10 +1578,10 @@ Item {
                                         ZButton {
                                             Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                                             variant: "secondary"
-                                            text: usageRow.modelData.clearable ? I18n.t("Xóa", "Clear") : I18n.t("Mở thư mục", "Open folder")
-                                            enabled: !usageRow.modelData.clearable || usageRow.modelData.bytes > 0
+                                            text: usageRow.itemClearable ? I18n.t("Xóa", "Clear") : I18n.t("Mở thư mục", "Open folder")
+                                            enabled: !usageRow.itemClearable || usageRow.itemBytes > 0
                                             onClicked: {
-                                                if (usageRow.modelData.clearable) ZaloClient.storage.clear(usageRow.modelData.key);
+                                                if (usageRow.itemClearable) ZaloClient.storage.clear(usageRow.itemKey);
                                                 else ZaloClient.storage.openDownloadsFolder();
                                             }
                                         }

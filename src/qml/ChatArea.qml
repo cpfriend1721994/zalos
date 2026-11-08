@@ -832,6 +832,7 @@ Rectangle {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            clip: true
 
             Item {
                 anchors.centerIn: parent
@@ -936,16 +937,50 @@ Rectangle {
             }
 
             Image {
+                id: bgImage
                 parent: messageList.parent
                 z: -1
                 anchors.fill: messageList
-                visible: ZaloClient.currentConversationBackground.length > 0 && status === Image.Ready
+                visible: false
                 source: ZaloClient.currentConversationBackground.length > 0
                         ? "image://cover/" + encodeURIComponent(ZaloClient.currentConversationBackground) : ""
-                sourceSize.width: 640
                 fillMode: Image.PreserveAspectCrop
-                opacity: ThemeManager.isDarkMode ? 0.14 : 0.1
                 asynchronous: true
+                smooth: true
+                mipmap: true
+            }
+
+            Loader {
+                id: bgBlurLoader
+                parent: messageList.parent
+                z: -1
+                anchors.fill: messageList
+                clip: true
+                active: GraphicsInfo.api !== GraphicsInfo.Software && ZaloClient.currentConversationBackground.length > 0
+                visible: bgImage.status === Image.Ready && ZaloClient.currentConversationBackground.length > 0
+                opacity: ZaloClient.chatBackgroundOpacity
+                source: "ZChatBackgroundBlur.qml"
+                onLoaded: {
+                    if (bgBlurLoader.item) {
+                        bgBlurLoader.item.source = bgImage;
+                    }
+                }
+            }
+
+            Image {
+                id: bgImageFallback
+                parent: messageList.parent
+                z: -1
+                anchors.fill: messageList
+                clip: true
+                visible: ZaloClient.currentConversationBackground.length > 0 && status === Image.Ready && !bgBlurLoader.active
+                source: ZaloClient.currentConversationBackground.length > 0
+                        ? "image://cover/" + encodeURIComponent(ZaloClient.currentConversationBackground) : ""
+                fillMode: Image.PreserveAspectCrop
+                opacity: ZaloClient.chatBackgroundOpacity
+                asynchronous: true
+                smooth: true
+                mipmap: true
             }
 
             ChatJumpDownButton {

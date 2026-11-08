@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -22,7 +23,7 @@ Item {
         return Boolean(root.selectedMembers && root.selectedMembers[id]);
     }
 
-    function toggleMember(id) {
+    function toggleMember(id: string): void {
         var s = Object.assign({}, root.selectedMembers || {});
         if (s[id]) {
             delete s[id];
@@ -33,11 +34,11 @@ Item {
         root.selectedCount = Object.keys(s).length;
     }
 
-    function matchesFilter(name: var): bool {
+    function matchesFilter(name: string): bool {
         var q = root.filterText.trim().toLowerCase();
         if (q.length === 0)
             return true;
-        return String(name || "").toLowerCase().indexOf(q) !== -1;
+        return name.toLowerCase().indexOf(q) !== -1;
     }
 
     function resetState(): void {
@@ -56,7 +57,7 @@ Item {
         ZaloClient.closeCreateGroup();
     }
 
-    function submit() {
+    function submit(): void {
         if (!root.canCreate)
             return;
         root.creating = true;
@@ -72,7 +73,7 @@ Item {
 
     Connections {
         target: ZaloClient
-        function onGroupCreateFinished(ok, message) {
+        function onGroupCreateFinished(ok: bool, message: string): void {
             if (!root.creating)
                 return;
             root.creating = false;
@@ -294,8 +295,13 @@ Item {
 
                 delegate: Rectangle {
                     id: memberRow
+                    required property string id
+                    required property string name
+                    required property string avatarUrl
+                    required property bool isGroup
                     readonly property bool isMemberRow: true
-                    readonly property bool shown: !model.isGroup && root.matchesFilter(model.name)
+                    readonly property bool shown: !memberRow.isGroup && root.matchesFilter(memberRow.name)
+                    readonly property bool selected: root.isMemberSelected(memberRow.id)
                     width: memberListView.width
                     height: shown ? 52 : 0
                     visible: shown
@@ -312,12 +318,12 @@ Item {
                             Layout.preferredWidth: 20
                             Layout.preferredHeight: 20
                             radius: 10
-                            border.color: root.isMemberSelected(model.id) ? Theme.zaloBlue : ThemeManager.borderColor
+                            border.color: memberRow.selected ? Theme.zaloBlue : ThemeManager.borderColor
                             border.width: 2
-                            color: root.isMemberSelected(model.id) ? Theme.zaloBlue : "transparent"
+                            color: memberRow.selected ? Theme.zaloBlue : "transparent"
 
                             ZIcon {
-                                visible: root.isMemberSelected(model.id)
+                                visible: memberRow.selected
                                 anchors.centerIn: parent
                                 name: "check"
                                 size: 14
@@ -327,13 +333,13 @@ Item {
 
                         ZAvatar {
                             size: 36
-                            avatarUrl: model.avatarUrl || ""
-                            name: model.name || ""
+                            avatarUrl: memberRow.avatarUrl
+                            name: memberRow.name
                         }
 
                         Text {
                             Layout.fillWidth: true
-                            text: model.name || ""
+                            text: memberRow.name
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
                             color: ThemeManager.textColor
@@ -347,7 +353,7 @@ Item {
                         enabled: memberRow.shown
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.toggleMember(model.id)
+                        onClicked: root.toggleMember(memberRow.id)
                     }
                 }
 

@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -177,6 +178,8 @@ Item {
                             model: root.pollOptions.length
 
                             RowLayout {
+                                id: pollOptionRow
+                                required property int index
                                 Layout.fillWidth: true
                                 spacing: 8
 
@@ -194,18 +197,18 @@ Item {
                                         anchors.leftMargin: 12
                                         anchors.rightMargin: 12
                                         verticalAlignment: TextInput.AlignVCenter
-                                        placeholderText: I18n.t("Phương án ", "Option ") + (index + 1)
+                                        placeholderText: I18n.t("Phương án ", "Option ") + (pollOptionRow.index + 1)
                                         placeholderTextColor: ThemeManager.placeholderColor
                                         color: ThemeManager.textColor
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
                                         background: null
                                         selectByMouse: true
-                                        text: root.pollOptions[index] || ""
+                                        text: root.pollOptions[pollOptionRow.index] || ""
                                         onTextChanged: {
-                                            if (root.pollOptions[index] !== text) {
+                                            if (root.pollOptions[pollOptionRow.index] !== text) {
                                                 var opts = root.pollOptions.slice()
-                                                opts[index] = text
+                                                opts[pollOptionRow.index] = text
                                                 root.pollOptions = opts
                                             }
                                         }
@@ -233,7 +236,7 @@ Item {
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
                                             var opts = root.pollOptions.slice()
-                                            opts.splice(index, 1)
+                                            opts.splice(pollOptionRow.index, 1)
                                             root.pollOptions = opts
                                         }
                                     }

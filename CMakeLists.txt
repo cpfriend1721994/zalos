@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.0.7 LANGUAGES CXX)
+project(zalos VERSION 1.0.8 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -158,6 +158,7 @@ qt_add_qml_module(zalos
         src/qml/CallOverlay.qml
         src/qml/ZMaskEffect.qml
         src/qml/ZBlurEffect.qml
+        src/qml/ZChatBackgroundBlur.qml
         src/qml/ChatJumpDownButton.qml
         src/qml/ChatUnreadBar.qml
         src/qml/LockScreen.qml
@@ -197,6 +198,7 @@ target_include_directories(zalos PRIVATE
     ${LZMA_INCLUDE_DIRS}
 )
 target_compile_definitions(zalos PRIVATE ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_precompile_headers(zalos PRIVATE src/core/pch.h)
 
 # QML compiled to C++ (qmlcachegen AOT) calls QQmlPrivate::AOTCompiledContext, private Qt API versioned per minor
 # release (e.g. Qt_6.10_PRIVATE_API): such a binary only runs on the exact Qt minor it was built with. Packages
@@ -341,6 +343,7 @@ if(BUILD_TESTING)
         src/core/platform/sound_engine.cpp
     )
     target_compile_definitions(zalos_test_core PUBLIC ZALOS_TESTING ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_precompile_headers(zalos_test_core PRIVATE src/core/pch.h)
     target_include_directories(zalos_test_core PUBLIC . src src/core src/core/models src/core/call src/core/offline src/core/network src/core/platform src/core/media ${LZMA_INCLUDE_DIRS})
     target_link_libraries(zalos_test_core PUBLIC
         Qt6::Core

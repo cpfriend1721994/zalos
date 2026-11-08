@@ -116,6 +116,7 @@ public:
     qint64 oldestTimestamp(const QString& convId) const;
     QString latestMessageId(const QString& convId) const;
     MessageItem message(const QString& convId, const QString& msgId) const;
+    const QVector<MessageItem>& threadOf(const QString& convId) const;
     int countIncomingAfter(const QString& convId, const QString& readPoint) const;
     void clearThread(const QString& convId);
     void removeMessagesUpTo(const QString& convId, const QString& lastMsgId);
@@ -145,7 +146,6 @@ signals:
 
 private:
     QVector<MessageItem>& threadFor(const QString& convId);
-    const QVector<MessageItem>& threadOf(const QString& convId) const;
     void placeUnreadMarker();
     bool isRunTile(int row) const;
     bool joinsPrevious(int row) const;

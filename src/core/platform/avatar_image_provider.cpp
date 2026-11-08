@@ -26,8 +26,8 @@ namespace Zalos::Core::Platform {
 namespace {
 
 constexpr int kDefaultDiameter = 96;
-constexpr int kDefaultCoverWidth = 720;
-constexpr int kMaxMemCacheKiB = 12 * 1024;
+constexpr int kDefaultCoverWidth = 0; // 0 = keep original full resolution
+constexpr int kMaxMemCacheKiB = 16 * 1024;
 
 QMutex s_memCacheMutex;
 QCache<QString, QImage> s_memCache(kMaxMemCacheKiB);
@@ -160,7 +160,7 @@ private:
         } else if (m_circular) {
             m_image = AvatarImageProvider::makeCircular(source, m_diameter);
         } else {
-            m_image = source.width() > m_diameter ? source.scaledToWidth(m_diameter, Qt::SmoothTransformation) : source;
+            m_image = (m_diameter > 0 && source.width() > m_diameter) ? source.scaledToWidth(m_diameter, Qt::SmoothTransformation) : source;
         }
         if (!m_image.isNull()) {
             AvatarImageProvider::insertMemCache(m_memKey, m_image);
@@ -223,16 +223,16 @@ QImage AvatarImageProvider::decodeScaled(QIODevice* device, int targetWidth, boo
     QImageReader reader(device);
     reader.setAutoTransform(true);
     const QSize orig = reader.size();
-    const int d = qMax(8, targetWidth);
-    if (orig.isValid() && orig.width() > 0 && orig.height() > 0 && d > 0) {
+    if (orig.isValid() && orig.width() > 0 && orig.height() > 0) {
         if (circular) {
+            const int d = qMax(8, targetWidth);
             const int minSide = qMin(orig.width(), orig.height());
             if (minSide > d) {
                 reader.setScaledSize(orig.scaled(d, d, Qt::KeepAspectRatioByExpanding));
             }
-        } else if (orig.width() > d) {
-            const int scaledH = qMax(1, int((qint64(orig.height()) * d + orig.width() / 2) / orig.width()));
-            reader.setScaledSize(QSize(d, scaledH));
+        } else if (targetWidth > 0 && orig.width() > targetWidth) {
+            const int scaledH = qMax(1, int((qint64(orig.height()) * targetWidth + orig.width() / 2) / orig.width()));
+            reader.setScaledSize(QSize(targetWidth, scaledH));
         }
     }
     return reader.read();

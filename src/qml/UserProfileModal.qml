@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -637,18 +638,21 @@ Item {
                             delegate: Item {
                                 id: avatarCell
                                 required property var modelData
+                                readonly property string photoThumb: avatarCell.modelData.thumb || ""
+                                readonly property string photoUrl: avatarCell.modelData.url || ""
+                                readonly property string photoIdStr: avatarCell.modelData.photoId || ""
                                 width: 60
                                 height: 60
                                 ZRoundedImage {
                                     anchors.fill: parent
                                     radius: 8
-                                    source: avatarCell.modelData.thumb.length > 0 ? avatarCell.modelData.thumb : avatarCell.modelData.url
+                                    source: avatarCell.photoThumb.length > 0 ? avatarCell.photoThumb : avatarCell.photoUrl
                                 }
                                 MouseArea {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: ZaloClient.reuseMyAvatar(avatarCell.modelData.photoId)
+                                    onClicked: ZaloClient.reuseMyAvatar(avatarCell.photoIdStr)
                                     ToolTip.visible: containsMouse
                                     ToolTip.text: I18n.t("Dùng lại ảnh này", "Use this avatar again")
                                 }
@@ -663,7 +667,7 @@ Item {
                                     MouseArea {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: ZaloClient.deleteMyAvatar(avatarCell.modelData.photoId)
+                                        onClicked: ZaloClient.deleteMyAvatar(avatarCell.photoIdStr)
                                     }
                                 }
                             }
@@ -1102,17 +1106,21 @@ Item {
                 delegate: Rectangle {
                     id: groupRow
                     required property var modelData
-                    readonly property bool chosen: groupPicker.picked[groupRow.modelData.id] === true
+                    readonly property string groupId: groupRow.modelData.id || ""
+                    readonly property string groupName: groupRow.modelData.name || ""
+                    readonly property string groupAvatar: groupRow.modelData.avatar || ""
+                    readonly property bool groupIsMember: !!groupRow.modelData.isMember
+                    readonly property bool chosen: groupPicker.picked[groupRow.groupId] === true
                     width: groupList.width
                     height: 44
                     radius: 6
-                    color: groupRowMouse.containsMouse && !groupRow.modelData.isMember ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                    opacity: groupRow.modelData.isMember ? 0.6 : 1.0
+                    color: groupRowMouse.containsMouse && !groupRow.groupIsMember ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                    opacity: groupRow.groupIsMember ? 0.6 : 1.0
                     function flip(): void {
-                        if (groupRow.modelData.isMember) return;
+                        if (groupRow.groupIsMember) return;
                         const next = Object.assign({}, groupPicker.picked);
-                        if (next[groupRow.modelData.id]) delete next[groupRow.modelData.id];
-                        else next[groupRow.modelData.id] = true;
+                        if (next[groupRow.groupId]) delete next[groupRow.groupId];
+                        else next[groupRow.groupId] = true;
                         groupPicker.picked = next;
                         groupPicker.pickedCount = Object.keys(next).length;
                     }
@@ -1120,7 +1128,7 @@ Item {
                         id: groupRowMouse
                         anchors.fill: parent
                         hoverEnabled: true
-                        cursorShape: groupRow.modelData.isMember ? Qt.ArrowCursor : Qt.PointingHandCursor
+                        cursorShape: groupRow.groupIsMember ? Qt.ArrowCursor : Qt.PointingHandCursor
                         onClicked: groupRow.flip()
                     }
                     RowLayout {
@@ -1130,28 +1138,28 @@ Item {
                         spacing: 10
                         ZCheckBox {
                             round: true
-                            enabled: !groupRow.modelData.isMember
-                            checked: groupRow.modelData.isMember || groupRow.chosen
+                            enabled: !groupRow.groupIsMember
+                            checked: groupRow.groupIsMember || groupRow.chosen
                             onToggled: groupRow.flip()
                         }
                         ZAvatar {
                             Layout.preferredWidth: 32
                             Layout.preferredHeight: 32
                             size: 32
-                            avatarUrl: groupRow.modelData.avatar
-                            name: groupRow.modelData.name
+                            avatarUrl: groupRow.groupAvatar
+                            name: groupRow.groupName
                             showStatusDot: false
                         }
                         Text {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
-                            text: groupRow.modelData.name
+                            text: groupRow.groupName
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
                             color: ThemeManager.textColor
                         }
                         Text {
-                            visible: groupRow.modelData.isMember
+                            visible: groupRow.groupIsMember
                             text: I18n.t("Đã tham gia", "Member")
                             font.family: Theme.fontFamily
                             font.pixelSize: 11

@@ -3144,7 +3144,12 @@ void ZaloClient::trimMemoryForBackground() {
         m_rawMessages.squeeze();
         evictColdThreads(m_currentConvId.isEmpty() ? 0 : 1);
     }
-    if (m_storage) m_storage->cleanAvatarMemory();
+    if (m_storage) {
+        m_storage->cleanAvatarMemory();
+        Platform::StorageManager::cleanTemporaryFiles();
+    }
+    m_typingUser.clear();
+    m_typingUntil.clear();
     releaseFreedMemory();
 }
 
@@ -3832,13 +3837,22 @@ void ZaloClient::applyReadPoints(const QJsonArray& clearUnreads) {
         const QString id = idOf(e.value("idTo"));
         const QString point = idOf(e.value("lastMsgId"));
         if (id.isEmpty() || id == "0" || point.isEmpty() || point == "0") continue;
+        const QJsonValue g = e.value("isGroup");
+        const bool isGroup = g.toBool() || g.toInt() == 1 || isGroupThread(id);
         if (!m_conversationModel->contains(id)) {
-            const QJsonValue g = e.value("isGroup");
-            if (g.toBool() || g.toInt() == 1) continue;
+            if (isGroup) continue;
             ensureConversation(id, false);
         }
         if (id == m_currentConvId || m_markedUnread.contains(id)) continue;
-        m_conversationModel->setUnreadCount(id, m_messageModel->countIncomingAfter(id, point));
+
+        const auto conv = m_conversationModel->conversation(id);
+        const int serverIncoming = m_messageModel->countIncomingAfter(id, point);
+        if (conv.unreadCount == 0 && serverIncoming > 0) {
+            sendSeenFor(id, isGroup);
+            continue;
+        }
+
+        m_conversationModel->setUnreadCount(id, serverIncoming);
     }
 }
 
@@ -6067,6 +6081,29 @@ void ZaloClient::sendSeenFor(const QString& convId, bool isGroup) {
         if (unseen.size() >= 50) break;
         unseen.append(rawMessage(c.second));
         m_seenSent.insert(c.second);
+    }
+    if (unseen.isEmpty()) {
+        const auto& thread = m_messageModel->threadOf(convId);
+        for (auto it = thread.crbegin(); it != thread.crend(); ++it) {
+            if (unseen.size() >= 50) break;
+            if (it->isMine || it->isRecalled || m_seenSent.contains(it->id)) continue;
+            bool ok = false;
+            qulonglong idNum = it->id.toULongLong(&ok);
+            if (!ok || idNum == 0) continue;
+            QJsonObject fallbackItem{
+                {"cliMsgId", it->cliMsgId.isEmpty() ? it->id : it->cliMsgId},
+                {"msgId", it->id},
+                {"uidFrom", it->senderId.isEmpty() ? convId : it->senderId},
+                {"idTo", isGroup ? convId : QStringLiteral("0")},
+                {"msgType", it->messageType.isEmpty() ? QStringLiteral("webchat") : it->messageType},
+                {"st", 0},
+                {"at", 0},
+                {"cmd", 510},
+                {"ts", it->ts}
+            };
+            unseen.append(fallbackItem);
+            m_seenSent.insert(it->id);
+        }
     }
     if (unseen.isEmpty()) return;
     m_apiClient->session()->sendSeen(convId, isGroup, unseen, [](bool, const QJsonValue&, const QString&, int) {});
