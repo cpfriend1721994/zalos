@@ -161,7 +161,7 @@ void LabelManager::assign(const QString& convId, int labelId) {
         for (const QJsonValue& v : std::as_const(m_data)) {
             const QJsonObject l = v.toObject();
             if (idOf(l) == labelId && l.value("conversations").toArray().size() >= kMaxChatsPerLabel) {
-                notice(t("Thẻ phân loại này đã đủ %1 hội thoại", "This label already has %1 conversations").arg(kMaxChatsPerLabel));
+                notice(t("Thẻ này đã đủ %1 hội thoại", "This label already has %1 conversations").arg(kMaxChatsPerLabel));
                 return;
             }
         }
@@ -177,14 +177,14 @@ QString LabelManager::validateName(const QString& text, int ignoreId) const {
     for (const QJsonValue& v : m_data) {
         const QJsonObject l = v.toObject();
         if (idOf(l) != ignoreId && l.value("text").toString().trimmed().compare(name, Qt::CaseInsensitive) == 0)
-            return t("Đã có thẻ phân loại cùng tên", "A label with this name already exists");
+            return t("Đã có thẻ cùng tên", "A label with this name already exists");
     }
     return {};
 }
 
 QString LabelManager::create(const QString& text, const QString& color) {
-    if (!m_loaded) return t("Chưa tải được thẻ phân loại", "Labels are not loaded yet");
-    if (m_data.size() >= kMaxLabels) return t("Tối đa %1 thẻ phân loại", "At most %1 labels").arg(kMaxLabels);
+    if (!m_loaded) return t("Chưa tải được danh sách thẻ phân loại", "Labels are not loaded yet");
+    if (m_data.size() >= kMaxLabels) return t("Tối đa %1 thẻ", "At most %1 labels").arg(kMaxLabels);
     const QString why = validateName(text, -1);
     if (!why.isEmpty()) return why;
     int nextId = 1;
@@ -202,7 +202,7 @@ QString LabelManager::create(const QString& text, const QString& color) {
 }
 
 QString LabelManager::edit(int labelId, const QString& text, const QString& color) {
-    if (!m_loaded) return t("Chưa tải được thẻ phân loại", "Labels are not loaded yet");
+    if (!m_loaded) return t("Chưa tải được danh sách thẻ phân loại", "Labels are not loaded yet");
     const QString why = validateName(text, labelId);
     if (!why.isEmpty()) return why;
     QJsonArray next;
@@ -217,8 +217,8 @@ QString LabelManager::edit(int labelId, const QString& text, const QString& colo
         }
         next.append(l);
     }
-    if (!found) return t("Không tìm thấy thẻ phân loại", "Label not found");
-    submit(next, t("Đã cập nhật thẻ phân loại", "Label updated"));
+    if (!found) return t("Không tìm thấy thẻ", "Label not found");
+    submit(next, t("Đã cập nhật thẻ", "Label updated"));
     return {};
 }
 
@@ -233,7 +233,7 @@ void LabelManager::remove(int labelId) {
         next.append(l);
     }
     if (next.size() == m_data.size()) return;
-    submit(next, t("Đã xóa thẻ phân loại", "Label deleted"));
+    submit(next, t("Đã xóa thẻ", "Label deleted"));
 }
 
 void LabelManager::move(int labelId, int delta) {
@@ -259,7 +259,7 @@ void LabelManager::submit(const QJsonArray& next, const QString& okNotice) {
     m_lastSubmitted = next;
     ZaloSession* s = session();
     if (!s) {
-        notice(t("Cần kết nối tới Zalo để đổi thẻ phân loại", "Connect to Zalo to change labels"));
+        notice(t("Cần kết nối tới Zalo để đổi thẻ", "Connect to Zalo to change labels"));
         return;
     }
     m_busy = true;
@@ -271,13 +271,13 @@ void LabelManager::submit(const QJsonArray& next, const QString& okNotice) {
         emit self->busyChanged();
         if (!ok) {
             if (code == kVersionConflict) {
-                self->notice(self->t("Thẻ phân loại vừa được đổi trên thiết bị khác. Đã tải lại, hãy thử lại.",
+                self->notice(self->t("Thẻ vừa được đổi trên thiết bị khác. Đã tải lại, hãy thử lại.",
                                      "Labels were just changed on another device. Reloaded — please try again."));
                 self->reload();
                 return;
             }
             const QString why = self->m_hooks.friendlyError ? self->m_hooks.friendlyError(e, code) : e;
-            self->notice(self->t("Không cập nhật được thẻ phân loại: ", "Could not update labels: ") + why);
+            self->notice(self->t("Không cập nhật được thẻ: ", "Could not update labels: ") + why);
             return;
         }
         QJsonObject reply = data.toObject();

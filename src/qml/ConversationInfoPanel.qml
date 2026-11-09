@@ -226,15 +226,14 @@ Rectangle {
             Layout.preferredHeight: 36
             radius: 18
             opacity: qa.actionEnabled ? 1.0 : 0.5
-            color: qa.active ? Theme.zaloBlue
-                             : (qaMouse.containsMouse ? (ThemeManager.hoverColor)
-                                                      : (ThemeManager.hoverColor))
+            color: qa.active ? (ThemeManager.isDarkMode ? Qt.rgba(0.18, 0.45, 0.75, 0.35) : Theme.zaloBlueLight)
+                             : (qaMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor)
 
             ZIcon {
                 anchors.centerIn: parent
                 name: qa.iconName
                 size: 18
-                color: qa.active ? "#FFFFFF" : ThemeManager.textColor
+                color: qa.active ? (ThemeManager.isDarkMode ? "#45A3DD" : Theme.zaloBlue) : ThemeManager.textColor
             }
 
             MouseArea {
@@ -429,7 +428,7 @@ Rectangle {
                         }
 
                         Rectangle {
-                            visible: !nameEditRow.isEditingName && root.hasConversation
+                            visible: !nameEditRow.isEditingName && root.hasConversation && !ZaloClient.currentConversationIsCloud && !ZaloClient.currentConversationIsOfficial
                             width: 24
                             height: 24
                             radius: 12
@@ -529,15 +528,7 @@ Rectangle {
                     }
 
                     QuickAction {
-                        visible: !ZaloClient.currentConversationIsGroup && root.hasConversation
-                        actionEnabled: root.hasConversation
-                        iconName: "user"
-                        caption: I18n.t("Hồ sơ", "Profile")
-                        onTriggered: ZaloClient.viewProfile(ZaloClient.currentConversationId)
-                    }
-
-                    QuickAction {
-                        visible: !ZaloClient.currentConversationIsGroup && root.hasConversation
+                        visible: ZaloClient.currentConversationCanShareContact
                         actionEnabled: root.hasConversation
                         iconName: "contacts"
                         caption: I18n.t("Chia sẻ danh thiếp", "Share card")
@@ -545,10 +536,11 @@ Rectangle {
                     }
 
                     QuickAction {
+                        visible: ZaloClient.currentConversationCanCreateGroup
                         actionEnabled: root.hasConversation
                         iconName: "group_add"
-                        caption: I18n.t("Tạo nhóm", "Create group")
-                        onTriggered: ZaloClient.openCreateGroup()
+                        caption: ZaloClient.currentConversationIsGroup ? I18n.t("Thêm thành viên", "Add member") : I18n.t("Tạo nhóm", "Create group")
+                        onTriggered: ZaloClient.currentConversationIsGroup ? ZaloClient.openAddMemberModal() : ZaloClient.openCreateGroup()
                     }
                 }
 
@@ -672,6 +664,7 @@ Rectangle {
                 }
 
                 Rectangle {
+                    visible: ZaloClient.currentConversationIsGroup
                     Layout.fillWidth: true
                     Layout.preferredHeight: 1
                     color: ThemeManager.borderColor
@@ -679,11 +672,11 @@ Rectangle {
 
                 ColumnLayout {
                     id: autoDeleteSection
-                    visible: root.hasConversation
+                    visible: root.hasConversation && !ZaloClient.currentConversationIsCloud && !ZaloClient.currentConversationIsOfficial
                     Layout.fillWidth: true
                     Layout.leftMargin: 16
                     Layout.rightMargin: 16
-                    spacing: 6
+                    spacing: 8
 
                     property double curTtl: 0
                     readonly property list<int> ttlOptions: [0, 86400000, 604800000, 1209600000]
@@ -706,7 +699,7 @@ Rectangle {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
-                        ZIcon { name: "clock"; size: 16; color: Theme.zaloBlue }
+                        ZIcon { name: "clock"; size: 16; color: ThemeManager.isDarkMode ? "#45A3DD" : Theme.zaloBlue }
                         Text {
                             Layout.fillWidth: true
                             text: I18n.t("Tin nhắn tự xóa", "Disappearing messages")
@@ -728,8 +721,10 @@ Rectangle {
                                 implicitWidth: ttlChipText.implicitWidth + 20
                                 implicitHeight: 28
                                 radius: 14
-                                color: ttlChip.active ? Theme.zaloBlueLight : ThemeManager.inputFillColor
-                                border.color: ttlChip.active ? Theme.zaloBlue : ThemeManager.borderColor
+                                color: ttlChip.active ? (ThemeManager.isDarkMode ? Qt.rgba(0.15, 0.45, 0.75, 0.35) : Theme.zaloBlueLight)
+                                                      : (ttlMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor)
+                                border.color: ttlChip.active ? (ThemeManager.isDarkMode ? "#1F6D99" : Theme.zaloBlue)
+                                                             : (ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.08) : ThemeManager.borderColor)
                                 border.width: 1
                                 Text {
                                     id: ttlChipText
@@ -737,10 +732,14 @@ Rectangle {
                                     text: autoDeleteSection.ttlLabel(ttlChip.modelData)
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 12
-                                    color: ttlChip.active ? Theme.zaloBlueTonalText : ThemeManager.textColor
+                                    font.bold: ttlChip.active
+                                    color: ttlChip.active ? (ThemeManager.isDarkMode ? "#45A3DD" : Theme.zaloBlueTonalText)
+                                                          : ThemeManager.textColor
                                 }
                                 MouseArea {
+                                    id: ttlMouse
                                     anchors.fill: parent
+                                    hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: ZaloClient.setConversationAutoDelete(ZaloClient.currentConversationId, ttlChip.modelData)
                                 }
@@ -758,7 +757,7 @@ Rectangle {
                         hideRow.hiddenNow = ZaloClient.isConversationHidden(ZaloClient.currentConversationId);
                         hideRow.canHide = ZaloClient.canHideConversation(ZaloClient.currentConversationId);
                     }
-                    visible: root.hasConversation && (hideRow.hiddenNow || hideRow.canHide)
+                    visible: root.hasConversation && !ZaloClient.currentConversationIsCloud && (hideRow.hiddenNow || hideRow.canHide)
                     Layout.fillWidth: true
                     Layout.leftMargin: 16
                     Layout.rightMargin: 16

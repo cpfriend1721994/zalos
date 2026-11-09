@@ -115,7 +115,7 @@ QtObject {
             "search": "Search",
             "priority": "Priority",
             "other": "Other",
-            "classify": "Categories",
+            "classify": "Labels",
             "today": "Today",
             "yesterday": "Yesterday",
             "just_now": "Just now",

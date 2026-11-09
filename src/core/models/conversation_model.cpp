@@ -121,12 +121,20 @@ void ConversationModel::applyFilter() {
     const QStringList terms = foldTerms(m_searchQuery);
     const bool searching = !terms.isEmpty();
     const bool archivedView = m_viewMode == QLatin1String("archived");
+    const bool directView = m_viewMode == QLatin1String("direct");
     for (const auto& item : m_allItems) {
         const bool isArchived = m_archivedIds.contains(item.id);
         const bool isHidden = m_hiddenIds.contains(item.id);
         if (isHidden && (!searching || m_hiddenPinReveal)) continue;
         if (archivedView) {
             if (!isArchived) continue;
+        } else if (directView) {
+            if (isArchived) continue;
+            if (item.isGroup && !item.hasUnreadMention) continue;
+            if (!searching) {
+                if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
+                if (m_strangerOnly && !strangerId(item.id, item.isGroup)) continue;
+            }
         } else if (!searching) {
             if (isArchived) continue;
             if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;

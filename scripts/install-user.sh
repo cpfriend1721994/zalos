@@ -11,10 +11,8 @@ SOURCE_INPUT="${1:-}"
 if [ -z "${SOURCE_INPUT}" ]; then
     if [ -f "${ROOT_DIR}/build/zalos" ]; then
         SOURCE_INPUT="${ROOT_DIR}/build/zalos"
-    elif [ -f "${ROOT_DIR}/dist/Zalos-1.0.7-x86_64.AppImage" ]; then
-        SOURCE_INPUT="${ROOT_DIR}/dist/Zalos-1.0.7-x86_64.AppImage"
-    elif [ -f "${ROOT_DIR}/dist/Zalos-1.0.6-x86_64.AppImage" ]; then
-        SOURCE_INPUT="${ROOT_DIR}/dist/Zalos-1.0.6-x86_64.AppImage"
+    else
+        SOURCE_INPUT="$(ls -1v "${ROOT_DIR}"/dist/Zalos-*-x86_64.AppImage 2>/dev/null | tail -n 1 || true)"
     fi
 fi
 

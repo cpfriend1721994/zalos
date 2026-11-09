@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-11-09
+
+### Added
+- **Group voice and video calls**: the chat header's call buttons start a group call when the open thread is a group,
+  driving the engine's group commands (`voicecall/group/requestcall`, `request`, `answer`, `state`, `finish`,
+  `notify`, `ping`, `broadcast`, `adduser`) and showing the participant row with per-member state in `CallOverlay`.
+  Contact rows offer the same group call actions.
+- **My Documents**: the `send2me_id` thread is now presented under the single name **My Documents** (matching the
+  server; rows cached as "Cloud của tôi", "My Cloud" or "Truyền File" are migrated once) and `CloudView` browses its
+  photos, videos, files and links with instant filters.
+- **Kiki Assistant view**: a navigation-rail destination backed by the server's `features.kiki_assistant` config;
+  accounts without the service see an honest explanation and four local drafting templates instead of a simulated chat.
+- **zBusiness tools**: business profile, product catalog (send a product card into the open thread) and auto-reply
+  configuration in one dialog, reachable from the rail and the profile modal.
+- **Official accounts are read-mostly**: `isOfficialOrSystemAccount()` combines persisted OA markers with folded
+  `Zalo…`, `zBusiness`, `zCloud`, `ZaloPay`, `Thời Tiết` and `Medlatec` names on non-friend threads, hiding call,
+  add-group and share-contact actions in the chat header, conversation info panel and profile modal.
+- **Contacts quick actions**: voice call, video call and chat buttons on every contact row, including groups.
+- **Screenshot shortcut**: `Ctrl+Alt+S` is now listed in Settings › Shortcuts (`app.screenshot`).
+
+### Changed
+- **Calls always use the bundled zcall-native engine**: the Settings › Calls engine picker ("Dùng bản khác…" /
+  "Dùng bản đi kèm") and its persisted `calls/zcallDir` override are gone; `ZALOS_ZCALL_DIR` remains for development
+  builds that need another engine folder.
+- **Sidebar category tabs** (Tất cả / Chưa đọc / Khác / Nhắn tôi) replace the single header row, with the label filter
+  button kept on the right.
+- **Mobile history sync** verifies the advertised checksum and file size, aborts after two minutes without download
+  progress, reports disk-write failures and logs host/progress details.
+- **System tray badge** is larger, anti-aliased and fits three-digit counts.
+- **Labels**: wording shortened from "thẻ phân loại" to "thẻ" and the English category name is now "Labels".
+- **Documentation**: README and the GitHub Pages site describe the 1.1.0 feature set, download names and refreshed
+  screenshots.
+
+### Fixed
+- **zBusiness catalog overflow**: product cards clip inside the tab's scroll area instead of bleeding past the dialog
+  edge, and the tab strip no longer collapses its labels.
+- **My Documents row in Contacts** no longer offers call or video-call buttons.
+
 ## [1.0.8] - 2026-11-08
 
 ### Added

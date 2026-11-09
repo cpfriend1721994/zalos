@@ -67,13 +67,57 @@ Rectangle {
         }
     }
 
+    component ViewCategoryTab: Item {
+        id: ctab
+        property string categoryKey: ""
+        property string title: ""
+        readonly property bool selected: ZaloClient.conversationModel.viewMode === "normal"
+                                         && ZaloClient.conversationModel.activeCategory === ctab.categoryKey
+        height: parent ? parent.height : 36
+        width: ctabLabel.implicitWidth
+
+        Text {
+            id: ctabLabel
+            anchors.centerIn: parent
+            text: ctab.title
+            font.family: Theme.fontFamily
+            font.bold: ctab.selected
+            font.pixelSize: 13
+            color: ctab.selected ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+        }
+
+        Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 2
+            color: ctab.selected ? Theme.zaloBlue : "transparent"
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                ZaloClient.conversationModel.setViewMode("normal");
+                ZaloClient.conversationModel.setCategoryFilter(ctab.categoryKey);
+            }
+        }
+    }
+
+    component TabDivider: Rectangle {
+        anchors.verticalCenter: parent.verticalCenter
+        width: 1
+        height: 12
+        color: ThemeManager.borderColor
+        opacity: 0.85
+    }
+
     component ViewTab: Item {
         id: vtab
         property string viewKey: ""
         property string title: ""
         readonly property bool selected: ZaloClient.conversationModel.viewMode === vtab.viewKey
         signal clicked()
-        height: parent ? parent.height : 32
+        height: parent ? parent.height : 36
         width: vtabLabel.implicitWidth
         Text {
             id: vtabLabel
@@ -272,60 +316,37 @@ Rectangle {
             Row {
                 id: tabRow
                 anchors.left: parent.left
-                anchors.leftMargin: 16
+                anchors.leftMargin: 14
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
-                spacing: 14
+                spacing: 8
 
-                Repeater {
-                    model: [
-                        { key: "", vi: "Tất cả", en: "All" },
-                        { key: "unread", vi: "Chưa đọc", en: "Unread" }
-                    ]
-
-                    Item {
-                        id: tabItem
-                        required property var modelData
-                        readonly property string tabKey: tabItem.modelData.key || ""
-                        readonly property string tabVi: tabItem.modelData.vi || ""
-                        readonly property string tabEn: tabItem.modelData.en || ""
-                        readonly property bool selected: ZaloClient.conversationModel.viewMode === "normal"
-                                                         && ZaloClient.conversationModel.activeCategory === tabItem.tabKey
-                        height: parent.height
-                        width: tabLabel.implicitWidth
-
-                        Text {
-                            id: tabLabel
-                            anchors.centerIn: parent
-                            text: I18n.t(tabItem.tabVi, tabItem.tabEn)
-                            font.family: Theme.fontFamily
-                            font.bold: tabItem.selected
-                            font.pixelSize: 13
-                            color: tabItem.selected ? Theme.zaloBlue : ThemeManager.secondaryTextColor
-                        }
-
-                        Rectangle {
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            height: 2
-                            color: tabItem.selected ? Theme.zaloBlue : "transparent"
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                ZaloClient.conversationModel.setViewMode("normal");
-                                ZaloClient.conversationModel.setCategoryFilter(tabItem.tabKey);
-                            }
-                        }
-                    }
+                ViewCategoryTab {
+                    categoryKey: ""
+                    title: I18n.t("Tất cả", "All")
                 }
+
+                TabDivider {}
+
+                ViewCategoryTab {
+                    categoryKey: "unread"
+                    title: I18n.t("Chưa đọc", "Unread")
+                }
+
+                TabDivider {}
 
                 ViewTab {
                     viewKey: "archived"
                     title: I18n.t("Khác", "Other")
                     onClicked: ZaloClient.conversationModel.setViewMode("archived")
+                }
+
+                TabDivider {}
+
+                ViewTab {
+                    viewKey: "direct"
+                    title: I18n.t("Nhắn tôi", "Direct")
+                    onClicked: ZaloClient.conversationModel.setViewMode("direct")
                 }
             }
 
@@ -335,8 +356,6 @@ Rectangle {
                 anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 readonly property bool hasCurrent: currentText.length > 0
-                readonly property real maxTextWidth: Math.max(24, parent.width - (tabRow.x + tabRow.width) - 12 - 12 - 16
-                                                                  - 14 - 10 - (hasCurrent ? 13 : 0))
                 readonly property string currentText: labelFilterButton.labelField(ZaloClient.conversationModel.labelFilter, "text")
                 readonly property string currentColor: labelFilterButton.labelField(ZaloClient.conversationModel.labelFilter, "color")
                 function labelField(id: int, key: string): string {
@@ -346,37 +365,51 @@ Rectangle {
                     return "";
                 }
                 height: 26
-                width: labelFilterRow.implicitWidth + 16
+                width: labelFilterRow.implicitWidth + 14
                 radius: 13
                 color: labelFilterMouse.containsMouse || labelFilterMenu.opened ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+
                 Row {
                     id: labelFilterRow
                     anchors.centerIn: parent
-                    spacing: 5
+                    spacing: 4
+
                     Rectangle {
                         visible: labelFilterButton.hasCurrent
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 8
-                        height: 8
-                        radius: 4
+                        width: 7
+                        height: 7
+                        radius: 3.5
                         color: labelFilterButton.hasCurrent ? labelFilterButton.currentColor : "transparent"
                     }
-                    Text {
+
+                    ZIcon {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: labelFilterButton.hasCurrent ? labelFilterButton.currentText : I18n.t("Phân loại", "Labels")
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 12
-                        color: labelFilterButton.hasCurrent ? ThemeManager.textColor : ThemeManager.secondaryTextColor
-                        elide: Text.ElideRight
-                        width: Math.min(implicitWidth, 110, labelFilterButton.maxTextWidth)
+                        name: "tag"
+                        size: 15
+                        color: labelFilterButton.hasCurrent
+                               ? (labelFilterButton.currentColor || Theme.zaloBlue)
+                               : (labelFilterMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
                     }
-                    ZIcon { anchors.verticalCenter: parent.verticalCenter; name: "chevron_down"; size: 14; color: ThemeManager.secondaryTextColor }
+
+                    ZIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "chevron_down"
+                        size: 10
+                        color: ThemeManager.secondaryTextColor
+                    }
                 }
+
                 MouseArea {
                     id: labelFilterMouse
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
+                    ToolTip.visible: labelFilterMouse.containsMouse && !labelFilterMenu.opened
+                    ToolTip.delay: 350
+                    ToolTip.text: labelFilterButton.hasCurrent
+                                  ? (I18n.t("Thẻ: ", "Label: ") + labelFilterButton.currentText)
+                                  : I18n.t("Phân loại thẻ", "Filter by label")
                     onClicked: labelFilterMenu.open()
                 }
                 Popup {
@@ -754,9 +787,9 @@ Rectangle {
                             }
 
                             Rectangle {
-                                width: Math.max(unreadBadgeText.implicitWidth + 8, 18)
-                                height: 18
-                                radius: 9
+                                width: Math.max(unreadBadgeText.implicitWidth + 10, 20)
+                                height: 20
+                                radius: 10
                                 color: Theme.badgeRed
                                 visible: itemDelegate.unreadCount > 0
                                 scale: itemDelegate.unreadCount > 0 ? 1.0 : 0.0
@@ -767,7 +800,7 @@ Rectangle {
                                     anchors.centerIn: parent
                                     text: itemDelegate.unreadCount > 99 ? "99+" : itemDelegate.unreadCount
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 10
+                                    font.pixelSize: 11
                                     font.bold: true
                                     color: "#FFFFFF"
                                 }
@@ -963,6 +996,8 @@ Rectangle {
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: ZaloClient.conversationModel.searchQuery.length > 0 ? I18n.t("Không tìm thấy kết quả phù hợp", "No matching results")
+                          : ZaloClient.conversationModel.viewMode === "archived" ? I18n.t("Không có hội thoại trong mục khác", "No conversations in other")
+                          : ZaloClient.conversationModel.viewMode === "direct" ? I18n.t("Không có tin nhắn trực tiếp", "No direct messages")
                           : ZaloClient.conversationModel.activeCategory === "unread" ? I18n.t("Không có tin nhắn chưa đọc", "No unread messages")
                           : I18n.tr("no_conversations")
                     font.family: Theme.fontFamily

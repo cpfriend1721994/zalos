@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Zalos
-Comment=Zalo Desktop Client ported to Qt6 (C++/QML) for Linux
-Comment[vi]=Ứng dụng Zalo Desktop Native Qt6 (C++/QML) cho Linux
+Comment=High-performance and lightweight native Zalo client (C++/Qt6) for Linux
+Comment[vi]=Ứng dụng Zalo Desktop native hiệu năng cao, siêu nhẹ (C++/Qt6) cho Linux
 Exec=zalos %u
 Icon=zalos
 Terminal=false

@@ -94,6 +94,9 @@ private:
     QString m_url;
     QString m_fileName;
     QString m_encryptedKey;
+    QString m_checksum;
+    qint64 m_expectedSize{0};
+    bool m_writeFailed{false};
     int m_format{0};
     int m_expectedMessages{0};
 

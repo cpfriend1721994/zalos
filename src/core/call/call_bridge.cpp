@@ -14,7 +14,6 @@
 #include <QProcess>
 #include <QRandomGenerator>
 #include <QRegularExpression>
-#include <QSettings>
 #include <QUrl>
 #include <QVersionNumber>
 #include <QFileInfo>
@@ -41,8 +40,6 @@ QStringList candidateRoots() {
     QStringList roots;
     const QString env = qEnvironmentVariable("ZALOS_ZCALL_DIR");
     if (!env.isEmpty()) roots << env;
-    const QString override = QSettings().value("calls/zcallDir").toString();
-    if (!override.isEmpty()) roots << override;
     roots << CallBridge::bundledEngineRoot();
 #ifdef ZALOS_SOURCE_DIR
     roots << QStringLiteral(ZALOS_SOURCE_DIR) + "/third_party/zcall-native";
@@ -160,31 +157,6 @@ QString CallBridge::findEngine() {
         if (!path.isEmpty()) return path;
     }
     return {};
-}
-
-bool CallBridge::setEngineDirectory(const QString& urlOrPath) {
-    if (urlOrPath.isEmpty()) {
-        QSettings().remove("calls/zcallDir");
-        refreshAvailability();
-        emit availabilityChanged();
-        return true;
-    }
-    const QUrl url(urlOrPath);
-    const QString folder = url.isLocalFile() ? url.toLocalFile() : urlOrPath;
-    const QString engine = engineIn(folder);
-    if (engine.isEmpty()) return false;
-    QSettings().setValue("calls/zcallDir", QFileInfo(engine).dir().absolutePath().section('/', 0, -2));
-    refreshAvailability();
-    emit availabilityChanged();
-    return true;
-}
-
-bool CallBridge::engineIsBundled() const {
-    return !m_enginePath.isEmpty() && engineDirectory() == bundledEngineRoot();
-}
-
-QString CallBridge::engineDirectory() const {
-    return m_enginePath.isEmpty() ? QString() : QFileInfo(m_enginePath).dir().absolutePath().section('/', 0, -2);
 }
 
 QByteArray CallBridge::findTransportKey(QString* mainJsPath) {
@@ -380,7 +352,7 @@ bool CallBridge::ensureEngine() {
     m_process->start(findNode(), {m_enginePath, "--token", m_token,
                                   "--recv", QString::number(m_recvServer->serverPort()),
                                   "--send", QString::number(m_sendServer->serverPort()),
-                                  "--media", "zrtc", "--send-udp"});
+                                  "--media", "zrtc", "--send-udp", "--group"});
     return true;
 }
 
@@ -406,6 +378,7 @@ void CallBridge::shutdown() {
     m_pending.clear();
     m_activePeer.clear();
     m_isVideoMode = false;
+    m_isGroupMode = false;
     if (m_cameraSender) m_cameraSender->stop();
     m_cameraOn = false;
     m_cameraOffAnnounced = false;
@@ -528,6 +501,97 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
             params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")}, {"isOnCam", d.value("isOnCam")},
                       {"isOnMic", d.value("isOnMic")}, {"data", d.value("data")}};
             break;
+        case 12433:
+            path = "/api/voicecall/group/requestcall";
+            params = {{"groupId", d.value("groupId")}, {"callId", d.value("callId")},
+                      {"typeRequest", d.value("typeRequest")}, {"data", d.value("data")},
+                      {"partners", d.value("partners")}};
+            break;
+        case 12434:
+            path = "/api/voicecall/group/request";
+            params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")},
+                      {"callType", d.value("callType")}, {"data", d.value("data")},
+                      {"session", d.value("session")}, {"partners", d.value("partners")},
+                      {"groupId", d.value("groupId")}};
+            break;
+        case 12435:
+            path = "/api/voicecall/group/adduser";
+            params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")},
+                      {"callType", d.value("callType")}, {"hostCall", d.value("hostCall")},
+                      {"data", d.value("data")}, {"session", d.value("session")},
+                      {"partners", d.value("partners")}, {"groupId", d.value("groupId")}};
+            break;
+        case 12436:
+            path = "/api/voicecall/group/answer";
+            params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")},
+                      {"callType", d.value("callType")}, {"hostCall", d.value("hostCall")},
+                      {"data", d.value("data")}, {"partners", d.value("partners")},
+                      {"groupId", d.value("groupId")}, {"status", d.value("status")},
+                      {"session", d.value("session")}};
+            break;
+        case 12437:
+            path = "/api/voicecall/group/cancel";
+            params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")},
+                      {"callType", d.value("callType")}, {"hostCall", d.value("hostCall")},
+                      {"data", d.value("data")}, {"partners", d.value("partners")},
+                      {"groupId", d.value("groupId")}};
+            break;
+        case 12438:
+            path = "/api/voicecall/group/endcall";
+            params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")},
+                      {"callType", d.value("callType")}, {"hostCall", d.value("hostCall")},
+                      {"data", d.value("data")}, {"partners", d.value("partners")},
+                      {"groupId", d.value("groupId")}};
+            break;
+        case 12439:
+            path = "/api/voicecall/group/ringring";
+            params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")},
+                      {"callType", d.value("callType")}, {"hostCall", d.value("hostCall")},
+                      {"data", d.value("data")}, {"partners", d.value("partners")},
+                      {"session", d.value("session")}, {"status", d.value("status")}};
+            break;
+        case 12445:
+            path = "/api/voicecall/group/state";
+            params = {{"callId", d.value("callId")}, {"hostCall", d.value("hostCall")},
+                      {"callType", d.value("callType")}};
+            break;
+        case 12446:
+            path = "/api/voicecall/group/finish";
+            params = {{"callId", d.value("callId")}, {"callType", d.value("callType")},
+                      {"data", d.value("data")}, {"duration", d.value("duration")},
+                      {"hostCall", d.value("hostCall")}, {"partners", d.value("partners")},
+                      {"status", d.value("status")}, {"joinTime", d.value("joinTime")}};
+            break;
+        case 12447:
+            path = "/api/voicecall/group/notify";
+            params = {{"callId", d.value("callId")}, {"hostCall", d.value("hostCall")},
+                      {"callType", d.value("callType")}, {"status", d.value("status")},
+                      {"data", d.value("data")}};
+            break;
+        case 12097:
+            path = "/api/voicecall/group/ping";
+            params = {{"callId", d.value("callId")}, {"hostCall", d.value("hostCall")},
+                      {"userId", d.value("userId")}, {"callstate", d.value("callState").toVariant().toInt(nullptr)},
+                      {"audiostate", d.value("audioState").toVariant().toInt(nullptr)},
+                      {"videostate", d.value("videoState").toVariant().toInt(nullptr)},
+                      {"params", d.value("params")}};
+            break;
+        case 12098:
+            path = "/api/voicecall/group/broadcast";
+            params = {{"callId", d.value("callId")}, {"hostCall", d.value("hostCall")},
+                      {"userId", d.value("userId")}, {"callstate", d.value("callState").toVariant().toInt(nullptr)},
+                      {"audiostate", d.value("audioState").toVariant().toInt(nullptr)},
+                      {"videostate", d.value("videoState").toVariant().toInt(nullptr)},
+                      {"params", d.value("params")}};
+            break;
+        case 12044:
+            path = "/api/voicecall/group/sharescreen";
+            params = {{"userId", d.value("userId")}, {"callId", d.value("callId")},
+                      {"hostCall", d.value("hostCall")}, {"status", d.value("status")},
+                      {"audiostate", d.value("audioState").toVariant().toInt(nullptr)},
+                      {"videostate", d.value("videoState").toVariant().toInt(nullptr)},
+                      {"data", d.value("data")}};
+            break;
         default:
             return;
     }
@@ -549,6 +613,7 @@ void CallBridge::startVoiceCall(const QString& peerId, const QString& peerName, 
     m_activePeer = peerId;
     m_activeOutgoing = true;
     m_isVideoMode = false;
+    m_isGroupMode = false;
     m_ui = QJsonObject{{"phase", "outgoing"}, {"name", peerName}, {"avatar", peerAvatar}, {"video", false}};
     emit stateChanged();
     sendToEngine({{"type", "request"}, {"command", "makeCall"},
@@ -562,6 +627,7 @@ void CallBridge::startVideoCall(const QString& peerId, const QString& peerName, 
     m_activePeer = peerId;
     m_activeOutgoing = true;
     m_isVideoMode = true;
+    m_isGroupMode = false;
     m_cameraError.clear();
     m_cameraOn = cameraAvailable();
     m_ui = QJsonObject{{"phase", "outgoing"}, {"name", peerName}, {"avatar", peerAvatar}, {"video", true}};
@@ -571,6 +637,54 @@ void CallBridge::startVideoCall(const QString& peerId, const QString& peerName, 
                   {"data", QJsonObject{{"partner", QJsonArray{QJsonObject{{"id", peerId}, {"name", peerName},
                                                                          {"avatar", peerAvatar}}}},
                                        {"type", 3}}}});
+}
+
+void CallBridge::startGroupCall(const QString& groupId, const QString& groupName, const QString& groupAvatar,
+                               const QVariantList& members, bool isVideo) {
+    if (!m_activePeer.isEmpty() || !ensureEngine()) return;
+    m_activePeer = groupId;
+    m_activeOutgoing = true;
+    m_isVideoMode = isVideo;
+    m_isGroupMode = true;
+    m_cameraError.clear();
+    m_cameraOn = isVideo && cameraAvailable();
+
+    QJsonArray partners;
+    for (const QVariant& item : members) {
+        const QVariantMap m = item.toMap();
+        const QString uid = m.value("id").toString();
+        if (uid.isEmpty() || m.value("isMe").toBool()) continue;
+        partners.append(QJsonObject{
+            {"id", uid},
+            {"name", m.value("name").toString()},
+            {"avatar", m.value("avatar").toString()}
+        });
+    }
+
+    m_ui = QJsonObject{
+        {"phase", "outgoing"},
+        {"name", groupName.isEmpty() ? QStringLiteral("Cuộc gọi nhóm") : groupName},
+        {"avatar", groupAvatar},
+        {"video", isVideo},
+        {"group", true}
+    };
+    emit stateChanged();
+    if (isVideo) emit cameraStateChanged();
+
+    sendToEngine({
+        {"type", "request"},
+        {"command", "makeCall"},
+        {"data", QJsonObject{
+            {"type", isVideo ? 6 : 5},
+            {"partner", partners},
+            {"groupInfo", QJsonObject{
+                {"id", groupId},
+                {"name", groupName},
+                {"avatar", groupAvatar},
+                {"maxUsers", 8}
+            }}
+        }}
+    });
 }
 
 bool CallBridge::cameraAvailable() const {
@@ -628,11 +742,10 @@ void CallBridge::handleVoipControl(const QJsonObject& rawContent) {
         content["data"] = QJsonDocument::fromJson(content.value("data").toString().toUtf8()).object();
     }
     const QString act = content.value("act").toString();
-    if (act.startsWith("group_")) return;
     const qint64 ts = content.value("data").toObject().value("ts").toVariant().toLongLong();
     if (ts > 0 && QDateTime::currentMSecsSinceEpoch() - ts > 60000) return;
 
-    const bool incoming = act == "request";
+    const bool incoming = act == "request" || act == "group_request";
     if (incoming) {
         content["inCallStatus"] = m_activePeer.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue("zalo");
     }

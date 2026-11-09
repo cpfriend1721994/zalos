@@ -158,9 +158,9 @@ private slots:
         QVERIFY(msgModel != nullptr);
 
         // Select conversation
-        client.selectConversation("cloud-me", "Cloud của tôi", "qrc:/Zalos/assets/icons/zalos.svg");
+        client.selectConversation("cloud-me", "My Documents", "qrc:/Zalos/assets/icons/zalos.svg");
         QCOMPARE(client.currentConversationId(), QString("cloud-me"));
-        QCOMPARE(client.currentConversationName(), QString("Cloud của tôi"));
+        QCOMPARE(client.currentConversationName(), QString("My Documents"));
 
         int initialMsgCount = msgModel->rowCount();
         QVERIFY(initialMsgCount >= 0);
@@ -264,7 +264,9 @@ private slots:
     void testSystemTraySync() {
         SystemTrayController tray;
         tray.setUnreadCount(5);
-        // Tray should accept unread count without crashing
+        tray.setUnreadCount(99);
+        tray.setUnreadCount(100);
+        tray.setUnreadCount(150, true);
         tray.setUnreadCount(0);
     }
 };

@@ -593,21 +593,106 @@ Rectangle {
                                     }
                                 }
 
-                                Rectangle {
-                                    visible: rowMouse.containsMouse && !root.compact && !contactRow.isInvite
-                                    Layout.preferredWidth: chatLabel.implicitWidth + 24
-                                    Layout.preferredHeight: 30
-                                    radius: 6
-                                    color: Theme.zaloBlueLight
+                                Row {
+                                    visible: (rowMouse.containsMouse || actVoiceMouse.containsMouse || actVideoMouse.containsMouse || actChatMouse.containsMouse) && !contactRow.isInvite
+                                    spacing: 4
 
-                                    Text {
-                                        id: chatLabel
-                                        anchors.centerIn: parent
-                                        text: I18n.t("Nhắn tin", "Chat")
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        font.bold: true
-                                        color: Theme.zaloBlueTonalText
+                                    Rectangle {
+                                        visible: contactRow.id !== ZaloClient.myCloudId
+                                        width: 32
+                                        height: 32
+                                        radius: 16
+                                        color: actVoiceMouse.pressed ? ThemeManager.selectedColor :
+                                               (actVoiceMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
+                                        scale: actVoiceMouse.pressed ? 0.92 : 1.0
+                                        Behavior on scale { NumberAnimation { duration: 100 } }
+
+                                        ZIcon {
+                                            anchors.centerIn: parent
+                                            name: "phone"
+                                            size: 16
+                                            color: ThemeManager.textColor
+                                        }
+
+                                        MouseArea {
+                                            id: actVoiceMouse
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            hoverEnabled: true
+                                            ToolTip.visible: containsMouse
+                                            ToolTip.delay: 350
+                                            ToolTip.text: contactRow.isGroup
+                                                          ? I18n.t("Cuộc gọi thoại nhóm", "Group voice call")
+                                                          : I18n.t("Cuộc gọi thoại", "Voice call")
+                                            onClicked: {
+                                                ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl);
+                                                if (contactRow.isGroup) ZaloClient.startGroupCall(false);
+                                                else ZaloClient.startVoiceCall();
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        visible: contactRow.id !== ZaloClient.myCloudId
+                                        width: 32
+                                        height: 32
+                                        radius: 16
+                                        color: actVideoMouse.pressed ? ThemeManager.selectedColor :
+                                               (actVideoMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
+                                        scale: actVideoMouse.pressed ? 0.92 : 1.0
+                                        Behavior on scale { NumberAnimation { duration: 100 } }
+
+                                        ZIcon {
+                                            anchors.centerIn: parent
+                                            name: "video"
+                                            size: 16
+                                            color: ThemeManager.textColor
+                                        }
+
+                                        MouseArea {
+                                            id: actVideoMouse
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            hoverEnabled: true
+                                            ToolTip.visible: containsMouse
+                                            ToolTip.delay: 350
+                                            ToolTip.text: contactRow.isGroup
+                                                          ? I18n.t("Cuộc gọi video nhóm", "Group video call")
+                                                          : I18n.t("Cuộc gọi video", "Video call")
+                                            onClicked: {
+                                                ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl);
+                                                if (contactRow.isGroup) ZaloClient.startGroupCall(true);
+                                                else ZaloClient.startVideoCall();
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: 32
+                                        height: 32
+                                        radius: 16
+                                        color: actChatMouse.pressed ? ThemeManager.selectedColor :
+                                               (actChatMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
+                                        scale: actChatMouse.pressed ? 0.92 : 1.0
+                                        Behavior on scale { NumberAnimation { duration: 100 } }
+
+                                        ZIcon {
+                                            anchors.centerIn: parent
+                                            name: "chat"
+                                            size: 16
+                                            color: ThemeManager.textColor
+                                        }
+
+                                        MouseArea {
+                                            id: actChatMouse
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            hoverEnabled: true
+                                            ToolTip.visible: containsMouse
+                                            ToolTip.delay: 350
+                                            ToolTip.text: I18n.t("Nhắn tin", "Chat")
+                                            onClicked: ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl)
+                                        }
                                     }
                                 }
                             }

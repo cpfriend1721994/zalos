@@ -52,6 +52,8 @@
 #include <QCryptographicHash>
 #include <QMimeData>
 #include <QImage>
+#include <QScreen>
+#include <QPixmap>
 #include <QStandardPaths>
 
 #include <algorithm>
@@ -846,6 +848,7 @@ void ZaloClient::onSessionLoggedIn() {
     emit loginStateChanged();
     emit loginStatusChanged();
     emit userProfileChanged();
+    emit kikiStateChanged();
 
     m_calls->setLocalUser(m_myUid, m_userName, m_userAvatar);
     m_scheduler->setAccount(m_myUid);
@@ -944,6 +947,8 @@ void ZaloClient::logout() {
     m_userPhone.clear();
     m_userAvatar.clear();
     m_myUid.clear();
+    m_hasBusinessPackage = false;
+    m_businessPackageName.clear();
     m_loginStatusMessage.clear();
     m_showSettingsModal = false;
     m_showUserProfileModal = false;
@@ -1029,6 +1034,17 @@ void ZaloClient::loadAccountData() {
             m_myProfile.phoneNumber = m_userPhone;
             m_myProfile.isFriend = false;
             m_myProfile.isBlocked = false;
+
+            const QJsonValue bizVal = profile.value("bizPkg");
+            if (bizVal.isObject()) {
+                const QJsonObject bizObj = bizVal.toObject();
+                const int pkgId = bizObj.value("pkgId").toVariant().toInt();
+                m_hasBusinessPackage = (pkgId > 0);
+                m_businessPackageName = bizObj.value("label").toString(bizObj.value("name").toString());
+            } else {
+                m_hasBusinessPackage = false;
+                m_businessPackageName.clear();
+            }
 
             saveSession();
             emit userProfileChanged();
@@ -1546,6 +1562,18 @@ void ZaloClient::setServerSetting(const QString& type, int value) {
     });
 }
 
+bool ZaloClient::kikiAvailable() const {
+    return (m_apiClient && m_apiClient->session())
+        ? m_apiClient->session()->kikiAssistantConfig().value(QStringLiteral("enable")).toVariant().toBool()
+        : false;
+}
+
+QString ZaloClient::kikiUrl() const {
+    return (m_apiClient && m_apiClient->session())
+        ? m_apiClient->session()->kikiAssistantConfig().value(QStringLiteral("h5_url")).toString()
+        : QString();
+}
+
 void ZaloClient::loadReminders() {
     m_reminders.clear();
     if (!m_isLoggedIn || m_currentConvId.isEmpty()) {
@@ -1783,7 +1811,7 @@ void ZaloClient::ensureConversation(const QString& threadId, bool isGroup) {
         if (!m_groups.contains(threadId)) loadGroupInfo({threadId});
     } else {
         const Profile u = m_users.value(threadId);
-        item.name = threadId == myCloudId() ? L("Cloud của tôi", "My Cloud") : displayNameOf(threadId);
+        item.name = threadId == myCloudId() ? L("My Documents", "My Documents") : displayNameOf(threadId);
         item.avatarUrl = u.avatar;
         if (!m_users.contains(threadId) && threadId != myCloudId()) {
             m_pendingUserLookups.insert(threadId);
@@ -2758,10 +2786,109 @@ QString ZaloClient::myCloudId() const {
 void ZaloClient::openMyCloud() {
     const QString id = myCloudId();
     if (id.isEmpty()) {
-        emit notice(L("Cloud của tôi chưa sẵn sàng.", "My Cloud isn't available yet."));
+        emit notice(L("My Documents chưa sẵn sàng.", "My Documents isn't available yet."));
         return;
     }
-    openConversationWithContact(id, L("Cloud của tôi", "My Cloud"), QString());
+    openConversationWithContact(id, L("My Documents", "My Documents"), QString());
+}
+
+QVariantList ZaloClient::cloudSharedItems(const QString& kind) const {
+    const QString cloudId = myCloudId();
+    if (cloudId.isEmpty() || !m_isLoggedIn) {
+        return {};
+    }
+
+    auto tagList = [](QVariantList list, const QString& type) {
+        for (auto& item : list) {
+            QVariantMap m = item.toMap();
+            m[QStringLiteral("itemType")] = type;
+            if (m.value(QStringLiteral("title")).toString().isEmpty()) {
+                m[QStringLiteral("title")] = (type == QLatin1String("media"))
+                    ? (m.value(QStringLiteral("isVideo")).toBool() ? QStringLiteral("Video") : QStringLiteral("Hình ảnh"))
+                    : (type == QLatin1String("file") ? QStringLiteral("Tập tin") : QStringLiteral("Liên kết"));
+            }
+            item = m;
+        }
+        return list;
+    };
+
+    if (m_currentConvId == cloudId && m_messageModel) {
+        if (kind == QLatin1String("media")) return tagList(m_messageModel->sharedItems(QStringLiteral("media"), 100), QStringLiteral("media"));
+        if (kind == QLatin1String("file")) return tagList(m_messageModel->sharedItems(QStringLiteral("file"), 100), QStringLiteral("file"));
+        if (kind == QLatin1String("link")) return tagList(m_messageModel->sharedItems(QStringLiteral("link"), 100), QStringLiteral("link"));
+        QVariantList all;
+        all.append(tagList(m_messageModel->sharedItems(QStringLiteral("media"), 50), QStringLiteral("media")));
+        all.append(tagList(m_messageModel->sharedItems(QStringLiteral("file"), 50), QStringLiteral("file")));
+        all.append(tagList(m_messageModel->sharedItems(QStringLiteral("link"), 50), QStringLiteral("link")));
+        std::sort(all.begin(), all.end(), [](const QVariant& a, const QVariant& b) {
+            return a.toMap().value("ts").toLongLong() > b.toMap().value("ts").toLongLong();
+        });
+        return all;
+    }
+
+    if (!m_offlineStore) return {};
+    const auto msgs = m_offlineStore->loadMessages(cloudId, nullptr, 300);
+    static const QRegularExpression urlRegex(QStringLiteral(R"(https?://[^\s<>"']+)"));
+
+    QVariantList mediaList;
+    QVariantList fileList;
+    QVariantList linkList;
+
+    for (int i = msgs.size() - 1; i >= 0; --i) {
+        const auto& m = msgs.at(i);
+        if (m.isRecalled) continue;
+        QVariantMap e{
+            {QStringLiteral("msgId"), m.id},
+            {QStringLiteral("senderName"), m.senderName},
+            {QStringLiteral("ts"), m.ts},
+            {QStringLiteral("timeStr"), m.timeStr}
+        };
+
+        if (m.messageType == QLatin1String("image") || m.messageType == QLatin1String("video")) {
+            if (m.mediaUrl.isEmpty()) continue;
+            e[QStringLiteral("itemType")] = QStringLiteral("media");
+            e[QStringLiteral("thumb")] = m.mediaUrl;
+            e[QStringLiteral("url")] = m.href.isEmpty() ? m.mediaUrl : m.href;
+            const bool isVid = (m.messageType == QLatin1String("video"));
+            e[QStringLiteral("isVideo")] = isVid;
+            e[QStringLiteral("title")] = m.text.isEmpty() ? (isVid ? QStringLiteral("Video") : QStringLiteral("Hình ảnh")) : m.text;
+            mediaList.append(e);
+        } else if (m.messageType == QLatin1String("file")) {
+            e[QStringLiteral("itemType")] = QStringLiteral("file");
+            e[QStringLiteral("title")] = m.text.isEmpty() ? QStringLiteral("Tập tin") : m.text;
+            e[QStringLiteral("url")] = m.href.isEmpty() ? m.mediaUrl : m.href;
+            e[QStringLiteral("fileSize")] = m.fileSize;
+            fileList.append(e);
+        } else if (m.messageType == QLatin1String("link")) {
+            e[QStringLiteral("itemType")] = QStringLiteral("link");
+            e[QStringLiteral("url")] = m.href;
+            e[QStringLiteral("title")] = m.text.isEmpty() ? m.href : m.text;
+            e[QStringLiteral("thumb")] = m.mediaUrl;
+            linkList.append(e);
+        } else {
+            const auto match = urlRegex.match(m.text);
+            if (match.hasMatch()) {
+                QString link = match.captured(0);
+                while (!link.isEmpty() && QStringLiteral(".,;:!?)]}").contains(link.back())) link.chop(1);
+                e[QStringLiteral("itemType")] = QStringLiteral("link");
+                e[QStringLiteral("url")] = link;
+                e[QStringLiteral("title")] = link;
+                linkList.append(e);
+            }
+        }
+    }
+
+    if (kind == QLatin1String("media")) return mediaList;
+    if (kind == QLatin1String("file")) return fileList;
+    if (kind == QLatin1String("link")) return linkList;
+
+    QVariantList all = mediaList;
+    all.append(fileList);
+    all.append(linkList);
+    std::sort(all.begin(), all.end(), [](const QVariant& a, const QVariant& b) {
+        return a.toMap().value("ts").toLongLong() > b.toMap().value("ts").toLongLong();
+    });
+    return all;
 }
 
 void ZaloClient::openConversationWithContact(const QString& id, const QString& name, const QString& avatarUrl) {
@@ -2977,6 +3104,11 @@ bool ZaloClient::loadOfflineCache() {
     } batchGuard{m_conversationModel};
     for (const auto& c : convs) {
         Models::ConversationItem item = c;
+        if (item.name.compare(QLatin1String("Cloud của tôi"), Qt::CaseInsensitive) == 0
+            || item.name.compare(QLatin1String("My Cloud"), Qt::CaseInsensitive) == 0
+            || item.name.compare(QLatin1String("Truyền File"), Qt::CaseInsensitive) == 0) {
+            item.name = L("My Documents", "My Documents");
+        }
         item.isOnline = false;
         if (item.isMuted) m_mutedIds.insert(item.id);
         if (item.isGroup) m_groupIds.insert(item.id);
@@ -3347,6 +3479,7 @@ QString ZaloClient::fillHighlights(const QString& text, const QJsonArray& highli
 }
 
 QString ZaloClient::displayNameOf(const QString& uid) const {
+    if (!uid.isEmpty() && uid == myCloudId()) return L("My Documents", "My Documents");
     const QString alias = m_aliases.value(uid);
     return alias.isEmpty() ? m_users.value(uid).name : alias;
 }
@@ -4047,7 +4180,9 @@ QString ZaloClient::profileDob() const { return m_activeProfile.sdob; }
 QString ZaloClient::profileBio() const { return m_activeProfile.status; }
 QString ZaloClient::profilePhone() const { return m_activeProfile.phoneNumber; }
 bool ZaloClient::profileIsFriend() const { return m_activeProfile.isFriend; }
-bool ZaloClient::profileIsOfficial() const { return m_officialIds.contains(m_activeProfile.userId); }
+bool ZaloClient::profileIsOfficial() const {
+    return isOfficialOrSystemAccount(m_activeProfile.userId, m_activeProfile.displayName);
+}
 bool ZaloClient::isOfficialAccountForTesting(const QJsonObject& user) { return isOfficialAccount(user); }
 bool ZaloClient::profileIsBlocked() const { return m_activeProfile.isBlocked; }
 bool ZaloClient::profileIsInactive() const { return m_inactiveIds.contains(m_activeProfile.userId); }
@@ -5246,53 +5381,272 @@ void ZaloClient::notifyIncomingCallDbus(const QString& callerName) {
 }
 
 void ZaloClient::requestScreenshot(bool hideWindow) {
-    if (m_currentConvId.isEmpty()) return;
+    if (m_currentConvId.isEmpty()) {
+        const QString cloudId = myCloudId();
+        if (!cloudId.isEmpty()) {
+            openMyCloud();
+        } else if (!m_conversationModel->conversations().isEmpty()) {
+            const auto first = m_conversationModel->conversations().first();
+            selectConversation(first.id, first.name, first.avatarUrl);
+        }
+    }
+    m_screenshotTarget = m_currentConvId;
     if (hideWindow) {
         emit requestHideForScreenshot();
-        QTimer::singleShot(250, this, [this]() { requestScreenshot(false); });
+        QTimer::singleShot(350, this, [this]() { executeScreenshotCapture(); });
         return;
     }
+    executeScreenshotCapture();
+}
+
+void ZaloClient::executeScreenshotCapture() {
+    const QString tempPath = QDir::tempPath() + QStringLiteral("/zalos_shot_%1.png").arg(QDateTime::currentMSecsSinceEpoch());
+
+    auto onFinishedCapture = [this, tempPath](bool ok) {
+        emit requestRestoreAfterScreenshot();
+        if (ok && QFile::exists(tempPath) && QFileInfo(tempPath).size() > 500) {
+            if (m_screenshotTarget.isEmpty()) m_screenshotTarget = m_currentConvId;
+            if (m_screenshotTarget != m_currentConvId && !m_screenshotTarget.isEmpty()) {
+                const auto conv = m_conversationModel->conversation(m_screenshotTarget);
+                selectConversation(m_screenshotTarget, conv.name, conv.avatarUrl);
+            }
+            sendFile(tempPath);
+            emit notice(L("Đã chụp và gửi ảnh màn hình thành công", "Screenshot captured and sent successfully"));
+        }
+    };
+
+    // 1. Try KDE Spectacle (interactive region selection in background)
+    const QString spectacle = QStandardPaths::findExecutable(QStringLiteral("spectacle"));
+    if (!spectacle.isEmpty()) {
+        auto* proc = new QProcess(this);
+        connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                [proc, onFinishedCapture](int exitCode, QProcess::ExitStatus) {
+            proc->deleteLater();
+            onFinishedCapture(exitCode == 0);
+        });
+        proc->start(spectacle, {QStringLiteral("-r"), QStringLiteral("-b"), QStringLiteral("-n"), QStringLiteral("-o"), tempPath});
+        return;
+    }
+
+    // 2. Try GNOME Screenshot (interactive area)
+    const QString gnomeShot = QStandardPaths::findExecutable(QStringLiteral("gnome-screenshot"));
+    if (!gnomeShot.isEmpty()) {
+        auto* proc = new QProcess(this);
+        connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                [proc, onFinishedCapture](int exitCode, QProcess::ExitStatus) {
+            proc->deleteLater();
+            onFinishedCapture(exitCode == 0);
+        });
+        proc->start(gnomeShot, {QStringLiteral("-a"), QStringLiteral("-f"), tempPath});
+        return;
+    }
+
+    // 3. Try Flameshot
+    const QString flameshot = QStandardPaths::findExecutable(QStringLiteral("flameshot"));
+    if (!flameshot.isEmpty()) {
+        auto* proc = new QProcess(this);
+        connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                [proc, onFinishedCapture](int exitCode, QProcess::ExitStatus) {
+            proc->deleteLater();
+            onFinishedCapture(exitCode == 0);
+        });
+        proc->start(flameshot, {QStringLiteral("gui"), QStringLiteral("-r"), QStringLiteral("-p"), tempPath});
+        return;
+    }
+
+    // 4. Try grim & slurp (Wayland generic)
+    const QString grim = QStandardPaths::findExecutable(QStringLiteral("grim"));
+    const QString slurp = QStandardPaths::findExecutable(QStringLiteral("slurp"));
+    if (!grim.isEmpty()) {
+        auto* proc = new QProcess(this);
+        connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                [proc, onFinishedCapture](int exitCode, QProcess::ExitStatus) {
+            proc->deleteLater();
+            onFinishedCapture(exitCode == 0);
+        });
+        if (!slurp.isEmpty()) {
+            proc->start(QStringLiteral("sh"), {QStringLiteral("-c"), QStringLiteral("grim -g \"$(slurp)\" \"%1\"").arg(tempPath)});
+        } else {
+            proc->start(grim, {tempPath});
+        }
+        return;
+    }
+
+    // 5. Try maim (X11)
+    const QString maim = QStandardPaths::findExecutable(QStringLiteral("maim"));
+    if (!maim.isEmpty()) {
+        auto* proc = new QProcess(this);
+        connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                [proc, onFinishedCapture](int exitCode, QProcess::ExitStatus) {
+            proc->deleteLater();
+            onFinishedCapture(exitCode == 0);
+        });
+        proc->start(maim, {QStringLiteral("-s"), tempPath});
+        return;
+    }
+
+    // 6. Direct Screen Grab on X11 / XWayland
+    if (QGuiApplication::platformName().contains(QLatin1String("xcb"))) {
+        QScreen* screen = QGuiApplication::primaryScreen();
+        if (screen) {
+            QPixmap pix = screen->grabWindow(0);
+            if (!pix.isNull() && pix.save(tempPath, "PNG")) {
+                onFinishedCapture(true);
+                return;
+            }
+        }
+    }
+
+    // 7. XDG Desktop Portal Fallback
     QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        emit requestRestoreAfterScreenshot();
+        emit notice(L("Không tìm thấy công cụ chụp màn hình (cài đặt spectacle, gnome-screenshot hoặc flameshot)",
+                      "No screenshot utility found (please install spectacle, gnome-screenshot, or flameshot)"));
+        return;
+    }
     if (!m_screenshotRequest.isEmpty())
-        bus.disconnect("org.freedesktop.portal.Desktop", m_screenshotRequest, "org.freedesktop.portal.Request",
-                       "Response", this, SLOT(onScreenshotResponse(uint,QVariantMap)));
+        bus.disconnect(QStringLiteral("org.freedesktop.portal.Desktop"), m_screenshotRequest,
+                       QStringLiteral("org.freedesktop.portal.Request"), QStringLiteral("Response"),
+                       this, SLOT(onScreenshotResponse(uint,QVariantMap)));
     const QString token = QStringLiteral("zalos_shot_%1").arg(QDateTime::currentMSecsSinceEpoch());
     QString sender = bus.baseService().mid(1);
     sender.replace('.', '_');
     m_screenshotRequest = QStringLiteral("/org/freedesktop/portal/desktop/request/%1/%2").arg(sender, token);
-    m_screenshotTarget = m_currentConvId;
-    bus.connect("org.freedesktop.portal.Desktop", m_screenshotRequest, "org.freedesktop.portal.Request", "Response",
+    bus.connect(QStringLiteral("org.freedesktop.portal.Desktop"), m_screenshotRequest,
+                QStringLiteral("org.freedesktop.portal.Request"), QStringLiteral("Response"),
                 this, SLOT(onScreenshotResponse(uint,QVariantMap)));
 
-    QDBusMessage msg = QDBusMessage::createMethodCall("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
-                                                      "org.freedesktop.portal.Screenshot", "Screenshot");
-    QVariantMap options{{"interactive", true}, {"modal", true}, {"handle_token", token}};
+    QDBusMessage msg = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.portal.Desktop"),
+                                                      QStringLiteral("/org/freedesktop/portal/desktop"),
+                                                      QStringLiteral("org.freedesktop.portal.Screenshot"),
+                                                      QStringLiteral("Screenshot"));
+    QVariantMap options{{QStringLiteral("interactive"), true}, {QStringLiteral("modal"), true}, {QStringLiteral("handle_token"), token}};
     msg << QString() << options;
     auto* watcher = new QDBusPendingCallWatcher(bus.asyncCall(msg), this);
-    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* w) {
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, tempPath](QDBusPendingCallWatcher* w) {
         w->deleteLater();
-        if (!w->isError()) return;
+        if (!w->isError()) {
+            QDBusPendingReply<QDBusObjectPath> reply = *w;
+            if (reply.isValid() && !reply.value().path().isEmpty()) {
+                const QString actualPath = reply.value().path();
+                if (actualPath != m_screenshotRequest) {
+                    QDBusConnection bus = QDBusConnection::sessionBus();
+                    bus.disconnect(QStringLiteral("org.freedesktop.portal.Desktop"), m_screenshotRequest,
+                                   QStringLiteral("org.freedesktop.portal.Request"), QStringLiteral("Response"),
+                                   this, SLOT(onScreenshotResponse(uint,QVariantMap)));
+                    m_screenshotRequest = actualPath;
+                    bus.connect(QStringLiteral("org.freedesktop.portal.Desktop"), m_screenshotRequest,
+                                QStringLiteral("org.freedesktop.portal.Request"), QStringLiteral("Response"),
+                                this, SLOT(onScreenshotResponse(uint,QVariantMap)));
+                }
+            }
+            return;
+        }
+
         m_screenshotRequest.clear();
+        QScreen* screen = QGuiApplication::primaryScreen();
+        if (screen) {
+            QPixmap pix = screen->grabWindow(0);
+            if (!pix.isNull() && pix.save(tempPath, "PNG")) {
+                emit requestRestoreAfterScreenshot();
+                sendFile(tempPath);
+                emit notice(L("Đã chụp và gửi ảnh màn hình toàn cảnh", "Captured and sent full screen screenshot"));
+                return;
+            }
+        }
         emit requestRestoreAfterScreenshot();
-        emit notice(L("Không mở được công cụ chụp màn hình (cần xdg-desktop-portal): ",
-                      "Couldn't open the screenshot tool (needs xdg-desktop-portal): ") + w->error().message());
+        emit notice(L("Không mở được công cụ chụp màn hình (hãy cài đặt spectacle, gnome-screenshot hoặc xdg-desktop-portal)",
+                      "Couldn't open screenshot tool (needs spectacle, gnome-screenshot, or xdg-desktop-portal)"));
     });
 }
 
 void ZaloClient::onScreenshotResponse(uint response, const QVariantMap& results) {
-    QDBusConnection::sessionBus().disconnect("org.freedesktop.portal.Desktop", m_screenshotRequest,
-                                             "org.freedesktop.portal.Request", "Response", this,
+    QDBusConnection::sessionBus().disconnect(QStringLiteral("org.freedesktop.portal.Desktop"), m_screenshotRequest,
+                                             QStringLiteral("org.freedesktop.portal.Request"), QStringLiteral("Response"), this,
                                              SLOT(onScreenshotResponse(uint,QVariantMap)));
     m_screenshotRequest.clear();
     emit requestRestoreAfterScreenshot();
-    if (response != 0) return;
-    const QString uri = results.value("uri").toString();
+    if (response != 0) {
+        const QString tempPath = QDir::tempPath() + QStringLiteral("/zalos_shot_%1.png").arg(QDateTime::currentMSecsSinceEpoch());
+        QScreen* screen = QGuiApplication::primaryScreen();
+        if (screen) {
+            QPixmap pix = screen->grabWindow(0);
+            if (!pix.isNull() && pix.save(tempPath, "PNG")) {
+                sendFile(tempPath);
+                emit notice(L("Đã chụp và gửi ảnh màn hình toàn cảnh", "Captured and sent full screen screenshot"));
+                return;
+            }
+        }
+        return;
+    }
+    const QString uri = results.value(QStringLiteral("uri")).toString();
     if (uri.isEmpty() || m_screenshotTarget.isEmpty()) return;
     if (m_screenshotTarget != m_currentConvId) {
         emit notice(L("Đã chuyển hội thoại nên ảnh chụp chưa được gửi", "The conversation changed; the screenshot was not sent"));
         return;
     }
     sendFile(uri);
+}
+
+void ZaloClient::openBusinessTools() {
+    m_businessTab = QStringLiteral("profile");
+    m_showBusinessToolsModal = true;
+    emit businessTabChanged();
+    emit businessToolsModalChanged();
+}
+
+void ZaloClient::closeBusinessTools() {
+    m_showBusinessToolsModal = false;
+    emit businessToolsModalChanged();
+}
+
+void ZaloClient::openBusinessCatalog() {
+    m_businessTab = QStringLiteral("catalog");
+    m_showBusinessToolsModal = true;
+    emit businessTabChanged();
+    emit businessToolsModalChanged();
+}
+
+void ZaloClient::openBusinessAutoReply() {
+    m_businessTab = QStringLiteral("autoreply");
+    m_showBusinessToolsModal = true;
+    emit businessTabChanged();
+    emit businessToolsModalChanged();
+}
+
+void ZaloClient::openBusinessPackage() {
+    m_businessTab = QStringLiteral("package");
+    m_showBusinessToolsModal = true;
+    emit businessTabChanged();
+    emit businessToolsModalChanged();
+}
+
+void ZaloClient::setBusinessTab(const QString& tab) {
+    if (tab == m_businessTab) return;
+    m_businessTab = tab;
+    emit businessTabChanged();
+}
+
+void ZaloClient::setShowBusinessToolsModal(bool show) {
+    if (show == m_showBusinessToolsModal) return;
+    m_showBusinessToolsModal = show;
+    emit businessToolsModalChanged();
+}
+
+void ZaloClient::sendProductToCurrentChat(const QString& name, const QString& price, const QString& description, const QString& imageUrl) {
+    if (m_currentConvId.isEmpty()) {
+        emit notice(L("Vui lòng mở một cuộc trò chuyện để gửi sản phẩm", "Please open a conversation to send product"));
+        return;
+    }
+    QString text = QStringLiteral("🛍️ %1\n💰 %2").arg(name, price);
+    if (!description.trimmed().isEmpty()) text += QStringLiteral("\n📝 %1").arg(description.trimmed());
+    sendMessage(text);
+    if (!imageUrl.trimmed().isEmpty()) {
+        sendFile(imageUrl);
+    }
+    closeBusinessTools();
+    emit notice(L("Đã gửi thông tin sản phẩm vào hội thoại", "Product sent to conversation"));
 }
 
 void ZaloClient::printMedia(const QString& url) {
@@ -6409,13 +6763,62 @@ void ZaloClient::rejectFriendRequest(const QString& uid) {
     });
 }
 
-bool ZaloClient::currentConversationIsOnline() const {
+bool ZaloClient::isOfficialOrSystemAccount(const QString& id, const QString& name) const {
+    if (id.isEmpty() || id.startsWith('g')) return false;
+    if (m_officialIds.contains(id)) return true;
+    const QString key = Models::foldForSearch(name.isEmpty() ? displayNameOf(id) : name).simplified();
+    if (key.isEmpty()) return false;
+    if (!m_friendIds.contains(id) && (key == QLatin1String("zalo") || key.startsWith(QLatin1String("zalo "))))
+        return true;
+    return key == QLatin1String("zbusiness") || key == QLatin1String("zcloud") || key == QLatin1String("zalopay")
+        || key == QLatin1String("thoi tiet") || key.contains(QLatin1String("medlatec"));
+}
+
+bool ZaloClient::currentConversationIsCloud() const {
+    if (m_currentConvId.isEmpty()) return false;
+    if (m_currentConvId == myCloudId() || m_currentConvId == m_myUid) return true;
+    const QString name = m_currentConvName.trimmed();
+    if (name.compare(QLatin1String("My Documents"), Qt::CaseInsensitive) == 0 ||
+        name.compare(QLatin1String("Cloud của tôi"), Qt::CaseInsensitive) == 0 ||
+        name.compare(QLatin1String("Truyền File"), Qt::CaseInsensitive) == 0) {
+        return true;
+    }
+    return false;
+}
+
+bool ZaloClient::currentConversationIsOfficial() const {
+    const QString name = m_currentConvName.isEmpty() && !m_currentConvId.isEmpty()
+                             ? m_conversationModel->conversation(m_currentConvId).name
+                             : m_currentConvName;
+    return isOfficialOrSystemAccount(m_currentConvId, name);
+}
+
+bool ZaloClient::currentConversationCanCall() const {
+    if (m_currentConvId.isEmpty()) return false;
+    if (currentConversationIsCloud() || currentConversationIsOfficial()) return false;
+    if (currentConversationBlocked() || m_inactiveIds.contains(m_currentConvId)) return false;
+    return true;
+}
+
+bool ZaloClient::currentConversationCanCreateGroup() const {
+    if (m_currentConvId.isEmpty()) return false;
+    if (currentConversationIsCloud() || currentConversationIsOfficial()) return false;
+    return true;
+}
+
+bool ZaloClient::currentConversationCanShareContact() const {
     if (m_currentConvId.isEmpty() || currentConversationIsGroup()) return false;
+    if (currentConversationIsCloud() || currentConversationIsOfficial()) return false;
+    return true;
+}
+
+bool ZaloClient::currentConversationIsOnline() const {
+    if (m_currentConvId.isEmpty() || currentConversationIsGroup() || currentConversationIsCloud() || currentConversationIsOfficial()) return false;
     return m_onlineIds.contains(m_currentConvId);
 }
 
 QString ZaloClient::currentConversationStatus() const {
-    if (m_currentConvId.isEmpty()) return {};
+    if (m_currentConvId.isEmpty() || currentConversationIsCloud()) return {};
     if (m_typingUntil.contains(m_currentConvId)) {
         if (currentConversationIsGroup() && m_typingUser.contains(m_currentConvId)) {
             const QString name = displayNameOf(m_typingUser.value(m_currentConvId));
@@ -6427,7 +6830,7 @@ QString ZaloClient::currentConversationStatus() const {
         const int members = currentConversationMemberCount();
         return members > 0 ? QString::number(members) + L(" thành viên", " members") : QString();
     }
-    if (m_officialIds.contains(m_currentConvId)) return L("Tài khoản chính thức", "Official account");
+    if (currentConversationIsOfficial()) return L("Tài khoản chính thức", "Official account");
     if (m_inactiveIds.contains(m_currentConvId)) return L("Tài khoản đã ngừng hoạt động", "Account no longer active");
     if (m_onlineIds.contains(m_currentConvId)) return L("Đang hoạt động", "Active now");
     if (m_currentLastOnline < 0) return {};
@@ -6450,21 +6853,21 @@ QString ZaloClient::currentConversationStatus() const {
 }
 
 bool ZaloClient::currentConversationHasPresence() const {
-    if (m_currentConvId.isEmpty() || currentConversationIsGroup()) return false;
-    if (m_officialIds.contains(m_currentConvId) || m_inactiveIds.contains(m_currentConvId)) return false;
+    if (m_currentConvId.isEmpty() || currentConversationIsGroup() || currentConversationIsCloud()) return false;
+    if (currentConversationIsOfficial() || m_inactiveIds.contains(m_currentConvId)) return false;
     return m_currentLastOnline >= 0;
 }
 
 void ZaloClient::startVoiceCall() {
-    if (m_currentConvId.isEmpty() || currentConversationIsGroup()) return;
+    if (m_currentConvId.isEmpty() || currentConversationIsGroup() || !currentConversationCanCall()) return;
     m_calls->refreshAvailability();
     if (!m_calls->isAvailable()) {
         const QString r = m_calls->unavailableReason();
         QString why;
         if (r == "node_missing") why = L("chưa cài Node.js (hoặc Bun)", "Node.js (or Bun) is not installed");
         else if (r == "python_missing") why = L("chưa cài python3", "python3 is not installed");
-        else if (r == "engine_missing") why = L("thiếu bộ gọi zcall-native đi kèm Zalos (hãy cài lại Zalos)",
-                                                  "the bundled zcall-native engine is missing (reinstall Zalos)");
+        else if (r == "engine_missing") why = L("thiếu thành phần gọi đi kèm Zalos (hãy cài lại Zalos)",
+                                                  "a bundled component needed for calls is missing (reinstall Zalos)");
         else why = L("không tạo được khóa truyền tin nội bộ cho cuộc gọi", "the local call transport key could not be created");
         emit notice(L("Chưa gọi được: ", "Calls unavailable: ") + why);
         return;
@@ -6473,20 +6876,38 @@ void ZaloClient::startVoiceCall() {
 }
 
 void ZaloClient::startVideoCall() {
-    if (m_currentConvId.isEmpty() || currentConversationIsGroup()) return;
+    if (m_currentConvId.isEmpty() || currentConversationIsGroup() || !currentConversationCanCall()) return;
     m_calls->refreshAvailability();
     if (!m_calls->isAvailable()) {
         const QString r = m_calls->unavailableReason();
         QString why;
         if (r == "node_missing") why = L("chưa cài Node.js (hoặc Bun)", "Node.js (or Bun) is not installed");
         else if (r == "python_missing") why = L("chưa cài python3", "python3 is not installed");
-        else if (r == "engine_missing") why = L("thiếu bộ gọi zcall-native đi kèm Zalos (hãy cài lại Zalos)",
-                                                  "the bundled zcall-native engine is missing (reinstall Zalos)");
+        else if (r == "engine_missing") why = L("thiếu thành phần gọi đi kèm Zalos (hãy cài lại Zalos)",
+                                                  "a bundled component needed for calls is missing (reinstall Zalos)");
         else why = L("không tạo được khóa truyền tin nội bộ cho cuộc gọi", "the local call transport key could not be created");
         emit notice(L("Chưa gọi được: ", "Calls unavailable: ") + why);
         return;
     }
     m_calls->startVideoCall(m_currentConvId, m_currentConvName, m_currentConvAvatar);
+}
+
+void ZaloClient::startGroupCall(bool isVideo) {
+    if (m_currentConvId.isEmpty() || !currentConversationIsGroup()) return;
+    m_calls->refreshAvailability();
+    if (!m_calls->isAvailable()) {
+        const QString r = m_calls->unavailableReason();
+        QString why;
+        if (r == "node_missing") why = L("chưa cài Node.js (hoặc Bun)", "Node.js (or Bun) is not installed");
+        else if (r == "python_missing") why = L("chưa cài python3", "python3 is not installed");
+        else if (r == "engine_missing") why = L("thiếu thành phần gọi đi kèm Zalos (hãy cài lại Zalos)",
+                                                  "a bundled component needed for calls is missing (reinstall Zalos)");
+        else why = L("không tạo được khóa truyền tin nội bộ cho cuộc gọi", "the local call transport key could not be created");
+        emit notice(L("Chưa gọi được: ", "Calls unavailable: ") + why);
+        return;
+    }
+    const QVariantList members = groupMembers(m_currentConvId);
+    m_calls->startGroupCall(m_currentConvId, m_currentConvName, m_currentConvAvatar, members, isVideo);
 }
 
 void ZaloClient::setAppLanguage(const QString& lang) {

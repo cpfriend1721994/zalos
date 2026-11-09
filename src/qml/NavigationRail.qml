@@ -52,14 +52,14 @@ Rectangle {
             Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
             anchors.top: parent.top
             anchors.right: parent.right
-            anchors.topMargin: 4
+            anchors.topMargin: 2
             anchors.rightMargin: 2
-            height: 16
-            width: Math.max(16, badgeText.implicitWidth + 8)
-            radius: 8
+            height: 20
+            width: Math.max(20, badgeText.implicitWidth + 10)
+            radius: 10
             color: Theme.badgeRed
             border.color: root.color
-            border.width: 1
+            border.width: 1.5
 
             Text {
                 id: badgeText
@@ -67,7 +67,7 @@ Rectangle {
                 text: btn.badge > 99 ? "99+" : btn.badge
                 color: "#FFFFFF"
                 font.family: Theme.fontFamily
-                font.pixelSize: 10
+                font.pixelSize: 12
                 font.bold: true
             }
         }
@@ -271,6 +271,20 @@ Rectangle {
             }
         }
 
+        RailButton {
+            id: snipButton
+            icon: "screenshot"
+            tip: I18n.t("Chụp màn hình (Ctrl+Alt+S)", "Capture screenshot (Ctrl+Alt+S)")
+            active: snipMenu.opened
+            onClicked: {
+                if (snipMenu.opened) {
+                    snipMenu.close();
+                } else {
+                    snipMenu.open();
+                }
+            }
+        }
+
         MenuDivider { visible: root.foldersShown; Layout.leftMargin: 10; Layout.rightMargin: 10 }
 
         Flickable {
@@ -317,6 +331,37 @@ Rectangle {
         }
 
         Item { visible: !root.foldersShown; Layout.fillHeight: true }
+
+        // Bottom utilities matching Zalo PC layout: Kiki, zCloud, Toolbox
+        RailButton {
+            icon: "kiki"
+            tip: I18n.t("Trợ lý Kiki", "Kiki Assistant")
+            active: root.currentTab === "kiki"
+            badge: 0
+            onClicked: {
+                ZaloClient.setCurrentNavigationTab("kiki");
+            }
+        }
+
+        RailButton {
+            icon: "cloud"
+            tip: I18n.t("My Documents", "My Documents")
+            active: root.currentTab === "cloud" || (root.currentTab === "messages" && ZaloClient.currentConversationId !== "" && ZaloClient.currentConversationId === ZaloClient.myCloudId)
+            onClicked: {
+                ZaloClient.openMyCloud();
+            }
+        }
+
+        RailButton {
+            id: bizButton
+            icon: "biz_tools"
+            tip: I18n.t("Công cụ zBusiness", "zBusiness Tools")
+            active: bizMenu.opened
+            onClicked: {
+                if (bizMenu.opened) bizMenu.close();
+                else bizMenu.open();
+            }
+        }
     }
 
     Popup {
@@ -375,6 +420,128 @@ Rectangle {
                 label: I18n.t("Đăng xuất", "Log out")
                 danger: true
                 onTriggered: { accountMenu.close(); ZaloClient.logout(); }
+            }
+        }
+    }
+
+    Popup {
+        id: snipMenu
+        objectName: "snipMenu"
+        x: root.width + 6
+        y: Math.min(root.height - height - 12, Math.max(12, snipButton.y))
+        width: 250
+        padding: 8
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle {
+            color: ThemeManager.surfaceColor
+            radius: 10
+            border.color: ThemeManager.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 2
+
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 12
+                Layout.rightMargin: 12
+                Layout.topMargin: 4
+                Layout.bottomMargin: 4
+                text: I18n.t("Chụp màn hình", "Capture Screenshot")
+                font.family: Theme.fontFamily
+                font.pixelSize: 13
+                font.bold: true
+                color: ThemeManager.textColor
+            }
+
+            MenuDivider {}
+
+            MenuRow {
+                icon: "snip"
+                label: I18n.t("Chụp kèm cửa sổ Zalo", "Capture with Zalo window")
+                onTriggered: {
+                    snipMenu.close();
+                    ZaloClient.requestScreenshot(false);
+                }
+            }
+
+            MenuRow {
+                icon: "snip"
+                label: I18n.t("Chụp không kèm Zalo (ẩn app)", "Capture without Zalo (hide app)")
+                onTriggered: {
+                    snipMenu.close();
+                    ZaloClient.requestScreenshot(true);
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: bizMenu
+        objectName: "bizMenu"
+        x: root.width + 6
+        y: Math.min(root.height - height - 12, Math.max(12, bizButton.y - height / 2))
+        width: 250
+        padding: 8
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle {
+            color: ThemeManager.surfaceColor
+            radius: 10
+            border.color: ThemeManager.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 2
+
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 12
+                Layout.rightMargin: 12
+                Layout.topMargin: 4
+                Layout.bottomMargin: 4
+                text: I18n.t("Công cụ zBusiness", "zBusiness Tools")
+                font.family: Theme.fontFamily
+                font.pixelSize: 13
+                font.bold: true
+                color: ThemeManager.textColor
+            }
+
+            MenuDivider {}
+
+            MenuRow {
+                icon: "biz_tools"
+                label: I18n.t("Hồ sơ & Công cụ kinh doanh", "Business Profile & Tools")
+                onTriggered: {
+                    bizMenu.close();
+                    ZaloClient.openBusinessTools();
+                }
+            }
+
+            MenuRow {
+                icon: "catalog"
+                label: I18n.t("Danh mục sản phẩm", "Product Catalog")
+                onTriggered: {
+                    bizMenu.close();
+                    ZaloClient.openBusinessCatalog();
+                }
+            }
+
+            MenuRow {
+                icon: "autoreply"
+                label: I18n.t("Trả lời tự động", "Auto reply")
+                onTriggered: {
+                    bizMenu.close();
+                    ZaloClient.openBusinessAutoReply();
+                }
+            }
+
+            MenuRow {
+                icon: "briefcase"
+                label: I18n.t("Quản lý gói zBusiness", "Manage zBusiness Package")
+                onTriggered: {
+                    bizMenu.close();
+                    ZaloClient.openBusinessPackage();
+                }
             }
         }
     }

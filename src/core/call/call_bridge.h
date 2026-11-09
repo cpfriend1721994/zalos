@@ -3,6 +3,7 @@
 #include <QtQml/qqmlregistration.h>
 
 #include <QByteArray>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
@@ -36,8 +37,6 @@ class CallBridge : public QObject {
     QML_ANONYMOUS
     Q_PROPERTY(bool available READ isAvailable NOTIFY availabilityChanged FINAL)
     Q_PROPERTY(QString unavailableReason READ unavailableReason NOTIFY availabilityChanged FINAL)
-    Q_PROPERTY(QString engineDirectory READ engineDirectory NOTIFY availabilityChanged FINAL)
-    Q_PROPERTY(bool engineIsBundled READ engineIsBundled NOTIFY availabilityChanged FINAL)
     Q_PROPERTY(QString phase READ phase NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString peerName READ peerName NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString peerAvatar READ peerAvatar NOTIFY stateChanged FINAL)
@@ -48,6 +47,8 @@ class CallBridge : public QObject {
     Q_PROPERTY(bool peerMuted READ peerMuted NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool canAnswer READ canAnswer NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool isVideo READ isVideo NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool isGroup READ isGroup NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QVariantList groupMembers READ groupMembers NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool cameraOn READ cameraOn NOTIFY cameraStateChanged FINAL)
     Q_PROPERTY(bool cameraAvailable READ cameraAvailable NOTIFY cameraStateChanged FINAL)
     Q_PROPERTY(QString cameraError READ cameraError NOTIFY cameraStateChanged FINAL)
@@ -71,6 +72,8 @@ public:
     bool peerMuted() const { return m_ui.value("peerMuted").toBool(); }
     bool canAnswer() const { return phase() == "incoming" && !m_ui.value("noAnswer").toBool(); }
     bool isVideo() const { return m_ui.value("video").toBool() || m_isVideoMode; }
+    bool isGroup() const { return m_ui.value("group").toBool() || m_isGroupMode; }
+    QVariantList groupMembers() const { return m_ui.value("members").toArray().toVariantList(); }
     bool cameraOn() const { return m_cameraOn; }
     bool cameraAvailable() const;
     QString cameraError() const { return m_cameraError; }
@@ -87,6 +90,8 @@ public:
 
     Q_INVOKABLE void startVoiceCall(const QString& peerId, const QString& peerName, const QString& peerAvatar);
     Q_INVOKABLE void startVideoCall(const QString& peerId, const QString& peerName, const QString& peerAvatar);
+    Q_INVOKABLE void startGroupCall(const QString& groupId, const QString& groupName, const QString& groupAvatar,
+                                   const QVariantList& members, bool isVideo = false);
     Q_INVOKABLE void setCamera(bool on);
     Q_INVOKABLE void accept(bool camStartOff = false);
     Q_INVOKABLE void reject();
@@ -102,9 +107,6 @@ public:
     void handleVoipControl(const QJsonObject& content);
     void shutdown();
     void refreshAvailability();
-    Q_INVOKABLE bool setEngineDirectory(const QString& urlOrPath);
-    QString engineDirectory() const;
-    bool engineIsBundled() const;
 
     static QString findEngine();
     static QString bundledEngineRoot();
@@ -165,6 +167,7 @@ private:
     QString m_lastVideoCodec;
     int m_lastVideoSrc{0};
     bool m_isVideoMode{false};
+    bool m_isGroupMode{false};
     bool m_cameraOn{false};
     bool m_cameraOffAnnounced{false};
     QString m_cameraError;

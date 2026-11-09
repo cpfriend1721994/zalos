@@ -235,6 +235,9 @@ signals:
     void controlReceived(const QString& actType, const QString& act, const QJsonValue& data);
 
 public:
+    QJsonObject kikiAssistantConfig() const {
+        return m_serverSettings.value(QStringLiteral("features")).toObject().value(QStringLiteral("kiki_assistant")).toObject();
+    }
     QStringList serviceUrls(const QString& service) const;
     void setLoginInfoForTesting(const QJsonObject& info) { m_loginInfo = info; }
     QJsonArray splitReactionMessages(const QJsonArray& msgs, bool isGroup);
@@ -249,7 +252,7 @@ private:
     void emitReactionArrays(const QJsonObject& data, bool users, bool groups);
     void emitMessageBuckets(const QJsonObject& data, bool isOld);
     QUrl makeUrl(const QString& base, const QList<QPair<QString, QString>>& query, bool withVersion = true) const;
-    void applyHeaders(QNetworkRequest& req) const;
+    void applyHeaders(QNetworkRequest& req, bool isPost = false) const;
     void handleApiReply(QNetworkReply* reply, Callback cb);
     void postMultipartFile(const QString& url, const QJsonObject& params, const QByteArray& content, Callback cb);
     void requestServerInfo();
@@ -258,6 +261,7 @@ private:
 #ifdef ZALOS_TESTING
 public:
     void injectWsBinaryForTesting(const QByteArray& frame) { onWsBinary(frame); }
+    void applyHeadersForTesting(QNetworkRequest& req, bool isPost = false) const { applyHeaders(req, isPost); }
 private:
 #endif
     enum class UploadKind { Photo, File, Voice, Video };

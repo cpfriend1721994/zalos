@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.0.8 LANGUAGES CXX)
+project(zalos VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -185,6 +185,9 @@ qt_add_qml_module(zalos
         src/qml/AppLinkPopup.qml
         src/qml/HiddenPinPopup.qml
         src/qml/PinMenuHost.qml
+        src/qml/CloudView.qml
+        src/qml/KikiView.qml
+        src/qml/BusinessToolsModal.qml
     RESOURCES
         assets/icons/zalos.svg
         assets/icons/pacman.png

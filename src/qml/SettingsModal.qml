@@ -679,61 +679,6 @@ Item {
                                 font.pixelSize: 12
                                 color: ThemeManager.secondaryTextColor
                             }
-
-                            SectionTitle { text: I18n.t("Cuộc gọi", "Calls") }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                implicitHeight: callRow.implicitHeight + 20
-                                radius: Theme.radiusMedium
-                                color: ThemeManager.inputFillColor
-                                RowLayout {
-                                    id: callRow
-                                    anchors.fill: parent
-                                    anchors.margins: 10
-                                    spacing: 10
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 2
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: I18n.t("Bộ gọi zcall-native", "zcall-native call engine")
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 13
-                                            color: ThemeManager.textColor
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            elide: Text.ElideMiddle
-                                            text: ZaloClient.calls.engineIsBundled ? I18n.t("Bản đi kèm Zalos", "Bundled with Zalos")
-                                                  : ZaloClient.calls.engineDirectory.length > 0 ? ZaloClient.calls.engineDirectory
-                                                  : I18n.t("Không tìm thấy bộ gọi — hãy cài lại Zalos", "Call engine missing — reinstall Zalos")
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 12
-                                            color: ZaloClient.calls.engineDirectory.length > 0 ? ThemeManager.secondaryTextColor : Theme.badgeRed
-                                        }
-                                    }
-                                    ZButton {
-                                        visible: !ZaloClient.calls.engineIsBundled && ZaloClient.calls.engineDirectory.length > 0
-                                        variant: "secondary"
-                                        text: I18n.t("Dùng bản đi kèm", "Use bundled")
-                                        onClicked: ZaloClient.calls.setEngineDirectory("")
-                                    }
-                                    ZButton {
-                                        variant: "secondary"
-                                        text: I18n.t("Dùng bản khác…", "Use another…")
-                                        onClicked: engineFolderDialog.open()
-                                    }
-                                }
-                            }
-                            FolderDialog {
-                                id: engineFolderDialog
-                                title: I18n.t("Chọn thư mục zalo-for-linux hoặc zcall-native", "Choose the zalo-for-linux or zcall-native folder")
-                                onAccepted: {
-                                    if (!ZaloClient.calls.setEngineDirectory(selectedFolder.toString()))
-                                        ZaloClient.showNotice(I18n.t("Thư mục này không có native-engine/zcall-native.js",
-                                                                     "This folder has no native-engine/zcall-native.js"));
-                                }
-                            }
                         }
 
                         ColumnLayout {
@@ -1094,7 +1039,7 @@ Item {
                             }
 
                             ToggleRow {
-                                title: I18n.t("Hiển thị thẻ phân loại như thư mục", "Show labels as folders")
+                                title: I18n.t("Hiển thị phân loại như thư mục", "Show labels as folders")
                                 checked: ZaloClient.showLabelFolders
                                 onToggled: (value) => ZaloClient.showLabelFolders = value
                             }

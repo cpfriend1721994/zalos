@@ -170,7 +170,7 @@ void ZaloSession::login(const QString& imei, const QString& userAgent, const QSt
     query.append(qMakePair(QStringLiteral("nretry"), QStringLiteral("0")));
 
     QNetworkRequest req(makeUrl("https://wpa.chat.zalo.me/api/login/getLoginInfo", query));
-    applyHeaders(req);
+    applyHeaders(req, false);
     QNetworkReply* reply = m_nam->get(req);
     const QByteArray encryptKey = encryptor.encryptKey().toUtf8();
     connect(reply, &QNetworkReply::finished, this, [this, reply, encryptKey]() {
@@ -220,7 +220,7 @@ void ZaloSession::requestServerInfo() {
         {"signkey", ZaloCrypto::signKey("getserverinfo", signParams)},
     };
     QNetworkRequest req(makeUrl("https://wpa.chat.zalo.me/api/login/getServerInfo", query, false));
-    applyHeaders(req);
+    applyHeaders(req, false);
     QNetworkReply* reply = m_nam->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
@@ -278,11 +278,12 @@ bool ZaloSession::isFailoverError(int networkError, int httpStatus) {
 }
 
 QUrl ZaloSession::makeUrl(const QString& base, const QList<QPair<QString, QString>>& query, bool withVersion) const {
-    QList<QPair<QString, QString>> items = query;
+    QList<QPair<QString, QString>> items;
     if (withVersion) {
         items.append(qMakePair(QStringLiteral("zpw_ver"), QString::number(kApiVersion)));
         items.append(qMakePair(QStringLiteral("zpw_type"), QString::number(kApiType)));
     }
+    items.append(query);
     QByteArray encoded = base.toUtf8();
     if (!items.isEmpty()) {
         encoded.append(base.contains('?') ? '&' : '?');
@@ -291,9 +292,11 @@ QUrl ZaloSession::makeUrl(const QString& base, const QList<QPair<QString, QStrin
     return QUrl::fromEncoded(encoded, QUrl::StrictMode);
 }
 
-void ZaloSession::applyHeaders(QNetworkRequest& req) const {
+void ZaloSession::applyHeaders(QNetworkRequest& req, bool isPost) const {
     req.setHeader(QNetworkRequest::UserAgentHeader, m_userAgent.isEmpty() ? kDefaultUserAgent : m_userAgent);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+    if (isPost) {
+        req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+    }
     req.setRawHeader("Accept", "application/json, text/plain, */*");
     req.setRawHeader("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
     req.setRawHeader("Origin", "https://chat.zalo.me");
@@ -340,7 +343,7 @@ void ZaloSession::sendApi(const QString& service, const QString& path, bool post
     if (paramsInQuery && (post || rawParams || !params.isEmpty() || extraQuery.contains("__params_in_query"))) query.append(qMakePair(QStringLiteral("params"), encrypted));
 
     QNetworkRequest req(makeUrl(base + path, query));
-    applyHeaders(req);
+    applyHeaders(req, post);
     QNetworkReply* reply = post ? m_nam->post(req, paramsInQuery ? QByteArray() : encodeQuery({{"params", encrypted}}))
                                 : m_nam->get(req);
     connect(reply, &QNetworkReply::finished, this,
@@ -811,7 +814,7 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
         const QString encrypted = ZaloCrypto::encodeAES(m_secretKey, compactJson(params).toUtf8());
         QNetworkRequest req(makeUrl(uploadUrl, {qMakePair(QStringLiteral("type"), QString(isGroup ? "11" : "2")),
                                                 qMakePair(QStringLiteral("params"), encrypted)}));
-        applyHeaders(req);
+        applyHeaders(req, false);
         req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant());
 
         auto* multi = new QHttpMultiPart(QHttpMultiPart::FormDataType);
@@ -1009,7 +1012,7 @@ void ZaloSession::postMultipartFile(const QString& url, const QJsonObject& param
                                    Callback cb) {
     const QString encrypted = ZaloCrypto::encodeAES(m_secretKey, compactJson(params).toUtf8());
     QNetworkRequest req(makeUrl(url, {qMakePair(QStringLiteral("params"), encrypted)}));
-    applyHeaders(req);
+    applyHeaders(req, false);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant());
     auto* multi = new QHttpMultiPart(QHttpMultiPart::FormDataType);
     QHttpPart part;
@@ -1125,8 +1128,9 @@ void ZaloSession::deleteAvatarPhotos(const QStringList& photoIds, Callback cb) {
 
 void ZaloSession::pullMobileMessages(const QString& pcName, const QString& publicKey, qint64 fromSeqId,
                                      qint64 minSeqId, bool isRetry, Callback cb) {
+    const qint64 seqId = fromSeqId > 0 ? (fromSeqId + 1) : 0;
     apiGet("file", "/api/message/pull_mobile_msg",
-           {{"pc_name", pcName}, {"public_key", publicKey}, {"from_seq_id", fromSeqId}, {"is_retry", isRetry ? 1 : 0},
+           {{"pc_name", pcName}, {"public_key", publicKey}, {"from_seq_id", seqId}, {"is_retry", isRetry ? 1 : 0},
             {"min_seq_id", minSeqId}, {"temp_key", ""}, {"imei", m_imei}},
            cb);
 }
@@ -1157,14 +1161,38 @@ void ZaloSession::fetchNoisedIds(const QStringList& userIds, const QStringList& 
 QNetworkReply* ZaloSession::getWithCookies(const QUrl& url) {
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader, m_userAgent.isEmpty() ? kDefaultUserAgent : m_userAgent);
+    req.setRawHeader("Accept", "*/*");
+    req.setRawHeader("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
+
     const QString host = url.host().toLower();
-    if (host.endsWith(QLatin1String(".zalo.me")) || host.endsWith(QLatin1String(".zdn.vn"))
-        || host.endsWith(QLatin1String(".zadn.vn")) || host == QLatin1String("zalo.me")) {
+    const bool isZaloDomain = host == QLatin1String("zalo.me") || host.endsWith(QLatin1String(".zalo.me"))
+        || host == QLatin1String("zaloapp.com") || host.endsWith(QLatin1String(".zaloapp.com"))
+        || host == QLatin1String("zdn.vn") || host.endsWith(QLatin1String(".zdn.vn"))
+        || host == QLatin1String("zadn.vn") || host.endsWith(QLatin1String(".zadn.vn"))
+        || host == QLatin1String("zalo.vn") || host.endsWith(QLatin1String(".zalo.vn"))
+        || host == QLatin1String("dlmd.me") || host.endsWith(QLatin1String(".dlmd.me"));
+
+    if (isZaloDomain) {
         QStringList parts;
+        bool hasUin = false;
+        bool hasSek = false;
         for (const QNetworkCookie& c : m_jar->cookiesForUrl(QUrl(QStringLiteral("https://chat.zalo.me/")))) {
-            parts << QString::fromUtf8(c.name()) + "=" + QString::fromUtf8(c.value());
+            const QByteArray name = c.name();
+            if (name == "zpw_uin") hasUin = true;
+            if (name == "zpw_sek") hasSek = true;
+            parts << QString::fromUtf8(name) + "=" + QString::fromUtf8(c.value());
+        }
+        const QString uin = m_uid.isEmpty() ? m_loginInfo.value(QStringLiteral("uid")).toVariant().toString() : m_uid;
+        if (!hasUin && !uin.isEmpty()) {
+            parts << QStringLiteral("zpw_uin=") + uin;
+        }
+        const QString sek = m_loginInfo.value(QStringLiteral("zpw_sek")).toString();
+        if (!hasSek && !sek.isEmpty()) {
+            parts << QStringLiteral("zpw_sek=") + sek;
         }
         if (!parts.isEmpty()) req.setRawHeader("Cookie", parts.join("; ").toUtf8());
+        req.setRawHeader("Referer", "https://chat.zalo.me/");
+        req.setRawHeader("Origin", "https://chat.zalo.me");
     }
     req.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
     req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
@@ -1741,8 +1769,20 @@ void ZaloSession::connectRealtime() {
     req.setRawHeader("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
     req.setRawHeader("Cache-Control", "no-cache");
     QStringList cookieParts;
+    bool hasUin = false;
+    bool hasSek = false;
     for (const QNetworkCookie& c : m_jar->cookiesForUrl(QUrl("https://chat.zalo.me/"))) {
-        cookieParts << QString::fromUtf8(c.name()) + "=" + QString::fromUtf8(c.value());
+        const QByteArray name = c.name();
+        if (name == "zpw_uin") hasUin = true;
+        if (name == "zpw_sek") hasSek = true;
+        cookieParts << QString::fromUtf8(name) + "=" + QString::fromUtf8(c.value());
+    }
+    if (!hasUin && !m_uid.isEmpty()) {
+        cookieParts << QStringLiteral("zpw_uin=") + m_uid;
+    }
+    const QString sek = m_loginInfo.value(QStringLiteral("zpw_sek")).toString();
+    if (!hasSek && !sek.isEmpty()) {
+        cookieParts << QStringLiteral("zpw_sek=") + sek;
     }
     req.setRawHeader("Cookie", cookieParts.join("; ").toUtf8());
     m_ws->open(req);

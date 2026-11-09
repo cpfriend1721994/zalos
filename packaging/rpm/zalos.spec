@@ -4,7 +4,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.0.8
+Version:        1.1.0
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT
@@ -80,6 +80,16 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/%{name}/zcall-native/
 
 %changelog
+* Mon Nov 09 2026 Zalos Team <dev@zalos.local> - 1.1.0-1
+- Group voice and video calls from group chats, with participant state in the call overlay.
+- My Documents thread with a built-in media/file/link browser; legacy cloud labels are migrated.
+- Kiki Assistant and zBusiness tools destinations (profile, product catalog, auto reply, package).
+- Official and system accounts no longer offer call, add-group or share-contact actions.
+- Contacts list quick actions for voice call, video call and chat.
+- Call engine is always the bundled zcall-native copy; the Settings engine picker was removed.
+- Harden mobile history sync with checksum/size verification and a download stall timeout.
+- Larger, anti-aliased system tray unread badge; refreshed documentation and screenshots.
+
 * Sun Nov 08 2026 Zalos Team <dev@zalos.local> - 1.0.8-1
 - Fix unread badge resurrection across restarts via dual seen dispatch and client-side fallback read points.
 - High-res cover/avatar photos and layered chat background blur effect with proper layout clipping.

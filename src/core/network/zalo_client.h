@@ -90,6 +90,11 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString currentConversationName READ currentConversationName NOTIFY currentConversationChanged FINAL)
     Q_PROPERTY(QString currentConversationAvatar READ currentConversationAvatar NOTIFY currentConversationChanged FINAL)
     Q_PROPERTY(bool currentConversationIsGroup READ currentConversationIsGroup NOTIFY currentConversationChanged FINAL)
+    Q_PROPERTY(bool currentConversationIsCloud READ currentConversationIsCloud NOTIFY currentConversationChanged FINAL)
+    Q_PROPERTY(bool currentConversationIsOfficial READ currentConversationIsOfficial NOTIFY currentConversationChanged FINAL)
+    Q_PROPERTY(bool currentConversationCanCall READ currentConversationCanCall NOTIFY currentConversationChanged FINAL)
+    Q_PROPERTY(bool currentConversationCanCreateGroup READ currentConversationCanCreateGroup NOTIFY currentConversationChanged FINAL)
+    Q_PROPERTY(bool currentConversationCanShareContact READ currentConversationCanShareContact NOTIFY currentConversationChanged FINAL)
     Q_PROPERTY(QString composerLockReason READ composerLockReason NOTIFY composerStateChanged FINAL)
     Q_PROPERTY(bool composerLockDeletable READ composerLockDeletable NOTIFY composerStateChanged FINAL)
     Q_PROPERTY(bool currentConversationIsStranger READ currentConversationIsStranger NOTIFY composerStateChanged FINAL)
@@ -129,6 +134,10 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString forwardMode READ forwardMode NOTIFY forwardModalChanged FINAL)
     Q_PROPERTY(QString forwardCardUid READ forwardCardUid NOTIFY forwardModalChanged FINAL)
     Q_PROPERTY(bool showCreatePollModal READ showCreatePollModal WRITE setShowCreatePollModal NOTIFY createPollModalChanged FINAL)
+    Q_PROPERTY(bool showBusinessToolsModal READ showBusinessToolsModal WRITE setShowBusinessToolsModal NOTIFY businessToolsModalChanged FINAL)
+    Q_PROPERTY(QString businessTab READ businessTab WRITE setBusinessTab NOTIFY businessTabChanged FINAL)
+    Q_PROPERTY(bool hasBusinessPackage READ hasBusinessPackage NOTIFY userProfileChanged FINAL)
+    Q_PROPERTY(QString businessPackageName READ businessPackageName NOTIFY userProfileChanged FINAL)
     Q_PROPERTY(QString currentNavigationTab READ currentNavigationTab WRITE setCurrentNavigationTab NOTIFY navigationTabChanged FINAL)
 
     Q_PROPERTY(bool hasPinnedMessage READ hasPinnedMessage NOTIFY pinnedMessageChanged FINAL)
@@ -191,6 +200,8 @@ class ZaloClient : public QObject {
 
     Q_PROPERTY(bool showOnlineStatus READ showOnlineStatus NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool displaySeenStatus READ displaySeenStatus NOTIFY serverSettingsChanged FINAL)
+    Q_PROPERTY(bool kikiAvailable READ kikiAvailable NOTIFY kikiStateChanged FINAL)
+    Q_PROPERTY(QString kikiUrl READ kikiUrl NOTIFY kikiStateChanged FINAL)
     Q_PROPERTY(bool displayOnRecommendFriend READ displayOnRecommendFriend NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool addFriendViaPhone READ addFriendViaPhone NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool addFriendViaQr READ addFriendViaQr NOTIFY serverSettingsChanged FINAL)
@@ -232,6 +243,12 @@ public:
     QString currentConversationAvatar() const { return m_currentConvAvatar; }
     QString currentConversationBackground() const;
     bool currentConversationIsGroup() const;
+    bool currentConversationIsCloud() const;
+    bool currentConversationIsOfficial() const;
+    bool currentConversationCanCall() const;
+    bool currentConversationCanCreateGroup() const;
+    bool currentConversationCanShareContact() const;
+    bool isOfficialOrSystemAccount(const QString& id, const QString& name) const;
     QString composerLockReason() const;
     bool composerLockDeletable() const { return m_readOnlyThreads.contains(m_currentConvId); }
     bool currentConversationIsStranger() const;
@@ -280,6 +297,7 @@ public:
     void sendVoiceMessage(const QString& convId, const QString& filePath, int durationMs);
     Q_INVOKABLE void startVoiceCall();
     Q_INVOKABLE void startVideoCall();
+    Q_INVOKABLE void startGroupCall(bool isVideo = false);
     bool isConnected() const { return m_isConnected; }
     bool isE2EESupported() const { return true; }
 
@@ -518,6 +536,8 @@ public:
     bool receiveStrangerMessage() const { return m_serverSettings.value("receive_message", 1) == 1; }
     bool acceptStrangerCall() const { return m_serverSettings.value("accept_stranger_call", 3) == 3; }
     int viewBirthday() const { return m_serverSettings.value("view_birthday", 1); }
+    bool kikiAvailable() const;
+    QString kikiUrl() const;
     Q_INVOKABLE void loadServerSettings();
     Q_INVOKABLE void setServerSetting(const QString& type, int value);
 
@@ -559,12 +579,25 @@ public:
     Q_INVOKABLE void closeAddFriend();
     Q_INVOKABLE void openCreateGroup();
     Q_INVOKABLE void closeCreateGroup();
+    Q_INVOKABLE void openBusinessTools();
+    Q_INVOKABLE void closeBusinessTools();
+    Q_INVOKABLE void openBusinessCatalog();
+    Q_INVOKABLE void openBusinessAutoReply();
+    Q_INVOKABLE void openBusinessPackage();
+    Q_INVOKABLE void sendProductToCurrentChat(const QString& name, const QString& price, const QString& description, const QString& imageUrl);
+    bool showBusinessToolsModal() const { return m_showBusinessToolsModal; }
+    QString businessTab() const { return m_businessTab; }
+    bool hasBusinessPackage() const { return m_hasBusinessPackage; }
+    QString businessPackageName() const { return m_businessPackageName; }
+    void setBusinessTab(const QString& tab);
+    void setShowBusinessToolsModal(bool show);
     Q_INVOKABLE void toggleConversationInfo();
     Q_INVOKABLE void findUserByPhone(const QString& phone);
     Q_INVOKABLE void findUserByUsername(const QString& username);
     Q_INVOKABLE void sendFriendRequest(const QString& uid, const QString& message);
     Q_INVOKABLE void createGroup(const QString& name, const QStringList& members);
     Q_INVOKABLE void openMyCloud();
+    Q_INVOKABLE QVariantList cloudSharedItems(const QString& kind = QStringLiteral("all")) const;
     Q_INVOKABLE void loadOlderMessages();
     Q_INVOKABLE void refreshContacts();
 
@@ -673,6 +706,7 @@ signals:
     void groupMembersChanged(const QString& groupId);
     void quickMessagesChanged();
     void serverSettingsChanged();
+    void kikiStateChanged();
     void sentFriendRequestsChanged();
     void myAvatarHistoryChanged();
     void conversationFlagsChanged();
@@ -713,6 +747,8 @@ signals:
     void conversationInfoChanged();
     void forwardModalChanged();
     void createPollModalChanged();
+    void businessToolsModalChanged();
+    void businessTabChanged();
     void pinnedMessageChanged();
     void mobileSyncStateChanged();
     void mobileSyncProgressChanged();
@@ -745,6 +781,7 @@ private:
     };
 
     void notifyIncomingCallDbus(const QString& callerName);
+    void executeScreenshotCapture();
     void saveSession();
     void loadSession();
     void generateQrMatrix();
@@ -966,6 +1003,10 @@ private:
     Models::MessageSearchModel* m_hiddenSearch{nullptr};
     QString m_screenshotRequest;
     QString m_screenshotTarget;
+    bool m_showBusinessToolsModal{false};
+    QString m_businessTab{QStringLiteral("profile")};
+    bool m_hasBusinessPackage{false};
+    QString m_businessPackageName;
     Models::RichComposer* m_composer{nullptr};
     bool m_showSyncPrompt{false};
     QString m_voiceTarget;

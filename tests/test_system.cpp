@@ -654,6 +654,39 @@ private slots:
         client.openOfflineCacheForTesting("u-oa-owner");
         QVERIFY(client.isOfficialIdForTesting("u-oa-1"));
         QVERIFY(!client.isOfficialIdForTesting("u-oa-6"));
+        QVERIFY(client.isOfficialOrSystemAccount("u-sys-1", "Zalo Video"));
+        QVERIFY(client.isOfficialOrSystemAccount("u-sys-2", "Zalo Bảo Mật"));
+        QVERIFY(client.isOfficialOrSystemAccount("u-sys-3", "ZaloPay"));
+        QVERIFY(client.isOfficialOrSystemAccount("u-sys-4", "Thời Tiết"));
+        QVERIFY(!client.isOfficialOrSystemAccount("u-sys-5", "Fixture Person"));
+        QVERIFY(!client.isOfficialOrSystemAccount("g-sys-6", "Zalo Video"));
+    }
+
+    // System/OA threads never expose call or group-creation actions; My Documents keeps its single display name.
+    void testSystemAccountThreadsHideCallAndGroupActions() {
+        ZaloClient client;
+        client.setMyUidForTesting("u-sys-me");
+        const QStringList systemNames{"Zalo", "Zalo Video", "Zalo Bảo Mật", "ZaloPay", "Thời Tiết", "zBusiness"};
+        for (int i = 0; i < systemNames.size(); ++i) {
+            const QString id = QStringLiteral("u-sys-%1").arg(i);
+            client.selectConversation(id, systemNames.at(i), "");
+            QVERIFY2(client.currentConversationIsOfficial(), qPrintable(systemNames.at(i)));
+            QVERIFY2(!client.currentConversationCanCall(), qPrintable(systemNames.at(i)));
+            QVERIFY2(!client.currentConversationCanCreateGroup(), qPrintable(systemNames.at(i)));
+        }
+        client.selectConversation("u-sys-friend", "Fixture Friend", "");
+        QVERIFY(!client.currentConversationIsOfficial());
+        QVERIFY(client.currentConversationCanCall());
+        QVERIFY(client.currentConversationCanCreateGroup());
+        client.applyGroupInfoForTesting(QJsonObject{{"g-sys-group", QJsonObject{{"name", "Fixture Group"}, {"totalMember", 3}}}});
+        client.selectConversation("g-sys-group", "Fixture Group", "");
+        QVERIFY(client.currentConversationIsGroup());
+        QVERIFY(!client.currentConversationIsOfficial());
+        QVERIFY(client.currentConversationCanCall());
+        client.selectConversation("u-sys-docs", "My Documents", "");
+        QVERIFY(client.currentConversationIsCloud());
+        QVERIFY(!client.currentConversationCanCall());
+        QVERIFY(!client.currentConversationCanCreateGroup());
     }
 
     // chat.location.new → a location card opening the coordinates in a map; bad coordinates give no link.
@@ -1001,6 +1034,11 @@ private slots:
         QCOMPARE(client.currentNavigationTab(), QString("cloud"));
         client.setCurrentNavigationTab("messages");
         QCOMPARE(client.currentNavigationTab(), QString("messages"));
+
+        // Honest business and cloud data (zero mock data)
+        QCOMPARE(client.hasBusinessPackage(), false);
+        QCOMPARE(client.businessPackageName(), QString());
+        QCOMPARE(client.cloudSharedItems().isEmpty(), true);
 
         // Add Friend Modal Flow
         QCOMPARE(client.showAddFriendModal(), false);
@@ -1650,6 +1688,38 @@ private slots:
         reply->deleteLater();
     }
 
+    void testSessionHeadersAndZaloappDownloadCookies() {
+        ZaloClient client;
+        auto* session = client.apiClient()->session();
+
+        QNetworkRequest getReq(QUrl("https://wpa.chat.zalo.me/api/message/pull_mobile_msg"));
+        session->applyHeadersForTesting(getReq, false);
+        QVERIFY(!getReq.hasRawHeader("Content-Type"));
+        QCOMPARE(getReq.rawHeader("Origin"), QByteArray("https://chat.zalo.me"));
+        QCOMPARE(getReq.rawHeader("Referer"), QByteArray("https://chat.zalo.me/"));
+
+        QNetworkRequest postReq(QUrl("https://wpa.chat.zalo.me/api/message/sms"));
+        session->applyHeadersForTesting(postReq, true);
+        QCOMPARE(getReq.header(QNetworkRequest::ContentTypeHeader).toString(), QString());
+        QCOMPARE(postReq.header(QNetworkRequest::ContentTypeHeader).toString(), QStringLiteral("application/x-www-form-urlencoded"));
+
+        session->setLoginInfoForTesting(QJsonObject{{"uid", "123456789"}, {"zpw_sek", "fixture_sek"}});
+        QNetworkReply* replyZaloapp = session->getWithCookies(QUrl("https://trans-bin.zaloapp.com/download/test_batch"));
+        QVERIFY(replyZaloapp != nullptr);
+        const QByteArray cookieHeader = replyZaloapp->request().rawHeader("Cookie");
+        QVERIFY2(cookieHeader.contains("zpw_uin=123456789"), cookieHeader.constData());
+        QVERIFY2(cookieHeader.contains("zpw_sek=fixture_sek"), cookieHeader.constData());
+        QCOMPARE(replyZaloapp->request().rawHeader("Referer"), QByteArray("https://chat.zalo.me/"));
+        replyZaloapp->abort();
+        replyZaloapp->deleteLater();
+
+        QNetworkReply* replyExternal = session->getWithCookies(QUrl("https://s3.amazonaws.com/backup/test.zdb"));
+        QVERIFY(replyExternal != nullptr);
+        QVERIFY(!replyExternal->request().hasRawHeader("Cookie"));
+        replyExternal->abort();
+        replyExternal->deleteLater();
+    }
+
     // QML singletons: I18n.t is typed (compiled to C++), Theme reads ThemeManager directly.
     void testTypedQmlSingletons() {
         ThemeManager themeMgr;
@@ -1885,7 +1955,7 @@ private slots:
         client.setShowConversationInfo(false);
         window->resize(1280, 800);
 
-        // Sidebar: the always-visible tab row (Tất cả · Chưa đọc · Khác + Phân loại) at normal and narrowest
+        // Sidebar: the always-visible tab row (Tất cả · Chưa đọc · Khác · Nhắn tôi + Nhãn) at normal and narrowest
         // widths, and one query finding chats + groups + messages.
         if (window->findChild<QObject*>("sidebar")) {
             themeMgr.setThemeMode(1);
@@ -2828,7 +2898,7 @@ private slots:
         QVERIFY(client.groupComposite("g-ph").isEmpty());
     }
 
-    // zcall-native: the bundled copy (third_party → share/zalos/zcall-native), picker folder shapes, override.
+    // zcall-native: the bundled copy (third_party → share/zalos/zcall-native) and the upstream folder shapes.
     void testCallEngineDiscovery() {
         // The vendored engine is complete and carries its licence and origin.
         const QString vendored = QStringLiteral(ZALOS_SOURCE_DIR) + "/third_party/zcall-native";
@@ -2853,22 +2923,14 @@ private slots:
         QVERIFY(!CallBridge::engineIn(root).isEmpty());
         QVERIFY(CallBridge::engineIn(other.path()).isEmpty());
 
-        QSettings settings;
-        const QVariant before = settings.value("calls/zcallDir");
-        settings.remove("calls/zcallDir");
-        CallBridge bridge(nullptr);
-        QVERIFY(!bridge.engineDirectory().isEmpty()); // dev build: the source tree's vendored copy
-        QVERIFY(!bridge.setEngineDirectory(QUrl::fromLocalFile(other.path()).toString()));
-        QVERIFY(bridge.setEngineDirectory(QUrl::fromLocalFile(root).toString()));
-        QCOMPARE(bridge.engineDirectory(), QDir::cleanPath(root + "/zcall-native"));
-        QVERIFY(!bridge.engineIsBundled());
-        QVERIFY(bridge.setEngineDirectory(QString())); // back to the bundled / vendored engine
-        QVERIFY(!QSettings().contains("calls/zcallDir"));
-        QCOMPARE(bridge.engineDirectory(), QDir::cleanPath(vendored));
-        if (before.isValid()) settings.setValue("calls/zcallDir", before);
+        // The engine always comes from the bundle; only ZALOS_ZCALL_DIR can point a dev build elsewhere.
+        const QString resolved = CallBridge::findEngine();
+        QVERIFY(!resolved.isEmpty());
+        QCOMPARE(QFileInfo(resolved).fileName(), QStringLiteral("zcall-native.js"));
+        QVERIFY(QFileInfo(resolved).absolutePath().endsWith("/native-engine"));
     }
 
-    // Labels ("Phân loại", convlabel/get|update semantics of Zalo PC) and contact cards (sendCard / recommened.user).
+    // Labels ("Nhãn", convlabel/get|update semantics of Zalo PC) and contact cards (sendCard / recommened.user).
     void testLabelsAndContactCards() {
         QStringList notices;
         QHash<QString, QVariantMap> applied;
@@ -4765,6 +4827,30 @@ private slots:
         if (!openResult) {
             QVERIFY(!store.isDatabaseOpen());
         }
+    }
+
+    void testBusinessToolsNavigation() {
+        ZaloClient client;
+        QCOMPARE(client.showBusinessToolsModal(), false);
+
+        client.openBusinessTools();
+        QCOMPARE(client.showBusinessToolsModal(), true);
+        QCOMPARE(client.businessTab(), QStringLiteral("profile"));
+
+        client.openBusinessCatalog();
+        QCOMPARE(client.showBusinessToolsModal(), true);
+        QCOMPARE(client.businessTab(), QStringLiteral("catalog"));
+
+        client.openBusinessAutoReply();
+        QCOMPARE(client.showBusinessToolsModal(), true);
+        QCOMPARE(client.businessTab(), QStringLiteral("autoreply"));
+
+        client.openBusinessPackage();
+        QCOMPARE(client.showBusinessToolsModal(), true);
+        QCOMPARE(client.businessTab(), QStringLiteral("package"));
+
+        client.closeBusinessTools();
+        QCOMPARE(client.showBusinessToolsModal(), false);
     }
 };
 

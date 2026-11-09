@@ -257,6 +257,22 @@ ApplicationWindow {
             Layout.fillHeight: true
             sourceComponent: ContactsView {}
         }
+
+        Loader {
+            active: ZaloClient.currentNavigationTab === "cloud"
+            visible: active
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            sourceComponent: CloudView {}
+        }
+
+        Loader {
+            active: ZaloClient.currentNavigationTab === "kiki"
+            visible: active
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            sourceComponent: KikiView {}
+        }
     }
 
     readonly property bool shortcutsLive: (ZaloClient.isLoggedIn || ZaloClient.isOfflineMode) && !ZaloClient.appLock.locked
@@ -306,6 +322,11 @@ ApplicationWindow {
         onActivated: mainWindow.hide()
     }
     Shortcut {
+        sequences: ZaloClient.shortcuts.keys("app.screenshot")
+        enabled: mainWindow.shortcutsLive
+        onActivated: ZaloClient.requestScreenshot(false)
+    }
+    Shortcut {
         sequences: ZaloClient.shortcuts.keys("app.quit")
         onActivated: Qt.quit()
     }
@@ -316,6 +337,14 @@ ApplicationWindow {
             noticeText.text = message;
             noticeBox.visible = true;
             noticeTimer.restart();
+        }
+        function onRequestHideForScreenshot() {
+            mainWindow.showMinimized();
+        }
+        function onRequestRestoreAfterScreenshot() {
+            mainWindow.showNormal();
+            mainWindow.raise();
+            mainWindow.requestActivate();
         }
     }
 
@@ -361,6 +390,7 @@ ApplicationWindow {
     LazyOverlay { active: ZaloClient.groupAdmin.manageOpen; sourceComponent: GroupManageModal {} }
     LazyOverlay { active: ZaloClient.groupAdmin.joinOpen; sourceComponent: GroupJoinModal {} }
     LazyOverlay { active: ZaloClient.labels.manageOpen; sourceComponent: LabelManageModal {} }
+    LazyOverlay { active: ZaloClient.showBusinessToolsModal; sourceComponent: BusinessToolsModal {} }
 
     AppLinkPopup { id: appLinkPopup }
     HiddenPinPopup { id: hiddenPinPopup }

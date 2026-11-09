@@ -4,19 +4,21 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Zalos</name>
-  <summary>Native Qt6 desktop client for Zalo on Linux</summary>
+  <summary>High-performance, ultra-lightweight native Qt6 desktop client for Zalo on Linux</summary>
   <description>
     <p>
-      Zalos is a high-performance, native Linux messaging client for Zalo built with Qt6 (C++ and QML).
-      It delivers an ultra-lean memory footprint (~50-90MB RAM), native Wayland and X11 support,
-      adaptive GTK and Qt theming, and local End-to-End Encryption (E2EE) database synchronization.
+      Zalos is a high-performance, ultra-lightweight native Linux messaging client for Zalo built with Qt6 (C++ and QML).
+      It delivers a tiny memory footprint (~40-65MB RAM), sub-second cold startup, hardware-accelerated 60 FPS graphics,
+      native Wayland and X11 support, adaptive system theming, and local End-to-End Encryption (E2EE) database synchronization.
     </p>
     <ul>
       <li>Native Wayland and Xorg dual-engine support with smooth Client-Side Decorations (CSD).</li>
       <li>Adaptive Dark/Light theme following GNOME (Adwaita) and KDE (Breeze) desktop settings.</li>
       <li>Native C++ cryptographic verification for E2EE message history (db-cross-v4).</li>
       <li>StatusNotifierItem system tray integration with dynamic unread message badge count.</li>
-      <li>Low resource consumption: starts instantaneously with minimal CPU and RAM usage.</li>
+      <li>Ultra-low resource consumption: starts instantaneously with minimal CPU and RAM usage (~40–65 MB).</li>
+      <li>1-1 and group voice/video calling engine with OpenH264 video encoding.</li>
+      <li>Desktop utilities: screenshot capture (Ctrl+Alt+S), file transfer, Kiki assistant and My Documents browser.</li>
     </ul>
   </description>
   <launchable type="desktop-id">zalos.desktop</launchable>
@@ -28,6 +30,16 @@
     <binary>zalos</binary>
   </provides>
   <releases>
+    <release version="1.1.0" date="2026-11-09">
+      <description>
+        <p>Group voice and video calls with participant state, the My Documents media/file/link browser, Kiki Assistant and zBusiness tool destinations, call and group actions hidden on official accounts, contacts quick actions, and a hardened mobile history sync.</p>
+      </description>
+    </release>
+    <release version="1.0.8" date="2026-11-08">
+      <description>
+        <p>Layered chat background blur, full-resolution cover and avatar images, faster packaging builds, unread badge resurrection fix, VoIP reject status handling, and session cookies scoped to Zalo domains.</p>
+      </description>
+    </release>
     <release version="1.0.7" date="2026-11-07">
       <description>
         <p>Interactive draft attachments bar for multi-file queueing, in-app image viewer annotation canvas with drawing tools, window geometry persistence, dock unread counter, audio-only incoming call acceptance, and ARM64 AppImage release packaging.</p>

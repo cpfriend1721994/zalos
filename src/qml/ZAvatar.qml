@@ -81,7 +81,7 @@ Item {
 
     Rectangle {
         visible: root.showStatusDot && root.isOnline && !root.isGroup
-        width: Math.max(8, Math.floor(root.size * 0.26))
+        width: Math.max(10, Math.round(root.size * 0.3))
         height: width
         radius: width / 2
         color: Theme.onlineGreen
@@ -89,6 +89,8 @@ Item {
         border.width: 2
         anchors.bottom: parent.bottom
         anchors.right: parent.right
+        anchors.bottomMargin: -Math.round(width * 0.12)
+        anchors.rightMargin: -Math.round(width * 0.12)
     }
 
     Item {

@@ -30,11 +30,18 @@ Rectangle {
 
     function phaseText(): string {
         var isVid = !!(call && call.isVideo);
+        var isGrp = !!(call && call.isGroup);
         switch (root.phase) {
-        case "outgoing": return isVid ? I18n.t("Đang gọi video...", "Calling video...") : I18n.t("Đang gọi...", "Calling...");
-        case "incoming": return isVid ? I18n.t("Cuộc gọi video đến", "Incoming video call") : I18n.t("Cuộc gọi thoại đến", "Incoming audio call");
+        case "outgoing":
+            if (isGrp) return isVid ? I18n.t("Đang gọi video nhóm...", "Calling group video...") : I18n.t("Đang gọi nhóm...", "Calling group...");
+            return isVid ? I18n.t("Đang gọi video...", "Calling video...") : I18n.t("Đang gọi...", "Calling...");
+        case "incoming":
+            if (isGrp) return isVid ? I18n.t("Cuộc gọi video nhóm đến", "Incoming group video call") : I18n.t("Cuộc gọi nhóm đến", "Incoming group call");
+            return isVid ? I18n.t("Cuộc gọi video đến", "Incoming video call") : I18n.t("Cuộc gọi thoại đến", "Incoming audio call");
         case "connecting": return isVid ? I18n.t("Đang kết nối video...", "Connecting video...") : I18n.t("Đang kết nối...", "Connecting...");
-        case "ended": return isVid ? I18n.t("Cuộc gọi video đã kết thúc", "Video call ended") : I18n.t("Cuộc gọi đã kết thúc", "Call ended");
+        case "ended":
+            if (isGrp) return I18n.t("Cuộc gọi nhóm đã kết thúc", "Group call ended");
+            return isVid ? I18n.t("Cuộc gọi video đã kết thúc", "Video call ended") : I18n.t("Cuộc gọi đã kết thúc", "Call ended");
         }
         return "";
     }
@@ -185,6 +192,50 @@ Rectangle {
                     color: "#FFFFFF"
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
+                }
+            }
+
+            // Group Members Carousel / Row
+            Row {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 12
+                visible: !!(root.call && root.call.isGroup && root.call.groupMembers && root.call.groupMembers.length > 0)
+
+                Repeater {
+                    model: root.call && root.call.groupMembers ? root.call.groupMembers.slice(0, 6) : []
+                    delegate: Column {
+                        spacing: 4
+                        Item {
+                            width: 48
+                            height: 48
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            ZAvatar {
+                                anchors.fill: parent
+                                size: 48
+                                avatarUrl: modelData.avatar || ""
+                                name: modelData.name || ""
+                            }
+                            Rectangle {
+                                width: 14
+                                height: 14
+                                radius: 7
+                                anchors.bottom: parent.bottom
+                                anchors.right: parent.right
+                                color: modelData.state === "connected" ? "#34C759" : (modelData.state === "calling" ? "#FF9500" : "#8E8E93")
+                                border.width: 2
+                                border.color: "#000000"
+                            }
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: (modelData.name || "").split(" ").slice(-1)[0]
+                            font.pixelSize: 11
+                            color: "#FFFFFF"
+                            elide: Text.ElideRight
+                            width: 56
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
                 }
             }
         }

@@ -157,28 +157,30 @@ QIcon SystemTrayController::createBadgeIcon(int count, bool hasMentions) {
     painter.setRenderHint(QPainter::Antialiasing);
 
     if (count > 0) {
-        QString badgeText = count > 99 ? QStringLiteral("99+") : QString::number(count);
+        const QString badgeText = (count > 99) ? QStringLiteral("99+") : QString::number(count);
 
+        const int fontSize = (badgeText.length() >= 3) ? 22 : (badgeText.length() == 2 ? 26 : 28);
         QFont badgeFont = painter.font();
-        badgeFont.setPixelSize(18);
+        badgeFont.setPixelSize(fontSize);
         badgeFont.setBold(true);
+        badgeFont.setStyleStrategy(QFont::PreferAntialias);
         painter.setFont(badgeFont);
 
         QFontMetrics fm(badgeFont);
-        int textWidth = fm.horizontalAdvance(badgeText);
-        int badgeHeight = 28;
-        int badgeWidth = qMax(badgeHeight, textWidth + 14);
+        const int textWidth = fm.horizontalAdvance(badgeText);
+        const int badgeHeight = 40;
+        const int badgeWidth = qMin(62, qMax(badgeHeight, textWidth + 16));
 
-        int badgeRight = 64;
-        int badgeBottom = 64;
-        int badgeX = badgeRight - badgeWidth;
-        int badgeY = badgeBottom - badgeHeight;
-        QRect badgeRect(badgeX, badgeY, badgeWidth, badgeHeight);
+        const int badgeRight = 64;
+        const int badgeBottom = 64;
+        const int badgeX = qMax(2, badgeRight - badgeWidth);
+        const int badgeY = badgeBottom - badgeHeight;
+        const QRectF badgeRect(badgeX, badgeY, badgeWidth, badgeHeight);
 
-        QColor badgeColor = hasMentions ? QColor("#EF4444") : QColor("#707984");
+        const QColor badgeColor = hasMentions ? QColor("#DC2626") : QColor("#EF4444");
 
         painter.setBrush(badgeColor);
-        painter.setPen(QPen(QColor(10, 25, 47, 180), 1.5));
+        painter.setPen(QPen(QColor(15, 23, 42, 230), 2.0));
         painter.drawRoundedRect(badgeRect, badgeHeight / 2.0, badgeHeight / 2.0);
 
         painter.setPen(Qt::white);

@@ -185,6 +185,8 @@ private slots:
         });
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.totalUnreadCount(), 2);
+        QCOMPARE(model.conversations().size(), 1);
+        QCOMPARE(model.conversations().first().id, QStringLiteral("conv-1"));
     }
 
     void testConversationClearUnread() {
@@ -195,6 +197,50 @@ private slots:
         QCOMPARE(model.totalUnreadCount(), 2);
         model.clearUnread("conv-1");
         QCOMPARE(model.totalUnreadCount(), 0);
+    }
+
+    void testConversationModelViewModeDirectAndArchived() {
+        ConversationModel model;
+        ConversationItem cDirect;
+        cDirect.id = "c-direct";
+        cDirect.name = "Alice";
+        cDirect.isGroup = false;
+
+        ConversationItem cGroup;
+        cGroup.id = "c-group";
+        cGroup.name = "Work Group";
+        cGroup.isGroup = true;
+        cGroup.hasUnreadMention = false;
+
+        ConversationItem cMention;
+        cMention.id = "c-mention";
+        cMention.name = "Class Group";
+        cMention.isGroup = true;
+        cMention.hasUnreadMention = true;
+
+        ConversationItem cArchived;
+        cArchived.id = "c-archived";
+        cArchived.name = "Old Chat";
+        cArchived.isGroup = false;
+
+        model.setConversations({cDirect, cGroup, cMention, cArchived});
+        model.setArchivedThreads({"c-archived"});
+
+        model.setViewMode("normal");
+        QCOMPARE(model.rowCount(), 3);
+
+        model.setViewMode("archived");
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(model.index(0), ConversationModel::IdRole).toString(), "c-archived");
+
+        model.setViewMode("direct");
+        QCOMPARE(model.rowCount(), 2);
+        QSet<QString> directIds;
+        directIds.insert(model.data(model.index(0), ConversationModel::IdRole).toString());
+        directIds.insert(model.data(model.index(1), ConversationModel::IdRole).toString());
+        QVERIFY(directIds.contains("c-direct"));
+        QVERIFY(directIds.contains("c-mention"));
+        QVERIFY(!directIds.contains("c-group"));
     }
 
     void testMessageModelAdd() {

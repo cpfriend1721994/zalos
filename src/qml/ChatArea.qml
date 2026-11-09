@@ -12,6 +12,16 @@ Rectangle {
     property bool showInChatSearch: false
     property bool isFormattingActive: false
     property bool isEditorExpanded: false
+    onIsFormattingActiveChanged: {
+        if (messageList.stickToBottom || messageList.distanceToEnd < 48) {
+            Qt.callLater(() => messageList.positionViewAtEnd());
+        }
+    }
+    onIsEditorExpandedChanged: {
+        if (messageList.stickToBottom || messageList.distanceToEnd < 48) {
+            Qt.callLater(() => messageList.positionViewAtEnd());
+        }
+    }
     readonly property bool infoOverlay: ZaloClient.showConversationInfo && width < 620
     readonly property int composerLineHeight: Math.ceil(composerMetrics.height)
     readonly property real composerMinTextHeight: composerLineHeight * 3 + 16
@@ -328,6 +338,14 @@ Rectangle {
         return hm + " " + Qt.formatDate(d, "dd/MM/yyyy");
     }
 
+    function fullTimestamp(ts: real, fallback: string): string {
+        if (ts && ts >= 946684800000) {
+            const d = new Date(ts);
+            return Qt.formatTime(d, "HH:mm:ss") + " " + Qt.formatDate(d, "dd/MM/yyyy");
+        }
+        return fallback || "";
+    }
+
     function fileSizeText(bytes: real): string {
         if (!bytes || bytes <= 0) return I18n.t("Tệp đính kèm", "Attachment");
         if (bytes < 1024) return bytes + " B";
@@ -504,8 +522,8 @@ Rectangle {
 
                         RowLayout {
                             spacing: 5
-                            visible: ZaloClient.currentConversationIsGroup || ZaloClient.currentConversationIsOnline
-                                     || ZaloClient.currentConversationStatus.length > 0 || ZaloClient.currentConversationHasPresence
+                            visible: !ZaloClient.currentConversationIsCloud && (ZaloClient.currentConversationIsGroup || ZaloClient.currentConversationIsOnline
+                                     || ZaloClient.currentConversationStatus.length > 0 || ZaloClient.currentConversationHasPresence)
 
                             Rectangle {
                                 visible: !ZaloClient.currentConversationIsGroup && ZaloClient.currentConversationIsOnline
@@ -517,6 +535,7 @@ Rectangle {
 
                             Text {
                                 text: {
+                                    if (ZaloClient.currentConversationIsCloud) return "";
                                     if (ZaloClient.currentConversationIsGroup) {
                                         return ZaloClient.currentConversationMemberCount > 0
                                                ? (ZaloClient.currentConversationMemberCount + I18n.t(" thành viên", " members"))
@@ -550,6 +569,7 @@ Rectangle {
                         spacing: 4
 
                         Rectangle {
+                            visible: ZaloClient.currentConversationCanCreateGroup
                             width: 32
                             height: 32
                             radius: 16
@@ -572,8 +592,10 @@ Rectangle {
                                 hoverEnabled: true
                                 ToolTip.visible: containsMouse
                                 ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Thêm thành viên vào trò chuyện", "Add member to chat")
-                                onClicked: ZaloClient.openCreateGroup()
+                                ToolTip.text: ZaloClient.currentConversationIsGroup
+                                              ? I18n.t("Thêm thành viên vào nhóm", "Add member to group")
+                                              : I18n.t("Tạo nhóm với người này", "Create group with this person")
+                                onClicked: ZaloClient.currentConversationIsGroup ? ZaloClient.openAddMemberModal() : ZaloClient.openCreateGroup()
                             }
                         }
 
@@ -605,6 +627,7 @@ Rectangle {
                         }
 
                         Rectangle {
+                            visible: ZaloClient.currentConversationCanCall
                             width: 32
                             height: 32
                             radius: 16
@@ -627,12 +650,18 @@ Rectangle {
                                 hoverEnabled: true
                                 ToolTip.visible: containsMouse
                                 ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Cuộc gọi thoại", "Voice call")
-                                onClicked: ZaloClient.startVoiceCall()
+                                ToolTip.text: ZaloClient.currentConversationIsGroup
+                                              ? I18n.t("Cuộc gọi thoại nhóm", "Group voice call")
+                                              : I18n.t("Cuộc gọi thoại", "Voice call")
+                                onClicked: {
+                                    if (ZaloClient.currentConversationIsGroup) ZaloClient.startGroupCall(false);
+                                    else ZaloClient.startVoiceCall();
+                                }
                             }
                         }
 
                         Rectangle {
+                            visible: ZaloClient.currentConversationCanCall
                             width: 32
                             height: 32
                             radius: 16
@@ -655,8 +684,13 @@ Rectangle {
                                 hoverEnabled: true
                                 ToolTip.visible: containsMouse
                                 ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Cuộc gọi video", "Video call")
-                                onClicked: ZaloClient.startVideoCall()
+                                ToolTip.text: ZaloClient.currentConversationIsGroup
+                                              ? I18n.t("Cuộc gọi video nhóm", "Group video call")
+                                              : I18n.t("Cuộc gọi video", "Video call")
+                                onClicked: {
+                                    if (ZaloClient.currentConversationIsGroup) ZaloClient.startGroupCall(true);
+                                    else ZaloClient.startVideoCall();
+                                }
                             }
                         }
 
@@ -1200,6 +1234,11 @@ Rectangle {
                 }
                 onContentHeightChanged: {
                     if (stickToBottom && !moving) Qt.callLater(() => messageList.positionViewAtEnd());
+                }
+                onHeightChanged: {
+                    if (stickToBottom || distanceToEnd < 48) {
+                        messageList.positionViewAtEnd();
+                    }
                 }
                 onAtYBeginningChanged: {
                     if (atYBeginning && count > 0 && !stickToBottom && !ZaloClient.isLoadingHistory
@@ -2441,11 +2480,23 @@ Rectangle {
                                     Layout.topMargin: 4
                                     spacing: 6
                                     Text {
+                                        id: messageTimeLabel
                                         visible: model.lastInGroup
                                         text: model.time
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
                                         color: ThemeManager.secondaryTextColor
+
+                                        MouseArea {
+                                            id: timeHoverArea
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.ArrowCursor
+                                        }
+
+                                        ToolTip.visible: timeHoverArea.containsMouse && messageTimeLabel.text.length > 0
+                                        ToolTip.delay: 300
+                                        ToolTip.text: root.fullTimestamp(model.ts, model.time)
                                     }
                                     Text {
                                         visible: model.showStatus
@@ -2879,7 +2930,14 @@ Rectangle {
             Layout.fillWidth: true
             readonly property real textAreaHeight: root.isEditorExpanded ? 230
                 : Math.max(root.composerMinTextHeight, Math.min(root.composerMaxTextHeight, msgInput.implicitHeight + 16))
-            height: 32 + 1 + (root.isFormattingActive ? 34 : 0) + textAreaHeight + 32
+            readonly property real calculatedHeight: 32 + 1 + (root.isFormattingActive ? 34 : 0) + textAreaHeight + 32
+            height: calculatedHeight
+            implicitHeight: calculatedHeight
+            Layout.preferredHeight: calculatedHeight
+
+            Behavior on Layout.preferredHeight {
+                NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+            }
             color: ThemeManager.surfaceColor
 
             Rectangle {
@@ -3312,7 +3370,7 @@ Rectangle {
                     objectName: "formatToolbar"
                     Layout.fillWidth: true
                     Layout.preferredHeight: root.isFormattingActive ? 34 : 0
-                    visible: root.isFormattingActive
+                    visible: root.isFormattingActive || Layout.preferredHeight > 0
                     clip: true
                     color: ThemeManager.cardBackgroundColor
                     border.color: ThemeManager.borderColor

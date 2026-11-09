@@ -14,7 +14,7 @@ A clear and concise description of what the bug is.
 - Desktop Environment: [e.g. GNOME 46, KDE Plasma 6.1, XFCE]
 - Display Server: [e.g. Wayland, Xorg / X11] (Run `echo $XDG_SESSION_TYPE`)
 - Package Type: [e.g. AppImage, deb, RPM, Nix, Built from source]
-- Zalos Version: [e.g. 1.0.6]
+- Zalos Version: [e.g. 1.1.0]
 
 **To Reproduce**
 Steps to reproduce the behavior:

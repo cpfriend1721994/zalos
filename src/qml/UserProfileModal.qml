@@ -713,6 +713,7 @@ Item {
                             }
 
                             Rectangle {
+                                visible: !root.isMe && !ZaloClient.profileIsOfficial && ZaloClient.profileUserId !== ZaloClient.myCloudId
                                 Layout.preferredWidth: 42
                                 Layout.preferredHeight: 38
                                 radius: 6
@@ -737,6 +738,7 @@ Item {
                             }
 
                             Rectangle {
+                                visible: !root.isMe && !ZaloClient.profileIsOfficial && ZaloClient.profileUserId !== ZaloClient.myCloudId
                                 Layout.preferredWidth: 42
                                 Layout.preferredHeight: 38
                                 radius: 6
@@ -777,7 +779,8 @@ Item {
                         }
 
                         ZButton {
-                            visible: ZaloClient.isLoggedIn && !ZaloClient.profileIsSelf && ZaloClient.profileUserId.length > 0
+                            visible: ZaloClient.isLoggedIn && !ZaloClient.profileIsSelf && !ZaloClient.profileIsOfficial
+                                     && ZaloClient.profileUserId !== ZaloClient.myCloudId
                             Layout.fillWidth: true
                             variant: "secondary"
                             iconName: "group_add"

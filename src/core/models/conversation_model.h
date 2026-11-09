@@ -101,6 +101,7 @@ public:
     void addConversation(const ConversationItem& item);
     void upsertConversation(const ConversationItem& item);
     void setConversations(const QVector<ConversationItem>& items);
+    const QVector<ConversationItem>& conversations() const { return m_allItems; }
     bool contains(const QString& convId) const;
     ConversationItem conversation(const QString& convId) const;
     QString adjacentId(const QString& convId, int delta) const;

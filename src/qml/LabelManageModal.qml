@@ -123,8 +123,8 @@ Item {
             Text {
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
-                text: I18n.t("Gắn thẻ cho hội thoại bằng chuột phải trong danh sách tin nhắn. Thẻ được đồng bộ với Zalo trên các thiết bị khác.",
-                             "Label a conversation with a right click in the chat list. Labels sync with Zalo on your other devices.")
+                text: I18n.t("Gắn thẻ phân loại cho hội thoại bằng chuột phải trong danh sách tin nhắn. Thẻ phân loại được đồng bộ với Zalo trên các thiết bị khác.",
+                             "Assign labels to conversations by right-clicking them in the chat list. Labels sync with Zalo on your other devices.")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: ThemeManager.secondaryTextColor
@@ -256,7 +256,7 @@ Item {
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: ThemeManager.dividerColor }
 
             Text {
-                text: I18n.t("Thêm thẻ phân loại", "Add a label")
+                text: I18n.t("Thêm thẻ phân loại", "Add label")
                       + " (" + root.labelList.length + "/" + ZaloClient.labels.maxLabels + ")"
                 font.family: Theme.fontFamily
                 font.pixelSize: 13
@@ -269,7 +269,7 @@ Item {
                 ZTextField {
                     id: newName
                     Layout.fillWidth: true
-                    placeholderText: I18n.t("Tên thẻ", "Label name")
+                    placeholderText: I18n.t("Tên thẻ phân loại", "Label name")
                     maximumLength: ZaloClient.labels.maxNameLength
                     enabled: ZaloClient.labels.loaded && root.labelList.length < ZaloClient.labels.maxLabels
                     onAccepted: root.addLabel()

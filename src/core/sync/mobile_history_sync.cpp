@@ -3,6 +3,7 @@
 #include "crypto/db_cross.h"
 #include "network/zalo_session.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -33,6 +34,7 @@ namespace {
 constexpr int kConfirmTimeoutMs = 3 * 60 * 1000;
 constexpr int kBackupTimeoutMs = 30 * 60 * 1000;
 constexpr int kNoiseBatch = 100;
+constexpr int kDownloadStallMs = 2 * 60 * 1000;
 
 QString typeName(int t) {
     static const QHash<int, QString> map{
@@ -89,6 +91,9 @@ MobileHistorySync::MobileHistorySync(Network::ZaloSession* session, QObject* par
             fail(L("Điện thoại chưa xác nhận yêu cầu đồng bộ.", "The phone did not confirm the sync request."));
         } else if (m_state == PhonePreparing) {
             fail(L("Điện thoại chưa gửi bản sao lưu sau 30 phút.", "The phone did not send a backup within 30 minutes."));
+        } else if (m_state == Importing && m_download) {
+            fail(L("Tải bản sao lưu bị gián đoạn do mất kết nối mạng quá lâu.",
+                   "Backup download timed out due to network inactivity."));
         }
     });
 }
@@ -438,9 +443,11 @@ void MobileHistorySync::onBackupReady(const QJsonObject& data) {
     m_url = data.value("url").toString();
     m_fileName = data.value("file_name").toString();
     m_encryptedKey = data.value("encrypted_key").toString();
+    m_checksum = data.value("checksum_code").toString(data.value("checksum").toString());
+    m_expectedSize = data.value("file_size").toVariant().toLongLong();
 
-    log(QStringLiteral("backup info: format=%1 msgs=%2 file=%3 keys=%4 db_info=%5")
-            .arg(m_format).arg(m_expectedMessages).arg(!m_fileName.isEmpty()).arg(shapeOf(data)).arg(shapeOf(info)));
+    log(QStringLiteral("backup info: format=%1 msgs=%2 file=%3 host=%4 keys=%5 db_info=%6")
+            .arg(m_format).arg(m_expectedMessages).arg(!m_fileName.isEmpty()).arg(QUrl(m_url).host()).arg(shapeOf(data)).arg(shapeOf(info)));
     if (info.isEmpty()) {
         fail(L("Thông tin bản sao lưu không hợp lệ.", "The backup description is invalid."));
         return;
@@ -463,6 +470,7 @@ void MobileHistorySync::onBackupReady(const QJsonObject& data) {
 
 void MobileHistorySync::download() {
     if (!m_session) return;
+    log(QStringLiteral("download starting host=%1 path=%2").arg(QUrl(m_url).host(), QUrl(m_url).path()));
     m_workDir = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
                     .filePath(QStringLiteral("sync/%1").arg(QUuid::createUuid().toString(QUuid::Id128)));
     QDir().mkpath(m_workDir);
@@ -474,31 +482,67 @@ void MobileHistorySync::download() {
     }
     setState(Importing, L("Đang tải bản sao lưu từ máy chủ Zalo...", "Downloading the backup from Zalo..."), 20);
     const quint64 gen = m_generation;
+    m_writeFailed = false;
+    m_timeout.start(kDownloadStallMs);
     m_download = m_session->getWithCookies(QUrl(m_url));
     connect(m_download, &QNetworkReply::readyRead, this, [this, file]() {
-        if (m_download) file->write(m_download->readAll());
+        if (m_download) {
+            m_timeout.start(kDownloadStallMs);
+            const QByteArray chunk = m_download->readAll();
+            if (!m_writeFailed && file->write(chunk) != chunk.size()) {
+                m_writeFailed = true;
+                m_download->abort();
+            }
+        }
     });
     connect(m_download, &QNetworkReply::downloadProgress, this, [this, gen](qint64 got, qint64 total) {
         if (gen != m_generation || total <= 0) return;
+        m_timeout.start(kDownloadStallMs);
         setState(Importing, L("Đang tải bản sao lưu từ máy chủ Zalo...", "Downloading the backup from Zalo..."),
                  20 + int(30.0 * double(got) / double(total)));
     });
     connect(m_download, &QNetworkReply::finished, this, [this, file, gen]() {
+        m_timeout.stop();
         QNetworkReply* reply = m_download;
         if (!reply) return;
         reply->deleteLater();
         m_download = nullptr;
         if (gen != m_generation) return;
-        file->write(reply->readAll());
+        const QByteArray tail = reply->readAll();
+        if (!m_writeFailed && file->write(tail) != tail.size()) m_writeFailed = true;
         file->close();
         log(QStringLiteral("download http=%1 bytes=%2").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt())
                 .arg(file->size()));
+        if (m_writeFailed) {
+            fail(L("Không ghi được bản sao lưu vào máy (ổ đĩa đầy hoặc không có quyền ghi).",
+                   "Couldn't write the backup to disk (disk full or not writable)."));
+            return;
+        }
         if (reply->error() != QNetworkReply::NoError) {
             const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             fail(L("Tải bản sao lưu thất bại (%1).", "Downloading the backup failed (%1).")
                      .arg(http > 0 ? QStringLiteral("HTTP %1").arg(http) : QString::number(int(reply->error()))));
             return;
         }
+        const QByteArray encoding = reply->rawHeader("Content-Encoding").trimmed().toLower();
+        const qint64 contentLength = (encoding.isEmpty() || encoding == "identity")
+                                         ? reply->header(QNetworkRequest::ContentLengthHeader).toLongLong()
+                                         : 0;
+        if (file->size() <= 0 || (contentLength > 0 && file->size() != contentLength)) {
+            fail(L("Bản sao lưu tải về không đầy đủ (%1/%2 byte). Hãy thử đồng bộ lại.",
+                   "The backup download is incomplete (%1/%2 bytes). Please try again.")
+                     .arg(file->size()).arg(contentLength));
+            return;
+        }
+        QString md5;
+        QFile checkFile(file->fileName());
+        if (checkFile.open(QIODevice::ReadOnly)) {
+            QCryptographicHash hasher(QCryptographicHash::Md5);
+            hasher.addData(&checkFile);
+            md5 = QString::fromLatin1(hasher.result().toHex());
+        }
+        log(QStringLiteral("download integrity: content_length=%1 file_size=%2 expected_size=%3 md5=%4 checksum=%5")
+                .arg(contentLength).arg(file->size()).arg(m_expectedSize).arg(md5, m_checksum));
         decryptAndRead();
     });
 }
