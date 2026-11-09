@@ -1,14 +1,19 @@
 name: Zalos CD Pipeline
 
 # Release matrix (tests are NOT run here — the test suite runs locally; see the agent skills):
-#   Fedora base (Dockerfile, FEDORA_VERSION=43)        -> RPM for Fedora 43+        (x86_64 + aarch64)
-#   Ubuntu base (Dockerfile.ubuntu, 24.04 = Qt 6.4)    -> .deb (24.04+) and AppImage (x86_64 + aarch64)
-#   nixos/nix   (newest nixos-unstable)                 -> Nix package              (x86_64 + aarch64)
+#   rpm-*     Fedora 43 base (Dockerfile)           -> RPM for Fedora 43+            (x86_64 + aarch64)
+#   ubuntu-*  Ubuntu 24.04 base (Dockerfile.ubuntu) -> .deb (24.04+) and AppImage     (x86_64 + aarch64)
+#   nix-*     nixos/nix (newest nixos-unstable)     -> Nix package                   (x86_64 + aarch64)
 #
-# Each release ships SEPARATE x86_64 and aarch64 files (never a fat binary). aarch64 is built under QEMU/binfmt
-# emulation on the x86_64 self-hosted runner, so it is slow: jobs run strictly one after another (each `needs`
-# the previous, one global concurrency group) and within a job the x86_64 build finishes before the aarch64 one
-# starts, so the runner never builds two trees at once.
+# Every target is its own matrix leg and the legs run strictly one at a time (max-parallel: 1): the aarch64 legs
+# build under QEMU/binfmt on the x86_64 self-hosted runner and saturate it, so two builds must never overlap.
+# Separate legs make a failure per target: GitHub's "Re-run failed jobs" repeats only the failed leg and the
+# release job, while the legs that already finished keep their artifacts from the same run.
+#
+# Each leg also caches its finished dist/ under the commit SHA ("Restore a package already built for this
+# commit"). "Re-run all jobs" on the same commit then restores the packages that were already built instead of
+# rebuilding them, while a new commit always rebuilds — the SHA in the key makes a stale artifact impossible.
+# Network hops that used to fail a release on their own (GHCR pull, appimagetool download) are retried in place.
 
 on:
   push:
@@ -47,106 +52,114 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------------------------------------------
-  # RPM (Fedora 43+), x86_64 then aarch64.
+  # Six release targets, one per matrix leg, serialized by max-parallel: 1.
   # ---------------------------------------------------------------------------------------------------------------
-  package-fedora:
-    name: RPM (Fedora 43+, x86_64 + aarch64)
+  package:
+    name: ${{ matrix.target }}
     needs: [release-gate]
     if: needs.release-gate.outputs.is_release == 'true'
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
+    strategy:
+      fail-fast: false # run the remaining targets: their artifacts are kept for a "Re-run failed jobs"
+      max-parallel: 1 # never two builds at once: one emulated build saturates the runner
+      matrix:
+        include:
+          - target: rpm-x86_64
+            base_path: zalos-fedora:43
+            platform: linux/amd64
+            build: packaging/rpm/build-rpm.sh
+            wrap: 'no'
+          - target: rpm-aarch64
+            base_path: zalos-fedora:43
+            platform: linux/arm64
+            build: packaging/rpm/build-rpm.sh
+            wrap: 'no'
+          - target: ubuntu-x86_64
+            base_path: zalos-ubuntu:24.04
+            platform: linux/amd64
+            build: "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
+            wrap: 'yes'
+          - target: ubuntu-aarch64
+            base_path: zalos-ubuntu:24.04
+            platform: linux/arm64
+            build: "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
+            wrap: 'yes'
+          - target: nix-x86_64
+            base_path: zalos-nix:latest
+            platform: linux/amd64
+            build: packaging/nix/build-nix.sh
+            wrap: 'no'
+          # Only the native x86_64 leg refreshes flake.lock to the newest nixos-unstable; the emulated aarch64 leg
+          # reuses the committed lock (build-nix.sh skips `nix flake update` when ZALOS_EMULATED=1).
+          - target: nix-aarch64
+            base_path: zalos-nix:latest
+            platform: linux/arm64
+            build: packaging/nix/build-nix.sh
+            wrap: 'no'
     steps:
       - uses: actions/checkout@v7
         with:
           clean: true
+      - name: Drop artifacts of a previous run on a reused runner
+        run: rm -rf dist
+      # Only a successful leg stores its dist/; a failed one has no cache entry and therefore rebuilds from
+      # scratch, while every target that already shipped is restored in seconds.
+      - name: Restore a package already built for this commit
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: dist
+          key: zalos-pkg-${{ matrix.target }}-${{ github.sha }}
       # Job-private docker config dir: /root/.docker/config.json is a bind mount on the self-hosted runner, so
       # login-action's atomic rename over it fails with "device or resource busy". $RUNNER_TEMP is unique per job.
       - name: Use a job-private DOCKER_CONFIG
+        if: steps.cache.outputs.cache-hit != 'true'
         run: echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
       - uses: docker/login-action@v4
+        if: steps.cache.outputs.cache-hit != 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # No bind mounts in the packaging jobs. A runner whose docker daemon is remote or containerized cannot see
+      # No bind mounts in the packaging legs. A runner whose docker daemon is remote or containerized cannot see
       # the job checkout, so `docker compose run` gets an empty /workspace and dies with
       # "bash: /workspace/packaging/...: No such file or directory" (exit 127). scripts/ci-package.sh moves the
       # source and the artifacts through the docker API instead: pull the prebuilt multiarch base (built once by
       # base-images.yml, never rebuilt here), COPY the source onto it (Dockerfile.app), run the packaging script,
-      # copy /workspace/dist out. Each run is a fresh tree, so no build dir or stale artifact carries over.
+      # copy /workspace/dist out.
       - name: Prebuilt base image (multiarch, from base-images.yml)
-        run: echo "base_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-fedora:43" >> "$GITHUB_ENV"
-      - run: rm -rf dist
-      - name: Pull base for amd64
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: echo "base_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.base_path }}" >> "$GITHUB_ENV"
+      # GHCR occasionally answers a manifest request with a 5xx or a reset connection: five spaced attempts turn a
+      # registry hiccup into a retry instead of a red job.
+      - name: Pull base for ${{ matrix.platform }}
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          docker pull --platform linux/amd64 "${base_image}"
-          docker tag  "${base_image}" zalos-fedora:43-amd64
-      - name: Build RPM (x86_64)
-        run: bash scripts/ci-package.sh zalos-fedora:43-amd64 linux/amd64 packaging/rpm/build-rpm.sh
+          pulled=0
+          for attempt in 1 2 3 4 5; do
+            if docker pull --platform "${{ matrix.platform }}" "${base_image}"; then
+              pulled=1
+              break
+            fi
+            echo "==> docker pull failed (attempt ${attempt}), retrying..."
+            sleep $((attempt * 10))
+          done
+          if [ "${pulled}" != "1" ]; then
+            echo "❌ Could not pull ${base_image} for ${{ matrix.platform }}"
+            exit 1
+          fi
+          docker tag "${base_image}" "zalos-base-${{ matrix.target }}"
       - name: Enable aarch64 emulation (binfmt)
+        if: matrix.platform == 'linux/arm64' && steps.cache.outputs.cache-hit != 'true'
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
-      - name: Pull base for arm64
-        run: |
-          docker pull --platform linux/arm64 "${base_image}"
-          docker tag  "${base_image}" zalos-fedora:43-arm64
-      - name: Build RPM (aarch64, emulated)
-        run: bash scripts/ci-package.sh zalos-fedora:43-arm64 linux/arm64 packaging/rpm/build-rpm.sh
-      - uses: actions/upload-artifact@v7
-        with:
-          name: zalos-rpm
-          path: |
-            dist/zalos-*.x86_64.rpm
-            dist/zalos-*.aarch64.rpm
-          if-no-files-found: error
-      - name: Reclaim disk (unused images + layer/build cache)
-        if: always()
-        run: |
-          docker image prune -f || true
-          docker builder prune -af || true
-
-  # ---------------------------------------------------------------------------------------------------------------
-  # .deb (Ubuntu 24.04+) and AppImage, x86_64 then aarch64.
-  # ---------------------------------------------------------------------------------------------------------------
-  package-ubuntu:
-    name: .deb + AppImage (x86_64 + aarch64)
-    needs: [release-gate, package-fedora]
-    if: needs.release-gate.outputs.is_release == 'true'
-    runs-on: [self-hosted, Linux, X64, tunnm-cicd]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          clean: true
-      # Job-private docker config dir (see the RPM job): avoids the bind-mounted /root/.docker/config.json rename EBUSY.
-      - name: Use a job-private DOCKER_CONFIG
-        run: echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      # Prebuilt Ubuntu base (Qt 6.4) from GHCR; the source is baked on top of it per target (see the RPM job).
-      - name: Prebuilt base image (multiarch, from base-images.yml)
-        run: echo "base_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-ubuntu:24.04" >> "$GITHUB_ENV"
-      - run: rm -rf dist
-      - name: Pull base for amd64
-        run: |
-          docker pull --platform linux/amd64 "${base_image}"
-          docker tag  "${base_image}" zalos-ubuntu:24.04-amd64
-      - name: Build .deb + AppImage (x86_64)
-        run: |
-          bash scripts/ci-package.sh zalos-ubuntu:24.04-amd64 linux/amd64 "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
-      - name: Enable aarch64 emulation (binfmt)
-        run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
-      - name: Pull base for arm64
-        run: |
-          docker pull --platform linux/arm64 "${base_image}"
-          docker tag  "${base_image}" zalos-ubuntu:24.04-arm64
-      - name: Build .deb + AppImage (aarch64, emulated)
-        run: |
-          bash scripts/ci-package.sh zalos-ubuntu:24.04-arm64 linux/arm64 "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
+      - name: Build ${{ matrix.target }}
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash scripts/ci-package.sh "zalos-base-${{ matrix.target }}" "${{ matrix.platform }}" "${{ matrix.build }}"
       # A container whose docker has no outbound network cannot download appimagetool, and the foreign-arch
       # container cannot execute it at all. Any AppDir bundle is therefore wrapped here with the arch-matched tool
       # from the runner, so a container-side failure can never block the release.
       - name: Cross-package AppImages on the host (container fallback)
+        if: matrix.wrap == 'yes' && steps.cache.outputs.cache-hit != 'true'
         run: |
           mapfile -t ARCHIVES < <(ls dist/Zalos-*-AppDir.tar.gz 2>/dev/null || true)
           if [ "${#ARCHIVES[@]}" -gt 0 ]; then
@@ -161,7 +174,8 @@ jobs:
             export PATH="/tmp/tools/bin:$PATH"
             TOOL="/tmp/tools/appimagetool-x86_64"
             if [ ! -f "${TOOL}" ]; then
-              curl -sSfL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+              curl -sSfL --retry 5 --retry-delay 3 --retry-all-errors \
+                -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
               chmod +x "${TOOL}"
             fi
             for ARCHIVE in "${ARCHIVES[@]}"; do
@@ -178,67 +192,22 @@ jobs:
               rm -rf "${APPDIR}" "${ARCHIVE}"
             done
           fi
-          echo "==> dist contents after Ubuntu packaging:"
+      # A packaging script that silently falls back (e.g. an AppDir tarball instead of an AppImage) must fail here,
+      # not in `release`. Runs on a cache hit too, so a restored leg is verified as well.
+      - name: Verify ${{ matrix.target }} produced its files
+        run: |
           ls -lh dist/
-      - name: Verify both x86_64 and aarch64 AppImages exist
-        run: |
-          ls -la dist/Zalos-*-x86_64.AppImage
-          ls -la dist/Zalos-*-aarch64.AppImage
+          case "${{ matrix.target }}" in
+            rpm-*)    ls dist/zalos-*.rpm ;;
+            ubuntu-*) ls dist/Zalos-*.AppImage dist/zalos_*.deb ;;
+            nix-*)    ls dist/zalos-*-nixos.tar.gz ;;
+          esac
       - uses: actions/upload-artifact@v7
         with:
-          name: zalos-deb-appimage
-          path: |
-            dist/zalos_*.deb
-            dist/Zalos-*.AppImage
+          name: ${{ matrix.target }}
+          path: dist/
           if-no-files-found: error
-      - name: Reclaim disk (unused images + layer/build cache)
-        if: always()
-        run: |
-          docker image prune -f || true
-          docker builder prune -af || true
-
-  # ---------------------------------------------------------------------------------------------------------------
-  # Nix (nixos-unstable), x86_64 then aarch64.
-  # ---------------------------------------------------------------------------------------------------------------
-  package-nix:
-    name: Nix (x86_64 + aarch64)
-    needs: [release-gate, package-ubuntu]
-    if: needs.release-gate.outputs.is_release == 'true'
-    runs-on: [self-hosted, Linux, X64, tunnm-cicd]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          clean: true
-      # Job-private docker config dir (see the RPM job): avoids the bind-mounted /root/.docker/config.json rename EBUSY.
-      - name: Use a job-private DOCKER_CONFIG
-        run: echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - run: rm -rf dist
-      # The nix base pins nixos/nix with flakes pre-enabled (see Dockerfile.nix). Only the native x86_64 step refreshes
-      # flake.lock; the emulated aarch64 step reuses that exact lockfile without running `nix flake update` under QEMU.
-      - name: Prebuilt base image (multiarch, from base-images.yml)
-        run: echo "base_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zalos-nix:latest" >> "$GITHUB_ENV"
-      - name: Build Nix package (x86_64, against the newest nixos-unstable)
-        run: |
-          docker pull --platform linux/amd64 "${base_image}"
-          docker tag  "${base_image}" zalos-nix:latest-amd64
-          bash scripts/ci-package.sh zalos-nix:latest-amd64 linux/amd64 packaging/nix/build-nix.sh
-      - name: Enable aarch64 emulation (binfmt)
-        run: docker run --privileged --rm tonistiigi/binfmt --install arm64 || true
-      - name: Build Nix package (aarch64, emulated)
-        run: |
-          docker pull --platform linux/arm64 "${base_image}"
-          docker tag  "${base_image}" zalos-nix:latest-arm64
-          bash scripts/ci-package.sh zalos-nix:latest-arm64 linux/arm64 packaging/nix/build-nix.sh
-      - uses: actions/upload-artifact@v7
-        with:
-          name: zalos-nix
-          path: dist/zalos-*-nixos.tar.gz
-          if-no-files-found: error
+          overwrite: true # a re-run of the same leg replaces the artifact instead of failing on a 409
       - name: Reclaim disk (unused images + layer/build cache)
         if: always()
         run: |
@@ -249,10 +218,11 @@ jobs:
   # GitHub release (tags only): every package (x86_64 + aarch64) + SHA256SUMS.
   # Release notes are a curated, English changelog built from CHANGELOG.md (scripts/ci-release-notes.sh),
   # not GitHub's auto-generated commit dump — see the "## [X.Y.Z]" section for this tag.
+  # A leg that failed leaves this job skipped, so a partial release is never published.
   # ---------------------------------------------------------------------------------------------------------------
   release:
     name: GitHub release
-    needs: [package-nix]
+    needs: [package]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
     steps:

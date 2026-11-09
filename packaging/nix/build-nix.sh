@@ -48,6 +48,11 @@ trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDS
 sandbox = ${NIX_SANDBOX}
 filter-syscalls = ${NIX_SANDBOX}
 cores = ${NIX_CORES}
+# cache.nixos.org and github.com are the only network hops of this build; a dropped transfer used to fail the
+# whole release. Retry each download, and give up only when the stream is really stalled.
+download-attempts = 10
+connect-timeout = 15
+stalled-download-timeout = 300
 EOF
 
 echo "==> Building Zalos package via default.nix..."
@@ -57,7 +62,18 @@ if command -v nix &>/dev/null; then
     # sessions and caches included, and a git flake would miss untracked files).
     if [ "${ZALOS_EMULATED:-0}" != "1" ] && [ "${ZALOS_SKIP_FLAKE_UPDATE:-0}" != "1" ]; then
         echo "==> Updating flake.lock to the newest nixos-unstable..."
-        nix flake update --extra-experimental-features "nix-command flakes"
+        # GitHub's flake API is another transient-network hop: retry it, the build itself is the expensive part.
+        for attempt in 1 2 3; do
+            if nix flake update --extra-experimental-features "nix-command flakes"; then
+                break
+            fi
+            if [ "${attempt}" = "3" ]; then
+                echo "❌ nix flake update failed after 3 attempts" >&2
+                exit 1
+            fi
+            echo "==> nix flake update failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 10))
+        done
     else
         echo "==> Using existing flake.lock..."
     fi

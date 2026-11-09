@@ -102,7 +102,7 @@ mkdir -p /tmp/tools
 TOOL="/tmp/tools/appimagetool-${ARCH}"
 if [ ! -f "${TOOL}" ]; then
     echo "==> Downloading appimagetool (${ARCH})..."
-    if ! curl -sSfL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage"; then
+    if ! curl -sSfL --retry 5 --retry-delay 3 --retry-all-errors -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage"; then
         echo "==> appimagetool download failed (no network access to github.com from this environment)"
         rm -f "${TOOL}"
     fi
