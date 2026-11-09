@@ -102,13 +102,19 @@ mkdir -p /tmp/tools
 TOOL="/tmp/tools/appimagetool-${ARCH}"
 if [ ! -f "${TOOL}" ]; then
     echo "==> Downloading appimagetool (${ARCH})..."
-    curl -sSfL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage" || rm -f "${TOOL}"
+    if ! curl -sSfL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage"; then
+        echo "==> appimagetool download failed (no network access to github.com from this environment)"
+        rm -f "${TOOL}"
+    fi
     [ -f "${TOOL}" ] && chmod +x "${TOOL}" || true
 fi
 
-# 4. Generate AppImage or fallback archive
+# 4. Generate AppImage or fallback archive. appimagetool output goes to a log: a CI runner whose docker has no
+# outbound network (or cannot run the extracted tool) must show the reason instead of silently shipping a bundle.
 rm -f "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}-AppDir.tar.gz"
 BUILT=0
+LOG="/tmp/tools/appimagetool-${ARCH}.log"
+: > "${LOG}"
 if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
     echo "==> Generating AppImage via appimagetool..."
     RUNTIME_FILE="/tmp/tools/runtime-${ARCH}"
@@ -120,7 +126,7 @@ if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
     fi
     RUNTIME_ARGS=(-n)
     [ -s "${RUNTIME_FILE}" ] && RUNTIME_ARGS+=(--runtime-file "${RUNTIME_FILE}")
-    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${RUNTIME_ARGS[@]}" "${APP_DIR}" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" && BUILT=1 || {
+    ARCH="${ARCH}" "${TOOL}" --appimage-extract-and-run "${RUNTIME_ARGS[@]}" "${APP_DIR}" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" >>"${LOG}" 2>&1 && BUILT=1 || {
         echo "==> Direct appimagetool run failed; trying extracted appimagetool..."
         (
             cd /tmp/tools
@@ -130,14 +136,16 @@ if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
                 mv squashfs-root "squashfs-root-${ARCH}"
                 ARCH="${ARCH}" "./squashfs-root-${ARCH}/AppRun" "${RUNTIME_ARGS[@]}" "${APP_DIR}" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage"
             fi
-        ) && BUILT=1 || echo "==> Emulated appimagetool execution unavailable in this environment."
+        ) >>"${LOG}" 2>&1 && BUILT=1 || echo "==> Emulated appimagetool execution unavailable in this environment."
     }
 fi
 
 if [ "${BUILT}" = "1" ] && [ -f "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" ]; then
     echo "✅ Generated ${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage"
 else
-    echo "==> Packaging portable AppDir bundle (CI cross-packager will wrap into .AppImage if emulated)..."
+    echo "==> appimagetool could not produce an AppImage; last lines of ${LOG}:"
+    tail -n 15 "${LOG}" 2>/dev/null || true
+    echo "==> Packaging portable AppDir bundle (the CI host wraps it into .AppImage)..."
     tar -czf "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}-AppDir.tar.gz" -C "${APP_DIR}" .
 fi
 

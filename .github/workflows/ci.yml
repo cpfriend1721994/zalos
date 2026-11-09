@@ -143,13 +143,15 @@ jobs:
       - name: Build .deb + AppImage (aarch64, emulated)
         run: |
           bash scripts/ci-package.sh zalos-ubuntu:24.04-arm64 linux/arm64 "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
-      # If emulated appimagetool inside the container fell back to AppDir.tar.gz, cross-package it using
-      # native x86_64 appimagetool on the host runner with ARCH=aarch64 (embeds runtime-aarch64 cleanly).
-      - name: Cross-package aarch64 AppImage (if emulated appimagetool fell back)
+      # A container whose docker has no outbound network cannot download appimagetool, and the foreign-arch
+      # container cannot execute it at all. Any AppDir bundle is therefore wrapped here with the arch-matched tool
+      # from the runner, so a container-side failure can never block the release.
+      - name: Cross-package AppImages on the host (container fallback)
         run: |
-          if [ ! -f dist/Zalos-*-aarch64.AppImage ] && ls dist/Zalos-*-aarch64-AppDir.tar.gz 1>/dev/null 2>&1; then
-            echo "==> Cross-packaging aarch64 AppImage from AppDir bundle..."
-            mkdir -p /tmp/tools/bin /tmp/appdir-arm64
+          mapfile -t ARCHIVES < <(ls dist/Zalos-*-AppDir.tar.gz 2>/dev/null || true)
+          if [ "${#ARCHIVES[@]}" -gt 0 ]; then
+            echo "==> Cross-packaging ${#ARCHIVES[@]} AppDir bundle(s) into AppImages..."
+            mkdir -p /tmp/tools/bin
             if ! command -v file &>/dev/null; then
               echo "==> Setting up file utility shim for appimagetool..."
               cp scripts/file-shim.py /tmp/tools/bin/file
@@ -157,16 +159,24 @@ jobs:
               (sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends file) 2>/dev/null || true
             fi
             export PATH="/tmp/tools/bin:$PATH"
-            ARCHIVE=$(ls dist/Zalos-*-aarch64-AppDir.tar.gz | head -1)
-            tar -xzf "${ARCHIVE}" -C /tmp/appdir-arm64
             TOOL="/tmp/tools/appimagetool-x86_64"
             if [ ! -f "${TOOL}" ]; then
               curl -sSfL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
               chmod +x "${TOOL}"
             fi
-            OUT="${ARCHIVE%-AppDir.tar.gz}.AppImage"
-            ARCH=aarch64 "${TOOL}" --appimage-extract-and-run -n /tmp/appdir-arm64 "${OUT}"
-            rm -rf /tmp/appdir-arm64 "${ARCHIVE}"
+            for ARCHIVE in "${ARCHIVES[@]}"; do
+              case "${ARCHIVE}" in
+                *-x86_64-AppDir.tar.gz) TARGET_ARCH=x86_64 ;;
+                *-aarch64-AppDir.tar.gz) TARGET_ARCH=aarch64 ;;
+                *) echo "❌ Unknown architecture in ${ARCHIVE}"; exit 1 ;;
+              esac
+              APPDIR=$(mktemp -d)
+              tar -xzf "${ARCHIVE}" -C "${APPDIR}"
+              OUT="${ARCHIVE%-AppDir.tar.gz}.AppImage"
+              echo "==> ${TARGET_ARCH}: ${ARCHIVE} -> ${OUT}"
+              ARCH="${TARGET_ARCH}" "${TOOL}" --appimage-extract-and-run -n "${APPDIR}" "${OUT}"
+              rm -rf "${APPDIR}" "${ARCHIVE}"
+            done
           fi
           echo "==> dist contents after Ubuntu packaging:"
           ls -lh dist/
