@@ -1772,14 +1772,20 @@ private slots:
                                                          {"href", QUrl::fromLocalFile(picPath).toString()},
                                                          {"title", QString::fromUtf8("Ảnh chụp buổi họp")}}, now - 60000),
         };
+        client.setUserForTesting("u-gallery", "Fixture Gallery", "");
         emit session->messagesReceived(msgs, false, true);
         client.selectConversation("u-gallery", "Fixture Gallery", "");
         client.setMyUidForTesting("u-me");
-        client.pins()->applyListForTesting("u-gallery", QJsonObject{{"version", 1}, {"data", QJsonArray{
+        client.setOnlineIdsForTesting({"u-gallery"});
+        client.labels()->applyServer(QJsonObject{{"version", 1}, {"labelData", QJsonArray{
+            QJsonObject{{"id", 1}, {"text", "Fixture A"}, {"color", "#D91B1B"}, {"offset", 0}, {"conversations", QJsonArray{"u-gallery"}}},
+            QJsonObject{{"id", 2}, {"text", "Fixture B"}, {"color", "#4BC377"}, {"offset", 1}, {"conversations", QJsonArray{}}}}}});
+        const QJsonObject initialPins{{"version", 1}, {"data", QJsonArray{
             QString::fromUtf8(QJsonDocument(QJsonObject{{"id", 1}, {"type", 2}, {"params", QString::fromUtf8(QJsonDocument(QJsonObject{
                 {"global_msg_id", "9101"}, {"senderName", "Fixture Gallery"}, {"title", "Fixture pinned note"}}).toJson(QJsonDocument::Compact))}}).toJson(QJsonDocument::Compact)),
             QString::fromUtf8(QJsonDocument(QJsonObject{{"id", 2}, {"type", 2}, {"params", QString::fromUtf8(QJsonDocument(QJsonObject{
-                {"global_msg_id", "9102"}, {"senderName", "Me"}, {"title", "Second pin"}}).toJson(QJsonDocument::Compact))}}).toJson(QJsonDocument::Compact))}}}, false);
+                {"global_msg_id", "9102"}, {"senderName", "Me"}, {"title", "Second pin"}}).toJson(QJsonDocument::Compact))}}).toJson(QJsonDocument::Compact))}}};
+        client.pins()->applyListForTesting("u-gallery", initialPins, false);
         client.handleReactionsForTesting(QJsonArray{
             QJsonObject{{"uidFrom", "u-gallery"}, {"idTo", "u-me"}, {"content", QJsonObject{{"rIcon", "/-heart"}, {"rType", 5},
                 {"rMsg", QJsonArray{QJsonObject{{"gMsgID", "9104"}}}}}}},
@@ -1807,6 +1813,7 @@ private slots:
         for (int mode : {0, 1}) {
             themeMgr.setThemeMode(mode);
             const QString suffix = mode ? "dark" : "light";
+            client.pins()->applyListForTesting("u-gallery", initialPins, false);
             client.setCurrentNavigationTab("messages");
             shot("chat_" + suffix);
             if (mode == 0) {

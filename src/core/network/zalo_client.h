@@ -511,6 +511,12 @@ public:
         emit restoringSessionChanged();
         emit loginStateChanged();
     }
+    void setOnlineIdsForTesting(const QSet<QString>& ids) {
+        m_onlineIds = ids;
+        m_conversationModel->setOnlineIds(ids);
+        m_contactModel->setOnlineIds(ids);
+        emit conversationStatusChanged();
+    }
 #endif
 
     Q_INVOKABLE QVariantList groupMembers(const QString& groupId);
