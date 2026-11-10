@@ -26,7 +26,7 @@ namespace Zalos::Core::Platform {
 namespace {
 
 constexpr int kDefaultDiameter = 96;
-constexpr int kDefaultCoverWidth = 0; // 0 = keep original full resolution
+constexpr int kDefaultCoverWidth = 0;
 constexpr int kMaxMemCacheKiB = 16 * 1024;
 
 QMutex s_memCacheMutex;

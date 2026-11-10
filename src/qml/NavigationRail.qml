@@ -26,8 +26,6 @@ Rectangle {
         Layout.preferredWidth: root.compact ? 40 : 44
         Layout.preferredHeight: root.compact ? 40 : 44
         radius: width / 2
-        // Theme-aware: the rail is near-black in dark mode (a faint accent tint reads well) but a saturated
-        // blue bar in light mode (an accent tint would vanish — a bright white highlight stands out instead).
         color: active
                ? (ThemeManager.isDarkMode ? Qt.rgba(Theme.zaloBlue.r, Theme.zaloBlue.g, Theme.zaloBlue.b, 0.26)
                                           : Qt.rgba(1, 1, 1, 0.95))
@@ -41,7 +39,6 @@ Rectangle {
             anchors.centerIn: parent
             name: btn.icon
             size: root.iconSize
-            // Dark: white glyph on the faint accent tint. Light: accent-blue glyph on the white highlight.
             color: btn.active ? (ThemeManager.isDarkMode ? "#FFFFFF" : Theme.zaloBlue) : "#FFFFFF"
             opacity: ThemeManager.isDarkMode && !btn.active && !btnMouse.containsMouse ? 0.75 : 1.0
         }
@@ -114,8 +111,6 @@ Rectangle {
             width: root.compact ? 40 : 44
             height: width
             radius: width / 2
-            // Same principle as the nav buttons: faint colored tint on the dark rail; a solid label-colour disc
-            // on the saturated-blue light rail (a faint tint would vanish there), so colour identity stays clear.
             color: ThemeManager.isDarkMode
                    ? (folder.active ? Qt.rgba(folder.dot.r, folder.dot.g, folder.dot.b, 0.42)
                       : (folderMouse.containsMouse ? Qt.rgba(folder.dot.r, folder.dot.g, folder.dot.b, 0.28)
@@ -126,7 +121,6 @@ Rectangle {
             Text {
                 anchors.centerIn: parent
                 text: folder.initials(folder.labelName)
-                // Dark: colored glyph on the faint/transparent tint. Light: white glyph on the solid disc.
                 color: ThemeManager.isDarkMode ? folder.dot : "#FFFFFF"
                 font.family: Theme.fontFamily
                 font.pixelSize: Math.max(11, Math.floor(folderDisc.width * 0.36))
@@ -332,7 +326,6 @@ Rectangle {
 
         Item { visible: !root.foldersShown; Layout.fillHeight: true }
 
-        // Bottom utilities matching Zalo PC layout: Kiki, zCloud, Toolbox
         RailButton {
             icon: "kiki"
             tip: I18n.t("Trợ lý Kiki", "Kiki Assistant")

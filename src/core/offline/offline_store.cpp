@@ -608,7 +608,6 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
                                    bool isGroup) {
     if (!m_db.isOpen() || item.id.isEmpty() || item.id.startsWith(QLatin1String("local-"))) return false;
 
-    // Deduplicate if there is already a message in this conversation with the same non-zero cliMsgId
     if (!item.cliMsgId.isEmpty() && item.cliMsgId != QLatin1String("0")) {
         QSqlQuery chk(m_db);
         chk.prepare("SELECT id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND id <> :id LIMIT 1;");

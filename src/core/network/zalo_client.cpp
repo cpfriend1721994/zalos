@@ -2240,7 +2240,6 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
             label = item.text;
         }
     } else if (type == QLatin1String("chat.todo")) {
-        // Group/1-1 reminder event (Zalo PC MSG_TODO): a centred system notice, never a sender bubble.
         const QJsonValue rawMessage = obj.value("message");
         QString msg = rawMessage.isString() ? rawMessage.toString() : rawMessage.toObject().value("message").toString();
         if (msg.isEmpty()) msg = obj.value("title").toString();
@@ -2565,9 +2564,6 @@ void ZaloClient::selectConversation(const QString& id, const QString& name, cons
     m_messageModel->loadConversation(id);
     m_messageModel->setUnreadMarker(id, m_conversationModel->conversation(id).unreadCount);
     m_conversationModel->clearUnread(id);
-    // Persist the zeroed count: reading a chat must survive a restart. Normal chats are later re-healed from the
-    // server read-point, but sub-chat/OA (zbusiness) cursors are skipped in applyReadPoints, so without this save a
-    // stale offline unread_count resurfaces as a "new message" badge every launch.
     if (m_offlineStore) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
     m_notifications->close(QStringLiteral("thread:") + id);
     if (m_markedUnread.contains(id)) toggleUnreadMark(id);
@@ -5481,7 +5477,6 @@ void ZaloClient::executeScreenshotCapture() {
         }
     };
 
-    // 1. Try KDE Spectacle (interactive region selection in background)
     const QString spectacle = QStandardPaths::findExecutable(QStringLiteral("spectacle"));
     if (!spectacle.isEmpty()) {
         auto* proc = new QProcess(this);
@@ -5494,7 +5489,6 @@ void ZaloClient::executeScreenshotCapture() {
         return;
     }
 
-    // 2. Try GNOME Screenshot (interactive area)
     const QString gnomeShot = QStandardPaths::findExecutable(QStringLiteral("gnome-screenshot"));
     if (!gnomeShot.isEmpty()) {
         auto* proc = new QProcess(this);
@@ -5507,7 +5501,6 @@ void ZaloClient::executeScreenshotCapture() {
         return;
     }
 
-    // 3. Try Flameshot
     const QString flameshot = QStandardPaths::findExecutable(QStringLiteral("flameshot"));
     if (!flameshot.isEmpty()) {
         auto* proc = new QProcess(this);
@@ -5520,7 +5513,6 @@ void ZaloClient::executeScreenshotCapture() {
         return;
     }
 
-    // 4. Try grim & slurp (Wayland generic)
     const QString grim = QStandardPaths::findExecutable(QStringLiteral("grim"));
     const QString slurp = QStandardPaths::findExecutable(QStringLiteral("slurp"));
     if (!grim.isEmpty()) {
@@ -5538,7 +5530,6 @@ void ZaloClient::executeScreenshotCapture() {
         return;
     }
 
-    // 5. Try maim (X11)
     const QString maim = QStandardPaths::findExecutable(QStringLiteral("maim"));
     if (!maim.isEmpty()) {
         auto* proc = new QProcess(this);
@@ -5551,7 +5542,6 @@ void ZaloClient::executeScreenshotCapture() {
         return;
     }
 
-    // 6. Direct Screen Grab on X11 / XWayland
     if (QGuiApplication::platformName().contains(QLatin1String("xcb"))) {
         QScreen* screen = QGuiApplication::primaryScreen();
         if (screen) {
@@ -5563,7 +5553,6 @@ void ZaloClient::executeScreenshotCapture() {
         }
     }
 
-    // 7. XDG Desktop Portal Fallback
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) {
         emit requestRestoreAfterScreenshot();

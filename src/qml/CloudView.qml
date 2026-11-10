@@ -61,7 +61,6 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // Header bar
         Rectangle {
             Layout.fillWidth: true
             height: 56
@@ -144,7 +143,6 @@ Rectangle {
             }
         }
 
-        // Filter tab bar
         Rectangle {
             Layout.fillWidth: true
             height: 44
@@ -198,7 +196,6 @@ Rectangle {
             }
         }
 
-        // Authentic Storage Status Overview Card (Zero mock data)
         Rectangle {
             Layout.fillWidth: true
             Layout.margins: 20
@@ -283,7 +280,6 @@ Rectangle {
             }
         }
 
-        // Content Area: Files / Media / Links List or Empty State
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -319,7 +315,6 @@ Rectangle {
                         anchors.margins: 10
                         spacing: 12
 
-                        // Icon / Thumbnail preview
                         Rectangle {
                             width: 42
                             height: 42
@@ -343,7 +338,6 @@ Rectangle {
                                 color: Theme.zaloBlue
                             }
 
-                            // Video indicator overlay
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: 22
@@ -361,7 +355,6 @@ Rectangle {
                             }
                         }
 
-                        // Title & Subtitle details
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 3
@@ -394,7 +387,6 @@ Rectangle {
                             }
                         }
 
-                        // Action button
                         Rectangle {
                             width: 32
                             height: 32
@@ -440,7 +432,6 @@ Rectangle {
                 }
             }
 
-            // Clean, non-blocking empty state
             Item {
                 anchors.centerIn: parent
                 width: parent.width - 40

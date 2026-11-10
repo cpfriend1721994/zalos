@@ -195,7 +195,6 @@ Rectangle {
                 }
             }
 
-            // Group Members Carousel / Row
             Row {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: 12

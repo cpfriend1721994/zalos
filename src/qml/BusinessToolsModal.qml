@@ -39,7 +39,6 @@ Item {
             anchors.fill: parent
             spacing: 0
 
-            // Header
             Rectangle {
                 Layout.fillWidth: true
                 height: 54
@@ -106,7 +105,6 @@ Item {
                 }
             }
 
-            // Tab bar
             Rectangle {
                 Layout.fillWidth: true
                 height: 42
@@ -206,7 +204,6 @@ Item {
                 }
             }
 
-            // Tab Content
             StackLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -214,7 +211,6 @@ Item {
                               : ZaloClient.businessTab === "autoreply" ? 2
                               : ZaloClient.businessTab === "package" ? 3 : 0
 
-                // 1. Hồ sơ kinh doanh
                 Flickable {
                     clip: true
                     contentWidth: width
@@ -337,7 +333,6 @@ Item {
                     }
                 }
 
-                // 2. Danh mục sản phẩm
                 Item {
                     ColumnLayout {
                         id: catalogCol
@@ -363,7 +358,6 @@ Item {
                             }
                         }
 
-                        // New Product Inline Form
                         Rectangle {
                             id: productDialog
                             visible: false
@@ -548,7 +542,6 @@ Item {
                     }
                 }
 
-                // 3. Trả lời tự động
                 Flickable {
                     clip: true
                     contentWidth: width
@@ -646,7 +639,6 @@ Item {
                     }
                 }
 
-                // 4. Gói zBusiness
                 Flickable {
                     clip: true
                     contentWidth: width

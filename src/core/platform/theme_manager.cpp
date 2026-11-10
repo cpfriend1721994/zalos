@@ -386,9 +386,6 @@ QColor ThemeManager::dropOverlayColor() const {
 }
 
 void ThemeManager::initSystemThemeDetection() {
-    // Snapshot the platform palette (populated by the Qt/GTK platform theme plugin) before
-    // syncApplicationPalette() overwrites QGuiApplication::setPalette(); mode 2 reads from here so
-    // roles we never re-set (e.g. Link) survive and stay stable across theme toggles.
     m_systemPalette = QGuiApplication::palette();
     detectGnomeOrPortalTheme();
     detectKdeTheme();

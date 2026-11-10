@@ -68,7 +68,6 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // Header bar
         Rectangle {
             Layout.fillWidth: true
             height: 56
@@ -145,12 +144,10 @@ Rectangle {
             }
         }
 
-        // Main Area: Suggestions when empty, Chat stream when active
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            // Suggestions view
             Flickable {
                 visible: kikiChatModel.count === 0
                 anchors.fill: parent
@@ -169,7 +166,6 @@ Rectangle {
                     anchors.topMargin: 32
                     spacing: 24
 
-                    // Hero Badge
                     ColumnLayout {
                         Layout.alignment: Qt.AlignHCenter
                         spacing: 12
@@ -211,7 +207,6 @@ Rectangle {
                         }
                     }
 
-                    // Capability Cards (4 clean cards without redundant empty pills)
                     GridLayout {
                         Layout.fillWidth: true
                         columns: parent.width > 560 ? 2 : 1
@@ -320,7 +315,6 @@ Rectangle {
                 }
             }
 
-            // Chat Messages Stream
             ListView {
                 id: chatListView
                 visible: kikiChatModel.count > 0
@@ -387,7 +381,6 @@ Rectangle {
                         }
                     }
 
-                    // Action buttons for Kiki responses (cleanly positioned below the bubble, never overlapping)
                     RowLayout {
                         visible: !msgDelegate.model.isUser && !msgDelegate.model.isNotice
                         Layout.leftMargin: 42
@@ -460,7 +453,6 @@ Rectangle {
             }
         }
 
-        // Bottom Composer
         Rectangle {
             Layout.fillWidth: true
             height: 62

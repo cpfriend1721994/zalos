@@ -161,7 +161,6 @@ void ZaloApiClient::syncFromBrowserSession() {
 
     Platform::BrowserSessionResult res = Platform::BrowserSessionReader::readSession();
     if (!res.success) {
-        // Fallback to script if present
         const QString scriptPath = browserExportScriptPath();
         if (!scriptPath.isEmpty() && !QStandardPaths::findExecutable("python3").isEmpty()) {
             auto* proc = new QProcess(this);
