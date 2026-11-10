@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.1.0 LANGUAGES CXX)
+project(zalos VERSION 1.1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -120,6 +120,8 @@ set(ZALOS_SOURCES
     src/core/platform/icon_image_provider.h
     src/core/platform/icon_image_provider.cpp
     src/core/platform/render_profile.cpp
+    src/core/platform/browser_session_reader.h
+    src/core/platform/browser_session_reader.cpp
     src/core/platform/qml_singletons.h
     src/core/platform/sound_engine.h
     src/core/platform/sound_engine.cpp
@@ -342,6 +344,7 @@ if(BUILD_TESTING)
         src/core/models/message_model.cpp
         src/core/models/contact_model.cpp
         src/core/platform/theme_manager.cpp
+        src/core/platform/browser_session_reader.cpp
         src/core/platform/system_tray.cpp
         src/core/platform/sound_engine.cpp
     )

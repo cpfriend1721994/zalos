@@ -81,6 +81,12 @@ Rectangle {
         root.popupOf(reactionPopupLoader).open();
     }
 
+    property var seenDetailsUids: []
+    function openSeenDetails(uids: var): void {
+        root.seenDetailsUids = uids || [];
+        root.popupOf(seenPopupLoader).open();
+    }
+
     function openHeaderTarget(): void {
         if (!ZaloClient.currentConversationIsGroup) ZaloClient.viewProfile(ZaloClient.currentConversationId);
         else ZaloClient.toggleConversationInfo();
@@ -283,8 +289,11 @@ Rectangle {
         const cursor = msgInput.cursorPosition;
         if (root.suggestMode === "mention") {
             const label = "@" + item.name;
+            const newPos = root.suggestStart + label.length + 1;
             msgInput.text = t.substring(0, root.suggestStart) + label + " " + t.substring(cursor);
-            msgInput.cursorPosition = root.suggestStart + label.length + 1;
+            Qt.callLater(() => {
+                msgInput.cursorPosition = newPos;
+            });
             const picks = root.mentionPicks.slice();
             picks.push({ uid: item.uid, label: label });
             root.mentionPicks = picks;
@@ -372,6 +381,17 @@ Rectangle {
         if (status === "seen") return I18n.t("Đã xem", "Seen");
         if (status === "failed") return I18n.t("Gửi lỗi", "Failed");
         return I18n.t("Đã gửi", "Sent");
+    }
+
+    function seenTooltipText(seenUids: var): string {
+        if (!seenUids || seenUids.length === 0) return "";
+        const names = [];
+        for (let i = 0; i < seenUids.length; ++i) {
+            const uid = seenUids[i];
+            const name = ZaloClient.displayNameOf(uid);
+            names.push(name && name.length > 0 ? name : uid);
+        }
+        return I18n.t("Đã xem: ", "Seen by: ") + names.join(", ");
     }
 
     Shortcut {
@@ -581,7 +601,7 @@ Rectangle {
                             ZIcon {
                                 anchors.centerIn: parent
                                 name: "user_add"
-                                size: 18
+                                size: 20
                                 color: ThemeManager.textColor
                             }
 
@@ -1532,7 +1552,7 @@ Rectangle {
                             ColumnLayout {
                                 id: contentCol
                                 Layout.maximumWidth: msgRow.maxBubble
-                                Layout.rightMargin: msgRow.mine ? 16 : 0
+                                Layout.rightMargin: msgRow.mine ? 24 : 0
                                 opacity: (ZaloClient.antiPeeking && !rowHover.hovered) ? 0.08 : 1.0
                                 Behavior on opacity { NumberAnimation { duration: 150 } }
                                 spacing: 0
@@ -2407,70 +2427,70 @@ Rectangle {
                                         mediaLoader.visible ? mediaLoader.x : 1e6,
                                         stickerLoader.visible ? stickerLoader.x : 1e6,
                                         runLoader.visible ? runLoader.x : 1e6)
-                                    Layout.alignment: Qt.AlignLeft
-                                    Layout.leftMargin: Math.max(0, contentEdge - implicitWidth - 6)
-                                    implicitWidth: reactionPills.implicitWidth
+                                    Layout.fillWidth: true
                                     implicitHeight: model.reaction.length > 0 ? 12 : 0
                                     z: 2
                                     Row {
-                                    id: reactionPills
-                                    anchors.right: parent.right
-                                    y: -10
-                                    spacing: 4
-                                    Loader {
-                                        active: model.reaction.length > 0
-                                        sourceComponent: Rectangle {
-                                            implicitHeight: 22
-                                            implicitWidth: reactionText.implicitWidth + 14
-                                            radius: 11
-                                            color: Theme.reactionBackground
-                                            border.color: ThemeManager.borderColor
-                                            border.width: 1
-                                            Text {
-                                                id: reactionText
-                                                anchors.centerIn: parent
-                                                text: model.reaction
-                                                font.pixelSize: 12
-                                                color: ThemeManager.textColor
+                                        id: reactionPills
+                                        x: Math.max(0, reactionRow.contentEdge - width - 6)
+                                        y: -10
+                                        spacing: 4
+                                        Loader {
+                                            active: model.reaction.length > 0
+                                            visible: active
+                                            sourceComponent: Rectangle {
+                                                implicitHeight: 22
+                                                implicitWidth: reactionText.implicitWidth + 14
+                                                radius: 11
+                                                color: Theme.reactionBackground
+                                                border.color: ThemeManager.borderColor
+                                                border.width: 1
+                                                Text {
+                                                    id: reactionText
+                                                    anchors.centerIn: parent
+                                                    text: model.reaction
+                                                    font.pixelSize: 12
+                                                    color: ThemeManager.textColor
+                                                }
+                                                MouseArea {
+                                                    id: reactionPillMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.openReactionDetails(msgRow.msgId, parent)
+                                                }
+                                                ToolTip.visible: reactionPillMouse.containsMouse
+                                                ToolTip.delay: 400
+                                                ToolTip.text: I18n.t("Xem ai đã thả cảm xúc", "See who reacted")
                                             }
-                                            MouseArea {
-                                                id: reactionPillMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: root.openReactionDetails(msgRow.msgId, parent)
-                                            }
-                                            ToolTip.visible: reactionPillMouse.containsMouse
-                                            ToolTip.delay: 400
-                                            ToolTip.text: I18n.t("Xem ai đã thả cảm xúc", "See who reacted")
                                         }
-                                    }
-                                    Loader {
-                                        active: reactionRow.canReact && rowHover.hovered
-                                        sourceComponent: Rectangle {
-                                            implicitWidth: 22
-                                            implicitHeight: 22
-                                            radius: 11
-                                            color: quickLikeMouse.containsMouse ? ThemeManager.inputFillHoverColor : Theme.reactionBackground
-                                            border.color: ThemeManager.borderColor
-                                            border.width: 1
-                                            Text {
-                                                anchors.centerIn: parent
-                                                text: "👍"
-                                                font.pixelSize: 11
+                                        Loader {
+                                            active: reactionRow.canReact && rowHover.hovered
+                                            visible: active
+                                            sourceComponent: Rectangle {
+                                                implicitWidth: 22
+                                                implicitHeight: 22
+                                                radius: 11
+                                                color: quickLikeMouse.containsMouse ? ThemeManager.inputFillHoverColor : Theme.reactionBackground
+                                                border.color: ThemeManager.borderColor
+                                                border.width: 1
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: "👍"
+                                                    font.pixelSize: 11
+                                                }
+                                                MouseArea {
+                                                    id: quickLikeMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: ZaloClient.reactToMessage(msgRow.msgId, "like")
+                                                }
+                                                ToolTip.visible: quickLikeMouse.containsMouse
+                                                ToolTip.delay: 400
+                                                ToolTip.text: I18n.t("Thích", "Like")
                                             }
-                                            MouseArea {
-                                                id: quickLikeMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: ZaloClient.reactToMessage(msgRow.msgId, "like")
-                                            }
-                                            ToolTip.visible: quickLikeMouse.containsMouse
-                                            ToolTip.delay: 400
-                                            ToolTip.text: I18n.t("Thích", "Like")
                                         }
-                                    }
                                     }
                                 }
 
@@ -2498,8 +2518,81 @@ Rectangle {
                                         ToolTip.delay: 300
                                         ToolTip.text: root.fullTimestamp(model.ts, model.time)
                                     }
+                                    Row {
+                                        id: groupSeenRow
+                                        readonly property var rawUids: (typeof model !== "undefined" && model && model.seenUids) ? model.seenUids : []
+                                        readonly property var uids: rawUids.slice().reverse()
+                                        visible: msgRow.mine && ZaloClient.currentConversationIsGroup && groupSeenRow.uids.length > 0
+                                        spacing: -6
+                                        Layout.alignment: Qt.AlignVCenter
+                                        height: 16
+
+                                        Repeater {
+                                            model: groupSeenRow.uids.slice(0, 4)
+                                            delegate: Rectangle {
+                                                id: seenAvatarItem
+                                                required property string modelData
+                                                required property int index
+                                                z: 10 - index
+                                                width: 16
+                                                height: 16
+                                                radius: 8
+                                                color: ThemeManager.chatBubbleMine
+                                                border.color: ThemeManager.surfaceColor
+                                                border.width: 1
+                                                clip: true
+                                                Image {
+                                                    anchors.fill: parent
+                                                    source: ZaloClient.avatarOf(seenAvatarItem.modelData).length > 0
+                                                        ? "image://avatar/" + encodeURIComponent(ZaloClient.avatarOf(seenAvatarItem.modelData)) : ""
+                                                    sourceSize.width: 16
+                                                    sourceSize.height: 16
+                                                    fillMode: Image.PreserveAspectCrop
+                                                    asynchronous: true
+                                                }
+                                                ZIcon {
+                                                    anchors.centerIn: parent
+                                                    visible: ZaloClient.avatarOf(seenAvatarItem.modelData).length === 0
+                                                    name: "user"
+                                                    size: 10
+                                                    color: ThemeManager.textColor
+                                                }
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            visible: groupSeenRow.uids.length > 4
+                                            z: 20
+                                            width: 16
+                                            height: 16
+                                            radius: 8
+                                            color: ThemeManager.hoverColor
+                                            border.color: ThemeManager.surfaceColor
+                                            border.width: 1
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "+" + Math.max(0, groupSeenRow.uids.length - 4)
+                                                font.pixelSize: 8
+                                                font.bold: true
+                                                color: ThemeManager.textColor
+                                            }
+                                        }
+
+                                        HoverHandler {
+                                            id: groupSeenHover
+                                            cursorShape: Qt.PointingHandCursor
+                                        }
+
+                                        TapHandler {
+                                            onTapped: root.openSeenDetails(groupSeenRow.uids)
+                                        }
+
+                                        ToolTip.visible: groupSeenHover.hovered
+                                        ToolTip.delay: 200
+                                        ToolTip.text: root.seenTooltipText(groupSeenRow.uids)
+                                    }
                                     Text {
-                                        visible: model.showStatus
+                                        visible: model.showStatus && (!ZaloClient.currentConversationIsGroup || !model.seenUids || model.seenUids.length === 0)
                                         text: root.statusLabel(model.status)
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
@@ -3628,7 +3721,7 @@ Rectangle {
                                         Text {
                                             visible: text.length > 0
                                             Layout.fillWidth: true
-                                            text: root.suggestMode === "mention" ? (sugRow.modelData.hint || "") : sugRow.modelData.text
+                                            text: root.suggestMode === "mention" ? ((sugRow.modelData && sugRow.modelData.hint) || "") : ((sugRow.modelData && sugRow.modelData.text) || "")
                                             font.family: Theme.fontFamily
                                             font.pixelSize: 11
                                             color: ThemeManager.secondaryTextColor
@@ -4196,6 +4289,95 @@ Rectangle {
                                           : personRow.modelData.emojis + (personRow.modelData.count > 1 ? " " + personRow.modelData.count : "")
                                     font.pixelSize: 15
                                     color: ThemeManager.secondaryTextColor
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Loader {
+        id: seenPopupLoader
+        anchors.fill: parent
+        active: false
+        sourceComponent: PopupHost {
+            popup: seenPopup
+            Popup {
+                id: seenPopup
+                focus: true
+                anchors.centerIn: parent
+                width: Math.min(root.width - 32, 340)
+                height: Math.min(root.height - 60, 400)
+                modal: true
+                padding: 14
+                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                background: Rectangle { color: ThemeManager.surfaceColor; radius: 12; border.color: ThemeManager.borderColor }
+                contentItem: ColumnLayout {
+                    spacing: 10
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: I18n.t("Người đã xem (%1)", "Seen by (%1)").arg(root.seenDetailsUids.length)
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 15
+                            font.bold: true
+                            color: ThemeManager.textColor
+                        }
+                        Rectangle {
+                            width: 26
+                            height: 26
+                            radius: 13
+                            color: seenCloseMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                            ZIcon { anchors.centerIn: parent; name: "close"; size: 14; color: ThemeManager.iconColor }
+                            MouseArea { id: seenCloseMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: seenPopup.close() }
+                        }
+                    }
+                    ListView {
+                        id: seenList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 2
+                        model: root.seenDetailsUids
+                        delegate: Rectangle {
+                            id: seenPersonRow
+                            required property string modelData
+                            readonly property string uid: seenPersonRow.modelData
+                            readonly property string name: ZaloClient.displayNameOf(uid) || uid
+                            readonly property string avatar: ZaloClient.avatarOf(uid)
+                            width: seenList.width
+                            height: 46
+                            radius: 8
+                            color: seenPersonHover.hovered ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                            HoverHandler { id: seenPersonHover }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 6
+                                anchors.rightMargin: 6
+                                spacing: 10
+                                ZAvatar {
+                                    size: 34
+                                    avatarUrl: seenPersonRow.avatar
+                                    name: seenPersonRow.name
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: seenPersonRow.name
+                                    elide: Text.ElideRight
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 13
+                                    color: ThemeManager.textColor
+                                }
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    seenPopup.close();
+                                    ZaloClient.viewProfile(seenPersonRow.uid);
                                 }
                             }
                         }

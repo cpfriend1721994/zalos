@@ -298,35 +298,46 @@ Rectangle {
         }
     }
 
-    component PillButton: Rectangle {
-        id: pb
-        opacity: enabled ? 1.0 : 0.4
-        property string icon: ""
-        property string tip: ""
-        property bool on: false
-        signal clicked()
+    component PillButton: Item {
+        id: pbRoot
         width: 80
-        height: 40
-        radius: 20
-        color: pbMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.26) : Qt.rgba(1, 1, 1, 0.16)
-        border.color: Qt.rgba(1, 1, 1, 0.18)
-        border.width: 1
-        ZIcon {
+        height: 56
+        property alias tip: pb.tip
+        property alias icon: pb.icon
+        property alias on: pb.on
+        property alias enabled: pb.enabled
+        signal clicked()
+
+        Rectangle {
+            id: pb
             anchors.centerIn: parent
-            name: pb.icon
-            size: 22
-            color: pb.on ? "#E5383B" : "#FFFFFF"
+            opacity: enabled ? 1.0 : 0.4
+            property string icon: ""
+            property string tip: ""
+            property bool on: false
+            width: 80
+            height: 40
+            radius: 20
+            color: pbMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.26) : Qt.rgba(1, 1, 1, 0.16)
+            border.color: Qt.rgba(1, 1, 1, 0.18)
+            border.width: 1
+            ZIcon {
+                anchors.centerIn: parent
+                name: pb.icon
+                size: 22
+                color: pb.on ? "#E5383B" : "#FFFFFF"
+            }
+            MouseArea {
+                id: pbMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: pbRoot.clicked()
+            }
+            ToolTip.visible: pbMouse.containsMouse && tip.length > 0
+            ToolTip.delay: 400
+            ToolTip.text: tip
         }
-        MouseArea {
-            id: pbMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: pb.clicked()
-        }
-        ToolTip.visible: pbMouse.containsMouse && tip.length > 0
-        ToolTip.delay: 400
-        ToolTip.text: tip
     }
 
     component CircleButton: Rectangle {
@@ -373,6 +384,7 @@ Rectangle {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 28
             spacing: 20
+            baselineOffset: 0
 
             CircleButton {
                 visible: root.phase === "incoming"

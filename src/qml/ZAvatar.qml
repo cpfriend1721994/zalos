@@ -81,16 +81,16 @@ Item {
 
     Rectangle {
         visible: root.showStatusDot && root.isOnline && !root.isGroup
-        width: Math.max(10, Math.round(root.size * 0.3))
+        width: Math.max(11, Math.round(root.size * 0.35))
         height: width
         radius: width / 2
         color: Theme.onlineGreen
         border.color: ThemeManager.surfaceColor
-        border.width: 2
+        border.width: root.size >= 40 ? 2 : 1.5
         anchors.bottom: parent.bottom
         anchors.right: parent.right
-        anchors.bottomMargin: -Math.round(width * 0.12)
-        anchors.rightMargin: -Math.round(width * 0.12)
+        anchors.bottomMargin: -Math.round(width * 0.15)
+        anchors.rightMargin: -Math.round(width * 0.15)
     }
 
     Item {

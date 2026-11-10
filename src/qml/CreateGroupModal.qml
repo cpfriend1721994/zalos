@@ -13,11 +13,30 @@ Item {
     property var selectedMembers: ({})
     property int selectedCount: 0
     property string filterText: ""
+    property var friendList: []
+    property var filteredFriends: []
     property bool creating: false
     property string resultMessage: ""
     property bool resultOk: false
     readonly property int minMembers: 2
     readonly property bool canCreate: root.selectedCount >= root.minMembers && !root.creating
+
+    function updateFilteredFriends(): void {
+        var all = root.friendList || [];
+        var q = root.filterText.trim().toLowerCase();
+        if (q.length === 0) {
+            root.filteredFriends = all;
+            return;
+        }
+        var res = [];
+        for (var i = 0; i < all.length; ++i) {
+            var item = all[i];
+            if (item && item.name && item.name.toLowerCase().indexOf(q) !== -1) {
+                res.push(item);
+            }
+        }
+        root.filteredFriends = res;
+    }
 
     function isMemberSelected(id: string): bool {
         return Boolean(root.selectedMembers && root.selectedMembers[id]);
@@ -34,13 +53,6 @@ Item {
         root.selectedCount = Object.keys(s).length;
     }
 
-    function matchesFilter(name: string): bool {
-        var q = root.filterText.trim().toLowerCase();
-        if (q.length === 0)
-            return true;
-        return name.toLowerCase().indexOf(q) !== -1;
-    }
-
     function resetState(): void {
         root.selectedMembers = ({});
         root.selectedCount = 0;
@@ -50,6 +62,8 @@ Item {
         root.resultOk = false;
         groupNameInput.text = "";
         memberSearchInput.text = "";
+        root.friendList = ZaloClient.friendsForCard();
+        root.updateFilteredFriends();
     }
 
     function closeModal(): void {
@@ -250,7 +264,10 @@ Item {
                         font.pixelSize: 12
                         selectByMouse: true
                         clip: true
-                        onTextChanged: root.filterText = text
+                        onTextChanged: {
+                            root.filterText = text;
+                            root.updateFilteredFriends();
+                        }
 
                         Text {
                             anchors.fill: parent
@@ -273,38 +290,18 @@ Item {
                 Layout.minimumHeight: 80
                 clip: true
                 spacing: 2
-                model: ZaloClient.contactModel
+                model: root.filteredFriends
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-                property int shownCount: 0
-                function recountShown() {
-                    var n = 0;
-                    for (var i = 0; i < memberListView.contentItem.children.length; ++i) {
-                        var c = memberListView.contentItem.children[i];
-                        if (c && c.isMemberRow === true && c.visible)
-                            n++;
-                    }
-                    memberListView.shownCount = n;
-                }
-                onCountChanged: Qt.callLater(recountShown)
-                Connections {
-                    target: root
-                    function onFilterTextChanged() { Qt.callLater(memberListView.recountShown) }
-                    function onVisibleChanged() { Qt.callLater(memberListView.recountShown) }
-                }
 
                 delegate: Rectangle {
                     id: memberRow
-                    required property string id
-                    required property string name
-                    required property string avatarUrl
-                    required property bool isGroup
-                    readonly property bool isMemberRow: true
-                    readonly property bool shown: !memberRow.isGroup && root.matchesFilter(memberRow.name)
-                    readonly property bool selected: root.isMemberSelected(memberRow.id)
+                    required property var modelData
+                    readonly property string memberId: modelData.id || ""
+                    readonly property string memberName: modelData.name || ""
+                    readonly property string memberAvatar: modelData.avatar || ""
+                    readonly property bool selected: root.isMemberSelected(memberRow.memberId)
                     width: memberListView.width
-                    height: shown ? 52 : 0
-                    visible: shown
+                    height: 52
                     radius: 8
                     color: itemMouse.containsMouse ? (ThemeManager.hoverColor) : ThemeManager.hoverClearColor
 
@@ -333,13 +330,13 @@ Item {
 
                         ZAvatar {
                             size: 36
-                            avatarUrl: memberRow.avatarUrl
-                            name: memberRow.name
+                            avatarUrl: memberRow.memberAvatar
+                            name: memberRow.memberName
                         }
 
                         Text {
                             Layout.fillWidth: true
-                            text: memberRow.name
+                            text: memberRow.memberName
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
                             color: ThemeManager.textColor
@@ -350,15 +347,14 @@ Item {
                     MouseArea {
                         id: itemMouse
                         anchors.fill: parent
-                        enabled: memberRow.shown
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.toggleMember(memberRow.id)
+                        onClicked: root.toggleMember(memberRow.memberId)
                     }
                 }
 
                 ColumnLayout {
-                    visible: memberListView.shownCount === 0
+                    visible: memberListView.count === 0
                     anchors.centerIn: parent
                     width: Math.min(parent.width - 32, 320)
                     spacing: 6
@@ -366,7 +362,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
-                        text: memberListView.count === 0
+                        text: (root.friendList && root.friendList.length === 0)
                               ? I18n.t("Chưa có bạn bè nào", "No friends yet")
                               : I18n.t("Không tìm thấy bạn bè phù hợp", "No matching friends")
                         font.family: Theme.fontFamily
@@ -377,7 +373,7 @@ Item {
                     }
 
                     Text {
-                        visible: memberListView.count === 0
+                        visible: root.friendList && root.friendList.length === 0
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         text: I18n.t("Hãy kết bạn trước khi tạo nhóm.", "Add some friends before creating a group.")

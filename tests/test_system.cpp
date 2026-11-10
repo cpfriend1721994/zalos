@@ -635,6 +635,57 @@ private slots:
         QCOMPARE(m->data(m->index(0), MessageModel::SenderAvatarRole).toString(), QString("https://example.com/a.png"));
     }
 
+    // Group "seen" avatars survive a restart: the uid list is persisted inside the cached raw payload.
+    void testGroupSeenSurvivesRestart() {
+        const QString owner = QStringLiteral("u-seen-owner");
+        {
+            ZaloOfflineStore store;
+            store.bindOwner(owner);
+            store.clearCache();
+            store.bindOwner(owner);
+        }
+        {
+            ZaloClient client;
+            client.setMyUidForTesting(owner);
+            client.openOfflineCacheForTesting(owner);
+            client.applyGroupInfoForTesting(QJsonObject{{"g-seen", QJsonObject{{"name", "Fixture Seen Group"}, {"totalMember", 3}}}});
+            Zalos::Core::Models::ConversationItem conv;
+            conv.id = "g-seen";
+            conv.name = "Fixture Seen Group";
+            conv.isGroup = true;
+            QVERIFY(client.offlineStore()->saveConversation(conv));
+            emit client.apiClient()->session()->messagesReceived(QJsonArray{QJsonObject{
+                {"msgId", "9961"}, {"cliMsgId", "9961"}, {"uidFrom", owner}, {"idTo", "g-seen"},
+                {"msgType", "webchat"}, {"content", "fixture group seen"},
+                {"ts", QString::number(QDateTime::currentMSecsSinceEpoch())}}}, true, false);
+            QVERIFY(client.offlineStore()->recordGroupSeen("9961", "u-seen-a"));
+            QVERIFY(client.offlineStore()->recordGroupSeen("9961", "u-seen-b"));
+            QVERIFY(client.offlineStore()->recordGroupSeen("9961", "u-seen-a"));
+            // A later history sync re-saves the same message with a payload that carries no seenUids.
+            Zalos::Core::Models::MessageItem resaved;
+            resaved.id = "9961";
+            resaved.senderId = owner;
+            resaved.isMine = true;
+            resaved.messageType = "webchat";
+            resaved.text = "fixture group seen";
+            resaved.ts = QDateTime::currentMSecsSinceEpoch();
+            QVERIFY(client.offlineStore()->saveMessage("g-seen", resaved,
+                QJsonObject{{"msgId", "9961"}, {"msgType", "webchat"}, {"content", "fixture group seen"}}, true));
+        }
+
+        ZaloClient restarted;
+        restarted.setMyUidForTesting(owner);
+        QVERIFY(restarted.openOfflineCacheForTesting(owner));
+        restarted.selectConversation("g-seen", "Fixture Seen Group", "");
+        auto* m = restarted.messageModel();
+        QCOMPARE(m->rowCount(), 1);
+        const QStringList seen = m->data(m->index(0), MessageModel::SeenUidsRole).toStringList();
+        QCOMPARE(seen.size(), 2);
+        QVERIFY(seen.contains("u-seen-a"));
+        QVERIFY(seen.contains("u-seen-b"));
+        QCOMPARE(m->data(m->index(0), MessageModel::StatusRole).toString(), QString("seen"));
+    }
+
     // Official accounts: detected from oaInfo/oa_status, type >= 1 or bizPkg (never a group id), persisted in the cache.
     void testOfficialAccountDetectionPersists() {
         QVERIFY(ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-1"}, {"type", 1}}));

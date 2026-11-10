@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] - 2026-11-10
+
+### Added
+- **Native C++ browser session reader**: `BrowserSessionReader` extracts Chromium/Brave/Edge cookies directly in C++ via SQLite and Secret Service/KWallet decryption, so browser sign-in no longer spawns Python; the bundled export script remains only as a fallback when `python3` is present.
+- **Group read receipts**: your own group messages show a stacked cluster of up to four reader avatars with a `+N` badge, a hover list of reader names and a "Người đã xem (N)" popup; readers are stored per message in the offline database, so they survive history syncs and app restarts.
+- **In-chat system notices & call logs**: Group call finished notice card (`Cuộc gọi nhóm đã kết thúc`) and 1-1 voice/video call messages added into conversation flow with duration and status details.
+
+### Changed
+- **Direct tab ("Nhắn tôi")**: Displays unread group mentions (@me and @all) alongside direct messages; a mention flag left over on a fully read thread no longer keeps the row in the tab.
+
+### Fixed
+- **Mention cursor positioning**: Restores cursor directly after the inserted mention and space separator.
+- **Call Overlay vertical alignment**: Aligns hangup CircleButton and control PillButtons vertically.
+- **Create Group member list**: Correctly filters friends avoiding empty delegate items.
+
 ## [1.1.0] - 2026-11-09
 
 ### Added

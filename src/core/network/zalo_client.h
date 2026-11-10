@@ -632,6 +632,8 @@ public:
     int brokenMediaRevision() const { return m_brokenMediaRevision; }
     Q_INVOKABLE QVariantMap reactionDetails(const QString& msgId) const;
     Q_INVOKABLE void removeMyReaction(const QString& msgId);
+    Q_INVOKABLE QString displayNameOf(const QString& uid) const;
+    Q_INVOKABLE QString avatarOf(const QString& uid) const;
     Q_INVOKABLE void showNotice(const QString& text) { emit notice(text); }
     Q_INVOKABLE void openLink(const QString& url, const QString& title = QString(), const QString& thumb = QString());
     Q_INVOKABLE QVariantMap qrModules(const QString& text) const;
@@ -827,7 +829,6 @@ private:
     void sendDeliveredReceipts(const QJsonArray& msgs, bool isGroup);
     void loadUnreadMarks();
     void resyncAfterReconnect();
-    QString displayNameOf(const QString& uid) const;
     bool loadOfflineCache();
     void mergeCachedThread(const QString& convId);
     void mergeCacheRows(const QString& convId, QVector<Models::MessageItem> rows, const QHash<QString, QJsonObject>& raws);

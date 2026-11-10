@@ -534,8 +534,50 @@ ZaloClient::ZaloClient(QObject* parent)
         notifyIncomingCallDbus(name);
     });
     connect(m_calls, &Call::CallBridge::callFinished, this, [this](const QString& peerId, bool outgoing, int seconds) {
-        Q_UNUSED(outgoing);
-        Q_UNUSED(seconds);
+        const QString targetId = peerId.isEmpty() ? m_currentConvId : peerId;
+        if (!targetId.isEmpty()) {
+            const bool isGroup = isGroupThread(targetId);
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (isGroup) {
+                addSystemNotice(targetId, true, L("Cuộc gọi nhóm đã kết thúc", "Group call ended"), now);
+            } else {
+                Models::MessageItem item;
+                item.id = QStringLiteral("local-call-%1").arg(now);
+                item.messageType = "call";
+                item.isMine = outgoing;
+                item.senderId = outgoing ? (m_myUid.isEmpty() ? "0" : m_myUid) : targetId;
+                item.senderName = outgoing ? L("Tôi", "Me") : displayNameOf(targetId);
+                item.ts = now;
+                item.timeStr = QDateTime::fromMSecsSinceEpoch(now).toString("HH:mm");
+                const bool video = m_calls->isVideo();
+                const bool missed = seconds <= 0;
+                if (missed) {
+                    if (outgoing) {
+                        item.text = video ? L("Cuộc gọi video đi đã hủy", "Canceled outgoing video call")
+                                          : L("Cuộc gọi thoại đi đã hủy", "Canceled outgoing voice call");
+                    } else {
+                        item.text = video ? L("Cuộc gọi video nhỡ", "Missed video call")
+                                          : L("Cuộc gọi thoại nhỡ", "Missed voice call");
+                    }
+                } else {
+                    item.text = outgoing ? (video ? L("Cuộc gọi video đi", "Outgoing video call")
+                                                  : L("Cuộc gọi thoại đi", "Outgoing voice call"))
+                                         : (video ? L("Cuộc gọi video đến", "Incoming video call")
+                                                  : L("Cuộc gọi thoại đến", "Incoming voice call"));
+                }
+                QString duration;
+                if (!missed && seconds > 0) {
+                    duration = seconds >= 60 ? L("%1 phút %2 giây", "%1 min %2 s").arg(seconds / 60).arg(seconds % 60)
+                                             : L("%1 giây", "%1 s").arg(seconds);
+                }
+                item.extra = {{"video", video}, {"missed", missed}, {"outgoing", outgoing}, {"seconds", seconds},
+                              {"duration", duration}};
+                m_messageModel->mergeMessages(targetId, {item});
+                if (m_offlineStore) m_offlineStore->saveMessage(targetId, item, {}, false);
+                m_conversationModel->recordMessage(targetId, "[" + item.text + "]",
+                                                  outgoing ? L("Bạn: ", "You: ") : (item.senderName + ": "), now, false);
+            }
+        }
         if (peerId == m_currentConvId) loadOlderMessages();
     });
 
@@ -2341,6 +2383,14 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
 
     const QString snapshotReaction = parseReactionSnapshot(msg);
     if (!snapshotReaction.isEmpty()) item.reaction = snapshotReaction;
+
+    const QJsonArray seenUids = msg.value(QLatin1String("seenUids")).toArray();
+    for (const QJsonValue& v : seenUids) {
+        const QString u = idOf(v);
+        if (!u.isEmpty() && u != QLatin1String("0") && !item.seenUids.contains(u)) item.seenUids.append(u);
+    }
+    if (!item.seenUids.isEmpty() && item.isMine && item.status.isEmpty()) item.status = QStringLiteral("seen");
+
     return item;
 }
 
@@ -3208,16 +3258,27 @@ void ZaloClient::mergeCacheRows(const QString& convId, QVector<Models::MessageIt
     const bool isGroup = isGroupThread(convId);
     for (Models::MessageItem& row : rows) {
         const QJsonObject raw = raws.value(row.id);
-        if (raw.isEmpty() || row.isRecalled) continue;
-        const QString type = raw.value("msgType").toString();
-        if (!raw.contains("mentions") && !raw.contains("quote") && !isReparsedOnLoad(type)) continue;
-        QString thread, preview;
-        Models::MessageItem rebuilt = toMessageItem(raw, isGroup, &thread, &preview);
-        if (rebuilt.messageType == QLatin1String("poll_update")) continue;
-        rebuilt.id = row.id;
-        rebuilt.status = row.status;
-        rebuilt.reaction = row.reaction;
-        row = rebuilt;
+        if (!raw.isEmpty() && !row.isRecalled) {
+            const QJsonArray seenUids = raw.value(QLatin1String("seenUids")).toArray();
+            for (const QJsonValue& v : seenUids) {
+                const QString u = idOf(v);
+                if (!u.isEmpty() && u != QLatin1String("0") && !row.seenUids.contains(u)) row.seenUids.append(u);
+            }
+            const QString type = raw.value("msgType").toString();
+            if (raw.contains("mentions") || raw.contains("quote") || isReparsedOnLoad(type)) {
+                QString thread, preview;
+                Models::MessageItem rebuilt = toMessageItem(raw, isGroup, &thread, &preview);
+                if (rebuilt.messageType == QLatin1String("poll_update")) continue;
+                rebuilt.id = row.id;
+                rebuilt.status = row.status;
+                rebuilt.reaction = row.reaction;
+                for (const QString& u : row.seenUids) {
+                    if (!rebuilt.seenUids.contains(u)) rebuilt.seenUids.append(u);
+                }
+                row = rebuilt;
+            }
+        }
+        if (!row.seenUids.isEmpty() && row.isMine && row.status.isEmpty()) row.status = QStringLiteral("seen");
     }
     m_messageModel->mergeMessages(convId, rows);
     for (const auto& item : rows) {
@@ -3482,6 +3543,11 @@ QString ZaloClient::displayNameOf(const QString& uid) const {
     if (!uid.isEmpty() && uid == myCloudId()) return L("My Documents", "My Documents");
     const QString alias = m_aliases.value(uid);
     return alias.isEmpty() ? m_users.value(uid).name : alias;
+}
+
+QString ZaloClient::avatarOf(const QString& uid) const {
+    if (!m_myUid.isEmpty() && uid == m_myUid) return m_userAvatar;
+    return m_users.value(uid).avatar;
 }
 
 void ZaloClient::loadAliases(int page, QHash<QString, QString> collected) {
@@ -6410,8 +6476,12 @@ void ZaloClient::handleDeliveredReceipt(const QString& threadId, const QString& 
 
 void ZaloClient::handleSeen(const QString& threadId, const QString& msgId, const QString& userId, bool isGroup) {
     if (userId == m_myUid) return;
-    Q_UNUSED(isGroup);
-    m_messageModel->markSeenUpTo(threadId, msgId);
+    if (isGroup && !userId.isEmpty()) {
+        m_messageModel->recordGroupSeen(threadId, msgId, userId);
+        if (m_offlineStore) m_offlineStore->recordGroupSeen(msgId, userId);
+    } else {
+        m_messageModel->markSeenUpTo(threadId, msgId);
+    }
 }
 
 void ZaloClient::sendSeenForCurrent() {

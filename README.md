@@ -73,13 +73,13 @@ installed on the oldest and newest one in CI.
 
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.1.0-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.1.0-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.1.1-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.1.1-1~ubuntu24.04_amd64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.1.0-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.1.1-1.fc43.x86_64.rpm
 ```
 
 ### NixOS / Nix
@@ -91,14 +91,14 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (other distributions)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.1.0-x86_64.AppImage
-chmod +x Zalos-1.1.0-x86_64.AppImage
-./Zalos-1.1.0-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.1.1-x86_64.AppImage
+chmod +x Zalos-1.1.1-x86_64.AppImage
+./Zalos-1.1.1-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.1.0-aarch64.AppImage
-chmod +x Zalos-1.1.0-aarch64.AppImage
-./Zalos-1.1.0-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.1.1-aarch64.AppImage
+chmod +x Zalos-1.1.1-aarch64.AppImage
+./Zalos-1.1.1-aarch64.AppImage
 ```
 The AppImage relies on your system's runtime; on a minimal install you may need the usual desktop
 runtime packages.
@@ -113,7 +113,7 @@ follow [Building from source](#️-building-from-source) — or just use the por
 ### Optional: calls
 Voice and video calls use the open-source call engine from
 [zalo-for-linux](https://github.com/VN-Linux-Family/zalo-for-linux) (MIT), bundled in every Zalos package.
-The distribution packages pull in what it needs automatically. With the AppImage, install the extras yourself:
+The distribution packages pull in what they need automatically. With the AppImage, install the call runtime yourself:
 
 - Ubuntu: `sudo apt install nodejs python3 libopus0 pulseaudio-utils`
 - Fedora: `sudo dnf install nodejs python3 opus pulseaudio-utils`

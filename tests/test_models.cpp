@@ -69,12 +69,37 @@ private slots:
     }
 
     void testEmoticonShortcodes() {
-        QVERIFY(MessageModel::linkify(QStringLiteral("hay :v")).contains(QStringLiteral("qrc:/Zalos/assets/icons/pacman.png")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hay :v")).contains(QStringLiteral("width=\"18\" height=\"18\"")));
         QVERIFY(MessageModel::linkify(QStringLiteral("hay :V")).contains(QStringLiteral("qrc:/Zalos/assets/icons/pacman.png")));
         QVERIFY(MessageModel::linkify(QStringLiteral("peace :v:")).contains(QString::fromUtf8("✌️")));
         QVERIFY(MessageModel::linkify(QStringLiteral("haha =))")).contains(QString::fromUtf8("🤣")));
         QVERIFY(MessageModel::linkify(QStringLiteral("12:30")).contains(QStringLiteral("12:30")));
         QVERIFY(MessageModel::linkify(QStringLiteral("https://a.b:8080/v")).contains(QStringLiteral("8080/v")));
+    }
+
+    void testGroupSeenRecording() {
+        MessageModel model;
+        model.loadConversation("g-1");
+        MessageItem m;
+        m.id = "msg-101";
+        m.text = "Hello group";
+        m.ts = 1000;
+        m.isMine = true;
+        m.status = "sent";
+        model.mergeMessages("g-1", {m});
+
+        QCOMPARE(model.data(model.index(0), MessageModel::SeenUidsRole).toStringList().size(), 0);
+        QCOMPARE(model.data(model.index(0), MessageModel::StatusRole).toString(), QString("sent"));
+
+        model.recordGroupSeen("g-1", "msg-101", "user-2");
+        model.recordGroupSeen("g-1", "msg-101", "user-3");
+        model.recordGroupSeen("g-1", "msg-101", "user-2"); // duplicate
+
+        const QStringList seen = model.data(model.index(0), MessageModel::SeenUidsRole).toStringList();
+        QCOMPARE(seen.size(), 2);
+        QCOMPARE(seen.at(0), QString("user-2"));
+        QCOMPARE(seen.at(1), QString("user-3"));
+        QCOMPARE(model.data(model.index(0), MessageModel::StatusRole).toString(), QString("seen"));
     }
 
     void testReadPointsAndConversationActions() {
@@ -217,6 +242,7 @@ private slots:
         cMention.name = "Class Group";
         cMention.isGroup = true;
         cMention.hasUnreadMention = true;
+        cMention.unreadCount = 3;
 
         ConversationItem cArchived;
         cArchived.id = "c-archived";

@@ -111,6 +111,7 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
             return item.mentions.isEmpty() ? linkify(item.text) : linkify(item.text, item.mentions);
         }
         case ExtraRole: return item.extra;
+        case SeenUidsRole: return item.seenUids;
         case InMediaRunRole: return joinsPrevious(index.row());
         case MediaRunRole: {
             const int row = index.row();
@@ -160,6 +161,7 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
         {ShowStatusRole, "showStatus"},
         {RichTextRole, "richText"},
         {ExtraRole, "extra"},
+        {SeenUidsRole, "seenUids"},
         {MediaRunRole, "mediaRun"},
         {InMediaRunRole, "inMediaRun"}
     };
@@ -274,6 +276,9 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
                 merged.status = QStringLiteral("delivered");
             }
             if (merged.reaction.isEmpty()) merged.reaction = working[existingIdx].reaction;
+            for (const QString& u : working[existingIdx].seenUids) {
+                if (!merged.seenUids.contains(u)) merged.seenUids.append(u);
+            }
             if (working[existingIdx].isRecalled) {
                 merged.isRecalled = true;
                 merged.text = working[existingIdx].text;
@@ -487,6 +492,16 @@ void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
     }
 }
 
+void MessageModel::recordGroupSeen(const QString& convId, const QString& msgId, const QString& userId) {
+    if (userId.isEmpty()) return;
+    updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) {
+        if (!m.seenUids.contains(userId)) {
+            m.seenUids.append(userId);
+            m.status = QStringLiteral("seen");
+        }
+    }, this, {SeenUidsRole, StatusRole});
+}
+
 void MessageModel::markDeliveredUpTo(const QString& convId, const QString& msgId) {
     const auto thread = threadOf(convId);
     qint64 limit = -1;
@@ -650,7 +665,6 @@ QVariantMap MessageModel::getMessageById(const QString& msgId) const {
 namespace {
 QString convertEmoticons(const QString& text) {
     if (text.isEmpty()) return text;
-    // Map standard emoticons (like :v, :3, :)), =)), :D, :P, etc.) to emoji
     struct EmoticonRule {
         const char* code;
         const char* emoji;
@@ -689,7 +703,6 @@ QString convertEmoticons(const QString& text) {
         for (const auto& r : rules) {
             const int len = int(strlen(r.code));
             if (i + len <= n && text.mid(i, len) == QLatin1String(r.code)) {
-                // Ensure boundary: not inside an identifier/word (e.g. not part of http:// or 12:30)
                 const bool startOk = (i == 0 || text.at(i - 1).isSpace() || QStringLiteral("([{\"\'`>").contains(text.at(i - 1)));
                 const bool endOk = (i + len == n || text.at(i + len).isSpace() || QStringLiteral(")]}\"\'`!?.,;:<").contains(text.at(i + len)));
                 if (startOk && endOk) {
@@ -725,7 +738,7 @@ QString MessageModel::linkify(const QString& text) {
     }
     out += convertEmoticons(text.mid(last)).toHtmlEscaped();
     out.replace(QStringLiteral("ICON_PACMAN_PLACEHOLDER"),
-                QStringLiteral("<img src=\"qrc:/Zalos/assets/icons/pacman.png\" width=\"20\" height=\"20\" style=\"vertical-align:middle;\"/>"));
+                QStringLiteral("<img src=\"qrc:/Zalos/assets/icons/pacman.png\" width=\"18\" height=\"18\" style=\"vertical-align:middle;\"/>"));
     return out.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
 }
 

@@ -218,7 +218,8 @@ bool ZaloOfflineStore::initializeDatabase(const QString& customPath) {
                                      std::pair{"quote_msg_id", "TEXT"}, std::pair{"quote_sender", "TEXT"},
                                      std::pair{"quote_text", "TEXT"}, std::pair{"is_group", "INTEGER DEFAULT 0"},
                                      std::pair{"raw", "TEXT"}, std::pair{"href", "TEXT"},
-                                     std::pair{"file_size", "INTEGER DEFAULT 0"}, std::pair{"expire_on", "INTEGER DEFAULT 0"}}) {
+                                     std::pair{"file_size", "INTEGER DEFAULT 0"}, std::pair{"expire_on", "INTEGER DEFAULT 0"},
+                                     std::pair{"seen_uids", "TEXT DEFAULT ''"}}) {
         ensureColumn(m_db, "messages", col, type);
     }
     q.exec("UPDATE messages SET text = '' WHERE message_type IN ('image', 'sticker', 'video') "
@@ -629,9 +630,10 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
         m_saveMessageQuery = std::make_unique<QSqlQuery>(m_db);
         m_saveMessageQuery->prepare("INSERT INTO messages (id, conv_id, sender_name, text, time_str, is_mine, is_e2ee, reaction, message_type, "
                   "media_url, ts, sender_id, sender_avatar, status, is_recalled, cli_msg_id, quote_msg_id, quote_sender, "
-                  "quote_text, is_group, raw, href, file_size, expire_on) VALUES (:id, :conv_id, :sender_name, :text, :time_str, :is_mine, :is_e2ee, "
+                  "quote_text, is_group, raw, href, file_size, expire_on, seen_uids) VALUES (:id, :conv_id, :sender_name, :text, :time_str, :is_mine, :is_e2ee, "
                   ":reaction, :message_type, :media_url, :ts, :sender_id, :sender_avatar, :status, :is_recalled, "
-                  ":cli_msg_id, :quote_msg_id, :quote_sender, :quote_text, :is_group, :raw, :href, :file_size, :expire_on) "
+                  ":cli_msg_id, :quote_msg_id, :quote_sender, :quote_text, :is_group, :raw, :href, :file_size, :expire_on, "
+                  ":seen_uids) "
                   "ON CONFLICT(id) DO UPDATE SET conv_id = excluded.conv_id, sender_name = excluded.sender_name, "
                   "text = CASE WHEN messages.is_recalled = 1 THEN messages.text ELSE excluded.text END, "
                   "time_str = excluded.time_str, is_mine = excluded.is_mine, "
@@ -647,7 +649,9 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
                   "href = excluded.href, file_size = excluded.file_size, "
                   "expire_on = CASE WHEN length(coalesce(excluded.raw, '')) > 0 THEN excluded.expire_on "
                   "ELSE messages.expire_on END, "
-                  "raw = COALESCE(NULLIF(excluded.raw, ''), messages.raw);");
+                  "raw = COALESCE(NULLIF(excluded.raw, ''), messages.raw), "
+                  "seen_uids = CASE WHEN length(coalesce(excluded.seen_uids, '')) > 0 "
+                  "THEN excluded.seen_uids ELSE messages.seen_uids END;");
     }
     QSqlQuery& q = *m_saveMessageQuery;
     q.bindValue(":id", item.id);
@@ -675,6 +679,7 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
     q.bindValue(":href", item.href);
     q.bindValue(":file_size", item.fileSize);
     q.bindValue(":expire_on", expiryOf(raw, item.ts));
+    q.bindValue(":seen_uids", item.seenUids.join(QLatin1Char(',')));
     if (!q.exec()) return false;
     indexMessage(item.id, item);
     return true;
@@ -689,6 +694,22 @@ bool ZaloOfflineStore::deleteConversation(const QString& convId) {
     q.prepare("DELETE FROM conversations WHERE id = :id;");
     q.bindValue(":id", convId);
     return q.exec() && ok;
+}
+
+bool ZaloOfflineStore::recordGroupSeen(const QString& msgId, const QString& userId) {
+    if (!m_db.isOpen() || msgId.isEmpty() || userId.isEmpty()) return false;
+    QSqlQuery r(m_db);
+    r.prepare("SELECT seen_uids FROM messages WHERE id = :id LIMIT 1;");
+    r.bindValue(":id", msgId);
+    QStringList seen;
+    if (r.exec() && r.next()) seen = r.value(0).toString().split(QLatin1Char(','), Qt::SkipEmptyParts);
+    if (seen.contains(userId)) return true;
+    seen.append(userId);
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE messages SET status = 'seen', seen_uids = :seen WHERE id = :id;");
+    q.bindValue(":seen", seen.join(QLatin1Char(',')));
+    q.bindValue(":id", msgId);
+    return q.exec() && q.numRowsAffected() > 0;
 }
 
 QJsonObject ZaloOfflineStore::rawMessage(const QString& msgId) const {
@@ -708,7 +729,7 @@ QVector<Models::MessageItem> ZaloOfflineStore::loadMessages(const QString& convI
     QSqlQuery q(m_db);
     q.prepare("SELECT * FROM (SELECT id, sender_name, text, time_str, is_mine, is_e2ee, reaction, message_type, "
               "media_url, ts, sender_id, sender_avatar, status, is_recalled, cli_msg_id, quote_msg_id, quote_sender, "
-              "quote_text, raw, href, file_size, rowid AS r FROM messages WHERE conv_id = :conv_id AND (:before <= 0 OR ts <= :before) "
+              "quote_text, raw, href, file_size, rowid AS r, seen_uids FROM messages WHERE conv_id = :conv_id AND (:before <= 0 OR ts <= :before) "
               "AND (expire_on = 0 OR expire_on > :now) ORDER BY ts DESC, r DESC LIMIT :limit) "
               "ORDER BY ts ASC, r ASC;");
     q.bindValue(":conv_id", convId);
@@ -739,6 +760,8 @@ QVector<Models::MessageItem> ZaloOfflineStore::loadMessages(const QString& convI
             item.quoteText = q.value(17).toString();
             item.href = q.value(19).toString();
             item.fileSize = q.value(20).toLongLong();
+            const QString seenColumn = q.value(22).toString();
+            if (!seenColumn.isEmpty()) item.seenUids = seenColumn.split(QLatin1Char(','), Qt::SkipEmptyParts);
             if (raws) {
                 const QJsonObject raw = decodeRaw(q.value(18));
                 if (!raw.isEmpty()) raws->insert(item.id, raw);

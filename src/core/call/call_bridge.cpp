@@ -190,7 +190,7 @@ QString CallBridge::findNode() {
         if (!path.isEmpty()) return path;
     }
     const QString home = QDir::homePath();
-    QStringList candidates{home + "/.bun/bin/node", home + "/.volta/bin/node",
+    QStringList candidates{home + "/.bun/bin/bun", home + "/.bun/bin/node", home + "/.volta/bin/node",
                            home + "/.local/share/fnm/aliases/default/bin/node", home + "/.local/bin/node",
                            "/usr/local/bin/node"};
     QStringList nvm = QDir(home + "/.nvm/versions/node").entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
@@ -825,6 +825,7 @@ void CallBridge::resetUi() {
         emit peerVideoChanged();
     }
     m_ui = {};
+    m_activePeer.clear();
     m_cameraOffAnnounced = false;
     m_isVideoMode = false;
     if (m_cameraSender) m_cameraSender->stop();

@@ -61,6 +61,7 @@ public:
     QVector<Models::ConversationItem> loadConversations();
     bool saveMessage(const QString& convId, const Models::MessageItem& item, const QJsonObject& raw = {},
                      bool isGroup = false);
+    bool recordGroupSeen(const QString& msgId, const QString& userId);
     QVector<Models::MessageItem> loadMessages(const QString& convId, QHash<QString, QJsonObject>* raws = nullptr,
                                               int limit = 2000, qint64 beforeTs = 0);
     QJsonObject rawMessage(const QString& msgId) const;

@@ -130,7 +130,7 @@ void ConversationModel::applyFilter() {
             if (!isArchived) continue;
         } else if (directView) {
             if (isArchived) continue;
-            if (item.isGroup && !item.hasUnreadMention) continue;
+            if (item.isGroup && (!item.hasUnreadMention || item.unreadCount <= 0)) continue;
             if (!searching) {
                 if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
                 if (m_strangerOnly && !strangerId(item.id, item.isGroup)) continue;

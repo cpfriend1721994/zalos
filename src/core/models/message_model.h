@@ -43,6 +43,7 @@ struct MessageItem {
     qint64 fileSize{0};
     QVector<MessageMention> mentions;
     QVariantMap extra;
+    QStringList seenUids;
     mutable qint64 dayCache{-1};
 };
 
@@ -82,7 +83,8 @@ public:
         ExtraRole,
         UnreadMarkerRole,
         MediaRunRole,
-        InMediaRunRole
+        InMediaRunRole,
+        SeenUidsRole
     };
     static constexpr qint64 kMediaRunGapMs = 5 * 60 * 1000;
 
@@ -108,6 +110,7 @@ public:
     void setSticker(const QString& convId, const QString& msgId, const QVariantMap& info);
     void setStatus(const QString& convId, const QString& msgId, const QString& status);
     void markSeenUpTo(const QString& convId, const QString& msgId);
+    void recordGroupSeen(const QString& convId, const QString& msgId, const QString& userId);
     void markDeliveredUpTo(const QString& convId, const QString& msgId);
     bool contains(const QString& convId, const QString& msgId) const;
     int threadSize(const QString& convId) const { return int(threadOf(convId).size()); }

@@ -30,6 +30,11 @@
     <binary>zalos</binary>
   </provides>
   <releases>
+    <release version="1.1.1" date="2026-11-10">
+      <description>
+        <p>Native C++ browser session reader, in-chat system notices and message logs for started/completed calls, mention cursor auto-positioning, unread group mentions filter in Direct tab, and call overlay controls alignment.</p>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-11-09">
       <description>
         <p>Group voice and video calls with participant state, the My Documents media/file/link browser, Kiki Assistant and zBusiness tool destinations, call and group actions hidden on official accounts, contacts quick actions, and a hardened mobile history sync.</p>

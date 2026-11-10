@@ -4,7 +4,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.1.0
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT
@@ -80,6 +80,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/%{name}/zcall-native/
 
 %changelog
+* Tue Nov 10 2026 Zalos Team <dev@zalos.local> - 1.1.1-1
+- Native C++ browser session reader removing external Python dependency for login sessions.
+- In-chat system notifications and message logs on call start and completion.
+- Mention cursor repositioning and unread group mention filtering in Direct tab.
+- Call overlay controls vertical centering and UI refinements.
+
 * Mon Nov 09 2026 Zalos Team <dev@zalos.local> - 1.1.0-1
 - Group voice and video calls from group chats, with participant state in the call overlay.
 - My Documents thread with a built-in media/file/link browser; legacy cloud labels are migrated.
