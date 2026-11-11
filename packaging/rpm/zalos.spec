@@ -33,7 +33,7 @@ Requires:       qt6-qtimageformats
 Requires:       qt6-qtwayland
 Requires:       qt6-qtwebsockets
 Requires:       qt6-qtmultimedia
-# C++ call engine (zalos-call, zalos-call-audio in %{_libexecdir}/%{name}): libopus is dlopen()ed, audio uses pactl/pacat.
+# C++ call engine (zalos-call, zalos-call-audio in libexec/zalos): libopus is dlopen()ed, audio uses pactl/pacat.
 Requires:       opus
 Recommends:     pulseaudio-utils
 Requires:       xcb-util-cursor
@@ -73,6 +73,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_bindir}/%{name}
 %{_libexecdir}/%{name}/zalos-call
 %{_libexecdir}/%{name}/zalos-call-audio
+%license %{_datadir}/licenses/%{name}/zcall-cpp.LICENSE
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{name}.svg
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
