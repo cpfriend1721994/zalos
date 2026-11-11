@@ -2,7 +2,7 @@
 
 pkgs.stdenv.mkDerivation rec {
   pname = "zalos";
-  version = "1.1.1";
+  version = "1.2.0";
 
   # Only sources: never sessions (zsess.json), offline caches (.local/.config/.cache written by containers with
   # HOME=/workspace), screenshots, build trees or packages — the Nix store is world-readable.
@@ -44,11 +44,11 @@ pkgs.stdenv.mkDerivation rec {
   ];
 
   # NixOS has no global library path for dlopen("libopenh264.so.N"): point the app at the store copy.
-  # The bundled zcall-native call engine (share/zalos/zcall-native) runs on node + python3, plays/records with
-  # parec/pacat (pulseaudio tools, PipeWire-compatible) and dlopen()s libopus.so.0 from python (ctypes).
+  # The C++ call engines (libexec/zalos) play and record through pactl/pacat (pulseaudio tools, PipeWire-compatible)
+  # and dlopen() libopus.so.0.
   qtWrapperArgs = [
     "--set-default ZALOS_OPENH264 ${pkgs.openh264}/lib/libopenh264.so"
-    "--prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.python3 pkgs.pulseaudio ]}"
+    "--prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.pulseaudio ]}"
     "--prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.libopus ]}"
   ];
 

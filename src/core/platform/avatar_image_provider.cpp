@@ -55,9 +55,13 @@ public:
         if (url.isLocalFile() || url.scheme() == "qrc") {
             const QString path = url.isLocalFile() ? url.toLocalFile() : ":" + url.path();
             QFile file(path);
-            finishWith(file.open(QIODevice::ReadOnly)
-                           ? AvatarImageProvider::decodeScaled(&file, m_diameter, m_circular)
-                           : QImage());
+            if (!file.open(QIODevice::ReadOnly)) {
+                failWith(QStringLiteral("cannot read %1").arg(path));
+                return;
+            }
+            const QImage local = AvatarImageProvider::decodeScaled(&file, m_diameter, m_circular);
+            if (local.isNull()) failWith(QStringLiteral("not a decodable image"));
+            else finishWith(local);
             return;
         }
         if (QFile::exists(cachePath)) {
@@ -76,7 +80,7 @@ public:
             }
         }
         if (!url.isValid() || !url.scheme().startsWith("http")) {
-            finishWith({});
+            failWith(QStringLiteral("unsupported URL"));
             return;
         }
 
@@ -118,6 +122,11 @@ public:
                 return;
             }
             const auto waiters = inflight().take(key);
+            QString reason;
+            if (reply->error() != QNetworkReply::NoError) {
+                const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                reason = status > 0 ? QStringLiteral("HTTP %1").arg(status) : reply->errorString();
+            }
             QByteArray bytes;
             bool ok = false;
             if (reply->error() == QNetworkReply::NoError && reply->isOpen()) {
@@ -135,12 +144,14 @@ public:
             for (const auto& w : waiters) {
                 if (!w) continue;
                 if (!ok) {
-                    w->finishWith({});
+                    w->failWith(reason.isEmpty() ? QStringLiteral("not a decodable image") : reason);
                     continue;
                 }
                 QBuffer buf(&bytes);
                 buf.open(QIODevice::ReadOnly);
-                w->finishWith(AvatarImageProvider::decodeScaled(&buf, w->m_diameter, w->m_circular));
+                const QImage decoded = AvatarImageProvider::decodeScaled(&buf, w->m_diameter, w->m_circular);
+                if (decoded.isNull()) w->failWith(QStringLiteral("decode failed"));
+                else w->finishWith(decoded);
             }
         });
     }
@@ -150,10 +161,15 @@ public:
     }
 
     QString errorString() const override {
-        return m_image.isNull() ? QStringLiteral("avatar unavailable") : QString();
+        return m_image.isNull() ? (m_error.isEmpty() ? QStringLiteral("image unavailable") : m_error) : QString();
     }
 
 private:
+    void failWith(const QString& reason) {
+        m_error = reason;
+        finishWith({});
+    }
+
     void finishWith(const QImage& source) {
         if (source.isNull()) {
             m_image = QImage();
@@ -172,6 +188,7 @@ private:
     int m_diameter;
     QString m_memKey;
     QImage m_image;
+    QString m_error;
 };
 
 }

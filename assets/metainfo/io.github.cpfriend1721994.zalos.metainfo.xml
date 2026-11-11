@@ -30,6 +30,11 @@
     <binary>zalos</binary>
   </provides>
   <releases>
+    <release version="1.2.0" date="2026-11-11">
+      <description>
+        <p>Calls run on Zalos's own C++ engine with no Node.js or Python needed; fixed a crash when starting a call; lower memory use from lazily created pages and menus and a dedicated image path for chat photos.</p>
+      </description>
+    </release>
     <release version="1.1.1" date="2026-11-10">
       <description>
         <p>Native C++ browser session reader, in-chat system notices and message logs for started/completed calls, mention cursor auto-positioning, unread group mentions filter in Direct tab, and call overlay controls alignment.</p>

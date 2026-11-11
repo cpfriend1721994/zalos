@@ -73,6 +73,7 @@ private:
     void setState(int state, const QString& status, int progress);
     void log(const QString& line) const;
     void fail(const QString& reason);
+    void failV2Unsupported(const QString& why);
     void onBackupReady(const QJsonObject& data);
     void download();
     void decryptAndRead();
@@ -97,6 +98,7 @@ private:
     QString m_checksum;
     qint64 m_expectedSize{0};
     bool m_writeFailed{false};
+    bool m_sawSyncV2{false};
     int m_format{0};
     int m_expectedMessages{0};
 

@@ -135,6 +135,8 @@ void configureInputMethod() {
 int main(int argc, char* argv[]) {
 #ifdef __GLIBC__
     mallopt(M_ARENA_MAX, 2);
+    mallopt(M_MMAP_THRESHOLD, 256 * 1024);
+    mallopt(M_TRIM_THRESHOLD, 512 * 1024);
 #endif
 
     QCoreApplication::setOrganizationName("Zalos");
@@ -186,7 +188,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("Zalos");
     app.setOrganizationName("Zalos");
-    app.setApplicationVersion("1.0.0");
+    app.setApplicationVersion(QStringLiteral(ZALOS_APP_VERSION));
     app.setWindowIcon(QIcon(":/Zalos/assets/icons/zalos.svg"));
 
     QCommandLineParser parser;
@@ -263,6 +265,7 @@ int main(int argc, char* argv[]) {
     QQmlApplicationEngine engine;
     engine.addImageProvider("avatar", new Zalos::Core::Platform::AvatarImageProvider);
     engine.addImageProvider("cover", new Zalos::Core::Platform::AvatarImageProvider(false));
+    engine.addImageProvider("media", new Zalos::Core::Platform::AvatarImageProvider(false));
     engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
     engine.addImportPath("qrc:/");
     engine.addImportPath("qrc:/qt/qml");

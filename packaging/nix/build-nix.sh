@@ -17,7 +17,7 @@ if [ -f "${WORKSPACE_DIR}/CMakeLists.txt" ]; then
     done < "${WORKSPACE_DIR}/CMakeLists.txt"
 fi
 if [ -z "${VERSION}" ]; then
-    VERSION="1.1.1"
+    VERSION="1.2.0"
 fi
 mkdir -p "${OUTPUT_DIR}"
 
@@ -77,8 +77,7 @@ if command -v nix &>/dev/null; then
     else
         echo "==> Using existing flake.lock..."
     fi
-    NIXPKGS_REV=$(python3 -c 'import json;print(json.load(open("flake.lock"))["nodes"]["nixpkgs"]["locked"]["rev"])' 2>/dev/null ||
-                  nix eval --raw --impure --expr '(builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.nixpkgs.locked.rev')
+    NIXPKGS_REV=$(nix eval --raw --impure --expr '(builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.nixpkgs.locked.rev')
     NIXPKGS_HASH=$(nix eval --raw --impure --expr '(builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.nixpkgs.locked.narHash')
     echo "==> nixpkgs ${NIXPKGS_REV}"
     nix-build -o /tmp/nix-result -E "import ./default.nix { pkgs = import (builtins.fetchTarball {

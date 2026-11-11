@@ -304,7 +304,6 @@ Rectangle {
         property alias tip: pb.tip
         property alias icon: pb.icon
         property alias on: pb.on
-        property alias enabled: pb.enabled
         signal clicked()
 
         Rectangle {

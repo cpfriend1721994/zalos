@@ -794,6 +794,7 @@ private:
     void loadSession();
     void generateQrMatrix();
     QString L(const QString& vi, const QString& en) const { return m_appLanguage == "en" ? en : vi; }
+    void noticeCallUnavailable(const QString& reason);
     void setLoginStatus(const QString& message, bool isError);
     QString friendlyError(const QString& error, int code = 0) const;
 
@@ -842,6 +843,7 @@ private:
     void evictColdThreads(int maxResident = 12);
     void rememberMessageId(const QString& msgId);
     void releaseFreedMemory();
+    void startIdleMemoryTrim();
     void fetchBytes(const QString& url, std::function<void(const QByteArray& data, const QString& error)> done);
     void applyStrangerRank(const QString& id, const QJsonObject& data);
     void persistProfile(const QString& id, bool isGroup);
@@ -968,6 +970,7 @@ private:
     QSet<QString> m_recentIds;
     QStringList m_recentIdOrder;
     QTimer* m_trimTimer{nullptr};
+    QTimer* m_idleTrimTimer{nullptr};
     QHash<QString, qint64> m_muteUntil;
     QSet<QString> m_markedUnread;
     struct GroupRoster {

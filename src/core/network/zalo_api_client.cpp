@@ -55,21 +55,6 @@ QString ZaloApiClient::credentialsPath() {
     return dir + "/session.json";
 }
 
-QString ZaloApiClient::browserExportScriptPath() {
-    const QString appDir = QCoreApplication::applicationDirPath();
-    const QStringList candidates = {
-        appDir + "/../share/zalos/export_browser_cookies.py",
-        appDir + "/../scripts/export_browser_cookies.py",
-#ifdef ZALOS_SOURCE_DIR
-        QStringLiteral(ZALOS_SOURCE_DIR) + "/scripts/export_browser_cookies.py",
-#endif
-    };
-    for (const QString& path : candidates) {
-        if (QFile::exists(path)) return QDir::cleanPath(path);
-    }
-    return {};
-}
-
 void ZaloApiClient::pingConnectivity() {
     m_networkStatus = "CHECKING";
     emit networkStatusChanged(m_networkStatus);
@@ -161,36 +146,6 @@ void ZaloApiClient::syncFromBrowserSession() {
 
     Platform::BrowserSessionResult res = Platform::BrowserSessionReader::readSession();
     if (!res.success) {
-        const QString scriptPath = browserExportScriptPath();
-        if (!scriptPath.isEmpty() && !QStandardPaths::findExecutable("python3").isEmpty()) {
-            auto* proc = new QProcess(this);
-            connect(proc, &QProcess::finished, this, [this, proc](int exitCode, QProcess::ExitStatus status) {
-                proc->deleteLater();
-                const QJsonObject root = QJsonDocument::fromJson(proc->readAllStandardOutput()).object();
-                if (status != QProcess::NormalExit || exitCode != 0 || !root.value("success").toBool(false)) {
-                    emit credentialsUnavailable(root.value("reason").toString("no_browser_session"));
-                    return;
-                }
-                const QJsonArray cookies = root.value("cookies").toArray();
-                const QString imei = root.value("imei").toString();
-                if (cookies.isEmpty() || imei.isEmpty()) {
-                    emit credentialsUnavailable("incomplete_session");
-                    return;
-                }
-                m_jar->replaceCookies({});
-                ZaloSession::importCookies(m_jar, cookies);
-                emit credentialsObtained();
-                startSessionLogin(imei, root.value("userAgent").toString(ZaloSession::kDefaultUserAgent), m_language);
-            });
-            connect(proc, &QProcess::errorOccurred, this, [this, proc](QProcess::ProcessError error) {
-                if (error != QProcess::FailedToStart) return;
-                proc->deleteLater();
-                emit credentialsUnavailable("browser_session_failed");
-            });
-            proc->start("python3", {"-I", scriptPath});
-            return;
-        }
-
         emit credentialsUnavailable(res.reason.isEmpty() ? QStringLiteral("no_browser_session") : res.reason);
         return;
     }

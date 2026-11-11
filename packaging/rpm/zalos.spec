@@ -4,10 +4,10 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.1.1
+Version:        1.2.0
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
-License:        MIT
+License:        MIT AND BSD-3-Clause
 URL:            https://github.com/cpfriend1721994/zalos
 Source0:        %{name}-%{version}.tar.gz
 
@@ -33,9 +33,7 @@ Requires:       qt6-qtimageformats
 Requires:       qt6-qtwayland
 Requires:       qt6-qtwebsockets
 Requires:       qt6-qtmultimedia
-Requires:       python3
-# Bundled zcall-native call engine (zalo-for-linux, MIT) in %{_datadir}/%{name}/zcall-native: node + libopus.
-Requires:       nodejs
+# C++ call engine (zalos-call, zalos-call-audio in %{_libexecdir}/%{name}): libopus is dlopen()ed, audio uses pactl/pacat.
 Requires:       opus
 Recommends:     pulseaudio-utils
 Requires:       xcb-util-cursor
@@ -73,13 +71,16 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 
 %files
 %{_bindir}/%{name}
+%{_libexecdir}/%{name}/zalos-call
+%{_libexecdir}/%{name}/zalos-call-audio
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{name}.svg
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
-%{_datadir}/%{name}/export_browser_cookies.py
-%{_datadir}/%{name}/zcall-native/
 
 %changelog
+* Wed Nov 11 2026 Zalos Team <dev@zalos.local> - 1.2.0-1
+- C++ call engine (zalos-call, zalos-call-audio) is the only call engine; no Node.js or Python in calls or packages.
+- Fix a crash when starting a call; lighter memory use (lazy QML pages and menus, image provider for chat media).
 * Tue Nov 10 2026 Zalos Team <dev@zalos.local> - 1.1.1-1
 - Native C++ browser session reader removing external Python dependency for login sessions.
 - In-chat system notifications and message logs on call start and completion.

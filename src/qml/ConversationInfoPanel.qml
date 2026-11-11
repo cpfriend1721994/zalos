@@ -5,6 +5,7 @@ import QtQuick.Templates as T
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import Zalos
+import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
@@ -1096,7 +1097,7 @@ Rectangle {
                                 Layout.preferredHeight: width
                                 Image {
                                     anchors.fill: parent
-                                    source: mediaCell.modelData.thumb
+                                    source: MediaSource.toSource(mediaCell.modelData.thumb)
                                     asynchronous: true
                                     fillMode: Image.PreserveAspectCrop
                                     sourceSize.width: 160

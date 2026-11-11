@@ -551,8 +551,8 @@ Rectangle {
                                     }
                                     Text {
                                         Layout.fillWidth: true
-                                        visible: model.isGroup && model.memberCount > 0
-                                        text: model.memberCount + I18n.t(" thành viên", " members")
+                                        visible: contactRow.isGroup && contactRow.memberCount > 0
+                                        text: contactRow.memberCount + I18n.t(" thành viên", " members")
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
                                         color: ThemeManager.secondaryTextColor
@@ -586,8 +586,8 @@ Rectangle {
                                                 anchors.fill: parent
                                                 hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: modelData.accept ? ZaloClient.acceptFriendRequest(contactRow.model.id)
-                                                                            : ZaloClient.rejectFriendRequest(contactRow.model.id)
+                                                onClicked: modelData.accept ? ZaloClient.acceptFriendRequest(contactRow.id)
+                                                                            : ZaloClient.rejectFriendRequest(contactRow.id)
                                             }
                                         }
                                     }

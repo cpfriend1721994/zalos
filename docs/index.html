@@ -15,8 +15,8 @@
   </script>
   <title data-en="Zalos — High-Performance &amp; Lightweight Native Qt6 Zalo Client for Linux">Zalos — Ứng dụng Zalo native Qt6 hiệu năng cao, siêu nhẹ cho Linux</title>
   <meta name="description"
-    data-en="Zalos — a high-performance, ultra-lightweight C++17 &amp; Qt6 Zalo client for Linux (~4.8 MB, ~40–65 MB RAM). Instant startup, 60 FPS graphics, fast Vietnamese search, encrypted phone history sync, 1-1 &amp; group voice/video calls, screenshot tool, My Documents storage and zBusiness tools. Free &amp; open-source (AppImage, .deb, RPM, Nix)."
-    content="Zalos — ứng dụng Zalo native C++17 &amp; Qt6 hiệu năng cao, siêu nhẹ cho Linux (~4.8 MB, chỉ ~40–65 MB RAM). Khởi động tức thì, đồ họa 60 FPS mượt mà, tìm kiếm tiếng Việt siêu tốc, đồng bộ lịch sử mã hóa từ điện thoại, gọi thoại/video 1-1 &amp; nhóm, chụp màn hình, kho My Documents và công cụ zBusiness. Mã nguồn mở hoàn toàn (AppImage, .deb, RPM, Nix).">
+    data-en="Zalos — a high-performance, ultra-lightweight C++17 &amp; Qt6 Zalo client for Linux (~4.8 MB, ~40–65 MB RAM). Instant startup, 60 FPS graphics, fast Vietnamese search, encrypted phone history sync, 1-1 voice/video calls and group calls (beta), screenshot tool, My Documents storage and zBusiness tools. Free &amp; open-source (AppImage, .deb, RPM, Nix)."
+    content="Zalos — ứng dụng Zalo native C++17 &amp; Qt6 hiệu năng cao, siêu nhẹ cho Linux (~4.8 MB, chỉ ~40–65 MB RAM). Khởi động tức thì, đồ họa 60 FPS mượt mà, tìm kiếm tiếng Việt siêu tốc, đồng bộ lịch sử mã hóa từ điện thoại, gọi thoại/video 1-1 và gọi nhóm (thử nghiệm), chụp màn hình, kho My Documents và công cụ zBusiness. Mã nguồn mở hoàn toàn (AppImage, .deb, RPM, Nix).">
   <link rel="icon" type="image/svg+xml"
     href="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1221,7 +1221,7 @@
         <img src="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg"
           alt="Biểu tượng Zalos" data-en-alt="Zalos logo" class="brand-logo" width="28" height="28">
         <span>Zalos</span>
-        <span class="version-pill">v1.1.1</span>
+        <span class="version-pill">v1.2.0</span>
       </a>
 
       <nav aria-label="Điều hướng chính" data-en-aria="Main navigation">
@@ -1286,7 +1286,7 @@
               <svg aria-hidden="true" viewBox="0 0 24 24">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
               </svg>
-              <span data-en="Download release v1.1.1">Tải bản phát hành v1.1.1</span>
+              <span data-en="Download release v1.2.0">Tải bản phát hành v1.2.0</span>
             </a>
             <a href="#install" class="btn-secondary">
               <span data-en="Installation guide">Hướng dẫn cài đặt</span>
@@ -1404,9 +1404,9 @@
                 có dấu lẫn không dấu.
               </li>
               <li
-                data-en="<strong>Phone history sync:</strong> pulls your encrypted backup from your phone and decrypts it right on your computer.">
+                data-en="<strong>Phone history sync:</strong> pulls your encrypted backup from your phone and decrypts it right on your computer. Zalo on iPhone may use a newer sync method that Zalos doesn't support yet.">
                 <strong>Đồng bộ lịch sử từ điện thoại:</strong> kéo toàn bộ tin nhắn được mã hóa từ điện thoại sang máy
-                tính, giải mã trực tiếp trên máy.
+                tính, giải mã trực tiếp trên máy. Zalo trên iPhone có thể dùng cách đồng bộ mới mà Zalos chưa hỗ trợ.
               </li>
             </ul>
           </article>
@@ -1527,8 +1527,8 @@
                 hệ thống.
               </li>
               <li
-                data-en="<strong>1-1 &amp; Group voice/video calls:</strong> built-in native engine supporting 1-1 calls and multi-participant group calls, with OpenH264 video encoding and infrared (IR) camera filtering.">
-                <strong>Gọi thoại &amp; Video 1-1 và Nhóm:</strong> engine gọi thoại tích hợp hỗ trợ cả cuộc gọi cá nhân 1-1 lẫn gọi nhóm nhiều người tham gia, kèm mã hóa video OpenH264 và lọc camera hồng ngoại (IR).
+                data-en="<strong>1-1 &amp; Group voice/video calls:</strong> built-in native engine for 1-1 calls, plus multi-participant group calls (beta, still being verified on live calls), with OpenH264 video encoding and infrared (IR) camera filtering.">
+                <strong>Gọi thoại &amp; Video 1-1 và Nhóm:</strong> engine gọi thoại tích hợp cho cuộc gọi cá nhân 1-1, kèm gọi nhóm nhiều người tham gia (thử nghiệm, đang kiểm chứng trên cuộc gọi thật), mã hóa video OpenH264 và lọc camera hồng ngoại (IR).
               </li>
             </ul>
           </article>
@@ -1644,12 +1644,12 @@
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-deb">Sao chép</button>
                 <pre id="code-deb" class="code-pre" tabindex="0"><code># x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.1.1-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.1.1-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.0-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.0-1~ubuntu24.04_amd64.deb
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.1.1-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.1.1-1~ubuntu24.04_arm64.deb</code></pre>
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.0-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.2.0-1~ubuntu24.04_arm64.deb</code></pre>
               </div>
             </div>
 
@@ -1662,10 +1662,10 @@ sudo apt install ./zalos_1.1.1-1~ubuntu24.04_arm64.deb</code></pre>
                 <button type="button" class="copy-btn" data-copy-target="code-rpm">Sao chép</button>
                 <pre id="code-rpm" class="code-pre"
                   tabindex="0"><code># x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.1.1-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.0-1.fc43.x86_64.rpm
 
 # ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.1.1-1.fc43.aarch64.rpm</code></pre>
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.0-1.fc43.aarch64.rpm</code></pre>
               </div>
             </div>
 
@@ -1678,14 +1678,14 @@ sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/downlo
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-appimage">Sao chép</button>
                 <pre id="code-appimage" class="code-pre" tabindex="0"><code># x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.1.1-x86_64.AppImage
-chmod +x Zalos-1.1.1-x86_64.AppImage
-./Zalos-1.1.1-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.0-x86_64.AppImage
+chmod +x Zalos-1.2.0-x86_64.AppImage
+./Zalos-1.2.0-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.1.1-aarch64.AppImage
-chmod +x Zalos-1.1.1-aarch64.AppImage
-./Zalos-1.1.1-aarch64.AppImage</code></pre>
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.0-aarch64.AppImage
+chmod +x Zalos-1.2.0-aarch64.AppImage
+./Zalos-1.2.0-aarch64.AppImage</code></pre>
               </div>
             </div>
 
@@ -1732,17 +1732,18 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
             <hr style="border: none; border-block-start: 1px solid var(--border-hairline); margin: 0;">
             <h3 data-en="Voice &amp; video call dependencies">Phụ thuộc cho Gọi thoại &amp; Video</h3>
             <p style="color: var(--text-secondary);"
-              data-en="The <code>.deb</code>, <code>.rpm</code> and <code>Nix</code> packages configure the call engine automatically. With <strong>AppImage</strong>, also install <code class=&quot;inline-code&quot;>nodejs</code>, <code class=&quot;inline-code&quot;>python3</code>, <code class=&quot;inline-code&quot;>libopus</code> and <code class=&quot;inline-code&quot;>pulseaudio-utils</code>.">
-              Các gói <code>.deb</code>, <code>.rpm</code> và <code>Nix</code> tự động cấu hình engine gọi thoại. Nếu
-              dùng <strong>AppImage</strong>, hãy cài đặt thêm <code class="inline-code">nodejs</code>, <code
-                class="inline-code">python3</code>, <code class="inline-code">libopus</code> và <code
-                class="inline-code">pulseaudio-utils</code>.
+              data-en="The <code>.deb</code>, <code>.rpm</code> and <code>Nix</code> packages install everything. For the <strong>AppImage</strong>, install:">
+              Các gói <code>.deb</code>, <code>.rpm</code> và <code>Nix</code> tự cài đủ. Với <strong>AppImage</strong>, hãy cài thêm:
             </p>
+            <ul style="color: var(--text-secondary);">
+              <li data-en="Ubuntu / Debian: <code class=&quot;inline-code&quot;>sudo apt install libopus0 pulseaudio-utils libopenh264-7</code>">
+                Ubuntu / Debian: <code class="inline-code">sudo apt install libopus0 pulseaudio-utils libopenh264-7</code></li>
+              <li data-en="Fedora: <code class=&quot;inline-code&quot;>sudo dnf install opus pulseaudio-utils openh264</code>">
+                Fedora: <code class="inline-code">sudo dnf install opus pulseaudio-utils openh264</code></li>
+            </ul>
             <p style="color: var(--text-secondary);"
-              data-en="To send camera video in video calls, install the <strong>OpenH264</strong> library from your distro (<code class=&quot;inline-code&quot;>libopenh264-7</code> on Ubuntu or <code class=&quot;inline-code&quot;>openh264</code> on Fedora).">
-              Để truyền nhận hình ảnh camera trong cuộc gọi video, hãy cài đặt thư viện <strong>OpenH264</strong> từ
-              bản phân phối của bạn (<code class="inline-code">libopenh264-7</code> trên Ubuntu hoặc <code
-                class="inline-code">openh264</code> trên Fedora).
+              data-en="<code>libopus</code> and <code>pulseaudio-utils</code> carry the audio; <strong>OpenH264</strong> carries camera video.">
+              <code>libopus</code> và <code>pulseaudio-utils</code> phục vụ âm thanh; <strong>OpenH264</strong> phục vụ camera video.
             </p>
           </aside>
         </div>
@@ -1781,8 +1782,8 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
                 data-en="Instant Vietnamese search (even without diacritics), label folders on the nav rail, PIN-hidden conversations.">
                 Tìm kiếm tiếng Việt siêu tốc (kể cả không dấu), thư mục nhãn trên thanh điều hướng, ẩn hội thoại bằng mã
                 PIN.</li>
-              <li data-en="1-1 and group voice/video calls, AAC voice notes, screenshot capture (Ctrl+Alt+S), My Documents, Kiki assistant &amp; zBusiness tools.">Gọi
-                thoại và video 1-1 &amp; nhóm, ghi âm/phát thoại AAC, chụp màn hình (Ctrl+Alt+S), My Documents, trợ lý Kiki &amp; công cụ zBusiness.</li>
+              <li data-en="1-1 voice/video calls, group calls (beta), AAC voice notes, screenshot capture (Ctrl+Alt+S), My Documents, Kiki assistant &amp; zBusiness tools.">Gọi
+                thoại và video 1-1, gọi nhóm (thử nghiệm), ghi âm/phát thoại AAC, chụp màn hình (Ctrl+Alt+S), My Documents, trợ lý Kiki &amp; công cụ zBusiness.</li>
               <li data-en="Contacts quick actions with 1-click voice call, video call and direct messaging.">Thao tác nhanh trong danh bạ với 1 cú nhấp gọi thoại, gọi video và nhắn tin trực tiếp.</li>
             </ul>
           </div>
@@ -1818,8 +1819,12 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
             </h3>
             <ul>
               <li
-                data-en="<strong>In-call screen sharing:</strong> currently in development (1-1 and group voice/video calls are fully supported).">
-                <strong>Chia sẻ màn hình trong cuộc gọi:</strong> đang trong lộ trình hoàn thiện (gọi thoại và video 1-1 &amp; nhóm đã hỗ trợ đầy đủ).
+                data-en="<strong>In-call screen sharing:</strong> currently in development (1-1 voice/video calls are supported; group calls are in beta).">
+                <strong>Chia sẻ màn hình trong cuộc gọi:</strong> đang trong lộ trình hoàn thiện (gọi thoại và video 1-1 đã hỗ trợ; gọi nhóm đang thử nghiệm).
+              </li>
+              <li
+                data-en="<strong>Sync with Zalo on iPhone:</strong> Zalo on iPhone may use a newer sync method that Zalos doesn't support yet; it is being researched.">
+                <strong>Đồng bộ với Zalo trên iPhone:</strong> Zalo trên iPhone có thể dùng cách đồng bộ mới mà Zalos chưa hỗ trợ; đang được nghiên cứu.
               </li>
               <li
                 data-en="<strong>Personal To-Do lists:</strong> the server restricts this to genuine Zalo PC sessions, so it was removed to avoid errors.">

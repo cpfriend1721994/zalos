@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-11-11
+
+### Added
+- Regression test for starting a call (`testCallStartLaunchesEngine`); the QML lint, AOT coverage and screenshot checks
+  run as C++ tests in `tests/test_qml_gates.cpp`.
+
+### Changed
+- **Calls run on the C++ call engine only.** `zalos-call` (signalling, media) and `zalos-call-audio` (microphone and
+  speaker, Opus) are built by default and installed to `libexec/zalos`. The Node.js engine (vendored zcall-native),
+  its Python audio helper and their runtime checks are removed.
+- The call engine takes its settings as arguments: `--key-file`, `--log-dir`, `--ui-port`, `--ui-token`, `--group`.
+  The `ZALOS_CALL_ENGINE`, `ZALOS_CALL_AUDIO_ENGINE`, `ZALOS_CALL_ENGINE_BIN`, `ZALOS_CALL_AUDIO`, `ZALO_MAIN_JS` and
+  `ZALOS_ZCALL_DIR` variables no longer have any effect. The transport key file holds the base64 key only.
+- **No Python anywhere.** The browser sign-in script fallback is removed, so the native `BrowserSessionReader` is the only
+  path. `scripts/file-shim.py` became `scripts/file-shim.sh`, and the packages no longer depend on `python3`.
+- Removed `third_party/zcall-native`, `scripts/sync-zcall-native.sh` and the Node-based `call-vectors` compose service.
+- Lower memory: heap is returned to the OS after login and every 5 minutes while open; resident messages are budgeted
+  (3 000 across open threads); unbounded ID caches are capped; the sticker info cache is capped; the chat background is
+  decoded at 96 px instead of a full-window blur.
+- QML pages and menus are created only when shown: chat view and welcome area, settings panes (one at a time), account,
+  snip and business menus, and the hidden-chat and app-link popups.
+- Chat photos, link thumbnails, topic thumbnails and profile photos load through the `image://media/` provider (HTTP/1.1,
+  shared cache, decode at display size).
+- The app reports its real version (from `project(VERSION)`) instead of a hard-coded `1.0.0`.
+
+### Fixed
+- Crash (SIGSEGV) when starting a voice or video call: the engine process object was not created.
+- Image failures log the real reason (`HTTP 404`, `decode failed`, …) instead of `avatar unavailable`.
+- Contact invite rows used `model.*` inside a delegate with required roles (`ReferenceError`) and accept/decline sent an
+  empty id.
+- `PillButton` in the call overlay redeclared `enabled` (Qt property-cache warning).
+
+---
+
+## [1.1.1] - 2026-11-10- **No Python anywhere in Zalos.** The browser sign-in script fallback (`export_browser_cookies.py`) is removed, so the
+  native `BrowserSessionReader` is the only path. The CTest gates (QML style lint, AOT coverage, UI screenshot check)
+  are now C++ (`tests/test_qml_gates.cpp`), `scripts/file-shim.py` became `scripts/file-shim.sh`, and the packages no
+  longer depend on `python3`.
+- **Calls run on the C++ call engine only.** `zalos-call` (signalling, media) and `zalos-call-audio` (microphone and
+  speaker, Opus) are built by default and installed to `libexec/zalos`. The Node.js engine (vendored zcall-native),
+  its Python audio helper and their runtime checks are removed, so calls need neither Node.js nor Python.
+- The call engine takes its settings as arguments instead of environment variables: `--key-file`, `--log-dir`,
+  `--ui-port`, `--ui-token`. The `ZALOS_CALL_ENGINE`, `ZALOS_CALL_AUDIO_ENGINE`, `ZALOS_CALL_ENGINE_BIN`,
+  `ZALOS_CALL_AUDIO`, `ZALO_MAIN_JS` and `ZALOS_ZCALL_DIR` variables no longer have any effect.
+- The transport key file holds the base64 key only; the audio binary is found next to the engine.
+- Removed `third_party/zcall-native`, `scripts/sync-zcall-native.sh` and the Node-based `call-vectors` compose service.
+
+### Fixed
+- Chat photos, link thumbnails and topic thumbnails load through the `image://media/` provider (HTTP/1.1, shared cache)
+  instead of direct QML requests; failed images report the real reason (`HTTP 404`, `decode failed`, …).
+
+---
+
 ## [1.1.1] - 2026-11-10
 
 ### Added

@@ -69,7 +69,6 @@ Item {
         asynchronous: true
         cache: true
         smooth: true
-        mipmap: true
         fillMode: Image.PreserveAspectFit
         sourceSize.width: Math.ceil(root.size * (Screen.devicePixelRatio || 1))
         sourceSize.height: Math.ceil(root.size * (Screen.devicePixelRatio || 1))
@@ -149,7 +148,6 @@ Item {
                     asynchronous: true
                     cache: true
                     smooth: true
-                    mipmap: true
                     sourceSize.width: Math.ceil(compositeBox.cell * (Screen.devicePixelRatio || 1))
                     sourceSize.height: Math.ceil(compositeBox.cell * (Screen.devicePixelRatio || 1))
                     source: (memberCell.modelData.avatar || "").length > 0

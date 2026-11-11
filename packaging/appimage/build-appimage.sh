@@ -41,7 +41,7 @@ else
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DBUILD_TESTING=OFF \
-        -DZALOS_QML_AOT=OFF # runs on every host Qt >= 6.4 (see CMakeLists.txt)
+        -DZALOS_QML_AOT=OFF
 
     cmake --build "${BUILD_DIR}" --config Release -j"${BUILD_JOBS}"
 fi

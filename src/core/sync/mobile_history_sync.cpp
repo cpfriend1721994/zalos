@@ -1,7 +1,10 @@
 #include "mobile_history_sync.h"
 
 #include "crypto/db_cross.h"
+#include "network/error_catalog.h"
 #include "network/zalo_session.h"
+#include "sync/v2/sync_v2_crypto.h"
+#include "sync/v2/sync_v2_fallback.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -87,8 +90,15 @@ MobileHistorySync::MobileHistorySync(Network::ZaloSession* session, QObject* par
         .removeRecursively();
     m_timeout.setSingleShot(true);
     connect(&m_timeout, &QTimer::timeout, this, [this]() {
-        if (m_state == WaitingConfirm) {
-            fail(L("Điện thoại chưa xác nhận yêu cầu đồng bộ.", "The phone did not confirm the sync request."));
+        if (m_state == WaitingConfirm
+            && V2::decideFallback(0, true, m_sawSyncV2) == V2::FallbackTrigger::ConfirmTimeoutAfterV2) {
+            failV2Unsupported(QStringLiteral("confirm timeout after transfer_sync2"));
+            return;
+        } else if (m_state == WaitingConfirm) {
+            fail(L("Điện thoại chưa xác nhận yêu cầu đồng bộ. Nếu bạn dùng iPhone, Zalos có thể chưa hỗ trợ cách đồng bộ "
+                   "của Zalo trên iPhone.",
+                   "The phone did not confirm the sync request. If you use an iPhone, Zalos may not support the way "
+                   "Zalo on iPhone syncs yet."));
         } else if (m_state == PhonePreparing) {
             fail(L("Điện thoại chưa gửi bản sao lưu sau 30 phút.", "The phone did not send a backup within 30 minutes."));
         } else if (m_state == Importing && m_download) {
@@ -362,6 +372,7 @@ void MobileHistorySync::start(const QString& myNoisedUid, const QString& pcName)
     cancel();
     m_myNoisedUid = myNoisedUid;
     m_pcName = pcName;
+    m_sawSyncV2 = false;
     m_keys = generateKeyPair();
     if (m_keys.publicKeyBase64.isEmpty() || m_keys.privateKeyPem.isEmpty()) {
         fail(L("Không tạo được khoá mã hoá cho phiên đồng bộ.", "Couldn't create the encryption key for this sync."));
@@ -375,9 +386,22 @@ void MobileHistorySync::start(const QString& myNoisedUid, const QString& pcName)
         [this, gen](bool ok, const QJsonValue&, const QString& error, int code) {
             log(QStringLiteral("pull_mobile_msg ok=%1 code=%2").arg(ok).arg(code));
             if (gen != m_generation || ok) return;
+            if (V2::decideFallback(code, false, false) == V2::FallbackTrigger::PullRejected211) {
+                failV2Unsupported(QStringLiteral("pull_mobile_msg 211 client not supported"));
+                return;
+            }
             fail(L("Máy chủ từ chối yêu cầu đồng bộ: ", "The server refused the sync request: ")
-                 + (error.isEmpty() ? QString::number(code) : error));
+                 + Network::ErrorCatalog::render(code, error, m_lang == QLatin1String("en")));
         });
+}
+
+void MobileHistorySync::failV2Unsupported(const QString& why) {
+    QByteArray unused;
+    const V2::CryptoStatus meta = V2::openMetadata(QByteArray(), &unused);
+    Network::ErrorCatalog::trace("phone-sync", QStringLiteral("sync v2 fallback not available: %1; metadata=%2")
+                                                   .arg(why, V2::cryptoStatusName(meta)));
+    fail(L("Điện thoại đang dùng cách đồng bộ mới (sync v2) của Zalo mà Zalos chưa hỗ trợ, nên chưa chuyển được tin nhắn. (mã 211)",
+           "Your phone uses Zalo's newer sync method (sync v2), which Zalos doesn't support yet, so messages couldn't be transferred. (code 211)"));
 }
 
 void MobileHistorySync::cancel() {
@@ -395,11 +419,25 @@ void MobileHistorySync::cancel() {
 }
 
 void MobileHistorySync::handleControl(const QJsonObject& content) {
-    if (m_state != WaitingConfirm && m_state != PhonePreparing) return;
+    const QString actType = content.value("act_type").toString();
     const QString act = content.value("act").toString();
     const QJsonValue raw = content.value("data");
     const QJsonObject data = raw.isString() ? QJsonDocument::fromJson(raw.toString().toUtf8()).object() : raw.toObject();
-    if (data.value("public_key").toString() != m_keys.publicKeyBase64) return;
+    const bool ours = !m_keys.publicKeyBase64.isEmpty() && data.value("public_key").toString() == m_keys.publicKeyBase64;
+    const bool active = m_state == WaitingConfirm || m_state == PhonePreparing;
+    log(QStringLiteral("event act_type=%1 act=%2 state=%3 ours=%4 user_action=%5 status=%6 error_code=%7 sync_id=%8 batch=%9")
+            .arg(actType, act).arg(m_state).arg(ours).arg(data.value("user_action").toInt(-1))
+            .arg(data.value("status").toInt(-1)).arg(data.value("error_code").toInt(0))
+            .arg(data.contains("syncId")).arg(data.value("batchType").toInt(-1)));
+    if (actType != QLatin1String("syncmsgmb")) {
+        if (active && actType == QLatin1String("transfer_sync2")) m_sawSyncV2 = true;
+        if (active) {
+            Network::ErrorCatalog::trace("phone-sync", QStringLiteral("unhandled event act_type=%1 act=%2 status=%3 while waiting")
+                                                           .arg(actType, act).arg(data.value("status").toInt(-1)));
+        }
+        return;
+    }
+    if (!active || !ours) return;
     const bool samePc = !data.contains("pc_name") || data.value("pc_name").toString() == m_pcName;
     log(QStringLiteral("control act=%1 samePc=%2 user_action=%3 status=%4 error_code=%5")
             .arg(act).arg(samePc).arg(data.value("user_action").toInt(-1)).arg(data.value("status").toInt(-1))
@@ -418,9 +456,18 @@ void MobileHistorySync::handleControl(const QJsonObject& content) {
                    "The phone is restoring data and can't send messages now. Try again later."));
         }
     } else if (act == "transfer_error" && samePc) {
-        if (data.value("error_code").toInt() != 0) {
-            fail(L("Điện thoại báo lỗi khi sao lưu tin nhắn (mã %1).", "The phone failed to back up messages (code %1).")
-                     .arg(data.value("error_code").toInt()));
+        const int phoneCode = data.value("error_code").toInt();
+        if (phoneCode != 0) {
+            Network::ErrorCatalog::trace("phone-sync", QStringLiteral("transfer_error code=%1 name=%2 status=%3")
+                                                  .arg(phoneCode).arg(Network::ErrorCatalog::phoneSyncName(phoneCode))
+                                                  .arg(data.value("status").toInt(-1)));
+            const bool en = m_lang == QLatin1String("en");
+            const bool unmapped = Network::ErrorCatalog::phoneSyncName(phoneCode) == QLatin1String("UNMAPPED");
+            fail(Network::ErrorCatalog::pick(Network::ErrorCatalog::phoneSyncError(phoneCode), en)
+                 + (en ? QStringLiteral(" (code %1)") : QStringLiteral(" (mã %1)")).arg(phoneCode)
+                 + (unmapped ? L(" Nếu bạn dùng iPhone, Zalos có thể chưa hỗ trợ cách đồng bộ của Zalo trên iPhone.",
+                                 " If you use an iPhone, Zalos may not support the way Zalo on iPhone syncs yet.")
+                             : QString()));
         } else if (data.value("status").toInt() == 2) {
             setState(PhonePreparing, L("Hãy mở Zalo trên điện thoại và giữ màn hình sáng để tiếp tục sao lưu.",
                                        "Keep Zalo open on your phone so the backup can continue."), 15);
@@ -520,8 +567,11 @@ void MobileHistorySync::download() {
         }
         if (reply->error() != QNetworkReply::NoError) {
             const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            fail(L("Tải bản sao lưu thất bại (%1).", "Downloading the backup failed (%1).")
-                     .arg(http > 0 ? QStringLiteral("HTTP %1").arg(http) : QString::number(int(reply->error()))));
+            const bool en = m_lang == QLatin1String("en");
+            const QString detail = http > 0
+                ? Network::ErrorCatalog::render(http, QStringLiteral("HTTP %1").arg(http), en)
+                : Network::ErrorCatalog::render(0, reply->errorString(), en);
+            fail(L("Tải bản sao lưu thất bại: ", "Downloading the backup failed: ") + detail);
             return;
         }
         const QByteArray encoding = reply->rawHeader("Content-Encoding").trimmed().toLower();
@@ -583,8 +633,10 @@ void MobileHistorySync::decryptAndRead() {
         log(QStringLiteral("decrypt/read: conversations=%1 rows=%2 error=%3")
                 .arg(result->conversations.size()).arg(rows).arg(result->error));
         if (result->conversations.isEmpty()) {
+            if (!result->error.isEmpty()) Network::ErrorCatalog::trace("phone-sync", "backup read failed raw=" + result->error);
             fail(L("Không đọc được tin nhắn trong bản sao lưu: ", "Couldn't read messages from the backup: ")
-                 + (result->error.isEmpty() ? L("bản sao lưu trống", "the backup is empty") : result->error));
+                 + (result->error.isEmpty() ? L("bản sao lưu trống", "the backup is empty")
+                                            : L("dữ liệu bị lỗi hoặc sai định dạng", "the data is damaged or in an unexpected format")));
             return;
         }
         m_conversations = result->conversations;

@@ -167,7 +167,7 @@ jobs:
             mkdir -p /tmp/tools/bin
             if ! command -v file &>/dev/null; then
               echo "==> Setting up file utility shim for appimagetool..."
-              cp scripts/file-shim.py /tmp/tools/bin/file
+              cp scripts/file-shim.sh /tmp/tools/bin/file
               chmod +x /tmp/tools/bin/file
               (sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends file) 2>/dev/null || true
             fi

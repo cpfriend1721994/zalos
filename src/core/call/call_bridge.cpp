@@ -36,17 +36,6 @@ QString randomToken() {
     return "zcall-" + QUuid::createUuid().toString(QUuid::Id128);
 }
 
-QStringList candidateRoots() {
-    QStringList roots;
-    const QString env = qEnvironmentVariable("ZALOS_ZCALL_DIR");
-    if (!env.isEmpty()) roots << env;
-    roots << CallBridge::bundledEngineRoot();
-#ifdef ZALOS_SOURCE_DIR
-    roots << QStringLiteral(ZALOS_SOURCE_DIR) + "/third_party/zcall-native";
-#endif
-    return roots;
-}
-
 }
 
 CallBridge::CallBridge(Network::ZaloSession* session, QObject* parent)
@@ -107,70 +96,45 @@ void CallBridge::requestKeyFrame(const QString& why, int src) {
     sendUi(action);
 }
 
+QString CallBridge::findEngine() {
+    const QString app = QCoreApplication::applicationDirPath();
+    QStringList candidates{app + QStringLiteral("/../libexec/zalos/zalos-call")};
+#ifdef ZALOS_CALL_BUILD_PATH
+    candidates << QStringLiteral(ZALOS_CALL_BUILD_PATH);
+#endif
+    for (const QString& candidate : candidates) {
+        if (QFileInfo(candidate).isExecutable()) return QDir::cleanPath(candidate);
+    }
+    return {};
+}
+
+QString CallBridge::audioEngineFor(const QString& callEnginePath) {
+    if (callEnginePath.isEmpty()) return {};
+    const QString candidate = QFileInfo(callEnginePath).absolutePath() + QStringLiteral("/zalos-call-audio");
+    return QFileInfo(candidate).isExecutable() ? candidate : QString();
+}
+
 void CallBridge::refreshAvailability() {
     QString reason;
     m_enginePath = findEngine();
-    QString overridePath;
-    const QByteArray overrideKey = findTransportKey(&overridePath);
-    if (overrideKey.size() == 16) {
-        m_key = overrideKey;
-        m_mainJsPath = overridePath;
-    } else if (!m_keyFile) {
+    if (!m_keyFile) {
         QByteArray key(16, '\0');
         QRandomGenerator::system()->generate(reinterpret_cast<quint32*>(key.data()),
                                              reinterpret_cast<quint32*>(key.data() + key.size()));
         const QString dir = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
         m_keyFile = std::make_unique<QTemporaryFile>((dir.isEmpty() ? QDir::tempPath() : dir)
-                                                     + "/zalos-callv2-XXXXXX.js");
+                                                     + "/zalos-callv2-XXXXXX.key");
         if (writeKeyFile(m_keyFile.get(), key)) {
             m_key = key;
-            m_mainJsPath = m_keyFile->fileName();
+            m_keyFilePath = m_keyFile->fileName();
         }
     }
-    if (findNode().isEmpty()) reason = "node_missing";
-    else if (m_enginePath.isEmpty()) reason = "engine_missing";
+    if (m_enginePath.isEmpty() || audioEngineFor(m_enginePath).isEmpty()) reason = "engine_missing";
     else if (m_key.size() != 16) reason = "key_missing";
-    else if (QStandardPaths::findExecutable("python3").isEmpty()) reason = "python_missing";
     if (reason != m_unavailableReason) {
         m_unavailableReason = reason;
         emit availabilityChanged();
     }
-}
-
-QString CallBridge::engineIn(const QString& folder) {
-    if (folder.isEmpty()) return {};
-    for (const QString& rel : {QStringLiteral("native-engine/zcall-native.js"), QStringLiteral("zcall-native.js"),
-                               QStringLiteral("zcall-native/native-engine/zcall-native.js")}) {
-        const QString path = QDir::cleanPath(folder + "/" + rel);
-        if (QFile::exists(path)) return path;
-    }
-    return {};
-}
-
-QString CallBridge::bundledEngineRoot() {
-    return QDir::cleanPath(QCoreApplication::applicationDirPath() + "/../share/zalos/zcall-native");
-}
-
-QString CallBridge::findEngine() {
-    for (const QString& root : candidateRoots()) {
-        const QString path = engineIn(root);
-        if (!path.isEmpty()) return path;
-    }
-    return {};
-}
-
-QByteArray CallBridge::findTransportKey(QString* mainJsPath) {
-    const QString path = qEnvironmentVariable("ZALO_MAIN_JS");
-    if (path.isEmpty()) return {};
-    static const QRegularExpression re(QStringLiteral(R"re(callV2TransportAesKey:"([A-Za-z0-9+/=]+)")re"));
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) return {};
-    const QRegularExpressionMatch m = re.match(QString::fromUtf8(file.readAll()));
-    if (!m.hasMatch()) return {};
-    const QByteArray key = QByteArray::fromBase64(m.captured(1).toLatin1());
-    if (key.size() != 16) return {};
-    if (mainJsPath) *mainJsPath = QDir::cleanPath(path);
-    return key;
 }
 
 bool CallBridge::writeKeyFile(QTemporaryFile* file, const QByteArray& key) {
@@ -179,29 +143,8 @@ bool CallBridge::writeKeyFile(QTemporaryFile* file, const QByteArray& key) {
     file->setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     file->resize(0);
     file->seek(0);
-    const QByteArray line = "callV2TransportAesKey:\"" + key.toBase64() + "\"\n";
-    const bool ok = file->write(line) == line.size() && file->flush();
-    return ok;
-}
-
-QString CallBridge::findNode() {
-    for (const char* name : {"node", "nodejs"}) {
-        const QString path = QStandardPaths::findExecutable(QString::fromLatin1(name));
-        if (!path.isEmpty()) return path;
-    }
-    const QString home = QDir::homePath();
-    QStringList candidates{home + "/.bun/bin/bun", home + "/.bun/bin/node", home + "/.volta/bin/node",
-                           home + "/.local/share/fnm/aliases/default/bin/node", home + "/.local/bin/node",
-                           "/usr/local/bin/node"};
-    QStringList nvm = QDir(home + "/.nvm/versions/node").entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
-    std::sort(nvm.begin(), nvm.end(), [](const QString& a, const QString& b) {
-        return QVersionNumber::fromString(a.mid(1)) > QVersionNumber::fromString(b.mid(1));
-    });
-    for (const QString& v : nvm) candidates << home + "/.nvm/versions/node/" + v + "/bin/node";
-    for (const QString& path : candidates) {
-        if (QFileInfo(path).isExecutable()) return path;
-    }
-    return {};
+    const QByteArray line = key.toBase64() + "\n";
+    return file->write(line) == line.size() && file->flush();
 }
 
 QByteArray CallBridge::encodeFrame(const QJsonObject& frame, const QByteArray& key) {
@@ -325,15 +268,8 @@ bool CallBridge::ensureEngine() {
 
     const QString logDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/logs";
     QDir().mkpath(logDir);
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert("ZALO_MAIN_JS", m_mainJsPath);
-    env.insert("ZCALL_LOG_DIR", logDir);
-    env.insert("ZCALL_UI_PORT", QString::number(m_uiServer->serverPort()));
-    env.insert("ZCALL_UI_TOKEN", m_uiToken);
-    env.insert("ZCALL_GROUP", "0");
 
     m_process = new QProcess(this);
-    m_process->setProcessEnvironment(env);
     m_process->setProcessChannelMode(QProcess::ForwardedErrorChannel);
     connect(m_process, &QProcess::finished, this, [this]() {
         const bool wasInCall = !m_activePeer.isEmpty();
@@ -349,10 +285,15 @@ bool CallBridge::ensureEngine() {
         m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}};
         emit stateChanged();
     });
-    m_process->start(findNode(), {m_enginePath, "--token", m_token,
-                                  "--recv", QString::number(m_recvServer->serverPort()),
-                                  "--send", QString::number(m_sendServer->serverPort()),
-                                  "--media", "zrtc", "--send-udp", "--group"});
+    const QStringList engineArgs{"--token", m_token,
+                                 "--recv", QString::number(m_recvServer->serverPort()),
+                                 "--send", QString::number(m_sendServer->serverPort()),
+                                 "--media", "zrtc", "--send-udp", "--group",
+                                 "--key-file", m_keyFilePath,
+                                 "--log-dir", logDir,
+                                 "--ui-port", QString::number(m_uiServer->serverPort()),
+                                 "--ui-token", m_uiToken};
+    m_process->start(m_enginePath, engineArgs);
     return true;
 }
 

@@ -12,7 +12,9 @@
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
+#include <QProcess>
 #include <QSignalSpy>
+#include <QQuickImageProvider>
 #include <QDateTime>
 #include <QBuffer>
 #include <QElapsedTimer>
@@ -1035,7 +1037,7 @@ private slots:
         QVERIFY(client.hasLoginError());
 
         // Password login is unsupported by Zalo Web: never fake a successful login.
-        client.loginWithPhone("0988777888", "ValidPassword123", true);
+        client.loginWithPhone("0900000011", "ValidPassword123", true);
         QTest::qWait(100);
         QCOMPARE(client.isLoggedIn(), false);
         QVERIFY(client.hasLoginError());
@@ -1097,7 +1099,7 @@ private slots:
         QCOMPARE(client.showAddFriendModal(), true);
         // Without a session, searching must fail cleanly instead of inventing a user.
         QSignalSpy searchSpy(&client, &ZaloClient::userSearchFinished);
-        client.findUserByPhone("0912345678");
+        client.findUserByPhone("0900000012");
         QCOMPARE(searchSpy.count(), 1);
         QCOMPARE(searchSpy.first().at(0).toBool(), false);
         client.closeAddFriend();
@@ -1206,7 +1208,6 @@ private slots:
         ZCallEngine engine;
         QCOMPARE(engine.callState(), CallState::Idle);
 
-        // Test SRTP key derivation matching zcall-native
         QByteArray zrtpSecret = "MY-ZRTP-SECRET";
         QByteArray salt = "SALT-16BYTES1234";
         QByteArray srtpKey = ZCallEngine::deriveSrtpMasterKey(zrtpSecret, salt);
@@ -2470,7 +2471,6 @@ private slots:
 
     // 17. Feature: Zero Mock Data Mandate & Dynamic Model Operations & Responsive Geometry
 
-    // Call bridge: call-v2 framing must match zcall-native's tools/lib/callv2-crypto.js.
     void testCallBridgeFraming() {
         using Zalos::Core::Call::CallBridge;
         const QByteArray key(16, char(0x11)); // dummy key, not Zalo's
@@ -2478,7 +2478,6 @@ private slots:
             "3acf70e766113e07d5ea0729112dd8b1f8d784fb418d278748b21eea249ada7d8f07b224bc8af36337b7e2710aa78da49a"
             "d9e6546bc743083349e9f8ad291c38$";
         QJsonObject frame{{"type", "update"}, {"command", "native-ready"}, {"data", QJsonObject()}};
-        // A frame produced by the engine's JS library decodes to the same object...
         QByteArray jsFrame = expected;
         QHash<QString, QStringList> none;
         const QList<QJsonObject> fromJs = CallBridge::decodeFrames(jsFrame, key, &none);
@@ -2587,17 +2586,14 @@ private slots:
     }
 
     void testCallTransportKeyFile() {
-        // The call-v2 key only protects loopback sockets; zalos generates one per session.
         const QByteArray key = QByteArray::fromHex("00112233445566778899aabbccddeeff"); // neutral test key
-        QTemporaryFile file(QDir::tempPath() + "/zalos-test-XXXXXX.js");
+        QTemporaryFile file(QDir::tempPath() + "/zalos-test-XXXXXX.key");
         QVERIFY(CallBridge::writeKeyFile(&file, key));
         QCOMPARE(file.permissions() & (QFileDevice::ReadGroup | QFileDevice::ReadOther), QFileDevice::Permissions());
-        qputenv("ZALO_MAIN_JS", file.fileName().toUtf8());
-        QString path;
-        QCOMPARE(CallBridge::findTransportKey(&path), key);
-        QCOMPARE(path, QDir::cleanPath(file.fileName()));
-        qunsetenv("ZALO_MAIN_JS");
-        QVERIFY(CallBridge::findTransportKey().isEmpty());
+        file.close();
+        QFile readBack(file.fileName());
+        QVERIFY(readBack.open(QIODevice::ReadOnly));
+        QCOMPARE(QByteArray::fromBase64(readBack.readAll().trimmed()), key);
     }
 
     // Review regressions: recall parsing, unique local echoes, UI socket binary frames.
@@ -2697,7 +2693,7 @@ private slots:
         QVERIFY(noticeSpy.count() >= 2);
 
         // 6. Test Contact Card
-        client.sendContactCard("grp-100", "u-999", "Trần Thị B", "0987654321");
+        client.sendContactCard("grp-100", "u-999", "Trần Thị B", "0900000013");
         QModelIndex cardIdx = client.messageModel()->index(client.messageModel()->rowCount() - 1);
         QCOMPARE(client.messageModel()->data(cardIdx, MessageModel::MessageTypeRole).toString(), QString("card"));
         QCOMPARE(client.messageModel()->data(cardIdx, MessageModel::TextRole).toString(), QString("Trần Thị B"));
@@ -2956,36 +2952,25 @@ private slots:
         QVERIFY(client.groupComposite("g-ph").isEmpty());
     }
 
-    // zcall-native: the bundled copy (third_party → share/zalos/zcall-native) and the upstream folder shapes.
+    void testCallStartLaunchesEngine() {
+        CallBridge bridge(nullptr);
+        QVERIFY(bridge.isAvailable());
+        bridge.startVoiceCall(QStringLiteral("u-engine-test"), QStringLiteral("Peer"), QString());
+        auto* process = bridge.findChild<QProcess*>();
+        QVERIFY(process != nullptr);
+        QVERIFY(process->waitForStarted(5000));
+        QCOMPARE(QFileInfo(process->program()).fileName(), QStringLiteral("zalos-call"));
+    }
+
     void testCallEngineDiscovery() {
-        // The vendored engine is complete and carries its licence and origin.
-        const QString vendored = QStringLiteral(ZALOS_SOURCE_DIR) + "/third_party/zcall-native";
-        QVERIFY(QFile::exists(vendored + "/native-engine/zcall-native.js"));
-        QVERIFY(QFile::exists(vendored + "/native-engine/audio-io.py"));
-        QVERIFY(QFile::exists(vendored + "/tools/lib/callv2-crypto.js"));
-        QVERIFY(QFile::exists(vendored + "/LICENSE"));
-        QVERIFY(QFile::exists(vendored + "/UPSTREAM"));
-        QVERIFY(CallBridge::bundledEngineRoot().endsWith("/share/zalos/zcall-native"));
-
-        QTemporaryDir other;
-        QVERIFY(other.isValid());
-        const QString root = other.path() + "/zalo-for-linux";
-        const QString engineDir = root + "/zcall-native/native-engine";
-        QVERIFY(QDir().mkpath(engineDir));
-        QFile f(engineDir + "/zcall-native.js");
-        QVERIFY(f.open(QIODevice::WriteOnly));
-        f.write("// fixture");
-        f.close();
-        QVERIFY(!CallBridge::engineIn(root + "/zcall-native").isEmpty());
-        QVERIFY(!CallBridge::engineIn(engineDir).isEmpty());
-        QVERIFY(!CallBridge::engineIn(root).isEmpty());
-        QVERIFY(CallBridge::engineIn(other.path()).isEmpty());
-
-        // The engine always comes from the bundle; only ZALOS_ZCALL_DIR can point a dev build elsewhere.
-        const QString resolved = CallBridge::findEngine();
-        QVERIFY(!resolved.isEmpty());
-        QCOMPARE(QFileInfo(resolved).fileName(), QStringLiteral("zcall-native.js"));
-        QVERIFY(QFileInfo(resolved).absolutePath().endsWith("/native-engine"));
+        const QString engine = CallBridge::findEngine();
+        QVERIFY(!engine.isEmpty());
+        QCOMPARE(QFileInfo(engine).fileName(), QStringLiteral("zalos-call"));
+        const QString audio = CallBridge::audioEngineFor(engine);
+        QVERIFY(!audio.isEmpty());
+        QCOMPARE(QFileInfo(audio).fileName(), QStringLiteral("zalos-call-audio"));
+        QVERIFY(CallBridge::audioEngineFor(QString()).isEmpty());
+        QVERIFY(CallBridge::audioEngineFor(QStringLiteral("/nonexistent/zalos-call")).isEmpty());
     }
 
     // Labels ("Nhãn", convlabel/get|update semantics of Zalo PC) and contact cards (sendCard / recommened.user).
@@ -3607,6 +3592,41 @@ private slots:
         // 6. Test Close Profile Modal
         client.closeUserProfile();
         QCOMPARE(client.showUserProfileModal(), false);
+    }
+
+    void testMediaImageProviderScalesLocalFile() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString file = tmp.filePath("photo.png");
+        QImage src(800, 400, QImage::Format_RGB32);
+        src.fill(Qt::darkCyan);
+        QVERIFY(src.save(file));
+
+        AvatarImageProvider provider(false);
+        QQuickImageResponse* response = provider.requestImageResponse(QUrl::fromLocalFile(file).toString(), QSize(320, 0));
+        QVERIFY(response);
+        QSignalSpy finished(response, &QQuickImageResponse::finished);
+        QVERIFY(finished.wait(5000));
+        QQuickTextureFactory* factory = response->textureFactory();
+        QVERIFY(factory);
+        const QImage out = factory->image();
+        QCOMPARE(out.width(), 320);
+        QCOMPARE(out.height(), 160);
+        delete factory;
+        delete response;
+    }
+
+    void testMediaImageProviderReportsFailureReason() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        AvatarImageProvider provider(false);
+        QQuickImageResponse* response = provider.requestImageResponse(
+            QUrl::fromLocalFile(tmp.filePath("missing.png")).toString(), QSize(320, 0));
+        QVERIFY(response);
+        QSignalSpy finished(response, &QQuickImageResponse::finished);
+        QVERIFY(finished.wait(5000));
+        QVERIFY(response->errorString().startsWith("cannot read"));
+        delete response;
     }
 
     void testChatBackgroundModes() {

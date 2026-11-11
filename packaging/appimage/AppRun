@@ -10,7 +10,7 @@ export PATH="${APPDIR}/usr/bin:${PATH}"
 # Only prepend bundled library and plugin paths if they exist
 # Qt, QML modules and OpenSSL come from the host. Only a host without libcrypto.so.3 (OpenSSL 4-only, e.g. Fedora
 # 45 without openssl3-libs) gets the bundled copy: a host copy is newer, and Qt's TLS plugin and child processes
-# (node of the call engine) must keep using it.
+# (the C++ call engines, which link the host OpenSSL) must keep using it.
 if [ -d "${APPDIR}/usr/lib/openssl3-fallback" ] && ! /sbin/ldconfig -p 2>/dev/null | grep -q "libcrypto\.so\.3 "; then
     export LD_LIBRARY_PATH="${APPDIR}/usr/lib/openssl3-fallback${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 fi

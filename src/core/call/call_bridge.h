@@ -109,11 +109,8 @@ public:
     void refreshAvailability();
 
     static QString findEngine();
-    static QString bundledEngineRoot();
-    static QString engineIn(const QString& folder);
-    static QByteArray findTransportKey(QString* mainJsPath = nullptr);
+    static QString audioEngineFor(const QString& callEnginePath);
     static bool writeKeyFile(QTemporaryFile* file, const QByteArray& key);
-    static QString findNode();
 
     static QByteArray encodeFrame(const QJsonObject& frame, const QByteArray& key);
     static QList<QJsonObject> decodeFrames(QByteArray& buffer, const QByteArray& key, QHash<QString, QStringList>* chunks);
@@ -146,7 +143,7 @@ private:
     std::function<QPair<QString, QString>(const QString&)> m_resolver;
     QString m_unavailableReason;
     QString m_enginePath;
-    QString m_mainJsPath;
+    QString m_keyFilePath;
     QByteArray m_key;
     std::unique_ptr<QTemporaryFile> m_keyFile;
     QString m_token;

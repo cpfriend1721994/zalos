@@ -235,18 +235,22 @@ ApplicationWindow {
                 Layout.fillHeight: true
             }
 
-            WelcomeArea {
-                visible: !mainWindow.isCompactMode && ZaloClient.currentConversationId === ""
+            Loader {
+                active: !mainWindow.isCompactMode && ZaloClient.currentConversationId === ""
+                visible: active
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: 260
+                sourceComponent: WelcomeArea {}
             }
 
-            ChatArea {
-                visible: ZaloClient.currentConversationId !== ""
+            Loader {
+                active: ZaloClient.currentConversationId !== ""
+                visible: active
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: 260
+                sourceComponent: ChatArea {}
             }
         }
 
@@ -392,13 +396,25 @@ ApplicationWindow {
     LazyOverlay { active: ZaloClient.labels.manageOpen; sourceComponent: LabelManageModal {} }
     LazyOverlay { active: ZaloClient.showBusinessToolsModal; sourceComponent: BusinessToolsModal {} }
 
-    AppLinkPopup { id: appLinkPopup }
-    HiddenPinPopup { id: hiddenPinPopup }
+    Loader {
+        id: appLinkPopupLoader
+        active: false
+        sourceComponent: AppLinkPopup {}
+    }
+    Loader {
+        id: hiddenPinPopupLoader
+        active: false
+        sourceComponent: HiddenPinPopup {}
+    }
     Connections {
         target: ZaloClient
-        function onAppOnlyLinkRequested(url: string, title: string, thumb: string) { appLinkPopup.show(url, title, thumb); }
+        function onAppOnlyLinkRequested(url: string, title: string, thumb: string) {
+            appLinkPopupLoader.active = true;
+            appLinkPopupLoader.item.show(url, title, thumb);
+        }
         function onHiddenFlowRequested(flow: string, convId: string, convName: string, bypass: bool) {
-            hiddenPinPopup.start(flow, convId, convName, bypass);
+            hiddenPinPopupLoader.active = true;
+            hiddenPinPopupLoader.item.start(flow, convId, convName, bypass);
         }
     }
 

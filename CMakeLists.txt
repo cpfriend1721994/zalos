@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.1.1 LANGUAGES CXX)
+project(zalos VERSION 1.2.0 LANGUAGES CXX)
+option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -81,6 +82,8 @@ set(ZALOS_SOURCES
     src/core/platform/storage_manager.h
     src/core/platform/storage_manager.cpp
     src/core/network/group_admin.h
+    src/core/network/error_catalog.h
+    src/core/network/error_catalog.cpp
     src/core/network/group_admin.cpp
     src/core/network/label_manager.h
     src/core/network/label_manager.cpp
@@ -93,6 +96,8 @@ set(ZALOS_SOURCES
     src/core/models/rich_composer.h
     src/core/models/rich_composer.cpp
     src/core/sync/mobile_history_sync.cpp
+    src/core/sync/v2/sync_v2_crypto.cpp
+    src/core/sync/v2/sync_v2_frames.cpp
     src/core/offline/offline_store.h
     src/core/offline/offline_store.cpp
     src/core/network/zalo_api_client.h
@@ -160,7 +165,6 @@ qt_add_qml_module(zalos
         src/qml/CallOverlay.qml
         src/qml/ZMaskEffect.qml
         src/qml/ZBlurEffect.qml
-        src/qml/ZChatBackgroundBlur.qml
         src/qml/ChatJumpDownButton.qml
         src/qml/ChatUnreadBar.qml
         src/qml/LockScreen.qml
@@ -181,6 +185,7 @@ qt_add_qml_module(zalos
         src/qml/ZCheckBox.qml
         src/qml/ZRadio.qml
         src/qml/ZRoundedImage.qml
+        src/qml/MediaSource.js
         src/qml/ZSticker.qml
         src/qml/PopupHost.qml
         src/qml/PinDetailHost.qml
@@ -202,7 +207,11 @@ target_include_directories(zalos PRIVATE
     src/core
     ${LZMA_INCLUDE_DIRS}
 )
-target_compile_definitions(zalos PRIVATE ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(zalos PRIVATE ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    ZALOS_APP_VERSION="${PROJECT_VERSION}")
+if(BUILD_TESTING)
+    target_compile_definitions(zalos PRIVATE ZALOS_CALL_BUILD_PATH="$<TARGET_FILE:zalos-call>")
+endif()
 target_precompile_headers(zalos PRIVATE src/core/pch.h)
 
 # QML compiled to C++ (qmlcachegen AOT) calls QQmlPrivate::AOTCompiledContext, private Qt API versioned per minor
@@ -240,16 +249,14 @@ install(TARGETS zalos
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-install(PROGRAMS scripts/export_browser_cookies.py
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/zalos
-)
-
-# Call engine (zcall-native from zalo-for-linux, MIT; vendored by scripts/sync-zcall-native.sh). Run with the
-# system's node/python3; CallBridge looks for it at <bin>/../share/zalos/zcall-native first.
-install(DIRECTORY third_party/zcall-native/
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/zalos/zcall-native
-    USE_SOURCE_PERMISSIONS
-)
+# Call engine (C++, engines/zcall-cpp): zalos-call (signalling and media) and zalos-call-audio (microphone and speaker),
+# installed to libexec/zalos. CallBridge runs them from there; there is no script runtime in the call path.
+add_subdirectory(engines/zcall-cpp)
+# The engine finds zalos-call-audio next to itself; in a build tree the two live in different directories.
+add_custom_target(zalos_call_audio_beside_engine ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:zalos-call-audio> $<TARGET_FILE_DIR:zalos-call>
+    DEPENDS zalos-call zalos-call-audio
+    VERBATIM)
 
 install(FILES assets/zalos.desktop
     DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
@@ -264,7 +271,6 @@ install(FILES assets/icons/zalos.svg
 )
 
 # Testing configuration
-option(BUILD_TESTING "Build unit tests" ON)
 if(BUILD_TESTING)
     enable_testing()
     find_package(Qt6 REQUIRED COMPONENTS Test)
@@ -311,6 +317,31 @@ if(BUILD_TESTING)
     )
     add_test(NAME test_protocol COMMAND test_protocol)
 
+    add_executable(test_errors
+        tests/test_errors.cpp
+        src/core/network/error_catalog.cpp
+    )
+    target_include_directories(test_errors PRIVATE src src/core)
+    target_link_libraries(test_errors PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(NAME test_errors COMMAND test_errors)
+
+    add_executable(test_sync_v2
+        tests/test_sync_v2.cpp
+        src/core/sync/v2/sync_v2_crypto.cpp
+        src/core/sync/v2/sync_v2_frames.cpp
+    )
+    target_compile_definitions(test_sync_v2 PRIVATE ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_include_directories(test_sync_v2 PRIVATE src src/core)
+    target_link_libraries(test_sync_v2 PRIVATE
+        Qt6::Core
+        Qt6::Test
+        OpenSSL::Crypto
+    )
+    add_test(NAME test_sync_v2 COMMAND test_sync_v2)
+
     add_library(zalos_test_core OBJECT
         src/core/crypto/db_cross.cpp
         src/core/fs/file_utils.cpp
@@ -327,6 +358,8 @@ if(BUILD_TESTING)
         src/core/platform/shortcut_map.cpp
         src/core/platform/app_lock.cpp
         src/core/platform/storage_manager.cpp
+        src/core/network/error_catalog.h
+        src/core/network/error_catalog.cpp
         src/core/network/group_admin.cpp
         src/core/network/label_manager.cpp
         src/core/network/sticker_store.cpp
@@ -334,6 +367,8 @@ if(BUILD_TESTING)
         src/core/models/message_search_model.cpp
         src/core/models/rich_composer.cpp
         src/core/sync/mobile_history_sync.cpp
+        src/core/sync/v2/sync_v2_crypto.cpp
+        src/core/sync/v2/sync_v2_frames.cpp
         src/core/offline/offline_store.cpp
         src/core/network/zalo_crypto.cpp
         src/core/network/zalo_session.cpp
@@ -348,7 +383,8 @@ if(BUILD_TESTING)
         src/core/platform/system_tray.cpp
         src/core/platform/sound_engine.cpp
     )
-    target_compile_definitions(zalos_test_core PUBLIC ZALOS_TESTING ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_definitions(zalos_test_core PUBLIC ZALOS_TESTING ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        ZALOS_CALL_BUILD_PATH="$<TARGET_FILE:zalos-call>")
     target_precompile_headers(zalos_test_core PRIVATE src/core/pch.h)
     target_include_directories(zalos_test_core PUBLIC . src src/core src/core/models src/core/call src/core/offline src/core/network src/core/platform src/core/media ${LZMA_INCLUDE_DIRS})
     target_link_libraries(zalos_test_core PUBLIC
@@ -401,25 +437,22 @@ if(BUILD_TESTING)
     add_dependencies(test_system zalos)
     target_link_libraries(test_system PRIVATE zalos_test_core)
     add_test(NAME test_system COMMAND test_system)
-    # Keeps QML compiled to C++ (see 02-engineering-standards): fails if coverage drops below the floor.
-    find_package(Python3 COMPONENTS Interpreter)
-    # Theme/component consistency of the QML (bare controls, tonal colour pairs, unknown icons, literal shortcuts).
-    if(Python3_Interpreter_FOUND)
-        add_test(NAME qml_style_lint
-                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_qml_style.py
-                         ${CMAKE_CURRENT_SOURCE_DIR})
+    # QML gates in plain C++ (tests/test_qml_gates.cpp): theme/component lint (skill 03), AOT coverage floor (skill 02,
+    # Qt 6.5+ only, qmlcachegen writes .aotstats) and the UI screenshot sanity check. The visual check reads the
+    # screenshots test_system writes, so it is registered after it.
+    add_executable(test_qml_gates "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_qml_gates.cpp")
+    set_target_properties(test_qml_gates PROPERTIES AUTOMOC ON)
+    target_link_libraries(test_qml_gates PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    target_compile_definitions(test_qml_gates PRIVATE
+        ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        ZALOS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"
+        ZALOS_AOT_MIN=85)
+    if(Qt6_VERSION VERSION_GREATER_EQUAL 6.5)
+        target_compile_definitions(test_qml_gates PRIVATE ZALOS_AOT_GATE=1)
     endif()
-    # qmlcachegen writes .aotstats from Qt 6.5; the Qt 6.4 (Ubuntu 24.04) build has no coverage gate.
-    if(Python3_Interpreter_FOUND AND Qt6_VERSION VERSION_GREATER_EQUAL 6.5)
-        add_test(NAME qml_aot_coverage
-                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_qml_aot.py
-                         ${CMAKE_CURRENT_BINARY_DIR} 85)
-    endif()
-    # Automated visual regression & blank-canvas sanity gate across UI screenshots generated by test_system.
-    if(Python3_Interpreter_FOUND)
-        add_test(NAME ui_visual_diff
-                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_visual_diff.py
-                         ${CMAKE_CURRENT_BINARY_DIR})
-    endif()
+    add_dependencies(test_qml_gates zalos)
+    add_test(NAME qml_style_lint COMMAND test_qml_gates qmlStyle)
+    add_test(NAME qml_aot_coverage COMMAND test_qml_gates qmlAotCoverage)
+    add_test(NAME ui_visual_diff COMMAND test_qml_gates uiVisualDiff)
 endif()
 

@@ -2084,7 +2084,7 @@ void ZaloSession::handleControls(const QJsonArray& controls) {
             }
         } else if (type == "voip") {
             emit voipControlReceived(content);
-        } else if (type == "syncmsgmb" || type == "transfer_msg") {
+        } else if (type == "syncmsgmb" || type == "transfer_msg" || type == "transfer_sync2") {
             emit mobileSyncControlReceived(content);
         } else if (type == "fr") {
             const QString act = content.value("act").toString();

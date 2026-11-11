@@ -1,0 +1,230 @@
+{
+ "audio": [
+  {
+   "args": {
+    "seq": 47002,
+    "ts": 615073995,
+    "ssrc": 138676392,
+    "twSeq": 4033,
+    "marker": false,
+    "pt": 112
+   },
+   "out": "9070b79a24a948cb084408a8bede0001510fc100"
+  },
+  {
+   "args": {
+    "seq": 45926,
+    "ts": 2944509607,
+    "ssrc": 2267350868,
+    "twSeq": 59133,
+    "marker": true,
+    "pt": 112
+   },
+   "out": "90f0b366af81a6a787250754bede000151e6fd00"
+  },
+  {
+   "args": {
+    "seq": 40946,
+    "ts": 4187489859,
+    "ssrc": 1920287936,
+    "twSeq": 62969,
+    "marker": false,
+    "pt": 112
+   },
+   "out": "90709ff2f9980643727544c0bede000151f5f900"
+  },
+  {
+   "args": {
+    "seq": 51518,
+    "ts": 1143653279,
+    "ssrc": 3117018348,
+    "twSeq": 63669,
+    "marker": true,
+    "pt": 112
+   },
+   "out": "90f0c93e442ac39fb9c9ececbede000151f8b500"
+  },
+  {
+   "args": {
+    "seq": 15178,
+    "ts": 4227988155,
+    "ssrc": 1323232216,
+    "twSeq": 27441,
+    "marker": false,
+    "pt": 98
+   },
+   "out": "90623b4afc01fabb4edeebd8bede0001516b3100"
+  }
+ ],
+ "groupAudio": [
+  {
+   "args": {
+    "seq": 49686,
+    "ts": 1212909463,
+    "ssrc": 21163396,
+    "twSeq": 35181,
+    "captureMs": 1700000050274,
+    "level": 0
+   },
+   "out": "9070c216484b87970142ed84bede0004200051896dd6fe6fb24624e000000000"
+  },
+  {
+   "args": {
+    "seq": 1587,
+    "ts": 1757634032,
+    "ssrc": 3111014249,
+    "twSeq": 65006,
+    "captureMs": 1700000097775,
+    "level": 45
+   },
+   "out": "9070063368c35df0b96e4f69bede0004202d51fdeed6fe6fe1c6666800000000"
+  },
+  {
+   "args": {
+    "seq": 26908,
+    "ts": 1519614245,
+    "ssrc": 2538736378,
+    "twSeq": 2219,
+    "captureMs": 1700000047784,
+    "level": 127
+   },
+   "out": "9070691c5a93792597520afabede0004207f5108abd6fe6fafc8b43800000000"
+  },
+  {
+   "args": {
+    "seq": 33441,
+    "ts": 1143332038,
+    "ssrc": 2491909255,
+    "twSeq": 49076,
+    "captureMs": 1700000052637.5,
+    "level": 200
+   },
+   "out": "907082a14425dcc694878487bede0004207f51bfb4d6fe6fb4a3333000000000"
+  }
+ ],
+ "groupVideo": [
+  {
+   "args": {
+    "seq": 65362,
+    "ts": 2337137187,
+    "ssrc": 3575784224,
+    "twSeq": 58585,
+    "marker": false,
+    "pt": 97,
+    "sfu": {
+     "id": 12,
+     "long": false
+    },
+    "layerSeq": 48798,
+    "captureMs": 1700000519487,
+    "sendMs": 1700000751948
+   },
+   "out": "9061ff528b4de223d5222320bede000532bfcac051e4d9c203be9ed6fe71877cac080000"
+  },
+  {
+   "args": {
+    "seq": 62869,
+    "ts": 969090730,
+    "ssrc": 526086811,
+    "twSeq": 13880,
+    "marker": true,
+    "pt": 98,
+    "sfu": {
+     "id": 14,
+     "long": true
+    },
+    "layerSeq": 22033,
+    "captureMs": 1700000765366,
+    "sendMs": 1700000020983
+   },
+   "out": "90e2f59539c326aa1f5b729bbede00063253ee97513638e603561100000000d6fe727d5db2300000"
+  },
+  {
+   "args": {
+    "seq": 32228,
+    "ts": 2486714957,
+    "ssrc": 347463938,
+    "twSeq": 39443,
+    "marker": false,
+    "pt": 97,
+    "sfu": {
+     "long": true
+    },
+    "layerSeq": 37968,
+    "captureMs": 1700000436937,
+    "sendMs": 1700000678478
+   },
+   "out": "90617de49438424d14b5e102bede00063299e978519a13e603945000000000d6fe7134efdf400000"
+  },
+  {
+   "args": {
+    "seq": 50287,
+    "ts": 3124143484,
+    "ssrc": 1771597317,
+    "twSeq": 36442,
+    "marker": true,
+    "pt": 98,
+    "sfu": {
+     "long": false
+    },
+    "layerSeq": 14475,
+    "captureMs": 1700000476648,
+    "sendMs": 1700000942145
+   },
+   "out": "90e2c46fba36a57c69986e05bede000532b8947a518e5ac203388bd6fe715ca5e3500000"
+  },
+  {
+   "args": {
+    "seq": 13862,
+    "ts": 4027699815,
+    "ssrc": 2287740948,
+    "twSeq": 22717,
+    "marker": false,
+    "pt": 97,
+    "sfu": {
+     "id": 12
+    },
+    "layerSeq": 36530,
+    "captureMs": 1700000637763,
+    "sendMs": 1700000508672
+   },
+   "out": "90613626f011d267885c2814bede000532f2b0205158bdc2038eb2d6fe71fdc353f80000"
+  },
+  {
+   "args": {
+    "seq": 50105,
+    "ts": 2727404542,
+    "ssrc": 832350047,
+    "twSeq": 26028,
+    "marker": true,
+    "pt": 98,
+    "sfu": {
+     "id": 14,
+     "long": true
+    },
+    "layerSeq": 57973,
+    "captureMs": 1700000452170,
+    "sendMs": 1700000816635
+   },
+   "out": "90e2c3b9a290e3fe319ca75fbede000632c28a3d5165ace603e27500000000d6fe71442b85200000"
+  }
+ ],
+ "levels": [
+  {
+   "rtp": "9070c216484b87970142ed84bede0004200051896dd6fe6fb24624e000000000",
+   "level": 0
+  },
+  {
+   "rtp": "9070063368c35df0b96e4f69bede0004202d51fdeed6fe6fe1c6666800000000",
+   "level": 45
+  },
+  {
+   "rtp": "9070691c5a93792597520afabede0004207f5108abd6fe6fafc8b43800000000",
+   "level": 127
+  },
+  {
+   "rtp": "907082a14425dcc694878487bede0004207f51bfb4d6fe6fb4a3333000000000",
+   "level": 127
+  }
+ ]
+}

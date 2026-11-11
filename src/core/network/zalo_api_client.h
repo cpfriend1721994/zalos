@@ -39,7 +39,6 @@ public:
     void startSessionLogin(const QString& imei, const QString& userAgent, const QString& language);
     void forgetSession();
     static QString credentialsPath();
-    static QString browserExportScriptPath();
 
     void setLanguage(const QString& lang) { m_language = lang; }
 

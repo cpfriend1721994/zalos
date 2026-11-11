@@ -35,3 +35,6 @@ GEMINI.md
 .windsurfrules
 .idea/
 .github/copilot-instructions.md
+
+# Call engine (C++) scratch build trees
+build-call*/

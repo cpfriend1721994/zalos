@@ -10,6 +10,7 @@
 #include "models/text_fold.h"
 #include "network/zalo_api_client.h"
 #include "network/zalo_session.h"
+#include "network/error_catalog.h"
 #include "network/message_scheduler.h"
 #include "platform/desktop_notifications.h"
 #include "media/voice_recorder.h"
@@ -64,6 +65,12 @@ namespace Zalos::Core::Network {
 namespace {
 
 constexpr int kQrLifetimeSeconds = 120;
+constexpr int kMaxTrackedIds = 2000;
+
+template <typename Container>
+void dropOldestIfFull(Container& c) {
+    if (c.size() >= kMaxTrackedIds) c.erase(c.begin());
+}
 constexpr int kGroupInfoBatch = 50;
 constexpr int kProfileInfoBatch = 100;
 
@@ -265,7 +272,8 @@ ZaloClient::ZaloClient(QObject* parent)
     connect(m_apiClient, &ZaloApiClient::qrExpired, this, [this]() {
         if (!m_isLoggedIn) refreshQrCode();
     });
-    connect(m_apiClient, &ZaloApiClient::qrFailed, this, [this](const QString&) {
+    connect(m_apiClient, &ZaloApiClient::qrFailed, this, [this](const QString& reason) {
+        ErrorCatalog::trace("qr", reason);
         m_qrImageUrl.clear();
         emit qrCodeChanged();
         setLoginStatus(L("Không tải được mã QR. Vui lòng kiểm tra kết nối mạng rồi bấm \"Lấy mã mới\".",
@@ -282,8 +290,6 @@ ZaloClient::ZaloClient(QObject* parent)
         } else if (reason == "no_device_id") {
             msg = L("Không tìm thấy mã thiết bị Zalo Web trong trình duyệt. Hãy mở chat.zalo.me một lần rồi thử lại.",
                     "No Zalo Web device id found in the browser. Open chat.zalo.me once and try again.");
-        } else if (reason == "python_unavailable" || reason == "script_missing") {
-            msg = L("Thiếu thành phần đọc phiên trình duyệt (python3).", "The browser session helper (python3) is missing.");
         } else {
             msg = L("Không tìm thấy phiên Zalo Web đang đăng nhập trong trình duyệt.",
                     "No signed-in Zalo Web session was found in your browser.");
@@ -355,7 +361,7 @@ ZaloClient::ZaloClient(QObject* parent)
     });
     connect(m_scheduler, &MessageScheduler::changed, this, &ZaloClient::scheduledMessagesChanged);
     connect(m_scheduler, &MessageScheduler::sendFailed, this, [this](const QString& error) {
-        emit notice(L("Tin nhắn hẹn giờ chưa gửi được: ", "A scheduled message failed: ") + error);
+        emit notice(L("Tin nhắn hẹn giờ chưa gửi được: ", "A scheduled message failed: ") + friendlyError(error));
     });
 
     m_sound = new Platform::SoundEngine(this);
@@ -499,7 +505,10 @@ ZaloClient::ZaloClient(QObject* parent)
         else if (reason == QLatin1String("no_aac_encoder"))
             emit notice(L("Thiếu bộ mã hóa AAC trong Qt Multimedia nên chưa ghi âm được.",
                           "Qt Multimedia has no AAC encoder, so recording is unavailable."));
-        else emit notice(L("Ghi âm thất bại: ", "Recording failed: ") + reason);
+        else {
+            ErrorCatalog::trace("media", QStringLiteral("recording failed reason=%1").arg(reason));
+            emit notice(L("Ghi âm thất bại. Vui lòng thử lại.", "Recording failed. Please try again."));
+        }
     });
 
     m_notifications = new Platform::DesktopNotifications(this);
@@ -657,45 +666,10 @@ ZaloClient::ZaloClient(QObject* parent)
 }
 
 QString ZaloClient::friendlyError(const QString& error, int code) const {
-    switch (code) {
-    case 600:
-    case -102: return L("phiên đăng nhập đã hết hạn", "your session has expired");
-    case 114: return L("tham số không hợp lệ", "invalid parameters");
-    case 429: return L("thao tác quá nhanh, hãy thử lại sau ít phút", "too many requests, try again in a few minutes");
-    case -69: return L("máy chủ yêu cầu ngừng thử lại (dịch vụ không dành cho phiên đăng nhập này)",
-                       "the server said to stop retrying (the service is not offered to this session)");
-    case 18022: return L("chữ ký yêu cầu không hợp lệ", "the request signature was rejected");
-    case 18060: return L("máy chủ yêu cầu tham số được mã hoá", "the server requires encrypted parameters");
-    case 126: return L("Tài khoản đã ngừng hoạt động.", "This account is no longer active.");
-    case 164: return L("Bạn không còn là thành viên trong nhóm này", "You are no longer a member of this group");
-    case 166: return L("Chỉ có trưởng/phó nhóm thực hiện được tính năng này.", "Only the group owner or deputies can do this.");
-    case 204: return L("Hiện tại Zalo chưa hỗ trợ chia sẻ tập tin định dạng này.", "Zalo doesn't support sharing this file type yet.");
-    case 211: return L("Phiên bản Zalo bên người nhận chưa hỗ trợ thu hồi tin nhắn",
-                       "The recipient's Zalo version doesn't support recalling messages");
-    case 216: return L("Danh tính người dùng này không hợp lệ.", "This user's identity is invalid.");
-    case 301: return L("Bạn đã thu hồi quá số lần cho phép. Vui lòng thử lại sau 24 giờ.",
-                       "You've recalled too many times. Please try again in 24 hours.");
-    case 120: return L("Zalo: Hiện tại bạn không thể nhắn tin cho người lạ.", "Zalo: You can't message strangers right now.");
-    case 121: return L("Zalo: Tin nhắn có nội dung không phù hợp để gửi cho người lạ. Vui lòng kiểm tra lại.",
-                       "Zalo: This message isn't appropriate to send to a stranger. Please check it.");
-    case 122: return L("Bạn chưa thể gửi tin nhắn đến người này vì người này chặn không nhận tin nhắn từ người lạ.",
-                       "You can't message this person yet because they don't accept messages from strangers.");
-    case 206: return L("Bạn không thể gửi File cho người lạ.", "You can't send files to strangers.");
-    case 804: return L("Bạn đã đạt giới hạn trả lời người lạ trong tháng. Để tránh rủi ro bị lừa đảo, bạn tạm thời sẽ "
-                       "không thể trả lời người này.",
-                       "You've reached this month's limit for replying to strangers. To avoid scams, you temporarily "
-                       "can't reply to this person.");
-    default: break;
-    }
-    if (error == "not_logged_in") return L("bạn chưa đăng nhập", "you're not signed in");
-    if (error == "service_unavailable")
-        return L("máy chủ Zalo chưa cung cấp dịch vụ này cho phiên đăng nhập hiện tại",
-                 "Zalo's servers don't offer this service to the current session");
-    if (error == "decrypt_failed") return L("phản hồi từ máy chủ không hợp lệ", "the server reply was invalid");
-    if (error.isEmpty()) return L("lỗi không xác định", "unknown error");
-    if (error.contains("Host") || error.contains("network", Qt::CaseInsensitive) || error.contains("timed out"))
-        return L("lỗi kết nối mạng", "network error");
-    return error;
+    const bool en = m_appLanguage == QLatin1String("en");
+    const ErrorCatalog::Message m = ErrorCatalog::describe(code, error);
+    if (m.traceRaw) ErrorCatalog::trace("api", QStringLiteral("code=%1 raw=%2").arg(code).arg(error));
+    return ErrorCatalog::render(code, error, en);
 }
 
 void ZaloClient::setLoginStatus(const QString& message, bool isError) {
@@ -878,6 +852,10 @@ void ZaloClient::onSessionLoggedIn() {
     m_cachedUid = m_myUid;
     m_isLoggedIn = true;
     m_isLoggingIn = false;
+    QTimer::singleShot(15000, this, [this]() {
+        releaseFreedMemory();
+        startIdleMemoryTrim();
+    });
     const bool wasOffline = m_isOfflineMode;
     m_isOfflineMode = false;
     if (wasOffline) emit offlineModeChanged();
@@ -913,7 +891,7 @@ void ZaloClient::onSessionLoggedIn() {
 }
 
 void ZaloClient::onSessionLoginUnavailable(const QString& reason) {
-    Q_UNUSED(reason);
+    ErrorCatalog::trace("login", QStringLiteral("unavailable reason=%1").arg(reason));
     if (!m_restoringSession) {
         m_isLoggingIn = false;
         emit loginStateChanged();
@@ -929,7 +907,7 @@ void ZaloClient::onSessionLoginUnavailable(const QString& reason) {
 }
 
 void ZaloClient::onSessionLoginFailed(const QString& reason) {
-    Q_UNUSED(reason);
+    ErrorCatalog::trace("login", QStringLiteral("failed reason=%1").arg(reason));
     m_restoreRetryTimer->stop();
     m_restoreAttempts = 0;
     if (m_isOfflineMode) {
@@ -1320,7 +1298,10 @@ void ZaloClient::resolveGroupMembers(const QString& groupId) {
             if (m_conversationModel->contains(uid)) applyProfileToConversation(uid);
         }
         for (const QString& id : unknown) {
-            if (displayNameOf(id).isEmpty()) m_unresolvedMembers.insert(id);
+            if (displayNameOf(id).isEmpty()) {
+                if (!m_unresolvedMembers.contains(id)) dropOldestIfFull(m_unresolvedMembers);
+                m_unresolvedMembers.insert(id);
+            }
         }
         updateGroupComposite(groupId);
         m_messageModel->refreshSenders();
@@ -1438,6 +1419,7 @@ void ZaloClient::refreshPoll(qint64 pollId, bool force) {
     if (!m_isLoggedIn || pollId <= 0) return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (!force && now - m_pollFetchedAt.value(pollId) < 30000) return;
+    if (!m_pollFetchedAt.contains(pollId)) dropOldestIfFull(m_pollFetchedAt);
     m_pollFetchedAt.insert(pollId, now);
     m_apiClient->session()->fetchPollDetail(pollId, [this, pollId](bool ok, const QJsonValue& data, const QString&, int) {
         if (!ok) return;
@@ -1513,7 +1495,10 @@ void ZaloClient::toggleVoice(const QString& msgId, const QString& url) {
         connect(m_voicePlayer, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString& err) {
             const QString url = m_voicePlayer->source().toString();
             const QString id = m_playingVoiceId;
-            if (!id.isEmpty()) m_voiceErrors.insert(id);
+            if (!id.isEmpty()) {
+                if (!m_voiceErrors.contains(id)) dropOldestIfFull(m_voiceErrors);
+                m_voiceErrors.insert(id);
+            }
             qWarning() << "voice playback failed:" << err;
             m_playingVoiceId.clear();
             emit voicePlaybackChanged();
@@ -1772,7 +1757,10 @@ void ZaloClient::resolveUnknownUsers() {
                 persistProfile(uid, false);
             }
             for (const QString& id : missing) {
-                if (displayNameOf(id).isEmpty()) m_unresolvedMembers.insert(id);
+                if (displayNameOf(id).isEmpty()) {
+                    if (!m_unresolvedMembers.contains(id)) dropOldestIfFull(m_unresolvedMembers);
+                    m_unresolvedMembers.insert(id);
+                }
             }
             m_conversationModel->endBatch();
             m_messageModel->refreshSenders();
@@ -3303,12 +3291,23 @@ void ZaloClient::touchResidentThread(const QString& convId) {
 }
 
 void ZaloClient::evictColdThreads(int maxResident) {
-    if (!cacheUsable() || m_residentThreads.size() <= maxResident) return;
+    if (!cacheUsable()) return;
+    constexpr int kResidentMessageBudget = 3000;
+    constexpr int kMinResidentThreads = 2;
+    int residentMessages = 0;
+    const QStringList& residentThreads = m_residentThreads;
+    for (const QString& t : residentThreads) residentMessages += m_messageModel->threadSize(t);
+    if (m_residentThreads.size() <= maxResident && residentMessages <= kResidentMessageBudget) return;
     QSet<QString> evicted;
-    for (int i = 0; i < m_residentThreads.size() && m_residentThreads.size() - evicted.size() > maxResident; ++i) {
+    const auto stillOver = [&]() {
+        const int remaining = m_residentThreads.size() - int(evicted.size());
+        return remaining > maxResident || (residentMessages > kResidentMessageBudget && remaining > kMinResidentThreads);
+    };
+    for (int i = 0; i < m_residentThreads.size() && stillOver(); ++i) {
         const QString t = m_residentThreads.at(i);
         if (t == m_currentConvId || m_messageModel->hasLocalEcho(t)) continue;
         evicted.insert(t);
+        residentMessages -= m_messageModel->threadSize(t);
     }
     if (evicted.isEmpty()) return;
     for (auto it = m_messageThread.begin(); it != m_messageThread.end();) {
@@ -3350,18 +3349,32 @@ void ZaloClient::rememberMessageId(const QString& msgId) {
     while (m_recentIdOrder.size() > kMaxRecentIds) m_recentIds.remove(m_recentIdOrder.takeFirst());
 }
 
+namespace {
+
+void returnFreedHeap() {
+#ifdef __GLIBC__
+    malloc_trim(0);
+#endif
+}
+
+}
+
 void ZaloClient::releaseFreedMemory() {
     if (!m_trimTimer) {
         m_trimTimer = new QTimer(this);
         m_trimTimer->setSingleShot(true);
         m_trimTimer->setInterval(2000);
-        connect(m_trimTimer, &QTimer::timeout, this, []() {
-#ifdef __GLIBC__
-            malloc_trim(0);
-#endif
-        });
+        connect(m_trimTimer, &QTimer::timeout, this, &returnFreedHeap);
     }
     m_trimTimer->start();
+}
+
+void ZaloClient::startIdleMemoryTrim() {
+    if (m_idleTrimTimer) return;
+    m_idleTrimTimer = new QTimer(this);
+    m_idleTrimTimer->setInterval(5 * 60 * 1000);
+    connect(m_idleTrimTimer, &QTimer::timeout, this, &returnFreedHeap);
+    m_idleTrimTimer->start();
 }
 
 void ZaloClient::persistMessage(const QString& convId, const QString& msgId) {
@@ -3383,7 +3396,8 @@ void ZaloClient::fetchBytes(const QString& url, std::function<void(const QByteAr
     if (u.isLocalFile()) {
         QFile f(u.toLocalFile());
         if (!f.open(QIODevice::ReadOnly)) {
-            done({}, f.errorString());
+            ErrorCatalog::trace("file", QStringLiteral("open failed error=%1").arg(f.errorString()));
+            done({}, QStringLiteral("local_file_error"));
             return;
         }
         done(f.readAll(), QString());
@@ -3423,7 +3437,7 @@ void ZaloClient::saveMediaTo(const QString& url, const QString& destinationFileU
         if (!error.isEmpty() || data.isEmpty() || !out.open(QIODevice::WriteOnly) || out.write(data) != data.size()
             || !out.commit()) {
             emit notice(L("Không lưu được tệp đa phương tiện", "Couldn't save the media file")
-                        + (error.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(error)));
+                        + (error.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(friendlyError(error))));
             return;
         }
         emit notice(L("Đã lưu vào ", "Saved to ") + dest);
@@ -3473,7 +3487,7 @@ void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, con
         }
         QSaveFile out(path);
         if (!error.isEmpty() || !out.open(QIODevice::WriteOnly) || out.write(data) != data.size() || !out.commit()) {
-            emit notice(L("Tải tệp thất bại", "Download failed") + (error.isEmpty() ? QString() : " (" + error + ")"));
+            emit notice(L("Tải tệp thất bại", "Download failed") + (error.isEmpty() ? QString() : " (" + friendlyError(error) + ")"));
             return;
         }
         emit notice(L("Đã tải về ", "Downloaded to ") + path);
@@ -3875,6 +3889,7 @@ void ZaloClient::applyStrangerRank(const QString& id, const QJsonObject& data) {
     const QString lang = m_appLanguage == QLatin1String("en") ? QStringLiteral("en") : QStringLiteral("vi");
     r.title = render.value("title").toObject().value(lang).toString();
     r.text = render.value("desc").toObject().value(lang).toString();
+    if (!m_strangerRanks.contains(id)) dropOldestIfFull(m_strangerRanks);
     m_strangerRanks.insert(id, r);
     if (id == m_currentConvId) emit composerStateChanged();
 }
@@ -3887,6 +3902,7 @@ void ZaloClient::setStrangerRankForTesting(const QString& id, const QJsonObject&
 
 void ZaloClient::refreshStrangerRank(const QString& convId) {
     if (!m_isLoggedIn || m_strangerRanks.contains(convId) || !m_conversationModel->isStranger(convId)) return;
+    if (!m_strangerRanks.contains(convId)) dropOldestIfFull(m_strangerRanks);
     m_strangerRanks.insert(convId, StrangerRank{});
     QPointer<ZaloClient> guard(this);
     m_apiClient->session()->fetchProfileRank(convId, [guard, convId](bool ok, const QJsonValue& data, const QString&, int) {
@@ -5079,7 +5095,7 @@ void ZaloClient::cancelMobileSync() {
 }
 
 void ZaloClient::handleMobileSyncControl(const QJsonObject& content) {
-    if (content.value("act_type").toString() == QLatin1String("syncmsgmb")) m_historySync->handleControl(content);
+    m_historySync->handleControl(content);
 }
 
 void ZaloClient::setCurrentNavigationTab(const QString& tab) {
@@ -5807,10 +5823,9 @@ void ZaloClient::sendFile(const QString& fileUrlOrPath, const QString& caption) 
             emit attachmentStateChanged();
             if (!ok) {
                 m_messageModel->setStatus(convId, localId, QStringLiteral("failed"));
-                QString reason = error;
+                QString reason = friendlyError(error, code);
                 if (code == -2) reason = L("tệp quá lớn", "the file is too large");
                 else if (code == -3) reason = L("định dạng tệp bị Zalo chặn", "Zalo blocks this file type");
-                else if (error == "upload_timeout") reason = L("máy chủ không phản hồi", "the server didn't respond");
                 emit notice(L("Không gửi được tệp: ", "Couldn't send the file: ") + reason);
                 return;
             }
@@ -6917,18 +6932,19 @@ bool ZaloClient::currentConversationHasPresence() const {
     return m_currentLastOnline >= 0;
 }
 
+void ZaloClient::noticeCallUnavailable(const QString& reason) {
+    const QString why = reason == QLatin1String("engine_missing")
+        ? L("thiếu thành phần gọi đi kèm Zalos (hãy cài lại Zalos)",
+            "a bundled component needed for calls is missing (reinstall Zalos)")
+        : L("không tạo được khóa truyền tin nội bộ cho cuộc gọi", "the local call transport key could not be created");
+    emit notice(L("Chưa gọi được: ", "Calls unavailable: ") + why);
+}
+
 void ZaloClient::startVoiceCall() {
     if (m_currentConvId.isEmpty() || currentConversationIsGroup() || !currentConversationCanCall()) return;
     m_calls->refreshAvailability();
     if (!m_calls->isAvailable()) {
-        const QString r = m_calls->unavailableReason();
-        QString why;
-        if (r == "node_missing") why = L("chưa cài Node.js (hoặc Bun)", "Node.js (or Bun) is not installed");
-        else if (r == "python_missing") why = L("chưa cài python3", "python3 is not installed");
-        else if (r == "engine_missing") why = L("thiếu thành phần gọi đi kèm Zalos (hãy cài lại Zalos)",
-                                                  "a bundled component needed for calls is missing (reinstall Zalos)");
-        else why = L("không tạo được khóa truyền tin nội bộ cho cuộc gọi", "the local call transport key could not be created");
-        emit notice(L("Chưa gọi được: ", "Calls unavailable: ") + why);
+        noticeCallUnavailable(m_calls->unavailableReason());
         return;
     }
     m_calls->startVoiceCall(m_currentConvId, m_currentConvName, m_currentConvAvatar);
@@ -6938,14 +6954,7 @@ void ZaloClient::startVideoCall() {
     if (m_currentConvId.isEmpty() || currentConversationIsGroup() || !currentConversationCanCall()) return;
     m_calls->refreshAvailability();
     if (!m_calls->isAvailable()) {
-        const QString r = m_calls->unavailableReason();
-        QString why;
-        if (r == "node_missing") why = L("chưa cài Node.js (hoặc Bun)", "Node.js (or Bun) is not installed");
-        else if (r == "python_missing") why = L("chưa cài python3", "python3 is not installed");
-        else if (r == "engine_missing") why = L("thiếu thành phần gọi đi kèm Zalos (hãy cài lại Zalos)",
-                                                  "a bundled component needed for calls is missing (reinstall Zalos)");
-        else why = L("không tạo được khóa truyền tin nội bộ cho cuộc gọi", "the local call transport key could not be created");
-        emit notice(L("Chưa gọi được: ", "Calls unavailable: ") + why);
+        noticeCallUnavailable(m_calls->unavailableReason());
         return;
     }
     m_calls->startVideoCall(m_currentConvId, m_currentConvName, m_currentConvAvatar);
@@ -6955,14 +6964,7 @@ void ZaloClient::startGroupCall(bool isVideo) {
     if (m_currentConvId.isEmpty() || !currentConversationIsGroup()) return;
     m_calls->refreshAvailability();
     if (!m_calls->isAvailable()) {
-        const QString r = m_calls->unavailableReason();
-        QString why;
-        if (r == "node_missing") why = L("chưa cài Node.js (hoặc Bun)", "Node.js (or Bun) is not installed");
-        else if (r == "python_missing") why = L("chưa cài python3", "python3 is not installed");
-        else if (r == "engine_missing") why = L("thiếu thành phần gọi đi kèm Zalos (hãy cài lại Zalos)",
-                                                  "a bundled component needed for calls is missing (reinstall Zalos)");
-        else why = L("không tạo được khóa truyền tin nội bộ cho cuộc gọi", "the local call transport key could not be created");
-        emit notice(L("Chưa gọi được: ", "Calls unavailable: ") + why);
+        noticeCallUnavailable(m_calls->unavailableReason());
         return;
     }
     const QVariantList members = groupMembers(m_currentConvId);

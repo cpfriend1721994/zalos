@@ -622,1100 +622,1132 @@ Item {
 
                         function activeTabHeight(): real {
                             switch (root.currentTab) {
-                            case "language": return languageTab.implicitHeight;
-                            case "appearance": return appearanceTab.implicitHeight;
-                            case "notifications": return notificationsTab.implicitHeight;
-                            case "privacy": return privacyTab.implicitHeight;
-                            case "security": return securityTab.implicitHeight;
-                            case "storage": return storageTab.implicitHeight;
-                            case "sync": return syncTab.implicitHeight;
-                            default: return generalTab.implicitHeight;
+                            case "language": return languageTabLoader.implicitHeight;
+                            case "appearance": return appearanceTabLoader.implicitHeight;
+                            case "notifications": return notificationsTabLoader.implicitHeight;
+                            case "privacy": return privacyTabLoader.implicitHeight;
+                            case "security": return securityTabLoader.implicitHeight;
+                            case "storage": return storageTabLoader.implicitHeight;
+                            case "sync": return syncTabLoader.implicitHeight;
+                            default: return generalTabLoader.implicitHeight;
                             }
                         }
 
-                        ColumnLayout {
-                            id: generalTab
-                            visible: root.currentTab === "general"
+                        Loader {
+                            id: generalTabLoader
+                            active: root.currentTab === "general"
                             x: contentContainer.contentPadding
                             y: contentContainer.contentPadding
                             width: contentContainer.width - 2 * contentContainer.contentPadding
-                            spacing: 14
+                            sourceComponent: ColumnLayout {
+                                id: generalTab
+                                width: parent.width
+                                spacing: 14
 
-                            SectionTitle { text: I18n.t("Cài đặt chung", "General settings") }
+                                SectionTitle { text: I18n.t("Cài đặt chung", "General settings") }
 
-                            ToggleRow {
-                                title: I18n.t("Khởi động cùng hệ thống", "Start with the system")
-                                subtitle: I18n.t("Tự mở Zalos khi bạn đăng nhập vào máy tính",
-                                                 "Open Zalos automatically when you sign in to the computer")
-                                checked: ZaloClient.startWithSystem
-                                onToggled: (value) => ZaloClient.startWithSystem = value
-                            }
+                                ToggleRow {
+                                    title: I18n.t("Khởi động cùng hệ thống", "Start with the system")
+                                    subtitle: I18n.t("Tự mở Zalos khi bạn đăng nhập vào máy tính",
+                                                     "Open Zalos automatically when you sign in to the computer")
+                                    checked: ZaloClient.startWithSystem
+                                    onToggled: (value) => ZaloClient.startWithSystem = value
+                                }
 
-                            ToggleRow {
-                                visible: ZaloClient.trayAvailable
-                                title: I18n.t("Khởi động thu nhỏ vào khay hệ thống", "Start minimized to the system tray")
-                                subtitle: I18n.t("Khi khởi động cùng hệ thống, Zalos chạy nền ở khay hệ thống, không hiện cửa sổ",
-                                                 "When started with the system, Zalos runs in the tray without showing its window")
-                                checked: ZaloClient.startHiddenInTray
-                                onToggled: (value) => ZaloClient.startHiddenInTray = value
-                            }
+                                ToggleRow {
+                                    visible: ZaloClient.trayAvailable
+                                    title: I18n.t("Khởi động thu nhỏ vào khay hệ thống", "Start minimized to the system tray")
+                                    subtitle: I18n.t("Khi khởi động cùng hệ thống, Zalos chạy nền ở khay hệ thống, không hiện cửa sổ",
+                                                     "When started with the system, Zalos runs in the tray without showing its window")
+                                    checked: ZaloClient.startHiddenInTray
+                                    onToggled: (value) => ZaloClient.startHiddenInTray = value
+                                }
 
-                            ToggleRow {
-                                visible: ZaloClient.trayAvailable
-                                title: I18n.t("Đóng cửa sổ thì thu nhỏ vào khay", "Closing the window keeps it in the tray")
-                                subtitle: I18n.t("Nút đóng chỉ ẩn cửa sổ, Zalos vẫn nhận tin nhắn; thoát hẳn bằng Ctrl+Q hoặc menu khay hệ thống",
-                                                 "The close button only hides the window and Zalos keeps receiving messages; quit with Ctrl+Q or the tray menu")
-                                checked: ZaloClient.closeToTray
-                                onToggled: (value) => ZaloClient.closeToTray = value
-                            }
+                                ToggleRow {
+                                    visible: ZaloClient.trayAvailable
+                                    title: I18n.t("Đóng cửa sổ thì thu nhỏ vào khay", "Closing the window keeps it in the tray")
+                                    subtitle: I18n.t("Nút đóng chỉ ẩn cửa sổ, Zalos vẫn nhận tin nhắn; thoát hẳn bằng Ctrl+Q hoặc menu khay hệ thống",
+                                                     "The close button only hides the window and Zalos keeps receiving messages; quit with Ctrl+Q or the tray menu")
+                                    checked: ZaloClient.closeToTray
+                                    onToggled: (value) => ZaloClient.closeToTray = value
+                                }
 
-                            Text {
-                                visible: !ZaloClient.trayAvailable
-                                Layout.fillWidth: true
-                                wrapMode: Text.Wrap
-                                text: I18n.t("Môi trường desktop này không có khay hệ thống nên không thể thu nhỏ Zalos vào khay.",
-                                             "This desktop has no system tray, so Zalos can't be minimized to it.")
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 12
-                                color: ThemeManager.secondaryTextColor
+                                Text {
+                                    visible: !ZaloClient.trayAvailable
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    text: I18n.t("Môi trường desktop này không có khay hệ thống nên không thể thu nhỏ Zalos vào khay.",
+                                                 "This desktop has no system tray, so Zalos can't be minimized to it.")
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    color: ThemeManager.secondaryTextColor
+                                }
                             }
                         }
 
-                        ColumnLayout {
-                            id: languageTab
-                            visible: root.currentTab === "language"
+                        Loader {
+                            id: languageTabLoader
+                            active: root.currentTab === "language"
                             x: contentContainer.contentPadding
                             y: contentContainer.contentPadding
                             width: contentContainer.width - 2 * contentContainer.contentPadding
-                            spacing: 14
+                            sourceComponent: ColumnLayout {
+                                id: languageTab
+                                width: parent.width
+                                spacing: 14
 
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 4
-                                SectionTitle { text: I18n.t("Ngôn ngữ", "Language") }
-                                SectionHint {
-                                    text: I18n.t("Chọn ngôn ngữ hiển thị cho ứng dụng",
-                                                 "Choose the display language for the app")
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+                                    SectionTitle { text: I18n.t("Ngôn ngữ", "Language") }
+                                    SectionHint {
+                                        text: I18n.t("Chọn ngôn ngữ hiển thị cho ứng dụng",
+                                                     "Choose the display language for the app")
+                                    }
                                 }
-                            }
 
-                            LanguageOption { code: "vi"; label: "Tiếng Việt" }
-                            LanguageOption { code: "en"; label: "English" }
+                                LanguageOption { code: "vi"; label: "Tiếng Việt" }
+                                LanguageOption { code: "en"; label: "English" }
+                            }
                         }
 
-                        ColumnLayout {
-                            id: appearanceTab
-                            visible: root.currentTab === "appearance"
+                        Loader {
+                            id: appearanceTabLoader
+                            active: root.currentTab === "appearance"
                             x: contentContainer.contentPadding
                             y: contentContainer.contentPadding
                             width: contentContainer.width - 2 * contentContainer.contentPadding
-                            spacing: 18
+                            sourceComponent: ColumnLayout {
+                                id: appearanceTab
+                                width: parent.width
+                                spacing: 18
 
-                            SectionTitle { text: I18n.t("Giao diện", "Appearance") }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 12
-
-                                PreviewOption {
-                                    label: I18n.t("Zalo Sáng", "Zalo Light")
-                                    selected: ThemeManager.themeMode === 0
-                                    previewColor: "#FFFFFF"
-                                    onChosen: ThemeManager.setThemeMode(0)
-
-                                    Rectangle {
-                                        x: 4; y: 4
-                                        width: 22
-                                        height: parent.height - 8
-                                        radius: 4
-                                        color: "#005AE0"
-
-                                        Rectangle {
-                                            width: 10; height: 10; radius: 5
-                                            color: "#FFFFFF"
-                                            anchors.top: parent.top
-                                            anchors.topMargin: 4
-                                            anchors.horizontalCenter: parent.horizontalCenter
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        x: 30; y: 4
-                                        width: parent.width - 34
-                                        height: parent.height - 8
-                                        radius: 4
-                                        color: "#EBECF0"
-
-                                        Rectangle {
-                                            width: Math.min(44, parent.width - 16); height: 18; radius: 4
-                                            color: "#E5F1FF"
-                                            anchors.bottom: parent.bottom
-                                            anchors.bottomMargin: 8
-                                            anchors.right: parent.right
-                                            anchors.rightMargin: 8
-                                        }
-                                    }
-                                }
-
-                                PreviewOption {
-                                    label: I18n.t("Zalo Tối", "Zalo Dark")
-                                    selected: ThemeManager.themeMode === 1
-                                    previewColor: "#22262B"
-                                    onChosen: ThemeManager.setThemeMode(1)
-
-                                    Rectangle {
-                                        x: 4; y: 4
-                                        width: 22
-                                        height: parent.height - 8
-                                        radius: 4
-                                        color: "#121416"
-
-                                        Rectangle {
-                                            width: 10; height: 10; radius: 5
-                                            color: "#64748B"
-                                            anchors.top: parent.top
-                                            anchors.topMargin: 4
-                                            anchors.horizontalCenter: parent.horizontalCenter
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        x: 30; y: 4
-                                        width: parent.width - 34
-                                        height: parent.height - 8
-                                        radius: 4
-                                        color: "#16191D"
-
-                                        Rectangle {
-                                            width: Math.min(44, parent.width - 16); height: 18; radius: 4
-                                            color: "#1F344D"
-                                            anchors.bottom: parent.bottom
-                                            anchors.bottomMargin: 8
-                                            anchors.right: parent.right
-                                            anchors.rightMargin: 8
-                                        }
-                                    }
-                                }
-
-                                PreviewOption {
-                                    label: I18n.t("Theo hệ thống", "System Theme")
-                                    selected: ThemeManager.themeMode === 2
-                                    onChosen: ThemeManager.setThemeMode(2)
-
-                                    Rectangle {
-                                        width: parent.width / 2
-                                        height: parent.height
-                                        color: "#FFFFFF"
-
-                                        Rectangle {
-                                            width: 12
-                                            height: parent.height
-                                            color: "#005AE0"
-                                        }
-
-                                        Rectangle {
-                                            width: Math.min(26, parent.width - 20); height: 14; radius: 3
-                                            color: "#E5F1FF"
-                                            anchors.bottom: parent.bottom
-                                            anchors.bottomMargin: 10
-                                            anchors.right: parent.right
-                                            anchors.rightMargin: 6
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        x: parent.width / 2
-                                        width: parent.width / 2
-                                        height: parent.height
-                                        color: "#22262B"
-
-                                        Rectangle {
-                                            width: Math.min(26, parent.width - 12); height: 14; radius: 3
-                                            color: "#1F344D"
-                                            anchors.bottom: parent.bottom
-                                            anchors.bottomMargin: 10
-                                            anchors.left: parent.left
-                                            anchors.leftMargin: 6
-                                        }
-                                    }
-                                }
-
-                                Item { Layout.fillWidth: true }
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: ThemeManager.themeMode === 2
-                                    ? I18n.t("Đang áp dụng giao diện hệ thống (kế thừa màu sắc cửa sổ, accent color và chế độ sáng/tối từ Linux Desktop).",
-                                             "Applying system theme (inheriting window colors, accent color, and dark/light preference from Linux Desktop).")
-                                    : (ThemeManager.themeMode === 1
-                                       ? I18n.t("Đang áp dụng giao diện Zalo Tối chuẩn mực (độc lập với theme hệ thống).",
-                                                "Applying standard Zalo Dark theme (independent of system theme).")
-                                       : I18n.t("Đang áp dụng giao diện Zalo Sáng chuẩn mực (độc lập với theme hệ thống).",
-                                                "Applying standard Zalo Light theme (independent of system theme)."))
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 12
-                                color: ThemeManager.secondaryTextColor
-                                wrapMode: Text.WordWrap
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 1
-                                color: ThemeManager.borderColor
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: I18n.t("Hình nền trò chuyện", "Chat background")
-                                font.family: Theme.fontFamily
-                                font.bold: true
-                                font.pixelSize: 14
-                                color: ThemeManager.textColor
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-
-                                SegmentedOption {
-                                    label: I18n.t("Không", "None")
-                                    selected: ZaloClient.chatBackgroundMode === "none"
-                                    onChosen: ZaloClient.chatBackgroundMode = "none"
-                                }
-
-                                SegmentedOption {
-                                    label: I18n.t("Ảnh đại diện", "Avatar")
-                                    selected: ZaloClient.chatBackgroundMode === "avatar"
-                                    onChosen: ZaloClient.chatBackgroundMode = "avatar"
-                                }
-
-                                SegmentedOption {
-                                    label: I18n.t("Ảnh tùy chọn", "Custom image")
-                                    selected: ZaloClient.chatBackgroundMode === "custom"
-                                    onChosen: ZaloClient.chatBackgroundMode = "custom"
-                                }
-                            }
-
-                            SectionHint {
-                                text: ZaloClient.chatBackgroundMode === "custom"
-                                    ? I18n.t("Ảnh bạn chọn được làm mờ phía sau tin nhắn ở mọi cuộc trò chuyện.",
-                                             "Your chosen image is dimmed behind the messages in every conversation.")
-                                    : (ZaloClient.chatBackgroundMode === "avatar"
-                                       ? I18n.t("Ảnh đại diện được làm mờ phía sau tin nhắn.",
-                                                "The avatar is dimmed behind the messages.")
-                                       : I18n.t("Khung chat dùng màu nền mặc định của giao diện.",
-                                                "The chat area uses the theme's default colour."))
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 4
-                                visible: ZaloClient.chatBackgroundMode !== "none"
+                                SectionTitle { text: I18n.t("Giao diện", "Appearance") }
 
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Text {
-                                        text: I18n.t("Độ mờ đục hình nền", "Background opacity")
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 13
-                                        color: ThemeManager.textColor
-                                    }
-                                    Item { Layout.fillWidth: true }
-                                    Text {
-                                        text: Math.round(ZaloClient.chatBackgroundOpacity * 100) + "%"
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 13
-                                        color: ThemeManager.secondaryTextColor
-                                    }
-                                }
+                                    spacing: 12
 
-                                Slider {
-                                    id: opacitySlider
-                                    Layout.fillWidth: true
-                                    from: 0.05
-                                    to: 0.80
-                                    stepSize: 0.05
-                                    value: ZaloClient.chatBackgroundOpacity
-                                    onMoved: ZaloClient.chatBackgroundOpacity = value
-                                    background: Rectangle {
-                                        x: opacitySlider.leftPadding
-                                        y: opacitySlider.topPadding + opacitySlider.availableHeight / 2 - height / 2
-                                        implicitWidth: 200
-                                        implicitHeight: 4
-                                        width: opacitySlider.availableWidth
-                                        height: implicitHeight
-                                        radius: 2
-                                        color: ThemeManager.borderColor
+                                    PreviewOption {
+                                        label: I18n.t("Zalo Sáng", "Zalo Light")
+                                        selected: ThemeManager.themeMode === 0
+                                        previewColor: "#FFFFFF"
+                                        onChosen: ThemeManager.setThemeMode(0)
+
                                         Rectangle {
-                                            width: opacitySlider.visualPosition * parent.width
-                                            height: parent.height
-                                            color: Theme.zaloBlue
-                                            radius: 2
-                                        }
-                                    }
-                                }
-                            }
+                                            x: 4; y: 4
+                                            width: 22
+                                            height: parent.height - 8
+                                            radius: 4
+                                            color: "#005AE0"
 
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 10
-                                visible: ZaloClient.chatBackgroundMode === "custom"
-
-                                Rectangle {
-                                    Layout.preferredWidth: 60
-                                    Layout.preferredHeight: 60
-                                    Layout.alignment: Qt.AlignVCenter
-                                    visible: ZaloClient.chatBackgroundImage.length > 0
-                                    radius: Theme.radiusSmall
-                                    color: ThemeManager.hoverColor
-                                    clip: true
-                                    Image {
-                                        anchors.fill: parent
-                                        anchors.margins: 2
-                                        source: ZaloClient.currentConversationBackground.length > 0
-                                                ? "image://cover/" + encodeURIComponent(ZaloClient.currentConversationBackground) : ""
-                                        sourceSize.width: 160
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: ZaloClient.currentConversationBackground.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                        onClicked: {
-                                            if (ZaloClient.currentConversationBackground.length > 0) {
-                                                ImageViewerState.show([{
-                                                    url: ZaloClient.currentConversationBackground,
-                                                    thumb: ZaloClient.currentConversationBackground,
-                                                    senderName: I18n.t("Hình nền trò chuyện", "Chat background"),
-                                                    isVideo: false
-                                                }], 0);
+                                            Rectangle {
+                                                width: 10; height: 10; radius: 5
+                                                color: "#FFFFFF"
+                                                anchors.top: parent.top
+                                                anchors.topMargin: 4
+                                                anchors.horizontalCenter: parent.horizontalCenter
                                             }
                                         }
-                                        ToolTip.visible: containsMouse && ZaloClient.currentConversationBackground.length > 0
-                                        ToolTip.delay: 600
-                                        ToolTip.text: I18n.t("Xem hình nền", "View background")
+
+                                        Rectangle {
+                                            x: 30; y: 4
+                                            width: parent.width - 34
+                                            height: parent.height - 8
+                                            radius: 4
+                                            color: "#EBECF0"
+
+                                            Rectangle {
+                                                width: Math.min(44, parent.width - 16); height: 18; radius: 4
+                                                color: "#E5F1FF"
+                                                anchors.bottom: parent.bottom
+                                                anchors.bottomMargin: 8
+                                                anchors.right: parent.right
+                                                anchors.rightMargin: 8
+                                            }
+                                        }
+                                    }
+
+                                    PreviewOption {
+                                        label: I18n.t("Zalo Tối", "Zalo Dark")
+                                        selected: ThemeManager.themeMode === 1
+                                        previewColor: "#22262B"
+                                        onChosen: ThemeManager.setThemeMode(1)
+
+                                        Rectangle {
+                                            x: 4; y: 4
+                                            width: 22
+                                            height: parent.height - 8
+                                            radius: 4
+                                            color: "#121416"
+
+                                            Rectangle {
+                                                width: 10; height: 10; radius: 5
+                                                color: "#64748B"
+                                                anchors.top: parent.top
+                                                anchors.topMargin: 4
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            x: 30; y: 4
+                                            width: parent.width - 34
+                                            height: parent.height - 8
+                                            radius: 4
+                                            color: "#16191D"
+
+                                            Rectangle {
+                                                width: Math.min(44, parent.width - 16); height: 18; radius: 4
+                                                color: "#1F344D"
+                                                anchors.bottom: parent.bottom
+                                                anchors.bottomMargin: 8
+                                                anchors.right: parent.right
+                                                anchors.rightMargin: 8
+                                            }
+                                        }
+                                    }
+
+                                    PreviewOption {
+                                        label: I18n.t("Theo hệ thống", "System Theme")
+                                        selected: ThemeManager.themeMode === 2
+                                        onChosen: ThemeManager.setThemeMode(2)
+
+                                        Rectangle {
+                                            width: parent.width / 2
+                                            height: parent.height
+                                            color: "#FFFFFF"
+
+                                            Rectangle {
+                                                width: 12
+                                                height: parent.height
+                                                color: "#005AE0"
+                                            }
+
+                                            Rectangle {
+                                                width: Math.min(26, parent.width - 20); height: 14; radius: 3
+                                                color: "#E5F1FF"
+                                                anchors.bottom: parent.bottom
+                                                anchors.bottomMargin: 10
+                                                anchors.right: parent.right
+                                                anchors.rightMargin: 6
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            x: parent.width / 2
+                                            width: parent.width / 2
+                                            height: parent.height
+                                            color: "#22262B"
+
+                                            Rectangle {
+                                                width: Math.min(26, parent.width - 12); height: 14; radius: 3
+                                                color: "#1F344D"
+                                                anchors.bottom: parent.bottom
+                                                anchors.bottomMargin: 10
+                                                anchors.left: parent.left
+                                                anchors.leftMargin: 6
+                                            }
+                                        }
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: ThemeManager.themeMode === 2
+                                        ? I18n.t("Đang áp dụng giao diện hệ thống (kế thừa màu sắc cửa sổ, accent color và chế độ sáng/tối từ Linux Desktop).",
+                                                 "Applying system theme (inheriting window colors, accent color, and dark/light preference from Linux Desktop).")
+                                        : (ThemeManager.themeMode === 1
+                                           ? I18n.t("Đang áp dụng giao diện Zalo Tối chuẩn mực (độc lập với theme hệ thống).",
+                                                    "Applying standard Zalo Dark theme (independent of system theme).")
+                                           : I18n.t("Đang áp dụng giao diện Zalo Sáng chuẩn mực (độc lập với theme hệ thống).",
+                                                    "Applying standard Zalo Light theme (independent of system theme)."))
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    color: ThemeManager.secondaryTextColor
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: ThemeManager.borderColor
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: I18n.t("Hình nền trò chuyện", "Chat background")
+                                    font.family: Theme.fontFamily
+                                    font.bold: true
+                                    font.pixelSize: 14
+                                    color: ThemeManager.textColor
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    SegmentedOption {
+                                        label: I18n.t("Không", "None")
+                                        selected: ZaloClient.chatBackgroundMode === "none"
+                                        onChosen: ZaloClient.chatBackgroundMode = "none"
+                                    }
+
+                                    SegmentedOption {
+                                        label: I18n.t("Ảnh đại diện", "Avatar")
+                                        selected: ZaloClient.chatBackgroundMode === "avatar"
+                                        onChosen: ZaloClient.chatBackgroundMode = "avatar"
+                                    }
+
+                                    SegmentedOption {
+                                        label: I18n.t("Ảnh tùy chọn", "Custom image")
+                                        selected: ZaloClient.chatBackgroundMode === "custom"
+                                        onChosen: ZaloClient.chatBackgroundMode = "custom"
                                     }
                                 }
 
-                                ZButton {
-                                    text: ZaloClient.chatBackgroundImage.length > 0
-                                          ? I18n.t("Đổi ảnh…", "Change image…")
-                                          : I18n.t("Chọn ảnh…", "Choose image…")
-                                    onClicked: chatBackgroundDialog.open()
+                                SectionHint {
+                                    text: ZaloClient.chatBackgroundMode === "custom"
+                                        ? I18n.t("Ảnh bạn chọn được làm mờ phía sau tin nhắn ở mọi cuộc trò chuyện.",
+                                                 "Your chosen image is dimmed behind the messages in every conversation.")
+                                        : (ZaloClient.chatBackgroundMode === "avatar"
+                                           ? I18n.t("Ảnh đại diện được làm mờ phía sau tin nhắn.",
+                                                    "The avatar is dimmed behind the messages.")
+                                           : I18n.t("Khung chat dùng màu nền mặc định của giao diện.",
+                                                    "The chat area uses the theme's default colour."))
                                 }
 
-                                ZButton {
-                                    visible: ZaloClient.chatBackgroundImage.length > 0
-                                    variant: "danger"
-                                    text: I18n.t("Bỏ ảnh", "Remove image")
-                                    onClicked: ZaloClient.clearChatBackgroundImage()
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+                                    visible: ZaloClient.chatBackgroundMode !== "none"
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text {
+                                            text: I18n.t("Độ mờ đục hình nền", "Background opacity")
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 13
+                                            color: ThemeManager.textColor
+                                        }
+                                        Item { Layout.fillWidth: true }
+                                        Text {
+                                            text: Math.round(ZaloClient.chatBackgroundOpacity * 100) + "%"
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 13
+                                            color: ThemeManager.secondaryTextColor
+                                        }
+                                    }
+
+                                    Slider {
+                                        id: opacitySlider
+                                        Layout.fillWidth: true
+                                        from: 0.05
+                                        to: 0.80
+                                        stepSize: 0.05
+                                        value: ZaloClient.chatBackgroundOpacity
+                                        onMoved: ZaloClient.chatBackgroundOpacity = value
+                                        background: Rectangle {
+                                            x: opacitySlider.leftPadding
+                                            y: opacitySlider.topPadding + opacitySlider.availableHeight / 2 - height / 2
+                                            implicitWidth: 200
+                                            implicitHeight: 4
+                                            width: opacitySlider.availableWidth
+                                            height: implicitHeight
+                                            radius: 2
+                                            color: ThemeManager.borderColor
+                                            Rectangle {
+                                                width: opacitySlider.visualPosition * parent.width
+                                                height: parent.height
+                                                color: Theme.zaloBlue
+                                                radius: 2
+                                            }
+                                        }
+                                    }
                                 }
 
-                                Item { Layout.fillWidth: true }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+                                    visible: ZaloClient.chatBackgroundMode === "custom"
 
-                                FileDialog {
-                                    id: chatBackgroundDialog
-                                    title: I18n.t("Chọn ảnh nền trò chuyện", "Choose chat background image")
-                                    nameFilters: [I18n.t("Hình ảnh (*.jpg *.jpeg *.png *.webp)", "Images (*.jpg *.jpeg *.png *.webp)")]
-                                    onAccepted: ZaloClient.setChatBackgroundImage(selectedFile.toString())
+                                    Rectangle {
+                                        Layout.preferredWidth: 60
+                                        Layout.preferredHeight: 60
+                                        Layout.alignment: Qt.AlignVCenter
+                                        visible: ZaloClient.chatBackgroundImage.length > 0
+                                        radius: Theme.radiusSmall
+                                        color: ThemeManager.hoverColor
+                                        clip: true
+                                        Image {
+                                            anchors.fill: parent
+                                            anchors.margins: 2
+                                            source: ZaloClient.currentConversationBackground.length > 0
+                                                    ? "image://cover/" + encodeURIComponent(ZaloClient.currentConversationBackground) : ""
+                                            sourceSize.width: 160
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: ZaloClient.currentConversationBackground.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                            onClicked: {
+                                                if (ZaloClient.currentConversationBackground.length > 0) {
+                                                    ImageViewerState.show([{
+                                                        url: ZaloClient.currentConversationBackground,
+                                                        thumb: ZaloClient.currentConversationBackground,
+                                                        senderName: I18n.t("Hình nền trò chuyện", "Chat background"),
+                                                        isVideo: false
+                                                    }], 0);
+                                                }
+                                            }
+                                            ToolTip.visible: containsMouse && ZaloClient.currentConversationBackground.length > 0
+                                            ToolTip.delay: 600
+                                            ToolTip.text: I18n.t("Xem hình nền", "View background")
+                                        }
+                                    }
+
+                                    ZButton {
+                                        text: ZaloClient.chatBackgroundImage.length > 0
+                                              ? I18n.t("Đổi ảnh…", "Change image…")
+                                              : I18n.t("Chọn ảnh…", "Choose image…")
+                                        onClicked: chatBackgroundDialog.open()
+                                    }
+
+                                    ZButton {
+                                        visible: ZaloClient.chatBackgroundImage.length > 0
+                                        variant: "danger"
+                                        text: I18n.t("Bỏ ảnh", "Remove image")
+                                        onClicked: ZaloClient.clearChatBackgroundImage()
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+
+                                    FileDialog {
+                                        id: chatBackgroundDialog
+                                        title: I18n.t("Chọn ảnh nền trò chuyện", "Choose chat background image")
+                                        nameFilters: [I18n.t("Hình ảnh (*.jpg *.jpeg *.png *.webp)", "Images (*.jpg *.jpeg *.png *.webp)")]
+                                        onAccepted: ZaloClient.setChatBackgroundImage(selectedFile.toString())
+                                    }
                                 }
-                            }
 
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 1
-                                color: ThemeManager.borderColor
-                            }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: ThemeManager.borderColor
+                                }
 
-                            Text {
-                                Layout.fillWidth: true
-                                text: I18n.t("Thanh điều hướng", "Navigation bar")
-                                font.family: Theme.fontFamily
-                                font.bold: true
-                                font.pixelSize: 14
-                                color: ThemeManager.textColor
-                            }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: I18n.t("Thanh điều hướng", "Navigation bar")
+                                    font.family: Theme.fontFamily
+                                    font.bold: true
+                                    font.pixelSize: 14
+                                    color: ThemeManager.textColor
+                                }
 
-                            ToggleRow {
-                                title: I18n.t("Hiển thị phân loại như thư mục", "Show labels as folders")
-                                checked: ZaloClient.showLabelFolders
-                                onToggled: (value) => ZaloClient.showLabelFolders = value
+                                ToggleRow {
+                                    title: I18n.t("Hiển thị phân loại như thư mục", "Show labels as folders")
+                                    checked: ZaloClient.showLabelFolders
+                                    onToggled: (value) => ZaloClient.showLabelFolders = value
+                                }
                             }
                         }
 
-                        ColumnLayout {
-                            id: notificationsTab
-                            visible: root.currentTab === "notifications"
+                        Loader {
+                            id: notificationsTabLoader
+                            active: root.currentTab === "notifications"
                             x: contentContainer.contentPadding
                             y: contentContainer.contentPadding
                             width: contentContainer.width - 2 * contentContainer.contentPadding
-                            spacing: 18
+                            sourceComponent: ColumnLayout {
+                                id: notificationsTab
+                                width: parent.width
+                                spacing: 18
 
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 4
-                                SectionTitle { text: I18n.t("Thông báo", "Notifications") }
-                                SectionHint {
-                                    text: I18n.t("Nhận thông báo mỗi khi có tin nhắn mới",
-                                                 "Get notified whenever a new message arrives")
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+                                    SectionTitle { text: I18n.t("Thông báo", "Notifications") }
+                                    SectionHint {
+                                        text: I18n.t("Nhận thông báo mỗi khi có tin nhắn mới",
+                                                     "Get notified whenever a new message arrives")
+                                    }
                                 }
-                            }
 
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 12
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 12
 
-                                PreviewOption {
-                                    label: I18n.t("Bật", "On")
-                                    selected: ZaloClient.notifyNewMessage
-                                    previewColor: ThemeManager.cardBackgroundColor
-                                    onChosen: ZaloClient.notifyNewMessage = true
+                                    PreviewOption {
+                                        label: I18n.t("Bật", "On")
+                                        selected: ZaloClient.notifyNewMessage
+                                        previewColor: ThemeManager.cardBackgroundColor
+                                        onChosen: ZaloClient.notifyNewMessage = true
 
-                                    Item {
-                                        anchors.centerIn: parent
-                                        width: Math.min(96, parent.width - 8)
-                                        height: 60
-
-                                        Rectangle {
-                                            anchors.top: parent.top
-                                            anchors.horizontalCenter: parent.horizontalCenter
-                                            width: parent.width * 0.84
-                                            height: 50
-                                            radius: 4
-                                            color: (ThemeManager.cardBackgroundColor)
-                                            border.color: ZaloClient.notifyNewMessage ? Theme.zaloBlue : (ThemeManager.dividerColor)
-                                            border.width: 1.5
+                                        Item {
+                                            anchors.centerIn: parent
+                                            width: Math.min(96, parent.width - 8)
+                                            height: 60
 
                                             Rectangle {
                                                 anchors.top: parent.top
-                                                anchors.topMargin: 4
-                                                anchors.right: parent.right
-                                                anchors.rightMargin: 4
-                                                width: Math.min(38, parent.width - 8)
-                                                height: 16
-                                                radius: 3
-                                                color: "#FFFFFF"
-                                                border.color: Theme.zaloBlue
-                                                border.width: 1
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                width: parent.width * 0.84
+                                                height: 50
+                                                radius: 4
+                                                color: (ThemeManager.cardBackgroundColor)
+                                                border.color: ZaloClient.notifyNewMessage ? Theme.zaloBlue : (ThemeManager.dividerColor)
+                                                border.width: 1.5
 
-                                                RowLayout {
-                                                    anchors.fill: parent
-                                                    anchors.margins: 2
-                                                    spacing: 2
-                                                    Rectangle { Layout.preferredWidth: 4; Layout.preferredHeight: 4; radius: 2; color: Theme.zaloBlue }
-                                                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 2; color: "#94A3B8" }
+                                                Rectangle {
+                                                    anchors.top: parent.top
+                                                    anchors.topMargin: 4
+                                                    anchors.right: parent.right
+                                                    anchors.rightMargin: 4
+                                                    width: Math.min(38, parent.width - 8)
+                                                    height: 16
+                                                    radius: 3
+                                                    color: "#FFFFFF"
+                                                    border.color: Theme.zaloBlue
+                                                    border.width: 1
+
+                                                    RowLayout {
+                                                        anchors.fill: parent
+                                                        anchors.margins: 2
+                                                        spacing: 2
+                                                        Rectangle { Layout.preferredWidth: 4; Layout.preferredHeight: 4; radius: 2; color: Theme.zaloBlue }
+                                                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 2; color: "#94A3B8" }
+                                                    }
                                                 }
                                             }
-                                        }
 
-                                        Rectangle {
-                                            anchors.bottom: parent.bottom
-                                            anchors.horizontalCenter: parent.horizontalCenter
-                                            width: parent.width
-                                            height: 6
-                                            radius: 3
-                                            color: ZaloClient.notifyNewMessage ? Theme.zaloBlue : (ThemeManager.dividerColor)
-                                        }
-                                    }
-                                }
-
-                                PreviewOption {
-                                    label: I18n.t("Tắt", "Off")
-                                    selected: !ZaloClient.notifyNewMessage
-                                    previewColor: ThemeManager.cardBackgroundColor
-                                    onChosen: ZaloClient.notifyNewMessage = false
-
-                                    Item {
-                                        anchors.centerIn: parent
-                                        width: Math.min(96, parent.width - 8)
-                                        height: 60
-
-                                        Rectangle {
-                                            anchors.top: parent.top
-                                            anchors.horizontalCenter: parent.horizontalCenter
-                                            width: parent.width * 0.84
-                                            height: 50
-                                            radius: 4
-                                            color: (ThemeManager.cardBackgroundColor)
-                                            border.color: !ZaloClient.notifyNewMessage ? Theme.zaloBlue : (ThemeManager.dividerColor)
-                                            border.width: 1.5
-                                        }
-
-                                        Rectangle {
-                                            anchors.bottom: parent.bottom
-                                            anchors.horizontalCenter: parent.horizontalCenter
-                                            width: parent.width
-                                            height: 6
-                                            radius: 3
-                                            color: !ZaloClient.notifyNewMessage ? Theme.zaloBlue : (ThemeManager.dividerColor)
-                                        }
-                                    }
-                                }
-
-                                Item { Layout.fillWidth: true }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 1
-                                color: ThemeManager.borderColor
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: I18n.t("Âm thanh", "Sounds")
-                                font.family: Theme.fontFamily
-                                font.bold: true
-                                font.pixelSize: 14
-                                color: ThemeManager.textColor
-                            }
-
-                            ToggleRow {
-                                title: I18n.t("Phát âm thanh khi có tin nhắn và thông báo mới",
-                                              "Play a sound for new messages and notifications")
-                                checked: ZaloClient.notifySound
-                                onToggled: (value) => ZaloClient.notifySound = value
-                            }
-
-                            SoundPicker {
-                                title: I18n.t("Âm báo tin nhắn", "Message sound")
-                                subtitle: I18n.t("Âm thanh phát khi có tin nhắn mới",
-                                                 "Sound played when a new message arrives")
-                                soundType: "noti"
-                                selectedKey: ZaloClient.selectedNotiSound
-                                onPicked: (key) => ZaloClient.selectedNotiSound = key
-                                options: [
-                                    { key: "pop", label: I18n.t("Bong bóng pop", "Pop") },
-                                    { key: "bubble", label: I18n.t("Bọt nước", "Bubble") },
-                                    { key: "chime", label: I18n.t("Chuông thanh", "Chime") },
-                                    { key: "bell", label: I18n.t("Chuông ngân", "Bell") },
-                                    { key: "digital", label: I18n.t("Kỹ thuật số", "Digital") },
-                                    { key: "positive", label: I18n.t("Tích cực", "Positive") },
-                                    { key: "confirm", label: I18n.t("Xác nhận", "Confirm") },
-                                    { key: "magic", label: I18n.t("Phép thuật", "Magic") }
-                                ].concat(root.systemSounds)
-                            }
-
-                            SoundPicker {
-                                title: I18n.t("Nhạc chuông cuộc gọi đến", "Incoming call ringtone")
-                                subtitle: I18n.t("Giai điệu phát khi có người gọi tới",
-                                                 "Tune played when someone calls you")
-                                soundType: "ringtone"
-                                selectedKey: ZaloClient.selectedRingtone
-                                onPicked: (key) => ZaloClient.selectedRingtone = key
-                                options: [
-                                    { key: "classic", label: I18n.t("Điện thoại văn phòng (mặc định)", "Classic (default)") },
-                                    { key: "marimba", label: I18n.t("Marimba du dương", "Marimba") },
-                                    { key: "digital_ring", label: I18n.t("Chuông kỹ thuật số", "Digital Ring") },
-                                    { key: "soft", label: I18n.t("Giai điệu nhẹ nhàng", "Soft") }
-                                ].concat(root.systemSounds)
-                            }
-                        }
-
-                        ColumnLayout {
-                            id: privacyTab
-                            visible: root.currentTab === "privacy"
-                            x: contentContainer.contentPadding
-                            y: contentContainer.contentPadding
-                            width: contentContainer.width - 2 * contentContainer.contentPadding
-                            spacing: 12
-
-                            SectionTitle { text: I18n.t("Quyền riêng tư", "Privacy") }
-
-                            ToggleRow {
-                                title: I18n.t("Ẩn trạng thái đang soạn tin", "Hide typing status")
-                                subtitle: I18n.t("Người khác sẽ không thấy “Đang soạn tin...” khi bạn gõ phím",
-                                                 "Others won't see “typing...” while you type")
-                                checked: ZaloClient.blockTyping
-                                onToggled: (value) => ZaloClient.blockTyping = value
-                            }
-
-                            ToggleRow {
-                                title: I18n.t("Ẩn trạng thái đã nhận", "Hide delivered status")
-                                subtitle: I18n.t("Người gửi sẽ không biết tin nhắn đã đến máy bạn",
-                                                 "Senders won't know their message reached you")
-                                checked: ZaloClient.blockDelivered
-                                onToggled: (value) => ZaloClient.blockDelivered = value
-                            }
-
-                            ToggleRow {
-                                title: I18n.t("Ẩn trạng thái đã xem", "Hide seen status")
-                                subtitle: I18n.t("Đọc tin nhắn mà không hiện “Đã xem” cho người gửi",
-                                                 "Read messages without showing “Seen” to the sender")
-                                checked: ZaloClient.blockSeen
-                                onToggled: (value) => ZaloClient.blockSeen = value
-                            }
-
-                            ToggleRow {
-                                title: I18n.t("Chống nhìn lén", "Anti-peeking")
-                                subtitle: I18n.t("Làm mờ tin nhắn cho tới khi rê chuột vào, ẩn nội dung trong thông báo. Bật/tắt nhanh: Ctrl+Shift+H hoặc menu biểu tượng ở khay hệ thống",
-                                                 "Dims messages until hovered and hides notification content. Quick switch: Ctrl+Shift+H or the tray icon menu")
-                                checked: ZaloClient.antiPeeking
-                                onToggled: (value) => ZaloClient.setAntiPeeking(value)
-                            }
-
-                            SectionTitle { text: I18n.t("Quyền riêng tư (đồng bộ máy chủ)", "Privacy (synced with server)") }
-                            SectionHint {
-                                text: I18n.t("Các thiết lập này được lưu trên máy chủ Zalo và áp dụng cho mọi thiết bị của bạn.",
-                                             "These are stored on Zalo's servers and apply across all your devices.")
-                            }
-
-                            ToggleRow {
-                                title: I18n.t("Hiển thị trạng thái hoạt động", "Show active status")
-                                subtitle: I18n.t("Cho bạn bè thấy khi bạn đang hoạt động", "Let friends see when you're active")
-                                checked: ZaloClient.showOnlineStatus
-                                onToggled: (value) => ZaloClient.setServerSetting("show_online_status", value ? 1 : 0)
-                            }
-                            ToggleRow {
-                                title: I18n.t("Hiển thị trạng thái đã xem", "Show seen status")
-                                subtitle: I18n.t("Người gửi thấy “Đã xem” khi bạn đọc tin nhắn", "Senders see “Seen” when you read their message")
-                                checked: ZaloClient.displaySeenStatus
-                                onToggled: (value) => ZaloClient.setServerSetting("display_seen_status", value ? 1 : 0)
-                            }
-                            ToggleRow {
-                                title: I18n.t("Nhận tin nhắn từ người lạ", "Receive messages from strangers")
-                                subtitle: I18n.t("Tắt để chỉ bạn bè mới nhắn được cho bạn", "Off: only friends can message you")
-                                checked: ZaloClient.receiveStrangerMessage
-                                onToggled: (value) => ZaloClient.setServerSetting("receive_message", value ? 1 : 2)
-                            }
-                            ToggleRow {
-                                title: I18n.t("Nhận cuộc gọi từ người lạ", "Accept calls from strangers")
-                                subtitle: I18n.t("Tắt để chỉ bạn bè mới gọi được cho bạn", "Off: only friends can call you")
-                                checked: ZaloClient.acceptStrangerCall
-                                onToggled: (value) => ZaloClient.setServerSetting("accept_stranger_call", value ? 3 : 2)
-                            }
-                            ToggleRow {
-                                title: I18n.t("Hiện tôi trong gợi ý kết bạn", "Show me in friend suggestions")
-                                checked: ZaloClient.displayOnRecommendFriend
-                                onToggled: (value) => ZaloClient.setServerSetting("display_on_recommend_friend", value ? 1 : 0)
-                            }
-                            ToggleRow {
-                                title: I18n.t("Cho phép kết bạn qua số điện thoại", "Allow friend requests via phone number")
-                                checked: ZaloClient.addFriendViaPhone
-                                onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_phone", value ? 1 : 0)
-                            }
-                            ToggleRow {
-                                title: I18n.t("Cho phép kết bạn qua mã QR", "Allow friend requests via QR code")
-                                checked: ZaloClient.addFriendViaQr
-                                onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_qr", value ? 1 : 0)
-                            }
-                            ToggleRow {
-                                title: I18n.t("Cho phép kết bạn qua nhóm chung", "Allow friend requests via common groups")
-                                checked: ZaloClient.addFriendViaGroup
-                                onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_group", value ? 1 : 0)
-                            }
-                        }
-
-                        ColumnLayout {
-                            id: securityTab
-                            visible: root.currentTab === "security"
-                            x: contentContainer.contentPadding
-                            y: contentContainer.contentPadding
-                            width: contentContainer.width - 2 * contentContainer.contentPadding
-                            spacing: 12
-
-                            SectionTitle { text: I18n.t("Khóa ứng dụng bằng mã", "App passcode lock") }
-                            SectionHint {
-                                text: I18n.t("Khi đã đặt mã, Zalos tự khóa lúc mở, khi bạn nhấn Ctrl+L và sau thời gian không dùng; thông báo sẽ ẩn nội dung khi đang khóa. Mã chỉ khóa giao diện: tin nhắn lưu trên máy không được mã hóa thêm.",
-                                             "With a passcode, Zalos locks on start, on Ctrl+L and after a period of inactivity; notifications hide their content while locked. It only locks the window: messages stored on this computer are not additionally encrypted.")
-                            }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: lockCol.implicitHeight + 32
-                                radius: 10
-                                color: ThemeManager.cardBackgroundColor
-                                border.color: ThemeManager.borderColor
-                                border.width: 1
-                                property string feedback: ""
-                                property bool feedbackOk: false
-                                id: lockCard
-
-                                ColumnLayout {
-                                    id: lockCol
-                                    anchors.fill: parent
-                                    anchors.margins: 16
-                                    spacing: 10
-
-                                    ZTextField {
-                                        id: currentPasscode
-                                        Layout.fillWidth: true
-                                        visible: ZaloClient.appLock.hasPasscode
-                                        echoMode: TextInput.Password
-                                        placeholderText: I18n.t("Mã hiện tại", "Current passcode")
-                                    }
-                                    ZTextField {
-                                        id: newPasscode
-                                        Layout.fillWidth: true
-                                        echoMode: TextInput.Password
-                                        placeholderText: I18n.t("Mã mới (ít nhất 4 ký tự)", "New passcode (at least 4 characters)")
-                                    }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 8
-                                        ZButton {
-                                            text: ZaloClient.appLock.hasPasscode ? I18n.t("Đổi mã", "Change passcode") : I18n.t("Đặt mã", "Set passcode")
-                                            enabled: newPasscode.text.length >= 4
-                                            onClicked: {
-                                                const ok = ZaloClient.appLock.setPasscode(currentPasscode.text, newPasscode.text);
-                                                lockCard.feedbackOk = ok;
-                                                lockCard.feedback = ok ? I18n.t("Đã lưu mã khóa.", "Passcode saved.")
-                                                                       : I18n.t("Mã hiện tại không đúng.", "The current passcode is wrong.");
-                                                currentPasscode.text = "";
-                                                newPasscode.text = "";
+                                            Rectangle {
+                                                anchors.bottom: parent.bottom
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                width: parent.width
+                                                height: 6
+                                                radius: 3
+                                                color: ZaloClient.notifyNewMessage ? Theme.zaloBlue : (ThemeManager.dividerColor)
                                             }
                                         }
-                                        ZButton {
-                                            visible: ZaloClient.appLock.hasPasscode
-                                            variant: "danger"
-                                            text: I18n.t("Xóa mã", "Remove passcode")
-                                            enabled: currentPasscode.text.length > 0
-                                            onClicked: {
-                                                const ok = ZaloClient.appLock.removePasscode(currentPasscode.text);
-                                                lockCard.feedbackOk = ok;
-                                                lockCard.feedback = ok ? I18n.t("Đã xóa mã khóa.", "Passcode removed.")
-                                                                       : I18n.t("Mã hiện tại không đúng.", "The current passcode is wrong.");
-                                                currentPasscode.text = "";
+                                    }
+
+                                    PreviewOption {
+                                        label: I18n.t("Tắt", "Off")
+                                        selected: !ZaloClient.notifyNewMessage
+                                        previewColor: ThemeManager.cardBackgroundColor
+                                        onChosen: ZaloClient.notifyNewMessage = false
+
+                                        Item {
+                                            anchors.centerIn: parent
+                                            width: Math.min(96, parent.width - 8)
+                                            height: 60
+
+                                            Rectangle {
+                                                anchors.top: parent.top
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                width: parent.width * 0.84
+                                                height: 50
+                                                radius: 4
+                                                color: (ThemeManager.cardBackgroundColor)
+                                                border.color: !ZaloClient.notifyNewMessage ? Theme.zaloBlue : (ThemeManager.dividerColor)
+                                                border.width: 1.5
+                                            }
+
+                                            Rectangle {
+                                                anchors.bottom: parent.bottom
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                width: parent.width
+                                                height: 6
+                                                radius: 3
+                                                color: !ZaloClient.notifyNewMessage ? Theme.zaloBlue : (ThemeManager.dividerColor)
                                             }
                                         }
-                                        Item { Layout.fillWidth: true }
                                     }
-                                    Text {
-                                        visible: lockCard.feedback.length > 0
-                                        text: lockCard.feedback
-                                        color: lockCard.feedbackOk ? Theme.onlineGreen : Theme.badgeRed
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                    }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        visible: ZaloClient.appLock.hasPasscode
-                                        spacing: 8
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: I18n.t("Tự khóa khi không dùng", "Auto-lock when idle")
-                                            color: ThemeManager.textColor
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 13
-                                        }
-                                        ZComboBox {
-                                            id: autoLockBox
-                                            readonly property var minutes: [0, 1, 5, 15, 60]
-                                            model: [I18n.t("Tắt", "Off"), I18n.t("1 phút", "1 minute"), I18n.t("5 phút", "5 minutes"),
-                                                    I18n.t("15 phút", "15 minutes"), I18n.t("1 giờ", "1 hour")]
-                                            currentIndex: Math.max(0, minutes.indexOf(ZaloClient.appLock.autoLockMinutes))
-                                            onActivated: (index) => ZaloClient.appLock.autoLockMinutes = autoLockBox.minutes[index]
-                                        }
-                                    }
-                                }
-                            }
 
-                            SectionTitle {
-                                Layout.topMargin: 12
-                                text: I18n.t("Thiết lập ẩn trò chuyện", "Hidden conversations")
-                            }
-                            SectionHint {
-                                text: ZaloClient.hasHiddenPin
-                                      ? I18n.t("Mã PIN dùng để ẩn trò chuyện và mở lại chúng bằng cách nhập mã PIN hoặc tên trò chuyện tại khung tìm kiếm. Mã PIN được đồng bộ với Zalo trên điện thoại.",
-                                               "The PIN hides conversations; type it, or a hidden conversation's name, in the search box to open them again. It is shared with Zalo on your phone.")
-                                      : I18n.t("Chưa có mã PIN. Đặt mã PIN để ẩn các trò chuyện khỏi danh sách tin nhắn.",
-                                               "No PIN yet. Set one to hide conversations from your message list.")
-                            }
-                            RowLayout {
-                                objectName: "hiddenPinSettings"
-                                spacing: 8
-                                ZButton {
-                                    visible: !ZaloClient.hasHiddenPin
-                                    text: I18n.t("Đặt mã PIN", "Set PIN")
-                                    onClicked: ZaloClient.requestHiddenFlow("setPin", "", false)
+                                    Item { Layout.fillWidth: true }
                                 }
-                                ZButton {
-                                    visible: ZaloClient.hasHiddenPin
-                                    variant: "secondary"
-                                    text: I18n.t("Đổi mã PIN", "Change PIN")
-                                    onClicked: ZaloClient.requestHiddenFlow("changePin", "", false)
-                                }
-                                ZButton {
-                                    visible: ZaloClient.hasHiddenPin
-                                    variant: "danger"
-                                    text: I18n.t("Xóa mã PIN", "Remove PIN")
-                                    onClicked: ZaloClient.requestHiddenFlow("resetPin", "", false)
-                                }
-                            }
-                        }
 
-                        ColumnLayout {
-                            id: storageTab
-                            visible: root.currentTab === "storage"
-                            x: contentContainer.contentPadding
-                            y: contentContainer.contentPadding
-                            width: contentContainer.width - 2 * contentContainer.contentPadding
-                            spacing: 12
-                            property var usage: []
-                            function refresh(): void { storageTab.usage = ZaloClient.storage.usage(); }
-                            function sizeText(bytes: real): string {
-                                if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
-                                if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
-                                if (bytes >= 1024) return Math.round(bytes / 1024) + " KB";
-                                return Math.round(bytes) + " B";
-                            }
-                            function labelFor(key: string): string {
-                                switch (key) {
-                                case "avatars": return I18n.t("Ảnh đại diện (bộ nhớ đệm)", "Avatars (cache)");
-                                case "voice": return I18n.t("Bản ghi âm tạm", "Temporary voice recordings");
-                                case "sounds": return I18n.t("Âm thanh thông báo", "Notification sounds");
-                                case "qmlcache": return I18n.t("Bộ nhớ đệm giao diện", "Interface cache");
-                                case "downloads": return I18n.t("File đã tải (thư mục Downloads/Zalos)", "Downloaded files (Downloads/Zalos)");
-                                }
-                                return key;
-                            }
-                            onVisibleChanged: if (visible) refresh()
-                            Component.onCompleted: if (visible) refresh()
-                            Connections {
-                                target: ZaloClient.storage
-                                function onUsageChanged() { if (storageTab.visible) storageTab.refresh(); }
-                            }
-
-                            SectionTitle { text: I18n.t("Dữ liệu & bộ nhớ", "Data & storage") }
-                            SectionHint {
-                                text: I18n.t("Dung lượng Zalos dùng trên máy. Xóa bộ nhớ đệm không xóa tin nhắn; lịch sử ngoại tuyến của tài khoản không nằm ở đây. File đã tải là của bạn, Zalos không tự xóa.",
-                                             "Space Zalos uses on this computer. Clearing caches never deletes messages; the account's offline history is not listed here. Downloaded files are yours and are never deleted by Zalos.")
-                            }
-                            Repeater {
-                                model: storageTab.usage
-                                delegate: Rectangle {
-                                    id: usageRow
-                                    required property var modelData
-                                    readonly property string itemKey: usageRow.modelData.key || ""
-                                    readonly property real itemBytes: usageRow.modelData.bytes || 0
-                                    readonly property int itemFiles: usageRow.modelData.files || 0
-                                    readonly property bool itemClearable: !!usageRow.modelData.clearable
+                                Rectangle {
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: 52
+                                    Layout.preferredHeight: 1
+                                    color: ThemeManager.borderColor
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: I18n.t("Âm thanh", "Sounds")
+                                    font.family: Theme.fontFamily
+                                    font.bold: true
+                                    font.pixelSize: 14
+                                    color: ThemeManager.textColor
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Phát âm thanh khi có tin nhắn và thông báo mới",
+                                                  "Play a sound for new messages and notifications")
+                                    checked: ZaloClient.notifySound
+                                    onToggled: (value) => ZaloClient.notifySound = value
+                                }
+
+                                SoundPicker {
+                                    title: I18n.t("Âm báo tin nhắn", "Message sound")
+                                    subtitle: I18n.t("Âm thanh phát khi có tin nhắn mới",
+                                                     "Sound played when a new message arrives")
+                                    soundType: "noti"
+                                    selectedKey: ZaloClient.selectedNotiSound
+                                    onPicked: (key) => ZaloClient.selectedNotiSound = key
+                                    options: [
+                                        { key: "pop", label: I18n.t("Bong bóng pop", "Pop") },
+                                        { key: "bubble", label: I18n.t("Bọt nước", "Bubble") },
+                                        { key: "chime", label: I18n.t("Chuông thanh", "Chime") },
+                                        { key: "bell", label: I18n.t("Chuông ngân", "Bell") },
+                                        { key: "digital", label: I18n.t("Kỹ thuật số", "Digital") },
+                                        { key: "positive", label: I18n.t("Tích cực", "Positive") },
+                                        { key: "confirm", label: I18n.t("Xác nhận", "Confirm") },
+                                        { key: "magic", label: I18n.t("Phép thuật", "Magic") }
+                                    ].concat(root.systemSounds)
+                                }
+
+                                SoundPicker {
+                                    title: I18n.t("Nhạc chuông cuộc gọi đến", "Incoming call ringtone")
+                                    subtitle: I18n.t("Giai điệu phát khi có người gọi tới",
+                                                     "Tune played when someone calls you")
+                                    soundType: "ringtone"
+                                    selectedKey: ZaloClient.selectedRingtone
+                                    onPicked: (key) => ZaloClient.selectedRingtone = key
+                                    options: [
+                                        { key: "classic", label: I18n.t("Điện thoại văn phòng (mặc định)", "Classic (default)") },
+                                        { key: "marimba", label: I18n.t("Marimba du dương", "Marimba") },
+                                        { key: "digital_ring", label: I18n.t("Chuông kỹ thuật số", "Digital Ring") },
+                                        { key: "soft", label: I18n.t("Giai điệu nhẹ nhàng", "Soft") }
+                                    ].concat(root.systemSounds)
+                                }
+                            }
+                        }
+
+                        Loader {
+                            id: privacyTabLoader
+                            active: root.currentTab === "privacy"
+                            x: contentContainer.contentPadding
+                            y: contentContainer.contentPadding
+                            width: contentContainer.width - 2 * contentContainer.contentPadding
+                            sourceComponent: ColumnLayout {
+                                id: privacyTab
+                                width: parent.width
+                                spacing: 12
+
+                                SectionTitle { text: I18n.t("Quyền riêng tư", "Privacy") }
+
+                                ToggleRow {
+                                    title: I18n.t("Ẩn trạng thái đang soạn tin", "Hide typing status")
+                                    subtitle: I18n.t("Người khác sẽ không thấy “Đang soạn tin...” khi bạn gõ phím",
+                                                     "Others won't see “typing...” while you type")
+                                    checked: ZaloClient.blockTyping
+                                    onToggled: (value) => ZaloClient.blockTyping = value
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Ẩn trạng thái đã nhận", "Hide delivered status")
+                                    subtitle: I18n.t("Người gửi sẽ không biết tin nhắn đã đến máy bạn",
+                                                     "Senders won't know their message reached you")
+                                    checked: ZaloClient.blockDelivered
+                                    onToggled: (value) => ZaloClient.blockDelivered = value
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Ẩn trạng thái đã xem", "Hide seen status")
+                                    subtitle: I18n.t("Đọc tin nhắn mà không hiện “Đã xem” cho người gửi",
+                                                     "Read messages without showing “Seen” to the sender")
+                                    checked: ZaloClient.blockSeen
+                                    onToggled: (value) => ZaloClient.blockSeen = value
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Chống nhìn lén", "Anti-peeking")
+                                    subtitle: I18n.t("Làm mờ tin nhắn cho tới khi rê chuột vào, ẩn nội dung trong thông báo. Bật/tắt nhanh: Ctrl+Shift+H hoặc menu biểu tượng ở khay hệ thống",
+                                                     "Dims messages until hovered and hides notification content. Quick switch: Ctrl+Shift+H or the tray icon menu")
+                                    checked: ZaloClient.antiPeeking
+                                    onToggled: (value) => ZaloClient.setAntiPeeking(value)
+                                }
+
+                                SectionTitle { text: I18n.t("Quyền riêng tư (đồng bộ máy chủ)", "Privacy (synced with server)") }
+                                SectionHint {
+                                    text: I18n.t("Các thiết lập này được lưu trên máy chủ Zalo và áp dụng cho mọi thiết bị của bạn.",
+                                                 "These are stored on Zalo's servers and apply across all your devices.")
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Hiển thị trạng thái hoạt động", "Show active status")
+                                    subtitle: I18n.t("Cho bạn bè thấy khi bạn đang hoạt động", "Let friends see when you're active")
+                                    checked: ZaloClient.showOnlineStatus
+                                    onToggled: (value) => ZaloClient.setServerSetting("show_online_status", value ? 1 : 0)
+                                }
+                                ToggleRow {
+                                    title: I18n.t("Hiển thị trạng thái đã xem", "Show seen status")
+                                    subtitle: I18n.t("Người gửi thấy “Đã xem” khi bạn đọc tin nhắn", "Senders see “Seen” when you read their message")
+                                    checked: ZaloClient.displaySeenStatus
+                                    onToggled: (value) => ZaloClient.setServerSetting("display_seen_status", value ? 1 : 0)
+                                }
+                                ToggleRow {
+                                    title: I18n.t("Nhận tin nhắn từ người lạ", "Receive messages from strangers")
+                                    subtitle: I18n.t("Tắt để chỉ bạn bè mới nhắn được cho bạn", "Off: only friends can message you")
+                                    checked: ZaloClient.receiveStrangerMessage
+                                    onToggled: (value) => ZaloClient.setServerSetting("receive_message", value ? 1 : 2)
+                                }
+                                ToggleRow {
+                                    title: I18n.t("Nhận cuộc gọi từ người lạ", "Accept calls from strangers")
+                                    subtitle: I18n.t("Tắt để chỉ bạn bè mới gọi được cho bạn", "Off: only friends can call you")
+                                    checked: ZaloClient.acceptStrangerCall
+                                    onToggled: (value) => ZaloClient.setServerSetting("accept_stranger_call", value ? 3 : 2)
+                                }
+                                ToggleRow {
+                                    title: I18n.t("Hiện tôi trong gợi ý kết bạn", "Show me in friend suggestions")
+                                    checked: ZaloClient.displayOnRecommendFriend
+                                    onToggled: (value) => ZaloClient.setServerSetting("display_on_recommend_friend", value ? 1 : 0)
+                                }
+                                ToggleRow {
+                                    title: I18n.t("Cho phép kết bạn qua số điện thoại", "Allow friend requests via phone number")
+                                    checked: ZaloClient.addFriendViaPhone
+                                    onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_phone", value ? 1 : 0)
+                                }
+                                ToggleRow {
+                                    title: I18n.t("Cho phép kết bạn qua mã QR", "Allow friend requests via QR code")
+                                    checked: ZaloClient.addFriendViaQr
+                                    onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_qr", value ? 1 : 0)
+                                }
+                                ToggleRow {
+                                    title: I18n.t("Cho phép kết bạn qua nhóm chung", "Allow friend requests via common groups")
+                                    checked: ZaloClient.addFriendViaGroup
+                                    onToggled: (value) => ZaloClient.setServerSetting("add_friend_via_group", value ? 1 : 0)
+                                }
+                            }
+                        }
+
+                        Loader {
+                            id: securityTabLoader
+                            active: root.currentTab === "security"
+                            x: contentContainer.contentPadding
+                            y: contentContainer.contentPadding
+                            width: contentContainer.width - 2 * contentContainer.contentPadding
+                            sourceComponent: ColumnLayout {
+                                id: securityTab
+                                width: parent.width
+                                spacing: 12
+
+                                SectionTitle { text: I18n.t("Khóa ứng dụng bằng mã", "App passcode lock") }
+                                SectionHint {
+                                    text: I18n.t("Khi đã đặt mã, Zalos tự khóa lúc mở, khi bạn nhấn Ctrl+L và sau thời gian không dùng; thông báo sẽ ẩn nội dung khi đang khóa. Mã chỉ khóa giao diện: tin nhắn lưu trên máy không được mã hóa thêm.",
+                                                 "With a passcode, Zalos locks on start, on Ctrl+L and after a period of inactivity; notifications hide their content while locked. It only locks the window: messages stored on this computer are not additionally encrypted.")
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: lockCol.implicitHeight + 32
                                     radius: 10
                                     color: ThemeManager.cardBackgroundColor
                                     border.color: ThemeManager.borderColor
                                     border.width: 1
-                                    RowLayout {
+                                    property string feedback: ""
+                                    property bool feedbackOk: false
+                                    id: lockCard
+
+                                    ColumnLayout {
+                                        id: lockCol
                                         anchors.fill: parent
-                                        anchors.leftMargin: 14
-                                        anchors.rightMargin: 10
+                                        anchors.margins: 16
                                         spacing: 10
-                                        ColumnLayout {
-                                            Layout.alignment: Qt.AlignVCenter
-                                            spacing: 0
+
+                                        ZTextField {
+                                            id: currentPasscode
+                                            Layout.fillWidth: true
+                                            visible: ZaloClient.appLock.hasPasscode
+                                            echoMode: TextInput.Password
+                                            placeholderText: I18n.t("Mã hiện tại", "Current passcode")
+                                        }
+                                        ZTextField {
+                                            id: newPasscode
+                                            Layout.fillWidth: true
+                                            echoMode: TextInput.Password
+                                            placeholderText: I18n.t("Mã mới (ít nhất 4 ký tự)", "New passcode (at least 4 characters)")
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 8
+                                            ZButton {
+                                                text: ZaloClient.appLock.hasPasscode ? I18n.t("Đổi mã", "Change passcode") : I18n.t("Đặt mã", "Set passcode")
+                                                enabled: newPasscode.text.length >= 4
+                                                onClicked: {
+                                                    const ok = ZaloClient.appLock.setPasscode(currentPasscode.text, newPasscode.text);
+                                                    lockCard.feedbackOk = ok;
+                                                    lockCard.feedback = ok ? I18n.t("Đã lưu mã khóa.", "Passcode saved.")
+                                                                           : I18n.t("Mã hiện tại không đúng.", "The current passcode is wrong.");
+                                                    currentPasscode.text = "";
+                                                    newPasscode.text = "";
+                                                }
+                                            }
+                                            ZButton {
+                                                visible: ZaloClient.appLock.hasPasscode
+                                                variant: "danger"
+                                                text: I18n.t("Xóa mã", "Remove passcode")
+                                                enabled: currentPasscode.text.length > 0
+                                                onClicked: {
+                                                    const ok = ZaloClient.appLock.removePasscode(currentPasscode.text);
+                                                    lockCard.feedbackOk = ok;
+                                                    lockCard.feedback = ok ? I18n.t("Đã xóa mã khóa.", "Passcode removed.")
+                                                                           : I18n.t("Mã hiện tại không đúng.", "The current passcode is wrong.");
+                                                    currentPasscode.text = "";
+                                                }
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                        }
+                                        Text {
+                                            visible: lockCard.feedback.length > 0
+                                            text: lockCard.feedback
+                                            color: lockCard.feedbackOk ? Theme.onlineGreen : Theme.badgeRed
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            visible: ZaloClient.appLock.hasPasscode
+                                            spacing: 8
                                             Text {
-                                                text: storageTab.labelFor(usageRow.itemKey)
+                                                Layout.fillWidth: true
+                                                text: I18n.t("Tự khóa khi không dùng", "Auto-lock when idle")
                                                 color: ThemeManager.textColor
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 13
                                             }
-                                            Text {
-                                                text: storageTab.sizeText(usageRow.itemBytes) + " · " + usageRow.itemFiles
-                                                      + I18n.t(" tệp", " files")
-                                                color: ThemeManager.secondaryTextColor
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 11
-                                            }
-                                        }
-                                        Item { Layout.fillWidth: true }
-                                        ZButton {
-                                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                                            variant: "secondary"
-                                            text: usageRow.itemClearable ? I18n.t("Xóa", "Clear") : I18n.t("Mở thư mục", "Open folder")
-                                            enabled: !usageRow.itemClearable || usageRow.itemBytes > 0
-                                            onClicked: {
-                                                if (usageRow.itemClearable) ZaloClient.storage.clear(usageRow.itemKey);
-                                                else ZaloClient.storage.openDownloadsFolder();
+                                            ZComboBox {
+                                                id: autoLockBox
+                                                readonly property var minutes: [0, 1, 5, 15, 60]
+                                                model: [I18n.t("Tắt", "Off"), I18n.t("1 phút", "1 minute"), I18n.t("5 phút", "5 minutes"),
+                                                        I18n.t("15 phút", "15 minutes"), I18n.t("1 giờ", "1 hour")]
+                                                currentIndex: Math.max(0, minutes.indexOf(ZaloClient.appLock.autoLockMinutes))
+                                                onActivated: (index) => ZaloClient.appLock.autoLockMinutes = autoLockBox.minutes[index]
                                             }
                                         }
                                     }
                                 }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: I18n.t("Giới hạn bộ nhớ đệm ảnh đại diện", "Avatar cache limit")
-                                    color: ThemeManager.textColor
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+
+                                SectionTitle {
+                                    Layout.topMargin: 12
+                                    text: I18n.t("Thiết lập ẩn trò chuyện", "Hidden conversations")
                                 }
-                                ZComboBox {
-                                    id: avatarLimitBox
-                                    readonly property var sizes: [100, 300, 500, 1000, 2000]
-                                    model: ["100 MB", "300 MB", "500 MB", "1 GB", "2 GB"]
-                                    currentIndex: Math.max(0, sizes.indexOf(ZaloClient.storage.avatarLimitMb))
-                                    onActivated: (index) => ZaloClient.storage.avatarLimitMb = avatarLimitBox.sizes[index]
+                                SectionHint {
+                                    text: ZaloClient.hasHiddenPin
+                                          ? I18n.t("Mã PIN dùng để ẩn trò chuyện và mở lại chúng bằng cách nhập mã PIN hoặc tên trò chuyện tại khung tìm kiếm. Mã PIN được đồng bộ với Zalo trên điện thoại.",
+                                                   "The PIN hides conversations; type it, or a hidden conversation's name, in the search box to open them again. It is shared with Zalo on your phone.")
+                                          : I18n.t("Chưa có mã PIN. Đặt mã PIN để ẩn các trò chuyện khỏi danh sách tin nhắn.",
+                                                   "No PIN yet. Set one to hide conversations from your message list.")
                                 }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: I18n.t("Xóa ảnh đại diện không dùng sau", "Remove avatars unused for")
-                                    color: ThemeManager.textColor
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 13
-                                }
-                                ZComboBox {
-                                    id: ageBox
-                                    readonly property var days: [7, 31, 90, 365]
-                                    model: [I18n.t("7 ngày", "7 days"), I18n.t("1 tháng", "1 month"), I18n.t("3 tháng", "3 months"), I18n.t("1 năm", "1 year")]
-                                    currentIndex: Math.max(0, days.indexOf(ZaloClient.storage.maxAgeDays))
-                                    onActivated: (index) => ZaloClient.storage.maxAgeDays = ageBox.days[index]
+                                RowLayout {
+                                    objectName: "hiddenPinSettings"
+                                    spacing: 8
+                                    ZButton {
+                                        visible: !ZaloClient.hasHiddenPin
+                                        text: I18n.t("Đặt mã PIN", "Set PIN")
+                                        onClicked: ZaloClient.requestHiddenFlow("setPin", "", false)
+                                    }
+                                    ZButton {
+                                        visible: ZaloClient.hasHiddenPin
+                                        variant: "secondary"
+                                        text: I18n.t("Đổi mã PIN", "Change PIN")
+                                        onClicked: ZaloClient.requestHiddenFlow("changePin", "", false)
+                                    }
+                                    ZButton {
+                                        visible: ZaloClient.hasHiddenPin
+                                        variant: "danger"
+                                        text: I18n.t("Xóa mã PIN", "Remove PIN")
+                                        onClicked: ZaloClient.requestHiddenFlow("resetPin", "", false)
+                                    }
                                 }
                             }
                         }
 
-                        ColumnLayout {
-                            id: syncTab
-                            visible: root.currentTab === "sync"
+                        Loader {
+                            id: storageTabLoader
+                            active: root.currentTab === "storage"
                             x: contentContainer.contentPadding
                             y: contentContainer.contentPadding
                             width: contentContainer.width - 2 * contentContainer.contentPadding
-                            spacing: 14
+                            sourceComponent: ColumnLayout {
+                                id: storageTab
+                                width: parent.width
+                                spacing: 12
+                                property var usage: []
+                                function refresh(): void { storageTab.usage = ZaloClient.storage.usage(); }
+                                function sizeText(bytes: real): string {
+                                    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
+                                    if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
+                                    if (bytes >= 1024) return Math.round(bytes / 1024) + " KB";
+                                    return Math.round(bytes) + " B";
+                                }
+                                function labelFor(key: string): string {
+                                    switch (key) {
+                                    case "avatars": return I18n.t("Ảnh đại diện (bộ nhớ đệm)", "Avatars (cache)");
+                                    case "voice": return I18n.t("Bản ghi âm tạm", "Temporary voice recordings");
+                                    case "sounds": return I18n.t("Âm thanh thông báo", "Notification sounds");
+                                    case "qmlcache": return I18n.t("Bộ nhớ đệm giao diện", "Interface cache");
+                                    case "downloads": return I18n.t("File đã tải (thư mục Downloads/Zalos)", "Downloaded files (Downloads/Zalos)");
+                                    }
+                                    return key;
+                                }
+                                onVisibleChanged: if (visible) refresh()
+                                Component.onCompleted: if (visible) refresh()
+                                Connections {
+                                    target: ZaloClient.storage
+                                    function onUsageChanged() { if (storageTab.visible) storageTab.refresh(); }
+                                }
 
-                            SectionTitle { text: I18n.t("Đồng bộ tin nhắn từ điện thoại", "Sync messages from your phone") }
-                            SectionHint {
-                                text: I18n.t("Chuyển lịch sử trò chuyện từ Zalo trên điện thoại sang máy tính này. Điện thoại sẽ hỏi bạn xác nhận; tin nhắn được lưu trên máy này và hiển thị cả khi không có mạng.",
-                                             "Transfer your chat history from Zalo on your phone to this computer. Your phone asks you to confirm; messages are kept on this computer and shown even offline.")
+                                SectionTitle { text: I18n.t("Dữ liệu & bộ nhớ", "Data & storage") }
+                                SectionHint {
+                                    text: I18n.t("Dung lượng Zalos dùng trên máy. Xóa bộ nhớ đệm không xóa tin nhắn; lịch sử ngoại tuyến của tài khoản không nằm ở đây. File đã tải là của bạn, Zalos không tự xóa.",
+                                                 "Space Zalos uses on this computer. Clearing caches never deletes messages; the account's offline history is not listed here. Downloaded files are yours and are never deleted by Zalos.")
+                                }
+                                Repeater {
+                                    model: storageTab.usage
+                                    delegate: Rectangle {
+                                        id: usageRow
+                                        required property var modelData
+                                        readonly property string itemKey: usageRow.modelData.key || ""
+                                        readonly property real itemBytes: usageRow.modelData.bytes || 0
+                                        readonly property int itemFiles: usageRow.modelData.files || 0
+                                        readonly property bool itemClearable: !!usageRow.modelData.clearable
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 52
+                                        radius: 10
+                                        color: ThemeManager.cardBackgroundColor
+                                        border.color: ThemeManager.borderColor
+                                        border.width: 1
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 14
+                                            anchors.rightMargin: 10
+                                            spacing: 10
+                                            ColumnLayout {
+                                                Layout.alignment: Qt.AlignVCenter
+                                                spacing: 0
+                                                Text {
+                                                    text: storageTab.labelFor(usageRow.itemKey)
+                                                    color: ThemeManager.textColor
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 13
+                                                }
+                                                Text {
+                                                    text: storageTab.sizeText(usageRow.itemBytes) + " · " + usageRow.itemFiles
+                                                          + I18n.t(" tệp", " files")
+                                                    color: ThemeManager.secondaryTextColor
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 11
+                                                }
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                            ZButton {
+                                                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                                variant: "secondary"
+                                                text: usageRow.itemClearable ? I18n.t("Xóa", "Clear") : I18n.t("Mở thư mục", "Open folder")
+                                                enabled: !usageRow.itemClearable || usageRow.itemBytes > 0
+                                                onClicked: {
+                                                    if (usageRow.itemClearable) ZaloClient.storage.clear(usageRow.itemKey);
+                                                    else ZaloClient.storage.openDownloadsFolder();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: I18n.t("Giới hạn bộ nhớ đệm ảnh đại diện", "Avatar cache limit")
+                                        color: ThemeManager.textColor
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 13
+                                    }
+                                    ZComboBox {
+                                        id: avatarLimitBox
+                                        readonly property var sizes: [100, 300, 500, 1000, 2000]
+                                        model: ["100 MB", "300 MB", "500 MB", "1 GB", "2 GB"]
+                                        currentIndex: Math.max(0, sizes.indexOf(ZaloClient.storage.avatarLimitMb))
+                                        onActivated: (index) => ZaloClient.storage.avatarLimitMb = avatarLimitBox.sizes[index]
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: I18n.t("Xóa ảnh đại diện không dùng sau", "Remove avatars unused for")
+                                        color: ThemeManager.textColor
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 13
+                                    }
+                                    ZComboBox {
+                                        id: ageBox
+                                        readonly property var days: [7, 31, 90, 365]
+                                        model: [I18n.t("7 ngày", "7 days"), I18n.t("1 tháng", "1 month"), I18n.t("3 tháng", "3 months"), I18n.t("1 năm", "1 year")]
+                                        currentIndex: Math.max(0, days.indexOf(ZaloClient.storage.maxAgeDays))
+                                        onActivated: (index) => ZaloClient.storage.maxAgeDays = ageBox.days[index]
+                                    }
+                                }
                             }
+                        }
 
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: syncContentCol.implicitHeight + 32
-                                radius: 10
-                                color: ThemeManager.cardBackgroundColor
-                                border.color: ThemeManager.borderColor
-                                border.width: 1
+                        Loader {
+                            id: syncTabLoader
+                            active: root.currentTab === "sync"
+                            x: contentContainer.contentPadding
+                            y: contentContainer.contentPadding
+                            width: contentContainer.width - 2 * contentContainer.contentPadding
+                            sourceComponent: ColumnLayout {
+                                id: syncTab
+                                width: parent.width
+                                spacing: 14
 
-                                ColumnLayout {
-                                    id: syncContentCol
-                                    anchors.fill: parent
-                                    anchors.margins: 16
-                                    spacing: 12
+                                SectionTitle { text: I18n.t("Đồng bộ tin nhắn từ điện thoại", "Sync messages from your phone") }
+                                SectionHint {
+                                    text: I18n.t("Chuyển lịch sử trò chuyện từ Zalo trên điện thoại sang máy tính này. Điện thoại sẽ hỏi bạn xác nhận; tin nhắn được lưu trên máy này và hiển thị cả khi không có mạng. Zalo trên iPhone có thể dùng cách đồng bộ mới mà Zalos chưa hỗ trợ.",
+                                                 "Transfer your chat history from Zalo on your phone to this computer. Your phone asks you to confirm; messages are kept on this computer and shown even offline. Zalo on iPhone may use a newer sync method that Zalos doesn't support yet.")
+                                }
 
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 14
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: syncContentCol.implicitHeight + 32
+                                    radius: 10
+                                    color: ThemeManager.cardBackgroundColor
+                                    border.color: ThemeManager.borderColor
+                                    border.width: 1
 
-                                        Rectangle {
-                                            width: 44
-                                            height: 44
-                                            radius: 22
-                                            color: ZaloClient.mobileSyncState === 4 ? Qt.rgba(43/255, 182/255, 115/255, 0.15)
-                                                   : (ZaloClient.mobileSyncState === 5 ? Qt.rgba(229/255, 56/255, 59/255, 0.15) : Qt.rgba(0, 104/255, 255/255, 0.12))
+                                    ColumnLayout {
+                                        id: syncContentCol
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
 
-                                            ZIcon {
-                                                anchors.centerIn: parent
-                                                name: ZaloClient.mobileSyncState === 4 ? "check" : (ZaloClient.mobileSyncState === 5 ? "close" : "refresh")
-                                                size: 22
-                                                color: ZaloClient.mobileSyncState === 4 ? "#2BB673"
-                                                       : (ZaloClient.mobileSyncState === 5 ? "#E5383B" : Theme.zaloBlue)
-                                            }
-                                        }
-
-                                        ColumnLayout {
+                                        RowLayout {
                                             Layout.fillWidth: true
-                                            spacing: 4
+                                            spacing: 14
 
-                                            Text {
+                                            Rectangle {
+                                                width: 44
+                                                height: 44
+                                                radius: 22
+                                                color: ZaloClient.mobileSyncState === 4 ? Qt.rgba(43/255, 182/255, 115/255, 0.15)
+                                                       : (ZaloClient.mobileSyncState === 5 ? Qt.rgba(229/255, 56/255, 59/255, 0.15) : Qt.rgba(0, 104/255, 255/255, 0.12))
+
+                                                ZIcon {
+                                                    anchors.centerIn: parent
+                                                    name: ZaloClient.mobileSyncState === 4 ? "check" : (ZaloClient.mobileSyncState === 5 ? "close" : "refresh")
+                                                    size: 22
+                                                    color: ZaloClient.mobileSyncState === 4 ? "#2BB673"
+                                                           : (ZaloClient.mobileSyncState === 5 ? "#E5383B" : Theme.zaloBlue)
+                                                }
+                                            }
+
+                                            ColumnLayout {
                                                 Layout.fillWidth: true
-                                                text: ZaloClient.mobileSyncState === 0
-                                                      ? I18n.t("Đồng bộ tin nhắn từ điện thoại", "Sync messages from phone")
-                                                      : (ZaloClient.mobileSyncState === 4
-                                                         ? I18n.t("Đã đồng bộ thành công ✅", "Synced successfully ✅")
-                                                         : (ZaloClient.mobileSyncState === 5
-                                                            ? I18n.t("Đồng bộ chưa thành công", "Sync didn't complete")
-                                                            : I18n.t("Đang đồng bộ...", "Syncing in progress...")))
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 14
-                                                font.bold: true
-                                                color: ThemeManager.textColor
-                                            }
+                                                spacing: 4
 
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: ZaloClient.mobileSyncStatus.length > 0
-                                                      ? ZaloClient.mobileSyncStatus
-                                                      : I18n.t("Chuyển lịch sử tin nhắn từ điện thoại sang máy tính này mà không làm mất dữ liệu hiện tại.",
-                                                               "Transfer message history from phone without losing current data.")
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 12
-                                                color: ThemeManager.secondaryTextColor
-                                                wrapMode: Text.WordWrap
-                                            }
-                                        }
-                                    }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: ZaloClient.mobileSyncState === 0
+                                                          ? I18n.t("Đồng bộ tin nhắn từ điện thoại", "Sync messages from phone")
+                                                          : (ZaloClient.mobileSyncState === 4
+                                                             ? I18n.t("Đã đồng bộ thành công ✅", "Synced successfully ✅")
+                                                             : (ZaloClient.mobileSyncState === 5
+                                                                ? I18n.t("Đồng bộ chưa thành công", "Sync didn't complete")
+                                                                : I18n.t("Đang đồng bộ...", "Syncing in progress...")))
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 14
+                                                    font.bold: true
+                                                    color: ThemeManager.textColor
+                                                }
 
-                                    ProgressBar {
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: 6
-                                        visible: ZaloClient.mobileSyncState >= 1 && ZaloClient.mobileSyncState <= 3
-                                        value: ZaloClient.mobileSyncProgress / 100.0
-                                    }
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 10
-
-                                        Item { Layout.fillWidth: true }
-
-                                        Rectangle {
-                                            visible: ZaloClient.mobileSyncState === 1 || ZaloClient.mobileSyncState === 2
-                                            width: 80
-                                            height: 32
-                                            radius: 6
-                                            color: cancelHover.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                                            border.color: ThemeManager.borderColor
-                                            border.width: 1
-
-                                            Text {
-                                                anchors.centerIn: parent
-                                                text: I18n.t("Hủy", "Cancel")
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 13
-                                                color: ThemeManager.textColor
-                                            }
-                                            MouseArea {
-                                                id: cancelHover
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: ZaloClient.cancelMobileSync()
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: ZaloClient.mobileSyncStatus.length > 0
+                                                          ? ZaloClient.mobileSyncStatus
+                                                          : I18n.t("Chuyển lịch sử tin nhắn từ điện thoại sang máy tính này mà không làm mất dữ liệu hiện tại.",
+                                                                   "Transfer message history from phone without losing current data.")
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 12
+                                                    color: ThemeManager.secondaryTextColor
+                                                    wrapMode: Text.WordWrap
+                                                }
                                             }
                                         }
 
-                                        Rectangle {
-                                            visible: ZaloClient.mobileSyncState === 0 || ZaloClient.mobileSyncState === 4 || ZaloClient.mobileSyncState === 5
-                                            width: syncBtnText.implicitWidth + 24
-                                            height: 34
-                                            radius: 6
-                                            color: syncBtnHover.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlue
+                                        ProgressBar {
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: 6
+                                            visible: ZaloClient.mobileSyncState >= 1 && ZaloClient.mobileSyncState <= 3
+                                            value: ZaloClient.mobileSyncProgress / 100.0
+                                        }
 
-                                            Text {
-                                                id: syncBtnText
-                                                anchors.centerIn: parent
-                                                text: ZaloClient.mobileSyncState === 4
-                                                      ? I18n.t("Đồng bộ lại", "Sync again")
-                                                      : (ZaloClient.mobileSyncState === 5
-                                                         ? I18n.t("Thử lại", "Retry")
-                                                         : I18n.t("Bắt đầu đồng bộ", "Start sync"))
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 13
-                                                font.bold: true
-                                                color: "#FFFFFF"
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            Item { Layout.fillWidth: true }
+
+                                            Rectangle {
+                                                visible: ZaloClient.mobileSyncState === 1 || ZaloClient.mobileSyncState === 2
+                                                width: 80
+                                                height: 32
+                                                radius: 6
+                                                color: cancelHover.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                                                border.color: ThemeManager.borderColor
+                                                border.width: 1
+
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: I18n.t("Hủy", "Cancel")
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 13
+                                                    color: ThemeManager.textColor
+                                                }
+                                                MouseArea {
+                                                    id: cancelHover
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: ZaloClient.cancelMobileSync()
+                                                }
                                             }
-                                            MouseArea {
-                                                id: syncBtnHover
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: ZaloClient.requestMobileSync()
+
+                                            Rectangle {
+                                                visible: ZaloClient.mobileSyncState === 0 || ZaloClient.mobileSyncState === 4 || ZaloClient.mobileSyncState === 5
+                                                width: syncBtnText.implicitWidth + 24
+                                                height: 34
+                                                radius: 6
+                                                color: syncBtnHover.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlue
+
+                                                Text {
+                                                    id: syncBtnText
+                                                    anchors.centerIn: parent
+                                                    text: ZaloClient.mobileSyncState === 4
+                                                          ? I18n.t("Đồng bộ lại", "Sync again")
+                                                          : (ZaloClient.mobileSyncState === 5
+                                                             ? I18n.t("Thử lại", "Retry")
+                                                             : I18n.t("Bắt đầu đồng bộ", "Start sync"))
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 13
+                                                    font.bold: true
+                                                    color: "#FFFFFF"
+                                                }
+                                                MouseArea {
+                                                    id: syncBtnHover
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: ZaloClient.requestMobileSync()
+                                                }
                                             }
                                         }
                                     }

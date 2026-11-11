@@ -232,7 +232,7 @@ void GroupAdmin::reviewRequest(const QString& memberId, bool approve) {
             if (!ok || (status != 0 && status != 170 && status != 178)) {
                 const QString why = !ok ? self->err(e, code)
                                         : status == 166 ? self->t("không đủ quyền", "insufficient permission")
-                                                        : QString::number(status);
+                                                        : self->err(QString(), status);
                 self->notice(self->t("Không xử lý được yêu cầu tham gia: ", "Could not handle the join request: ") + why);
                 return;
             }

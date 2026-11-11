@@ -371,48 +371,51 @@ Rectangle {
             border.color: ThemeManager.borderColor
         }
 
-        contentItem: ColumnLayout {
-            spacing: 2
+        contentItem: Loader {
+            active: accountMenu.visible
+            sourceComponent: ColumnLayout {
+                spacing: 2
 
-            Text {
-                Layout.fillWidth: true
-                Layout.leftMargin: 12
-                Layout.rightMargin: 12
-                Layout.topMargin: 6
-                Layout.bottomMargin: 6
-                text: ZaloClient.currentUserName
-                elide: Text.ElideRight
-                font.family: Theme.fontFamily
-                font.pixelSize: 16
-                font.bold: true
-                color: ThemeManager.textColor
-            }
+                Text {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    Layout.rightMargin: 12
+                    Layout.topMargin: 6
+                    Layout.bottomMargin: 6
+                    text: ZaloClient.currentUserName
+                    elide: Text.ElideRight
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 16
+                    font.bold: true
+                    color: ThemeManager.textColor
+                }
 
-            MenuDivider {}
+                MenuDivider {}
 
-            MenuRow {
-                icon: "user"
-                label: I18n.t("Hồ sơ của bạn", "Profile")
-                onTriggered: { accountMenu.close(); ZaloClient.openUserProfile(); }
-            }
-            MenuRow {
-                icon: "settings"
-                label: I18n.t("Cài đặt", "Settings")
-                onTriggered: { accountMenu.close(); ZaloClient.openSettings("general"); }
-            }
-            MenuRow {
-                icon: "help"
-                label: I18n.t("Hỗ trợ", "Help")
-                onTriggered: { accountMenu.close(); Qt.openUrlExternally("https://help.zalo.me/"); }
-            }
+                MenuRow {
+                    icon: "user"
+                    label: I18n.t("Hồ sơ của bạn", "Profile")
+                    onTriggered: { accountMenu.close(); ZaloClient.openUserProfile(); }
+                }
+                MenuRow {
+                    icon: "settings"
+                    label: I18n.t("Cài đặt", "Settings")
+                    onTriggered: { accountMenu.close(); ZaloClient.openSettings("general"); }
+                }
+                MenuRow {
+                    icon: "help"
+                    label: I18n.t("Hỗ trợ", "Help")
+                    onTriggered: { accountMenu.close(); Qt.openUrlExternally("https://help.zalo.me/"); }
+                }
 
-            MenuDivider {}
+                MenuDivider {}
 
-            MenuRow {
-                icon: "logout"
-                label: I18n.t("Đăng xuất", "Log out")
-                danger: true
-                onTriggered: { accountMenu.close(); ZaloClient.logout(); }
+                MenuRow {
+                    icon: "logout"
+                    label: I18n.t("Đăng xuất", "Log out")
+                    danger: true
+                    onTriggered: { accountMenu.close(); ZaloClient.logout(); }
+                }
             }
         }
     }
@@ -431,39 +434,42 @@ Rectangle {
             border.color: ThemeManager.borderColor
         }
 
-        contentItem: ColumnLayout {
-            spacing: 2
+        contentItem: Loader {
+            active: snipMenu.visible
+            sourceComponent: ColumnLayout {
+                spacing: 2
 
-            Text {
-                Layout.fillWidth: true
-                Layout.leftMargin: 12
-                Layout.rightMargin: 12
-                Layout.topMargin: 4
-                Layout.bottomMargin: 4
-                text: I18n.t("Chụp màn hình", "Capture Screenshot")
-                font.family: Theme.fontFamily
-                font.pixelSize: 13
-                font.bold: true
-                color: ThemeManager.textColor
-            }
-
-            MenuDivider {}
-
-            MenuRow {
-                icon: "snip"
-                label: I18n.t("Chụp kèm cửa sổ Zalo", "Capture with Zalo window")
-                onTriggered: {
-                    snipMenu.close();
-                    ZaloClient.requestScreenshot(false);
+                Text {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    Layout.rightMargin: 12
+                    Layout.topMargin: 4
+                    Layout.bottomMargin: 4
+                    text: I18n.t("Chụp màn hình", "Capture Screenshot")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    font.bold: true
+                    color: ThemeManager.textColor
                 }
-            }
 
-            MenuRow {
-                icon: "snip"
-                label: I18n.t("Chụp không kèm Zalo (ẩn app)", "Capture without Zalo (hide app)")
-                onTriggered: {
-                    snipMenu.close();
-                    ZaloClient.requestScreenshot(true);
+                MenuDivider {}
+
+                MenuRow {
+                    icon: "snip"
+                    label: I18n.t("Chụp kèm cửa sổ Zalo", "Capture with Zalo window")
+                    onTriggered: {
+                        snipMenu.close();
+                        ZaloClient.requestScreenshot(false);
+                    }
+                }
+
+                MenuRow {
+                    icon: "snip"
+                    label: I18n.t("Chụp không kèm Zalo (ẩn app)", "Capture without Zalo (hide app)")
+                    onTriggered: {
+                        snipMenu.close();
+                        ZaloClient.requestScreenshot(true);
+                    }
                 }
             }
         }
@@ -483,57 +489,60 @@ Rectangle {
             border.color: ThemeManager.borderColor
         }
 
-        contentItem: ColumnLayout {
-            spacing: 2
+        contentItem: Loader {
+            active: bizMenu.visible
+            sourceComponent: ColumnLayout {
+                spacing: 2
 
-            Text {
-                Layout.fillWidth: true
-                Layout.leftMargin: 12
-                Layout.rightMargin: 12
-                Layout.topMargin: 4
-                Layout.bottomMargin: 4
-                text: I18n.t("Công cụ zBusiness", "zBusiness Tools")
-                font.family: Theme.fontFamily
-                font.pixelSize: 13
-                font.bold: true
-                color: ThemeManager.textColor
-            }
-
-            MenuDivider {}
-
-            MenuRow {
-                icon: "biz_tools"
-                label: I18n.t("Hồ sơ & Công cụ kinh doanh", "Business Profile & Tools")
-                onTriggered: {
-                    bizMenu.close();
-                    ZaloClient.openBusinessTools();
+                Text {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    Layout.rightMargin: 12
+                    Layout.topMargin: 4
+                    Layout.bottomMargin: 4
+                    text: I18n.t("Công cụ zBusiness", "zBusiness Tools")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    font.bold: true
+                    color: ThemeManager.textColor
                 }
-            }
 
-            MenuRow {
-                icon: "catalog"
-                label: I18n.t("Danh mục sản phẩm", "Product Catalog")
-                onTriggered: {
-                    bizMenu.close();
-                    ZaloClient.openBusinessCatalog();
+                MenuDivider {}
+
+                MenuRow {
+                    icon: "biz_tools"
+                    label: I18n.t("Hồ sơ & Công cụ kinh doanh", "Business Profile & Tools")
+                    onTriggered: {
+                        bizMenu.close();
+                        ZaloClient.openBusinessTools();
+                    }
                 }
-            }
 
-            MenuRow {
-                icon: "autoreply"
-                label: I18n.t("Trả lời tự động", "Auto reply")
-                onTriggered: {
-                    bizMenu.close();
-                    ZaloClient.openBusinessAutoReply();
+                MenuRow {
+                    icon: "catalog"
+                    label: I18n.t("Danh mục sản phẩm", "Product Catalog")
+                    onTriggered: {
+                        bizMenu.close();
+                        ZaloClient.openBusinessCatalog();
+                    }
                 }
-            }
 
-            MenuRow {
-                icon: "briefcase"
-                label: I18n.t("Quản lý gói zBusiness", "Manage zBusiness Package")
-                onTriggered: {
-                    bizMenu.close();
-                    ZaloClient.openBusinessPackage();
+                MenuRow {
+                    icon: "autoreply"
+                    label: I18n.t("Trả lời tự động", "Auto reply")
+                    onTriggered: {
+                        bizMenu.close();
+                        ZaloClient.openBusinessAutoReply();
+                    }
+                }
+
+                MenuRow {
+                    icon: "briefcase"
+                    label: I18n.t("Quản lý gói zBusiness", "Manage zBusiness Package")
+                    onTriggered: {
+                        bizMenu.close();
+                        ZaloClient.openBusinessPackage();
+                    }
                 }
             }
         }

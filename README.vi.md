@@ -46,7 +46,7 @@ hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 - **Tự đổi giao diện sáng/tối** — bám theo màu hệ thống theo thời gian thực.
 - **Nhắn tin** — chat đơn và nhóm, nhãn dán động, emoji, cảm xúc, trả lời, chuyển tiếp,
   ghim tin nhắn, nhãn hội thoại, và tìm kiếm toàn bộ lịch sử.
-- **Gọi thoại và gọi video** — hỗ trợ gọi thoại và gọi video 1-1 lẫn gọi nhóm với mã hóa OpenH264.
+- **Gọi thoại và gọi video** — gọi thoại và gọi video 1-1 với mã hóa OpenH264; gọi nhóm đang ở giai đoạn thử nghiệm.
 - **My Documents** — luồng lưu trữ cá nhân với bộ lọc nhanh ảnh, video, tệp và liên kết.
 - **Tiện ích máy tính** — chụp màn hình (`Ctrl+Alt+S`), trợ lý Kiki và công cụ zBusiness (hồ sơ, danh mục sản phẩm, tin nhắn tự động).
 - **Thao tác nhanh Danh bạ** — 1 cú nhấp gọi thoại, gọi video, hoặc nhắn tin ngay trên mỗi dòng liên hệ.
@@ -73,13 +73,13 @@ và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nh�
 
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.1.1-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.1.1-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.0-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.0-1~ubuntu24.04_amd64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.1.1-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.0-1.fc43.x86_64.rpm
 ```
 
 ### NixOS / Nix
@@ -91,14 +91,14 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (các bản phân phối khác)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.1.1-x86_64.AppImage
-chmod +x Zalos-1.1.1-x86_64.AppImage
-./Zalos-1.1.1-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.0-x86_64.AppImage
+chmod +x Zalos-1.2.0-x86_64.AppImage
+./Zalos-1.2.0-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.1.1-aarch64.AppImage
-chmod +x Zalos-1.1.1-aarch64.AppImage
-./Zalos-1.1.1-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.0-aarch64.AppImage
+chmod +x Zalos-1.2.0-aarch64.AppImage
+./Zalos-1.2.0-aarch64.AppImage
 ```
 AppImage dùng môi trường runtime sẵn có của hệ thống; trên bản cài tối giản bạn có thể cần cài thêm các gói
 runtime desktop thông dụng.
@@ -110,12 +110,13 @@ Dự án không phát hành gói dựng sẵn cho Arch Linux. Hãy **tự build 
 > Mỗi bản phát hành có **file riêng cho x86_64 và aarch64 (ARM64)** ở từng định dạng — tải đúng theo `uname -m`.
 
 ### Tuỳ chọn: cuộc gọi
-Gọi thoại và video dùng engine gọi mã nguồn mở từ
-[zalo-for-linux](https://github.com/VN-Linux-Family/zalo-for-linux) (MIT), được đóng gói sẵn trong mọi gói Zalos.
-Các gói phân phối tự động kéo về những thứ cần thiết. Với AppImage, hãy cài thêm runtime gọi điện:
+Gọi thoại và video chạy trên engine gọi C++ của chính Zalos (`zalos-call` và `zalos-call-audio`, nằm trong `libexec/zalos`),
+theo giao thức gọi của [zalo-for-linux](https://github.com/VN-Linux-Family/zalo-for-linux) (BSD-3-Clause).
+Zalos không phụ thuộc Python hay Node.js. Các gói phân phối tự động kéo về những thứ cần thiết. Với AppImage, hãy cài
+thêm runtime âm thanh:
 
-- Ubuntu: `sudo apt install nodejs python3 libopus0 pulseaudio-utils`
-- Fedora: `sudo dnf install nodejs python3 opus pulseaudio-utils`
+- Ubuntu: `sudo apt install libopus0 pulseaudio-utils`
+- Fedora: `sudo dnf install opus pulseaudio-utils`
 
 Để thấy camera của người bên kia còn cần **OpenH264** từ bản phân phối của bạn (không bao giờ đóng gói kèm, vì lý
 do bản quyền sáng chế): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`.

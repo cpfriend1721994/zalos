@@ -1,9 +1,10 @@
 import QtQuick
 import Zalos
+import "MediaSource.js" as MediaSource
 
 Item {
     id: root
-    property alias source: img.source
+    property url source: ""
     property alias status: img.status
     property alias sourceSize: img.sourceSize
     property alias fillMode: img.fillMode
@@ -29,10 +30,10 @@ Item {
         Image {
             id: img
             anchors.fill: parent
+            source: MediaSource.toSource(root.source)
             asynchronous: true
             cache: true
             smooth: true
-            mipmap: true
             fillMode: Image.PreserveAspectCrop
         }
         Loader {
@@ -41,6 +42,7 @@ Item {
             sourceComponent: AnimatedImage {
                 source: root.animatedSource
                 cache: false
+                sourceSize.width: Math.ceil(root.width * (Screen.devicePixelRatio || 1))
                 smooth: true
                 fillMode: img.fillMode
                 playing: visible

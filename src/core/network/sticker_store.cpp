@@ -18,6 +18,8 @@ namespace Zalos::Core::Network {
 
 namespace {
 
+constexpr int kMaxStickerInfo = 2000;
+
 QString idText(const QJsonValue& v) {
     if (v.isString()) return v.toString();
     if (v.isDouble()) return QString::number(qint64(v.toDouble()));
@@ -85,7 +87,8 @@ void StickerStore::loadCache() {
     QFile f(m_cacheFile);
     if (!f.open(QIODevice::ReadOnly)) return;
     const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
-    for (auto it = o.begin(); it != o.end(); ++it) m_info.insert(it.key(), it.value().toObject().toVariantMap());
+    for (auto it = o.begin(); it != o.end() && m_info.size() < kMaxStickerInfo; ++it)
+        m_info.insert(it.key(), it.value().toObject().toVariantMap());
 }
 
 void StickerStore::saveCache() {
@@ -103,6 +106,7 @@ void StickerStore::saveCache() {
 void StickerStore::remember(const QVariantMap& info) {
     const QString id = info.value("id").toString();
     if (id.isEmpty() || m_info.value(id) == info) return;
+    if (!m_info.contains(id) && m_info.size() >= kMaxStickerInfo) m_info.erase(m_info.begin());
     m_info.insert(id, info);
     m_saveTimer.start();
 }

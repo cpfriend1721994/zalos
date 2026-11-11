@@ -481,7 +481,7 @@ bool DbCross::decompressAndDecryptZdb4(
     }
 
     lzma_stream strm = LZMA_STREAM_INIT;
-    if (lzma_stream_decoder(&strm, UINT64_MAX, 0) != LZMA_OK) return fail("cannot init LZMA decoder");
+    if (lzma_auto_decoder(&strm, UINT64_MAX, 0) != LZMA_OK) return fail("cannot init LZMA decoder");
     strm.next_in = pt.data() + off;
     strm.avail_in = pt.size() - off;
 

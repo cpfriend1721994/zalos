@@ -3,6 +3,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import Zalos
+import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
@@ -995,46 +996,15 @@ Rectangle {
                 parent: messageList.parent
                 z: -1
                 anchors.fill: messageList
-                visible: false
+                clip: true
+                visible: status === Image.Ready && ZaloClient.currentConversationBackground.length > 0
+                opacity: ZaloClient.chatBackgroundOpacity
                 source: ZaloClient.currentConversationBackground.length > 0
                         ? "image://cover/" + encodeURIComponent(ZaloClient.currentConversationBackground) : ""
+                sourceSize.width: 96
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 smooth: true
-                mipmap: true
-            }
-
-            Loader {
-                id: bgBlurLoader
-                parent: messageList.parent
-                z: -1
-                anchors.fill: messageList
-                clip: true
-                active: GraphicsInfo.api !== GraphicsInfo.Software && ZaloClient.currentConversationBackground.length > 0
-                visible: bgImage.status === Image.Ready && ZaloClient.currentConversationBackground.length > 0
-                opacity: ZaloClient.chatBackgroundOpacity
-                source: "ZChatBackgroundBlur.qml"
-                onLoaded: {
-                    if (bgBlurLoader.item) {
-                        bgBlurLoader.item.source = bgImage;
-                    }
-                }
-            }
-
-            Image {
-                id: bgImageFallback
-                parent: messageList.parent
-                z: -1
-                anchors.fill: messageList
-                clip: true
-                visible: ZaloClient.currentConversationBackground.length > 0 && status === Image.Ready && !bgBlurLoader.active
-                source: ZaloClient.currentConversationBackground.length > 0
-                        ? "image://cover/" + encodeURIComponent(ZaloClient.currentConversationBackground) : ""
-                fillMode: Image.PreserveAspectCrop
-                opacity: ZaloClient.chatBackgroundOpacity
-                asynchronous: true
-                smooth: true
-                mipmap: true
             }
 
             ChatJumpDownButton {
@@ -2041,7 +2011,7 @@ Rectangle {
                                                     visible: msgRow.mediaUrl.length > 0 && status !== Image.Error
                                                     Layout.fillWidth: true
                                                     Layout.preferredHeight: visible ? 150 : 0
-                                                    source: msgRow.isLink ? msgRow.mediaUrl : ""
+                                                    source: msgRow.isLink ? MediaSource.toSource(msgRow.mediaUrl) : ""
                                                     asynchronous: true
                                                     fillMode: Image.PreserveAspectCrop
                                                     sourceSize.width: Math.ceil(320 * (Screen.devicePixelRatio || 1))
@@ -2494,110 +2464,113 @@ Rectangle {
                                     }
                                 }
 
-                                RowLayout {
-                                    visible: model.lastInGroup || model.showStatus
+                                Loader {
+                                    active: model.lastInGroup || model.showStatus
+                                    visible: active
                                     Layout.alignment: msgRow.mine ? Qt.AlignRight : Qt.AlignLeft
                                     Layout.topMargin: 4
-                                    spacing: 6
-                                    Text {
-                                        id: messageTimeLabel
-                                        visible: model.lastInGroup
-                                        text: model.time
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        color: ThemeManager.secondaryTextColor
+                                    sourceComponent: RowLayout {
+                                        spacing: 6
+                                        Text {
+                                            id: messageTimeLabel
+                                            visible: model.lastInGroup
+                                            text: model.time
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            color: ThemeManager.secondaryTextColor
 
-                                        MouseArea {
-                                            id: timeHoverArea
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.ArrowCursor
+                                            MouseArea {
+                                                id: timeHoverArea
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.ArrowCursor
+                                            }
+
+                                            ToolTip.visible: timeHoverArea.containsMouse && messageTimeLabel.text.length > 0
+                                            ToolTip.delay: 300
+                                            ToolTip.text: root.fullTimestamp(model.ts, model.time)
                                         }
+                                        Row {
+                                            id: groupSeenRow
+                                            readonly property var rawUids: (typeof model !== "undefined" && model && model.seenUids) ? model.seenUids : []
+                                            readonly property var uids: rawUids.slice().reverse()
+                                            visible: msgRow.mine && ZaloClient.currentConversationIsGroup && groupSeenRow.uids.length > 0
+                                            spacing: -6
+                                            Layout.alignment: Qt.AlignVCenter
+                                            height: 16
 
-                                        ToolTip.visible: timeHoverArea.containsMouse && messageTimeLabel.text.length > 0
-                                        ToolTip.delay: 300
-                                        ToolTip.text: root.fullTimestamp(model.ts, model.time)
-                                    }
-                                    Row {
-                                        id: groupSeenRow
-                                        readonly property var rawUids: (typeof model !== "undefined" && model && model.seenUids) ? model.seenUids : []
-                                        readonly property var uids: rawUids.slice().reverse()
-                                        visible: msgRow.mine && ZaloClient.currentConversationIsGroup && groupSeenRow.uids.length > 0
-                                        spacing: -6
-                                        Layout.alignment: Qt.AlignVCenter
-                                        height: 16
+                                            Repeater {
+                                                model: groupSeenRow.uids.slice(0, 4)
+                                                delegate: Rectangle {
+                                                    id: seenAvatarItem
+                                                    required property string modelData
+                                                    required property int index
+                                                    z: 10 - index
+                                                    width: 16
+                                                    height: 16
+                                                    radius: 8
+                                                    color: ThemeManager.chatBubbleMine
+                                                    border.color: ThemeManager.surfaceColor
+                                                    border.width: 1
+                                                    clip: true
+                                                    Image {
+                                                        anchors.fill: parent
+                                                        source: ZaloClient.avatarOf(seenAvatarItem.modelData).length > 0
+                                                            ? "image://avatar/" + encodeURIComponent(ZaloClient.avatarOf(seenAvatarItem.modelData)) : ""
+                                                        sourceSize.width: 16
+                                                        sourceSize.height: 16
+                                                        fillMode: Image.PreserveAspectCrop
+                                                        asynchronous: true
+                                                    }
+                                                    ZIcon {
+                                                        anchors.centerIn: parent
+                                                        visible: ZaloClient.avatarOf(seenAvatarItem.modelData).length === 0
+                                                        name: "user"
+                                                        size: 10
+                                                        color: ThemeManager.textColor
+                                                    }
+                                                }
+                                            }
 
-                                        Repeater {
-                                            model: groupSeenRow.uids.slice(0, 4)
-                                            delegate: Rectangle {
-                                                id: seenAvatarItem
-                                                required property string modelData
-                                                required property int index
-                                                z: 10 - index
+                                            Rectangle {
+                                                visible: groupSeenRow.uids.length > 4
+                                                z: 20
                                                 width: 16
                                                 height: 16
                                                 radius: 8
-                                                color: ThemeManager.chatBubbleMine
+                                                color: ThemeManager.hoverColor
                                                 border.color: ThemeManager.surfaceColor
                                                 border.width: 1
-                                                clip: true
-                                                Image {
-                                                    anchors.fill: parent
-                                                    source: ZaloClient.avatarOf(seenAvatarItem.modelData).length > 0
-                                                        ? "image://avatar/" + encodeURIComponent(ZaloClient.avatarOf(seenAvatarItem.modelData)) : ""
-                                                    sourceSize.width: 16
-                                                    sourceSize.height: 16
-                                                    fillMode: Image.PreserveAspectCrop
-                                                    asynchronous: true
-                                                }
-                                                ZIcon {
+                                                Text {
                                                     anchors.centerIn: parent
-                                                    visible: ZaloClient.avatarOf(seenAvatarItem.modelData).length === 0
-                                                    name: "user"
-                                                    size: 10
+                                                    text: "+" + Math.max(0, groupSeenRow.uids.length - 4)
+                                                    font.pixelSize: 8
+                                                    font.bold: true
                                                     color: ThemeManager.textColor
                                                 }
                                             }
-                                        }
 
-                                        Rectangle {
-                                            visible: groupSeenRow.uids.length > 4
-                                            z: 20
-                                            width: 16
-                                            height: 16
-                                            radius: 8
-                                            color: ThemeManager.hoverColor
-                                            border.color: ThemeManager.surfaceColor
-                                            border.width: 1
-                                            Text {
-                                                anchors.centerIn: parent
-                                                text: "+" + Math.max(0, groupSeenRow.uids.length - 4)
-                                                font.pixelSize: 8
-                                                font.bold: true
-                                                color: ThemeManager.textColor
+                                            HoverHandler {
+                                                id: groupSeenHover
+                                                cursorShape: Qt.PointingHandCursor
                                             }
-                                        }
 
-                                        HoverHandler {
-                                            id: groupSeenHover
-                                            cursorShape: Qt.PointingHandCursor
-                                        }
+                                            TapHandler {
+                                                onTapped: root.openSeenDetails(groupSeenRow.uids)
+                                            }
 
-                                        TapHandler {
-                                            onTapped: root.openSeenDetails(groupSeenRow.uids)
+                                            ToolTip.visible: groupSeenHover.hovered
+                                            ToolTip.delay: 200
+                                            ToolTip.text: root.seenTooltipText(groupSeenRow.uids)
                                         }
-
-                                        ToolTip.visible: groupSeenHover.hovered
-                                        ToolTip.delay: 200
-                                        ToolTip.text: root.seenTooltipText(groupSeenRow.uids)
-                                    }
-                                    Text {
-                                        visible: model.showStatus && (!ZaloClient.currentConversationIsGroup || !model.seenUids || model.seenUids.length === 0)
-                                        text: root.statusLabel(model.status)
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        color: model.status === "failed" ? Theme.badgeRed
-                                               : model.status === "seen" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                                        Text {
+                                            visible: model.showStatus && (!ZaloClient.currentConversationIsGroup || !model.seenUids || model.seenUids.length === 0)
+                                            text: root.statusLabel(model.status)
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            color: model.status === "failed" ? Theme.badgeRed
+                                                   : model.status === "seen" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                                        }
                                     }
                                 }
 
@@ -3978,7 +3951,7 @@ Rectangle {
                             anchors.fill: parent
                             readonly property bool usable: ZaloClient.brokenMediaRevision >= 0 && !ZaloClient.isMediaBroken(pinDetailPopup.image)
                             visible: status === Image.Ready
-                            source: usable ? pinDetailPopup.image : ""
+                            source: usable ? MediaSource.toSource(pinDetailPopup.image) : ""
                             sourceSize.width: 720
                             fillMode: Image.PreserveAspectFit
                             horizontalAlignment: Image.AlignLeft
@@ -4504,7 +4477,7 @@ Rectangle {
                         Image {
                             id: topicThumb
                             anchors.fill: parent
-                            source: topicRow.thumbUsable ? topicRow.thumb : ""
+                            source: topicRow.thumbUsable ? MediaSource.toSource(topicRow.thumb) : ""
                             sourceSize.width: 36
                             sourceSize.height: 36
                             fillMode: Image.PreserveAspectCrop

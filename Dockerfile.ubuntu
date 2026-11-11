@@ -26,7 +26,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     git \
     ca-certificates \
     pkg-config \
-    python3 \
     file \
     dpkg-dev \
     curl \
