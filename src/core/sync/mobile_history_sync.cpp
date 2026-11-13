@@ -38,6 +38,8 @@ constexpr int kConfirmTimeoutMs = 3 * 60 * 1000;
 constexpr int kBackupTimeoutMs = 30 * 60 * 1000;
 constexpr int kNoiseBatch = 100;
 constexpr int kDownloadStallMs = 2 * 60 * 1000;
+constexpr int kMaxDownloadAttempts = 5;
+constexpr int kDownloadRetryBaseMs = 1000;
 
 QString typeName(int t) {
     static const QHash<int, QString> map{
@@ -373,6 +375,7 @@ void MobileHistorySync::start(const QString& myNoisedUid, const QString& pcName)
     m_myNoisedUid = myNoisedUid;
     m_pcName = pcName;
     m_sawSyncV2 = false;
+    m_downloadAttempt = 0;
     m_keys = generateKeyPair();
     if (m_keys.publicKeyBase64.isEmpty() || m_keys.privateKeyPem.isEmpty()) {
         fail(L("Không tạo được khoá mã hoá cho phiên đồng bộ.", "Couldn't create the encryption key for this sync."));
@@ -512,18 +515,24 @@ void MobileHistorySync::onBackupReady(const QJsonObject& data) {
         fail(L("Bản sao lưu thiếu đường dẫn tải hoặc khoá.", "The backup has no download link or key."));
         return;
     }
+    m_downloadAttempt = 0;
     download();
 }
 
 void MobileHistorySync::download() {
     if (!m_session) return;
-    log(QStringLiteral("download starting host=%1 path=%2").arg(QUrl(m_url).host(), QUrl(m_url).path()));
-    m_workDir = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
-                    .filePath(QStringLiteral("sync/%1").arg(QUuid::createUuid().toString(QUuid::Id128)));
-    QDir().mkpath(m_workDir);
-    QFile::setPermissions(m_workDir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    ++m_downloadAttempt;
+    const QUrl url(m_url);
+    log(QStringLiteral("download starting attempt=%1 scheme=%2 host=%3 path=%4 query=%5")
+            .arg(m_downloadAttempt).arg(url.scheme(), url.host(), url.path()).arg(int(url.hasQuery())));
+    if (m_workDir.isEmpty()) {
+        m_workDir = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
+                        .filePath(QStringLiteral("sync/%1").arg(QUuid::createUuid().toString(QUuid::Id128)));
+        QDir().mkpath(m_workDir);
+        QFile::setPermissions(m_workDir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    }
     auto file = std::make_shared<QFile>(QDir(m_workDir).filePath(QStringLiteral("backup.zdb")));
-    if (!file->open(QIODevice::WriteOnly)) {
+    if (!file->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         fail(L("Không ghi được bản sao lưu vào máy.", "Couldn't save the backup on this computer."));
         return;
     }
@@ -531,7 +540,7 @@ void MobileHistorySync::download() {
     const quint64 gen = m_generation;
     m_writeFailed = false;
     m_timeout.start(kDownloadStallMs);
-    m_download = m_session->getWithCookies(QUrl(m_url));
+    m_download = m_session->getWithCookies(url);
     connect(m_download, &QNetworkReply::readyRead, this, [this, file]() {
         if (m_download) {
             m_timeout.start(kDownloadStallMs);
@@ -558,15 +567,26 @@ void MobileHistorySync::download() {
         const QByteArray tail = reply->readAll();
         if (!m_writeFailed && file->write(tail) != tail.size()) m_writeFailed = true;
         file->close();
-        log(QStringLiteral("download http=%1 bytes=%2").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt())
-                .arg(file->size()));
+        const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        log(QStringLiteral("download attempt=%1 http=%2 err=%3 bytes=%4")
+                .arg(m_downloadAttempt).arg(http).arg(int(reply->error())).arg(file->size()));
         if (m_writeFailed) {
             fail(L("Không ghi được bản sao lưu vào máy (ổ đĩa đầy hoặc không có quyền ghi).",
                    "Couldn't write the backup to disk (disk full or not writable)."));
             return;
         }
         if (reply->error() != QNetworkReply::NoError) {
-            const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const bool retryable = (http == 400 || http == 404 || http == 429 || http >= 500 || http == 0);
+            if (retryable && m_downloadAttempt < kMaxDownloadAttempts) {
+                const int delayMs = qMin(8000, kDownloadRetryBaseMs << (m_downloadAttempt - 1));
+                log(QStringLiteral("download retrying attempt=%1 in %2 ms").arg(m_downloadAttempt + 1).arg(delayMs));
+                setState(Importing, L("Đang chờ máy chủ Zalo chuẩn bị bản sao lưu...",
+                                      "Waiting for Zalo's server to prepare the backup..."), 20);
+                QTimer::singleShot(delayMs, this, [this, gen]() {
+                    if (gen == m_generation) download();
+                });
+                return;
+            }
             const bool en = m_lang == QLatin1String("en");
             const QString detail = http > 0
                 ? Network::ErrorCatalog::render(http, QStringLiteral("HTTP %1").arg(http), en)

@@ -1178,9 +1178,15 @@ QNetworkReply* ZaloSession::getWithCookies(const QUrl& url) {
         bool hasSek = false;
         for (const QNetworkCookie& c : m_jar->cookiesForUrl(QUrl(QStringLiteral("https://chat.zalo.me/")))) {
             const QByteArray name = c.name();
-            if (name == "zpw_uin") hasUin = true;
-            if (name == "zpw_sek") hasSek = true;
-            parts << QString::fromUtf8(name) + "=" + QString::fromUtf8(c.value());
+            const QByteArray val = c.value();
+            if (name == "zpw_uin") {
+                if (val.isEmpty()) continue;
+                hasUin = true;
+            } else if (name == "zpw_sek") {
+                if (val.isEmpty()) continue;
+                hasSek = true;
+            }
+            parts << QString::fromUtf8(name) + "=" + QString::fromUtf8(val);
         }
         const QString uin = m_uid.isEmpty() ? m_loginInfo.value(QStringLiteral("uid")).toVariant().toString() : m_uid;
         if (!hasUin && !uin.isEmpty()) {
@@ -1194,6 +1200,7 @@ QNetworkReply* ZaloSession::getWithCookies(const QUrl& url) {
         req.setRawHeader("Referer", "https://chat.zalo.me/");
         req.setRawHeader("Origin", "https://chat.zalo.me");
     }
+    req.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
     req.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
     req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);

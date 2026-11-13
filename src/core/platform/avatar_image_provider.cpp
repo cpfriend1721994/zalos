@@ -113,9 +113,12 @@ public:
         QObject::connect(reply, &QNetworkReply::finished, reply, [nam, req, reply, cachePath, allowRetry]() {
             reply->deleteLater();
             const QString key = req.url().toString();
-            const bool http2Failure = reply->error() != QNetworkReply::NoError
-                                      && reply->attribute(QNetworkRequest::Http2WasUsedAttribute).toBool();
-            if (http2Failure && allowRetry) {
+            const bool retryable = reply->error() != QNetworkReply::NoError
+                                   && (reply->attribute(QNetworkRequest::Http2WasUsedAttribute).toBool()
+                                       || reply->error() == QNetworkReply::RemoteHostClosedError
+                                       || reply->error() == QNetworkReply::TemporaryNetworkFailureError
+                                       || reply->error() == QNetworkReply::TimeoutError);
+            if (retryable && allowRetry) {
                 QNetworkRequest retry = req;
                 retry.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
                 fetch(nam, retry, cachePath, false);
