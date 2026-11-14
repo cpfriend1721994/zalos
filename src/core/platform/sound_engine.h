@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -42,9 +43,12 @@ private:
     QMediaPlayer* ensurePlayer();
     static QString externalPlayer();
     void startExternal();
+    void playWithMediaPlayer(const QString& file, bool loop);
     QProcess* m_process{nullptr};
     QString m_externalFile;
     bool m_externalLoop{false};
+    bool m_externalStopping{false};
+    QElapsedTimer m_externalStarted;
     QSoundEffect* m_effect{nullptr};
     QMediaPlayer* m_player{nullptr};
 };

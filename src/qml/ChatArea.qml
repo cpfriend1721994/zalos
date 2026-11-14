@@ -15,14 +15,18 @@ Rectangle {
     property bool isEditorExpanded: false
     onIsFormattingActiveChanged: {
         if (messageList.stickToBottom || messageList.distanceToEnd < 48) {
-            Qt.callLater(() => messageList.positionViewAtEnd());
+            Qt.callLater(root.followEnd);
         }
     }
     onIsEditorExpandedChanged: {
         if (messageList.stickToBottom || messageList.distanceToEnd < 48) {
-            Qt.callLater(() => messageList.positionViewAtEnd());
+            Qt.callLater(root.followEnd);
         }
     }
+    function followEnd(): void {
+        if (messageList && typeof messageList.scrollToEnd === "function") messageList.scrollToEnd();
+    }
+    readonly property int infoPanelWidth: Math.min(280, width)
     readonly property bool infoOverlay: ZaloClient.showConversationInfo && width < 620
     readonly property int composerLineHeight: Math.ceil(composerMetrics.height)
     readonly property real composerMinTextHeight: composerLineHeight * 3 + 16
@@ -156,7 +160,7 @@ Rectangle {
 
     function jumpToBottom(): void {
         messageList.stickToBottom = true;
-        messageList.positionViewAtEnd();
+        messageList.scrollToEnd();
         root.newBelow = 0;
     }
 
@@ -409,6 +413,7 @@ Rectangle {
         target: ZaloClient
         function onRevealRequested(msgId: string) { Qt.callLater(() => root.jumpToMessage(msgId, "")); }
         function onCurrentConversationChanged() {
+            if (ZaloClient.currentConversationId.length > 0 && ZaloClient.currentConversationId === root.draftConvId) return;
             root.closeSearch();
             root.mentionPicks = [];
             root.closeSuggestions();
@@ -446,7 +451,6 @@ Rectangle {
         spacing: 0
 
         ColumnLayout {
-            visible: !root.infoOverlay
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 0
@@ -1198,15 +1202,18 @@ Rectangle {
 
             ListView {
                 id: messageList
+                objectName: "messageList"
                 anchors.fill: parent
                 clip: true
                 model: ZaloClient.messageModel
+                reuseItems: true
                 spacing: 14
                 topMargin: pinBar.visible ? 16 + 56 : 16
-                bottomMargin: typingIndicatorPill.isPartnerTyping ? 54 : 16
-                Behavior on bottomMargin { NumberAnimation { duration: 150 } }
+                bottomMargin: 19
 
                 ScrollBar.vertical: ScrollBar {
+                    id: verticalScrollBar
+                    objectName: "messageScrollBar"
                     policy: ScrollBar.AsNeeded
                 }
 
@@ -1214,20 +1221,39 @@ Rectangle {
                     NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: 150; easing.type: Easing.OutQuad }
                 }
 
+                property bool autoScrolling: false
+                function scrollToEnd(): void {
+                    messageList.autoScrolling = true;
+                    messageList.positionViewAtEnd();
+                    const end = messageList.originY + messageList.contentHeight + messageList.bottomMargin - messageList.height;
+                    if (end > messageList.contentY) messageList.contentY = end;
+                    messageList.autoScrolling = false;
+                    messageList.stickToBottom = true;
+                }
+
                 property bool stickToBottom: true
                 property int countBeforeReset: 0
                 readonly property real distanceToEnd: Math.max(0, originY + contentHeight + bottomMargin - height - contentY)
-                onMovementEnded: stickToBottom = distanceToEnd < 48
+                property real lastContentY: 0
+                property bool resetting: false
+                onContentYChanged: {
+                    const previous = lastContentY;
+                    lastContentY = contentY;
+                    if (autoScrolling || resetting || count === 0) return;
+                    const distance = Math.max(0, originY + contentHeight + bottomMargin - height - contentY);
+                    if (contentY < previous - 0.5 && distance > 2) stickToBottom = false;
+                    else if (distance < 48) stickToBottom = true;
+                }
                 onAtYEndChanged: if (atYEnd) root.newBelow = 0
                 onCountChanged: {
-                    if (stickToBottom) Qt.callLater(() => messageList.positionViewAtEnd());
+                    if (stickToBottom) Qt.callLater(root.followEnd);
                 }
                 onContentHeightChanged: {
-                    if (stickToBottom && !moving) Qt.callLater(() => messageList.positionViewAtEnd());
+                    if (stickToBottom && !moving) Qt.callLater(root.followEnd);
                 }
                 onHeightChanged: {
                     if (stickToBottom || distanceToEnd < 48) {
-                        messageList.positionViewAtEnd();
+                        messageList.scrollToEnd();
                     }
                 }
                 onAtYBeginningChanged: {
@@ -1246,8 +1272,12 @@ Rectangle {
                         messageList.stickToBottom = false;
                         Qt.callLater(() => messageList.positionViewAtIndex(row, ListView.Beginning));
                     }
-                    function onModelAboutToBeReset() { messageList.countBeforeReset = messageList.count; }
+                    function onModelAboutToBeReset() {
+                        messageList.countBeforeReset = messageList.count;
+                        messageList.resetting = true;
+                    }
                     function onModelReset() {
+                        Qt.callLater(() => { messageList.resetting = false; });
                         const added = messageList.count - messageList.countBeforeReset;
                         if (!messageList.stickToBottom && added > 0 && messageList.countBeforeReset > 0) {
                             Qt.callLater(() => messageList.positionViewAtIndex(added, ListView.Beginning));
@@ -1283,6 +1313,8 @@ Rectangle {
                     required property string href
                     required property string mediaUrl
                     required property var mediaRun
+
+                    ListView.onReused: msgText.deselect()
 
                     readonly property bool mine: isMine
                     readonly property bool isPhoto: messageType === "image" || messageType === "video"
@@ -1400,10 +1432,12 @@ Rectangle {
                                 color: ThemeManager.surfaceColor
                                 border.color: ThemeManager.borderColor
                                 border.width: 1
-                                Component.onCompleted: {
+                                function prefetch(): void {
                                     if (ecardCard.suggest) ZaloClient.stickers.loadBirthdayStickers();
                                     else if (ecardCard.stickers.length > 0) ZaloClient.prefetchStickers(ecardCard.stickers);
                                 }
+                                Component.onCompleted: ecardCard.prefetch()
+                                onStickersChanged: ecardCard.prefetch()
 
                                 ColumnLayout {
                                     id: ecardCol
@@ -2150,7 +2184,7 @@ Rectangle {
                                                     }
                                                 }
                                                 TapHandler {
-                                                    onTapped: if (msgRow.href.length > 0) Qt.openUrlExternally(msgRow.href)
+                                                    onTapped: if (msgRow.href.length > 0) ZaloClient.openExternalUrl(msgRow.href)
                                                 }
                                                 HoverHandler { cursorShape: msgRow.href.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                             }
@@ -2268,9 +2302,12 @@ Rectangle {
                                                 spacing: 6
                                                 readonly property var poll: msgRow.isPoll ? model.pollData : ({})
                                                 readonly property int total: pollCard.poll.num_vote || 0
-                                                Component.onCompleted: {
-                                                    if (msgRow.isPoll && (model.pollData.poll_id || 0) > 0) ZaloClient.refreshPoll(model.pollData.poll_id, false);
+                                                readonly property var pollId: msgRow.isPoll ? (model.pollData.poll_id || 0) : 0
+                                                function refresh(): void {
+                                                    if (pollCard.pollId > 0) ZaloClient.refreshPoll(pollCard.pollId, false);
                                                 }
+                                                Component.onCompleted: pollCard.refresh()
+                                                onPollIdChanged: pollCard.refresh()
                                                 Text {
                                                     text: I18n.t("BÌNH CHỌN", "POLL")
                                                     font.family: Theme.fontFamily
@@ -2636,14 +2673,15 @@ Rectangle {
 
             Rectangle {
                 id: typingIndicatorPill
+                objectName: "typingPill"
                 anchors.left: parent.left
                 anchors.bottom: parent.bottom
                 anchors.leftMargin: 16
-                anchors.bottomMargin: 14
-                implicitWidth: typingRow.implicitWidth + 24
+                anchors.bottomMargin: 3
+                implicitWidth: typingRow.implicitWidth + 20
                 width: implicitWidth
-                height: 28
-                radius: 14
+                height: 22
+                radius: 11
                 color: ThemeManager.surfaceColor
                 border.color: ThemeManager.borderColor
                 border.width: 1
@@ -2657,9 +2695,9 @@ Rectangle {
                 RowLayout {
                     id: typingRow
                     anchors.fill: parent
-                    anchors.leftMargin: 10
-                    anchors.rightMargin: 12
-                    spacing: 6
+                    anchors.leftMargin: 9
+                    anchors.rightMargin: 10
+                    spacing: 5
 
                     Row {
                         spacing: 3
@@ -2669,17 +2707,17 @@ Rectangle {
                             model: 3
                             Rectangle {
                                 id: dot
-                                width: 5
-                                height: 5
-                                radius: 2.5
+                                width: 4
+                                height: 4
+                                radius: 2
                                 color: Theme.zaloBlue
 
                                 SequentialAnimation on y {
                                     running: typingIndicatorPill.isPartnerTyping
                                     loops: Animation.Infinite
                                     PauseAnimation { duration: index * 140 }
-                                    NumberAnimation { from: 0; to: -4; duration: 240; easing.type: Easing.OutQuad }
-                                    NumberAnimation { from: -4; to: 0; duration: 240; easing.type: Easing.InQuad }
+                                    NumberAnimation { from: 0; to: -3; duration: 240; easing.type: Easing.OutQuad }
+                                    NumberAnimation { from: -3; to: 0; duration: 240; easing.type: Easing.InQuad }
                                     PauseAnimation { duration: (2 - index) * 140 }
                                 }
                             }
@@ -3802,19 +3840,39 @@ Rectangle {
         }
     }
 
+    Item {
+        objectName: "conversationInfoSlot"
+        visible: ZaloClient.showConversationInfo && !root.infoOverlay
+        Layout.fillHeight: true
+        Layout.preferredWidth: visible ? root.infoPanelWidth : 0
+    }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: root.infoOverlay
+        color: Qt.rgba(0, 0, 0, 0.25)
+        z: 40
+        MouseArea {
+            anchors.fill: parent
+            onClicked: ZaloClient.showConversationInfo = false
+        }
+    }
+
     Loader {
         id: conversationInfoLoader
         objectName: "conversationInfoLoader"
         active: ZaloClient.showConversationInfo
         visible: active
-        Layout.fillHeight: true
-        Layout.fillWidth: root.infoOverlay
-        Layout.preferredWidth: active ? 280 : 0
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        width: root.infoPanelWidth
+        z: 41
         sourceComponent: ConversationInfoPanel {
             objectName: "conversationInfoPanel"
             anchors.fill: parent
         }
-    }
     }
 
     property bool emojiPickerOpen: false
@@ -3963,7 +4021,7 @@ Rectangle {
                             cursorShape: pinDetailImage.status === Image.Loading ? Qt.BusyCursor : Qt.PointingHandCursor
                             onClicked: {
                                 if (pinDetailImage.status === Image.Ready)
-                                    Qt.openUrlExternally(pinDetailPopup.href.length > 0 ? pinDetailPopup.href : pinDetailPopup.image);
+                                    ZaloClient.openExternalUrl(pinDetailPopup.href.length > 0 ? pinDetailPopup.href : pinDetailPopup.image);
                                 else if (pinDetailImage.status !== Image.Loading)
                                     ZaloClient.retryMedia(pinDetailPopup.image);
                             }
@@ -4010,7 +4068,7 @@ Rectangle {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.openUrlExternally(pinDetailPopup.href)
+                            onClicked: ZaloClient.openExternalUrl(pinDetailPopup.href)
                         }
                     }
                     Text {

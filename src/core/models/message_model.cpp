@@ -246,48 +246,50 @@ void MessageModel::addMessageDirect(const QString& convId, const QString& id, co
 void MessageModel::mergeMessages(const QString& convId, const QVector<MessageItem>& items) {
     if (items.isEmpty()) return;
     const bool isActive = !convId.isEmpty() && m_currentConvId == convId;
-    QVector<MessageItem> working = isActive ? m_items : m_store.value(convId);
+    QVector<MessageItem>& base = threadFor(convId);
+    const int baseSize = base.size();
+    QVector<MessageItem> appended;
+    auto at = [&](int i) -> MessageItem& { return i < baseSize ? base[i] : appended[i - baseSize]; };
     QSet<QString> known;
+    known.reserve(baseSize + items.size());
     QHash<QString, int> byCliId;
-    for (int i = 0; i < working.size(); ++i) {
-        known.insert(working[i].id);
-        if (!working[i].cliMsgId.isEmpty() && working[i].cliMsgId != QLatin1String("0")) {
-            byCliId.insert(working[i].cliMsgId, i);
-        }
+    for (int i = 0; i < baseSize; ++i) {
+        const MessageItem& m = std::as_const(base)[i];
+        known.insert(m.id);
+        if (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0")) byCliId.insert(m.cliMsgId, i);
     }
-    bool added = false;
     bool needSort = false;
     for (const auto& m : items) {
         if (m.id.isEmpty() || known.contains(m.id)) continue;
         const int existingIdx = (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0") && byCliId.contains(m.cliMsgId))
                                 ? byCliId.value(m.cliMsgId) : -1;
-        if (existingIdx >= 0 && (working[existingIdx].id.startsWith(QLatin1String("local-")) || working[existingIdx].senderId == m.senderId)) {
-            const QString oldId = working[existingIdx].id;
+        if (existingIdx >= 0 && (at(existingIdx).id.startsWith(QLatin1String("local-")) || at(existingIdx).senderId == m.senderId)) {
+            MessageItem& existing = at(existingIdx);
+            const QString oldId = existing.id;
             MessageItem merged = m;
             if (merged.status.isEmpty()) {
-                if (working[existingIdx].id.startsWith(QLatin1String("local-"))) {
+                if (existing.id.startsWith(QLatin1String("local-"))) {
                     merged.status = QStringLiteral("sent");
                 } else {
-                    merged.status = working[existingIdx].status.isEmpty() ? QStringLiteral("sent") : working[existingIdx].status;
+                    merged.status = existing.status.isEmpty() ? QStringLiteral("sent") : existing.status;
                 }
-            } else if (working[existingIdx].status == QStringLiteral("seen") && merged.status == QStringLiteral("sent")) {
+            } else if (existing.status == QStringLiteral("seen") && merged.status == QStringLiteral("sent")) {
                 merged.status = QStringLiteral("seen");
-            } else if (working[existingIdx].status == QStringLiteral("delivered") && merged.status == QStringLiteral("sent")) {
+            } else if (existing.status == QStringLiteral("delivered") && merged.status == QStringLiteral("sent")) {
                 merged.status = QStringLiteral("delivered");
             }
-            if (merged.reaction.isEmpty()) merged.reaction = working[existingIdx].reaction;
-            for (const QString& u : working[existingIdx].seenUids) {
+            if (merged.reaction.isEmpty()) merged.reaction = existing.reaction;
+            for (const QString& u : existing.seenUids) {
                 if (!merged.seenUids.contains(u)) merged.seenUids.append(u);
             }
-            if (working[existingIdx].isRecalled) {
+            if (existing.isRecalled) {
                 merged.isRecalled = true;
-                merged.text = working[existingIdx].text;
+                merged.text = existing.text;
             }
             known.remove(oldId);
             known.insert(merged.id);
-            working[existingIdx] = merged;
-            if (isActive) {
-                m_items[existingIdx] = merged;
+            existing = std::move(merged);
+            if (isActive && existingIdx < baseSize) {
                 emit dataChanged(index(existingIdx), index(existingIdx));
                 refreshRunsAround(existingIdx);
             }
@@ -295,29 +297,51 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         }
         known.insert(m.id);
         if (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0")) {
-            byCliId.insert(m.cliMsgId, working.size());
+            byCliId.insert(m.cliMsgId, baseSize + appended.size());
         }
-        if (!working.isEmpty() && m.ts < working.last().ts) needSort = true;
-        working.append(m);
-        added = true;
+        const MessageItem* last = !appended.isEmpty() ? &appended.last() : (baseSize > 0 ? &std::as_const(base).last() : nullptr);
+        if (last && m.ts < last->ts) needSort = true;
+        appended.append(m);
     }
-    if (!added) {
-        if (!isActive) m_store.insert(convId, std::move(working));
-        return;
-    }
-    if (needSort) {
-        std::stable_sort(working.begin(), working.end(), [](const MessageItem& a, const MessageItem& b) { return a.ts < b.ts; });
-    }
+    if (appended.isEmpty()) return;
 
     if (!isActive) {
-        m_store.insert(convId, std::move(working));
+        base.append(std::move(appended));
+        if (needSort) {
+            std::stable_sort(base.begin(), base.end(), [](const MessageItem& a, const MessageItem& b) { return a.ts < b.ts; });
+        }
         return;
     }
-    if (working.size() > m_items.size() && std::equal(m_items.cbegin(), m_items.cend(), working.cbegin(),
-            [](const MessageItem& a, const MessageItem& b) { return a.id == b.id; })) {
+    bool pureAppend = !needSort;
+    QVector<MessageItem> sorted;
+    if (needSort) {
+        sorted.reserve(baseSize + appended.size());
+        sorted = m_items;
+        sorted.append(appended);
+        std::stable_sort(sorted.begin(), sorted.end(), [](const MessageItem& a, const MessageItem& b) { return a.ts < b.ts; });
+        pureAppend = std::equal(m_items.cbegin(), m_items.cend(), sorted.cbegin(),
+                                [](const MessageItem& a, const MessageItem& b) { return a.id == b.id; });
+    }
+    const int prepended = sorted.size() - m_items.size();
+    if (!pureAppend && needSort && prepended > 0
+        && std::equal(m_items.cbegin(), m_items.cend(), sorted.cbegin() + prepended,
+                      [](const MessageItem& a, const MessageItem& b) { return a.id == b.id; })) {
+        beginInsertRows(QModelIndex(), 0, prepended - 1);
+        m_items = std::move(sorted);
+        endInsertRows();
+        if (prepended < m_items.size()) {
+            emit dataChanged(index(prepended), index(prepended));
+            refreshRunsAround(prepended);
+        }
+        if (m_pendingUnread > 0) placeUnreadMarker();
+        return;
+    }
+    if (pureAppend) {
         const int before = m_items.size();
-        beginInsertRows(QModelIndex(), m_items.size(), working.size() - 1);
-        m_items = std::move(working);
+        const int count = appended.size();
+        beginInsertRows(QModelIndex(), before, before + count - 1);
+        if (needSort) m_items = std::move(sorted);
+        else m_items.append(std::move(appended));
         endInsertRows();
         if (before > 0) {
             emit dataChanged(index(0), index(before - 1), {LastInGroupRole, ShowStatusRole});
@@ -330,7 +354,7 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         if (incoming > 0) emit incomingAppended(incoming);
     } else {
         beginResetModel();
-        m_items = std::move(working);
+        m_items = std::move(sorted);
         endResetModel();
     }
     if (m_pendingUnread > 0) placeUnreadMarker();
@@ -479,17 +503,7 @@ void MessageModel::setStatus(const QString& convId, const QString& msgId, const 
 }
 
 void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
-    const auto thread = threadOf(convId);
-    qint64 limit = -1;
-    for (const auto& m : thread) {
-        if (m.id == msgId) { limit = m.ts; break; }
-    }
-    if (limit < 0 && !thread.isEmpty()) limit = thread.last().ts;
-    for (const auto& m : thread) {
-        if (m.isMine && m.ts <= limit && m.status != "seen" && !m.id.startsWith("local-")) {
-            setStatus(convId, m.id, "seen");
-        }
-    }
+    markOwnUpTo(convId, msgId, QStringLiteral("seen"));
 }
 
 void MessageModel::recordGroupSeen(const QString& convId, const QString& msgId, const QString& userId) {
@@ -503,17 +517,30 @@ void MessageModel::recordGroupSeen(const QString& convId, const QString& msgId, 
 }
 
 void MessageModel::markDeliveredUpTo(const QString& convId, const QString& msgId) {
-    const auto thread = threadOf(convId);
+    markOwnUpTo(convId, msgId, QStringLiteral("delivered"));
+}
+
+void MessageModel::markOwnUpTo(const QString& convId, const QString& msgId, const QString& status) {
+    const bool active = !convId.isEmpty() && convId == m_currentConvId;
+    if (!active && !m_store.contains(convId)) return;
+    QVector<MessageItem>& thread = threadFor(convId);
     qint64 limit = -1;
-    for (const auto& m : thread) {
+    for (const auto& m : std::as_const(thread)) {
         if (m.id == msgId) { limit = m.ts; break; }
     }
-    if (limit < 0 && !thread.isEmpty()) limit = thread.last().ts;
-    for (const auto& m : thread) {
-        if (m.isMine && m.ts <= limit && m.status != "seen" && m.status != "delivered" && !m.id.startsWith("local-")) {
-            setStatus(convId, m.id, "delivered");
-        }
+    if (limit < 0 && !thread.isEmpty()) limit = std::as_const(thread).last().ts;
+    const bool delivered = status == QLatin1String("delivered");
+    int first = -1;
+    int last = -1;
+    for (int i = 0; i < thread.size(); ++i) {
+        const MessageItem& m = std::as_const(thread)[i];
+        if (!m.isMine || m.ts > limit || m.status == QLatin1String("seen") || m.id.startsWith(QLatin1String("local-"))) continue;
+        if (delivered && m.status == QLatin1String("delivered")) continue;
+        thread[i].status = status;
+        if (first < 0) first = i;
+        last = i;
     }
+    if (active && first >= 0) emit dataChanged(index(first), index(last), {StatusRole});
 }
 
 bool MessageModel::contains(const QString& convId, const QString& msgId) const {
@@ -637,6 +664,7 @@ QVariantMap MessageModel::getMessageById(const QString& msgId) const {
                 {"isMine", item.isMine},
                 {"messageType", item.messageType},
                 {"mediaUrl", item.mediaUrl},
+                {"href", item.href},
                 {"ts", item.ts},
                 {"senderId", item.senderId}
             };
@@ -653,6 +681,7 @@ QVariantMap MessageModel::getMessageById(const QString& msgId) const {
                     {"isMine", item.isMine},
                     {"messageType", item.messageType},
                     {"mediaUrl", item.mediaUrl},
+                    {"href", item.href},
                     {"ts", item.ts},
                     {"senderId", item.senderId}
                 };

@@ -22,8 +22,8 @@ public:
     void setHangup(std::function<void()> cb) { m_hangup = std::move(cb); }
     void open(const UiOpen& o) override;
     void incoming(const UiIncoming& o, AcceptFn onAccept, RejectFn onReject) override;
-    void status(const QString& text, double since = 0) override;
-    void close(const QString& text) override;
+    void status(const QString& code, double since = 0, const QJsonObject& params = {}) override;
+    void close(const QString& code, const QJsonObject& params = {}) override;
 
 private:
     void kill();

@@ -22,9 +22,9 @@ public:
     bool rich() const override { return !m_fallback; }
     void open(const UiOpen& o) override;
     void incoming(const UiIncoming& o, AcceptFn onAccept, RejectFn onReject) override;
-    void status(const QString& text, double since = 0) override;
-    void close(const QString& text) override;
-    void notice(const QString& text) override;
+    void status(const QString& code, double since = 0, const QJsonObject& params = {}) override;
+    void close(const QString& code, const QJsonObject& params = {}) override;
+    void notice(const QString& code, const QJsonObject& params = {}) override;
     void micVolume(int pct) override;
     void micLevel(int level) override;
     void peer(bool camOff, bool muted, bool sharing) override;

@@ -6,6 +6,7 @@
 #include "log.h"
 
 #include <QDateTime>
+#include <QJsonDocument>
 #include <QRandomGenerator>
 #include <QTimer>
 #include <utility>
@@ -167,7 +168,7 @@ void EngineCore::makeCall(const QJsonObject& data) {
     if (isNum(c->type, 3)) camMic();
     UiOpen o;
     o.title = c->peerName.isEmpty() ? QStringLiteral("Zalo") : c->peerName;
-    o.text = QStringLiteral("Đang gọi…");
+    o.statusCode = QStringLiteral("calling");
     o.avatar = c->avatar;
     o.video = isNum(c->type, 3);
     o.selfAvatar = selfAvatar();
@@ -188,11 +189,11 @@ void EngineCore::setCallTimeout(const CallPtr& c, int ms) {
         if (!c || m_call != c || c->state == QLatin1String("connected") || c->state == QLatin1String("ended")) return;
         const bool unreachable = c->state == QLatin1String("calling");
         log(QStringLiteral("outgoing call: %1 (timeout)").arg(unreachable ? QStringLiteral("unreachable / no network") : QStringLiteral("no answer")));
-        const QString closeText = unreachable ? QStringLiteral("Người nhận không liên lạc được") : QStringLiteral("Người nhận không trả lời");
-        m_ui->status(closeText);
+        const QString closeCode = unreachable ? QStringLiteral("recipientUnreachable") : QStringLiteral("recipientNoAnswer");
+        m_ui->status(closeCode);
         send(QStringLiteral("sendSignal"), 405,
              {{"callId", c->callId}, {"callType", isNum(c->type, 3) ? 1 : 0}, {"status", 0}, {"toId", c->peerId}});
-        finish(103, closeText);
+        finish(103, closeCode);
     });
 }
 
@@ -228,15 +229,15 @@ void EngineCore::screenShare(bool on) {
 }
 
 void EngineCore::groupNotSupported(const QString& title, const QString& avatar) {
-    const QString text = QStringLiteral("Gọi nhóm chưa được hỗ trợ trên Linux");
+    const QString code = QStringLiteral("groupUnsupported");
     log(QStringLiteral("group call: not supported"));
     UiOpen o;
     o.title = title;
-    o.text = text;
+    o.statusCode = code;
     o.avatar = avatar;
     m_ui->open(o);
-    later(3000, [this, text] {
-        if (!m_call) m_ui->close(text);
+    later(3000, [this, code] {
+        if (!m_call) m_ui->close(code);
     });
 }
 
@@ -250,11 +251,13 @@ void EngineCore::incomingGroupNotice(const QJsonObject& d) {
         const auto n = weak.lock();
         if (!n || m_groupNotice != n) return;
         m_groupNotice.reset();
-        if (!m_call) m_ui->close(QStringLiteral("Đã bỏ qua cuộc gọi nhóm"));
+        if (!m_call) m_ui->close(QStringLiteral("groupCallIgnored"));
     };
     UiIncoming o;
     o.title = strOr(d.value("groupName"), QStringLiteral("Cuộc gọi nhóm"));
-    o.text = QStringLiteral("%1 đang gọi nhóm. Gọi nhóm chưa được hỗ trợ trên Linux.").arg(strOr(d.value("Dname"), QStringLiteral("Ai đó")));
+    o.statusCode = QStringLiteral("incomingGroupUnsupported");
+    o.statusParams = QJsonObject{{"inviter", strOr(d.value("Dname"))}};
+    o.inviter = strOr(d.value("Dname"));
     o.avatar = strOr(d.value("groupAvatar"), strOr(d.value("avatar")));
     o.noAnswer = true;
     m_ui->incoming(o, [dismiss](bool) { dismiss(); }, [dismiss](const QString&) { dismiss(); });
@@ -296,7 +299,7 @@ void EngineCore::onControl(const QJsonValue& actv, const QJsonObject& data) {
             incomingGroupNotice(d);
         } else if (m_groupNotice) {
             m_groupNotice.reset();
-            m_ui->close(QStringLiteral("Đã bỏ qua cuộc gọi nhóm"));
+            m_ui->close(QStringLiteral("groupCallIgnored"));
         }
         return;
     }
@@ -310,7 +313,7 @@ void EngineCore::onControl(const QJsonValue& actv, const QJsonObject& data) {
     if (act == QLatin1String("ring_ring")) {
         if (c && c->state == QLatin1String("calling")) {
             c->state = QStringLiteral("ringing");
-            m_ui->status(QStringLiteral("Đang đổ chuông…"));
+            m_ui->status(QStringLiteral("ringing"));
             setCallTimeout(c, kRingTimeoutMs);
         }
         return;
@@ -329,7 +332,7 @@ void EngineCore::onControl(const QJsonValue& actv, const QJsonObject& data) {
         const double sd = js::truthy(sv) ? num(sv) : 0;
         if (sd != 0) {
             log(QStringLiteral("peer declined, answer status %1").arg(fmtNum(sd)));
-            finish(160, sd == 3 ? QStringLiteral("Người nhận đã từ chối") : QStringLiteral("Không liên lạc được"));
+            finish(160, sd == 3 ? QStringLiteral("recipientDeclined") : QStringLiteral("recipientUnreachable"));
             return;
         }
         connectCaller(strOr(params.value(QStringLiteral("rtpSerIp"))));
@@ -421,7 +424,7 @@ void EngineCore::incoming(const QJsonObject& d) {
     send(QStringLiteral("sendSignal"), 407, {{"callId", c->callId}, {"callerId", c->peerId}});
     UiIncoming o;
     o.title = c->peerName.isEmpty() ? QStringLiteral("Zalo") : c->peerName;
-    o.text = isNum(c->type, 3) ? QStringLiteral("Cuộc gọi video đến") : QStringLiteral("Cuộc gọi thoại đến");
+    o.statusCode = isNum(c->type, 3) ? QStringLiteral("incomingVideo") : QStringLiteral("incomingVoice");
     o.avatar = c->avatar;
     o.video = isNum(c->type, 3);
     o.selfAvatar = selfAvatar();
@@ -448,7 +451,7 @@ void EngineCore::answer(bool camStartOff) {
     p.peerUid = c->peerUid;
     p.p2pCandidates = c->p2p;
     m_media->onNegotiated(p);
-    m_ui->status(QStringLiteral("Đang kết nối…"));
+    m_ui->status(QStringLiteral("connecting"));
     std::weak_ptr<Call> weak = c;
     m_media->prepare(QStringLiteral("callee"), [this, weak](std::optional<InitReply> best) {
         const CallPtr c = weak.lock();
@@ -467,12 +470,12 @@ void EngineCore::answer(bool camStartOff) {
         data.insert("rtpAddress", c->server.value("rtpaddr"));
         send(QStringLiteral("sendSignal"), 402, data);
         if (!best && m_media->sendUdp()) {
-            m_ui->status(QStringLiteral("Không kết nối được máy chủ"));
+            m_ui->status(QStringLiteral("serverUnreachable"));
             hangup(QStringLiteral("no-server"));
             return;
         }
         m_media->start(QStringLiteral("callee"), strOr(c->server.value("rtpaddr")));
-        m_ui->status(QStringLiteral("Đã kết nối"), c->startedAt);
+        m_ui->status(QStringLiteral("connected"), c->startedAt);
         if (c->cameraOff) camMic(false);
     });
 }
@@ -630,7 +633,7 @@ void EngineCore::connectCaller(const QString& rtpSerIp) {
             if (c && m_call == c && c->state == QLatin1String("connected")) camMic();
         });
     }
-    m_ui->status(QStringLiteral("Đã kết nối"), c->startedAt);
+    m_ui->status(QStringLiteral("connected"), c->startedAt);
 }
 
 void EngineCore::earlyAudio(const QString& phase) {
@@ -638,7 +641,7 @@ void EngineCore::earlyAudio(const QString& phase) {
     if (!c || c->group || c->role != QLatin1String("caller") || c->state == QLatin1String("connected") || c->state == QLatin1String("ended")) return;
     if (phase == QLatin1String("first") && c->state == QLatin1String("calling")) {
         c->state = QStringLiteral("ringing");
-        m_ui->status(QStringLiteral("Đang đổ chuông…"));
+        m_ui->status(QStringLiteral("ringing"));
         log(QStringLiteral("peer audio during setup, no ring signal yet"));
         setCallTimeout(c, kRingTimeoutMs);
         return;
@@ -660,17 +663,16 @@ void EngineCore::audioFault(const QString& kind) {
     }
     const bool mic = c->audioFaults.contains(QStringLiteral("mic"));
     const bool speaker = c->audioFaults.contains(QStringLiteral("speaker"));
-    const QString text = (mic && speaker ? QStringLiteral("Không mở được micro và loa")
-                          : mic          ? QStringLiteral("Không mở được micro, bên kia không nghe thấy bạn")
-                                         : QStringLiteral("Không phát được âm thanh ra loa")) +
-                         QStringLiteral(". Kiểm tra PipeWire / PulseAudio.");
-    if (text == c->audioNotice) return;
-    c->audioNotice = text;
+    const QString code = mic && speaker ? QStringLiteral("audioMicSpeakerFailed")
+                         : mic          ? QStringLiteral("audioMicFailed")
+                                        : QStringLiteral("audioSpeakerFailed");
+    if (code == c->audioNotice) return;
+    c->audioNotice = code;
     QStringList faults;
     for (const QString& k : {QStringLiteral("mic"), QStringLiteral("speaker")})
         if (c->audioFaults.contains(k)) faults << k;
     log(QStringLiteral("audio fault: %1").arg(faults.join(QLatin1Char(' '))));
-    if (m_ui->rich()) m_ui->notice(text);
+    if (m_ui->rich()) m_ui->notice(code);
 }
 
 void EngineCore::peerEnded(const QString& why) {
@@ -691,7 +693,7 @@ void EngineCore::onRecvSignal(const QString& command, const QJsonObject& data) {
         const QJsonValue servers = data.value("servers");
         if (js::truthy(data.value("status")) || !servers.isArray() || servers.toArray().isEmpty()) {
             log(QStringLiteral("recvSignal 401 without servers %1 %2").arg(str(data.value("status")), str(data.value("msg"))));
-            m_ui->status(QStringLiteral("Không gọi được"));
+            m_ui->status(QStringLiteral("callFailed"));
             finish(103);
             return;
         }
@@ -718,7 +720,7 @@ void EngineCore::onRecvSignal(const QString& command, const QJsonObject& data) {
             if (!c || m_call != c || c->state == QLatin1String("ended")) return;
             const QJsonObject chosen = best ? best->server.raw : first;
             if (!best && m_media->sendUdp()) {
-                m_ui->status(QStringLiteral("Không kết nối được máy chủ"));
+                m_ui->status(QStringLiteral("serverUnreachable"));
                 hangup(QStringLiteral("no-server"));
                 return;
             }
@@ -750,7 +752,7 @@ void EngineCore::onRecvSignal(const QString& command, const QJsonObject& data) {
                 return;
             }
             log(QStringLiteral("group ping fail: %1 %2").arg(str(r.value("error")), msg));
-            groupFinish(50, QStringLiteral("Cuộc gọi nhóm đã kết thúc"), true);
+            groupFinish(50, QStringLiteral("groupEnded"), true);
         }
         return;
     }
@@ -849,7 +851,8 @@ void EngineCore::hangup(const QString& why) {
         send(QStringLiteral("sendSignal"), 405,
              {{"callId", c->callId}, {"callType", isNum(c->type, 3) ? 1 : 0}, {"status", 0}, {"toId", c->peerId}});
     }
-    finish(c->state == QLatin1String("connected") ? 50 : 103);
+    finish(c->state == QLatin1String("connected") ? 50 : 103,
+           why == QLatin1String("no-server") ? QStringLiteral("serverUnreachable") : QString());
 }
 
 void EngineCore::onGroupControl(const QString& act, const QJsonObject& d) {
@@ -868,7 +871,7 @@ void EngineCore::onGroupControl(const QString& act, const QJsonObject& d) {
     if (act == QLatin1String("group_answer")) {
         if (c->state == QLatin1String("incoming") && (who == 0 || who == c->localUid)) {
             log(QStringLiteral("group call over before we answered: answered on another device"));
-            groupFinish(0, QStringLiteral("Cuộc gọi nhóm đã kết thúc"), false);
+            groupFinish(0, QStringLiteral("groupEnded"), false);
             return;
         }
         if (who != 0 && who != c->localUid) {
@@ -888,12 +891,12 @@ void EngineCore::onGroupControl(const QString& act, const QJsonObject& d) {
         if (c->state == QLatin1String("incoming") && (who == 0 || who == c->hostCall || who == c->localUid)) {
             log(QStringLiteral("group call over before we answered: %1 %2")
                     .arg(act, who == c->localUid ? QStringLiteral("handled on another device") : QStringLiteral("cancelled")));
-            groupFinish(0, QStringLiteral("Cuộc gọi nhóm đã kết thúc"), false);
+            groupFinish(0, QStringLiteral("groupEnded"), false);
             return;
         }
         if (who == c->localUid) {
             log(QStringLiteral("group call: Zalo reports our own end_call"));
-            groupFinish(c->state == QLatin1String("connected") ? 50 : 0, QStringLiteral("Cuộc gọi nhóm đã kết thúc"), false);
+            groupFinish(c->state == QLatin1String("connected") ? 50 : 0, QStringLiteral("groupEnded"), false);
             return;
         }
         if (who != 0) groupMemberLeft(who, act);
@@ -959,7 +962,7 @@ void EngineCore::groupOutgoing(const QJsonObject& data) {
         initial.append(QJsonObject{{"src", k.toJson()}, {"name", m.name}, {"avatar", m.avatar}, {"muted", m.muted}, {"camOff", m.camOff}, {"state", m.state}});
     UiOpen o;
     o.title = c->title;
-    o.text = QStringLiteral("Đang gọi nhóm…");
+    o.statusCode = QStringLiteral("groupCalling");
     o.avatar = c->avatar;
     o.video = true;
     o.group = true;
@@ -1003,8 +1006,9 @@ void EngineCore::groupRequestAnswered(const QJsonObject& data) {
         log(QStringLiteral("group call request refused / incomplete"));
         c->state = QStringLiteral("failed");
         const QString msg = strOr(p.value("msg"));
-        m_ui->status(!msg.isEmpty() ? QStringLiteral("Không gọi được: %1").arg(msg) : QStringLiteral("Không gọi được nhóm"));
-        later(3000, [this] { groupFinish(0, QStringLiteral("Không gọi được nhóm"), false); });
+        if (!msg.isEmpty()) m_ui->status(QStringLiteral("groupCallFailedReason"), 0, QJsonObject{{"message", msg}});
+        else m_ui->status(QStringLiteral("groupCallFailed"));
+        later(3000, [this] { groupFinish(0, QStringLiteral("groupCallFailed"), false); });
         return;
     }
     c->state = QStringLiteral("connecting");
@@ -1028,8 +1032,8 @@ void EngineCore::groupRequestAnswered(const QJsonObject& data) {
         if (!c || m_call != c || c->state != QLatin1String("connecting")) return;
         if (!best && m_media->sendUdp()) {
             c->state = QStringLiteral("failed");
-            m_ui->status(QStringLiteral("Không vào được cuộc gọi nhóm (máy chủ từ chối)"));
-            later(3000, [this] { groupFinish(0, QStringLiteral("Không vào được cuộc gọi nhóm"), false); });
+            m_ui->status(QStringLiteral("groupJoinRejected"));
+            later(3000, [this] { groupFinish(0, QStringLiteral("groupJoinRejected"), false); });
             return;
         }
         m_media->start(QStringLiteral("caller"), QString());
@@ -1128,10 +1132,11 @@ void EngineCore::groupIncoming(const QJsonObject& d) {
           {"session", c->sessId},
           {"status", 1}});
     const Member* hm = c->member(MemberKey::ofUid(c->hostCall));
-    const QString host = hm && !hm->name.isEmpty() ? hm->name : strOr(d.value("Dname"), QStringLiteral("Ai đó"));
+    const QString host = hm && !hm->name.isEmpty() ? hm->name : strOr(d.value("Dname"));
     UiIncoming o;
     o.title = c->title;
-    o.text = QStringLiteral("%1 mời bạn vào cuộc gọi nhóm").arg(host);
+    o.statusCode = QStringLiteral("incomingGroupInvite");
+    o.statusParams = QJsonObject{{"inviter", host}};
     o.inviter = host;
     o.avatar = c->avatar;
     o.video = true;
@@ -1160,7 +1165,7 @@ void EngineCore::groupAnswer(bool camStartOff) {
     np.localUid = c->localUid;
     np.hostCall = c->hostCall;
     m_media->onNegotiated(np);
-    m_ui->status(QStringLiteral("Đang kết nối…"));
+    m_ui->status(QStringLiteral("connecting"));
     groupCameraProfile();
     std::weak_ptr<Call> weak = c;
     m_media->prepare(QStringLiteral("callee"), [this, weak](std::optional<InitReply> best) {
@@ -1168,9 +1173,9 @@ void EngineCore::groupAnswer(bool camStartOff) {
         if (!c || m_call != c || c->state != QLatin1String("connecting")) return;
         if (!best && m_media->sendUdp()) {
             c->state = QStringLiteral("failed");
-            m_ui->status(QStringLiteral("Không vào được cuộc gọi nhóm (máy chủ từ chối)"));
+            m_ui->status(QStringLiteral("groupJoinRejected"));
             groupSendAnswer(*c, 3);
-            later(3000, [this] { groupFinish(0, QStringLiteral("Không vào được cuộc gọi nhóm"), false); });
+            later(3000, [this] { groupFinish(0, QStringLiteral("groupJoinRejected"), false); });
             return;
         }
         m_media->start(QStringLiteral("callee"), QString());
@@ -1188,7 +1193,7 @@ void EngineCore::groupReject(const QString& why) {
     if (!c || !c->group || c->state != QLatin1String("incoming")) return;
     log(QStringLiteral("group reject: %1").arg(why));
     groupSendAnswer(*c, 3);
-    groupFinish(0, QStringLiteral("Đã từ chối cuộc gọi nhóm"), false);
+    groupFinish(0, QStringLiteral("groupDeclined"), false);
 }
 
 void EngineCore::groupSendAnswer(const Call& c, int status) {
@@ -1367,23 +1372,25 @@ void EngineCore::groupStatus() {
     const CallPtr c = m_call;
     if (!c || !c->group || (c->state != QLatin1String("connected") && c->state != QLatin1String("calling"))) return;
     groupMembersToUi();
-    QStringList names;
+    QJsonArray names;
     bool hasRinging = false;
     for (const auto& [k, m] : c->members) {
         if (m.state == QLatin1String("ringing")) hasRinging = true;
         if (m.state != QLatin1String("incall")) continue;
         if (c->shareScreenId != 0 && k.numeric && k.uid == c->shareScreenId) continue;
-        names << (m.name.isEmpty() ? QStringLiteral("Thành viên") : m.name);
+        names.append(m.name.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(m.name));
     }
     const QString waiting = c->role == QLatin1String("caller") && !c->answered
-                                ? (hasRinging ? QStringLiteral("Đang đổ chuông…") : QStringLiteral("Đang gọi nhóm…"))
-                                : QStringLiteral("Đang chờ người khác…");
-    const QString text = !names.isEmpty() ? QStringLiteral("%1 người: Bạn, %2").arg(names.size() + 1).arg(names.join(QStringLiteral(", "))) : waiting;
-    if (!c->hasStatusText || text != c->statusText) {
+                                ? (hasRinging ? QStringLiteral("groupRinging") : QStringLiteral("groupCalling"))
+                                : QStringLiteral("groupWaitingOthers");
+    const QString code = !names.isEmpty() ? QStringLiteral("groupParticipants") : waiting;
+    const QJsonObject params = !names.isEmpty() ? QJsonObject{{"count", names.size() + 1}, {"names", names}} : QJsonObject();
+    const QString key = code + QString::fromUtf8(QJsonDocument(params).toJson(QJsonDocument::Compact));
+    if (!c->hasStatusText || key != c->statusText) {
         c->hasStatusText = true;
-        c->statusText = text;
+        c->statusText = key;
         const double since = c->answered && !names.isEmpty() ? c->startedAt : 0;
-        m_ui->status(text, since);
+        m_ui->status(code, since, params);
     }
 }
 
@@ -1392,7 +1399,7 @@ void EngineCore::groupEnded(const QString& why) {
     if (!c || !c->group || c->state == QLatin1String("ended")) return;
     log(QStringLiteral("group call ended by the server: %1").arg(why));
     groupFinish(c->state == QLatin1String("connected") ? 50 : 0,
-                why == QLatin1String("kicked") ? QStringLiteral("Bạn đã bị mời ra khỏi cuộc gọi") : QStringLiteral("Cuộc gọi nhóm đã kết thúc"));
+                why == QLatin1String("kicked") ? QStringLiteral("groupKicked") : QStringLiteral("groupEnded"));
 }
 
 void EngineCore::groupHangup(const QString& why) {
@@ -1418,7 +1425,7 @@ void EngineCore::groupCancel(const QString& why) {
               {"data", jsonCpp(QJsonObject{{"callType", c->callType}, {"duration", 0}, {"extraData", ""}, {"groupId", c->groupId}})},
               {"hostCall", c->hostCall}});
     }
-    groupFinish(0, why == QLatin1String("no-answer") ? QStringLiteral("Không ai trả lời") : QStringLiteral("Đã huỷ cuộc gọi nhóm"), false);
+    groupFinish(0, why == QLatin1String("no-answer") ? QStringLiteral("groupNoAnswer") : QStringLiteral("groupCancelled"), false);
 }
 
 void EngineCore::clearCallTimers(Call& c) {
@@ -1431,7 +1438,7 @@ void EngineCore::clearCallTimers(Call& c) {
     }
 }
 
-void EngineCore::groupFinish(int status, const QString& closeText, bool emitSignals) {
+void EngineCore::groupFinish(int status, const QString& closeCode, bool emitSignals) {
     const CallPtr c = m_call;
     if (!c || c->state == QLatin1String("ended")) return;
     const bool connected = c->state == QLatin1String("connected");
@@ -1456,12 +1463,13 @@ void EngineCore::groupFinish(int status, const QString& closeText, bool emitSign
               {"status", status}});
     }
     send(QStringLiteral("update"), QStringLiteral("callState"), {{"state", "free"}});
-    m_ui->close(!closeText.isEmpty() ? closeText
-                                     : (connected ? QStringLiteral("Kết thúc — %1 s").arg(fmtNum(duration)) : QStringLiteral("Đã kết thúc")));
+    if (!closeCode.isEmpty()) m_ui->close(closeCode);
+    else if (connected) m_ui->close(QStringLiteral("endedWithDuration"), QJsonObject{{"duration", duration}});
+    else m_ui->close(QStringLiteral("ended"));
     m_call.reset();
 }
 
-void EngineCore::finish(int status, const QString& closeText, bool emitSignals) {
+void EngineCore::finish(int status, const QString& closeCode, bool emitSignals) {
     const CallPtr c = m_call;
     if (!c || c->state == QLatin1String("ended")) return;
     rememberEndedCall(QJsonValue(c->callId));
@@ -1489,8 +1497,9 @@ void EngineCore::finish(int status, const QString& closeText, bool emitSignals) 
               {"status", status}});
     }
     send(QStringLiteral("update"), QStringLiteral("callState"), {{"state", "free"}});
-    m_ui->close(!closeText.isEmpty() ? closeText
-                                     : (connected ? QStringLiteral("Kết thúc — %1 s").arg(fmtNum(duration)) : QStringLiteral("Đã kết thúc")));
+    if (!closeCode.isEmpty()) m_ui->close(closeCode);
+    else if (connected) m_ui->close(QStringLiteral("endedWithDuration"), QJsonObject{{"duration", duration}});
+    else m_ui->close(QStringLiteral("ended"));
     m_call.reset();
 }
 

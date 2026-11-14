@@ -149,6 +149,7 @@ signals:
 
 private:
     QVector<MessageItem>& threadFor(const QString& convId);
+    void markOwnUpTo(const QString& convId, const QString& msgId, const QString& status);
     void placeUnreadMarker();
     bool isRunTile(int row) const;
     bool joinsPrevious(int row) const;

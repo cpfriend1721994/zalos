@@ -40,6 +40,8 @@ constexpr int kNoiseBatch = 100;
 constexpr int kDownloadStallMs = 2 * 60 * 1000;
 constexpr int kMaxDownloadAttempts = 5;
 constexpr int kDownloadRetryBaseMs = 1000;
+constexpr int kDownloadRetryMaxMs = 8000;
+constexpr int kRetryAfterMaxMs = 30000;
 
 QString typeName(int t) {
     static const QHash<int, QString> map{
@@ -86,8 +88,6 @@ QString firstColumn(const QSqlRecord& rec, const QSqlQuery& q, std::initializer_
 
 MobileHistorySync::MobileHistorySync(Network::ZaloSession* session, QObject* parent)
     : QObject(parent), m_session(session) {
-    QDir(QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("sync")))
-        .removeRecursively();
     QDir(QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("sync")))
         .removeRecursively();
     m_timeout.setSingleShot(true);
@@ -375,7 +375,6 @@ void MobileHistorySync::start(const QString& myNoisedUid, const QString& pcName)
     m_myNoisedUid = myNoisedUid;
     m_pcName = pcName;
     m_sawSyncV2 = false;
-    m_downloadAttempt = 0;
     m_keys = generateKeyPair();
     if (m_keys.publicKeyBase64.isEmpty() || m_keys.privateKeyPem.isEmpty()) {
         fail(L("Không tạo được khoá mã hoá cho phiên đồng bộ.", "Couldn't create the encryption key for this sync."));
@@ -523,8 +522,8 @@ void MobileHistorySync::download() {
     if (!m_session) return;
     ++m_downloadAttempt;
     const QUrl url(m_url);
-    log(QStringLiteral("download starting attempt=%1 scheme=%2 host=%3 path=%4 query=%5")
-            .arg(m_downloadAttempt).arg(url.scheme(), url.host(), url.path()).arg(int(url.hasQuery())));
+    log(QStringLiteral("download starting attempt=%1 scheme=%2 host=%3 query=%4")
+            .arg(m_downloadAttempt).arg(url.scheme(), url.host()).arg(int(url.hasQuery())));
     if (m_workDir.isEmpty()) {
         m_workDir = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
                         .filePath(QStringLiteral("sync/%1").arg(QUuid::createUuid().toString(QUuid::Id128)));
@@ -532,7 +531,7 @@ void MobileHistorySync::download() {
         QFile::setPermissions(m_workDir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
     }
     auto file = std::make_shared<QFile>(QDir(m_workDir).filePath(QStringLiteral("backup.zdb")));
-    if (!file->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    if (!file->open(QIODevice::WriteOnly)) {
         fail(L("Không ghi được bản sao lưu vào máy.", "Couldn't save the backup on this computer."));
         return;
     }
@@ -576,9 +575,9 @@ void MobileHistorySync::download() {
             return;
         }
         if (reply->error() != QNetworkReply::NoError) {
-            const bool retryable = (http == 400 || http == 404 || http == 429 || http >= 500 || http == 0);
-            if (retryable && m_downloadAttempt < kMaxDownloadAttempts) {
-                const int delayMs = qMin(8000, kDownloadRetryBaseMs << (m_downloadAttempt - 1));
+            const int delayMs = downloadRetryDelayMs(http, int(reply->error()), m_downloadAttempt,
+                                                     reply->rawHeader("Retry-After"), QDateTime::currentDateTimeUtc());
+            if (delayMs >= 0) {
                 log(QStringLiteral("download retrying attempt=%1 in %2 ms").arg(m_downloadAttempt + 1).arg(delayMs));
                 setState(Importing, L("Đang chờ máy chủ Zalo chuẩn bị bản sao lưu...",
                                       "Waiting for Zalo's server to prepare the backup..."), 20);
@@ -615,6 +614,48 @@ void MobileHistorySync::download() {
                 .arg(contentLength).arg(file->size()).arg(m_expectedSize).arg(md5, m_checksum));
         decryptAndRead();
     });
+}
+
+int MobileHistorySync::downloadRetryDelayMs(int httpStatus, int networkError, int attempt, const QByteArray& retryAfter,
+                                            const QDateTime& now) {
+    if (attempt < 1 || attempt >= kMaxDownloadAttempts) return -1;
+    bool retryable = false;
+    if (httpStatus > 0) {
+        retryable = httpStatus == 400 || httpStatus == 404 || httpStatus == 408 || httpStatus == 429 || httpStatus >= 500;
+    } else {
+        switch (networkError) {
+        case QNetworkReply::ConnectionRefusedError:
+        case QNetworkReply::RemoteHostClosedError:
+        case QNetworkReply::HostNotFoundError:
+        case QNetworkReply::TimeoutError:
+        case QNetworkReply::TemporaryNetworkFailureError:
+        case QNetworkReply::NetworkSessionFailedError:
+        case QNetworkReply::ProxyConnectionClosedError:
+        case QNetworkReply::ProxyTimeoutError:
+        case QNetworkReply::UnknownNetworkError:
+            retryable = true;
+            break;
+        default:
+            break;
+        }
+    }
+    if (!retryable) return -1;
+    const int backoff = qMin(kDownloadRetryMaxMs, kDownloadRetryBaseMs << (attempt - 1));
+    const QByteArray hint = retryAfter.trimmed();
+    if ((httpStatus != 429 && httpStatus != 503) || hint.isEmpty()) return backoff;
+    bool isSeconds = false;
+    const qint64 seconds = hint.toLongLong(&isSeconds);
+    qint64 waitMs = -1;
+    if (isSeconds) {
+        waitMs = qBound(qint64(0), seconds, qint64(kRetryAfterMaxMs / 1000)) * 1000;
+    } else {
+        QString text = QString::fromLatin1(hint);
+        if (text.endsWith(QLatin1String(" GMT"))) text = text.chopped(4) + QStringLiteral(" +0000");
+        const QDateTime at = QDateTime::fromString(text, Qt::RFC2822Date);
+        if (at.isValid()) waitMs = now.msecsTo(at);
+    }
+    if (waitMs < 0) return backoff;
+    return int(qBound(qint64(backoff), waitMs, qint64(kRetryAfterMaxMs)));
 }
 
 void MobileHistorySync::decryptAndRead() {

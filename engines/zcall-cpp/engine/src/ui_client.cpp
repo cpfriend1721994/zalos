@@ -9,6 +9,18 @@
 
 namespace zcall {
 
+namespace {
+
+UiOpen fallbackOpen(const QJsonObject& s) {
+    UiOpen o;
+    o.title = s.value("name").toString();
+    o.statusCode = s.value("statusCode").toString();
+    o.statusParams = s.value("statusParams").toObject();
+    return o;
+}
+
+}
+
 ElectronCallUi::ElectronCallUi(quint16 port, const QString& token, QObject* parent)
     : QObject(parent), m_port(port), m_token(token) {
     m_sock = new QTcpSocket(this);
@@ -33,9 +45,9 @@ void ElectronCallUi::setState(const QJsonObject& s) {
     if (m_fallback) {
         const QString phase = s.value(QStringLiteral("phase")).toString();
         if (phase == QLatin1String("outgoing")) {
-            m_fallback->open(UiOpen{s.value("name").toString(), s.value("text").toString(), {}, false, false, {}, std::nullopt});
+            m_fallback->open(fallbackOpen(s));
         } else if (phase != QLatin1String("incoming")) {
-            m_fallback->status(s.value("text").toString(), s.value("since").toDouble());
+            m_fallback->status(s.value("statusCode").toString(), s.value("since").toDouble(), s.value("statusParams").toObject());
         }
     }
 }
@@ -48,7 +60,8 @@ void ElectronCallUi::send(const QJsonObject& msg) {
 void ElectronCallUi::open(const UiOpen& o) {
     m_accept = nullptr;
     m_reject = nullptr;
-    QJsonObject s{{"phase", "outgoing"}, {"name", o.title}, {"avatar", o.avatar}, {"text", o.text}, {"since", 0},
+    QJsonObject s{{"phase", "outgoing"}, {"name", o.title}, {"avatar", o.avatar}, {"statusCode", o.statusCode},
+                  {"statusParams", o.statusParams}, {"text", statusText(o.statusCode, o.statusParams)}, {"since", 0},
                   {"video", o.video}, {"group", o.group}, {"selfAvatar", o.selfAvatar}, {"muted", false}, {"speakerOff", false}};
     if (o.members) s.insert("members", *o.members);
     setState(s);
@@ -57,45 +70,55 @@ void ElectronCallUi::open(const UiOpen& o) {
 void ElectronCallUi::incoming(const UiIncoming& o, AcceptFn onAccept, RejectFn onReject) {
     m_accept = std::move(onAccept);
     m_reject = std::move(onReject);
-    QJsonObject s{{"phase", "incoming"}, {"name", o.title}, {"avatar", o.avatar}, {"text", o.text}, {"since", 0},
+    QJsonObject s{{"phase", "incoming"}, {"name", o.title}, {"avatar", o.avatar}, {"statusCode", o.statusCode},
+                  {"statusParams", o.statusParams}, {"text", statusText(o.statusCode, o.statusParams)}, {"since", 0},
                   {"video", o.video}, {"group", o.group}, {"selfAvatar", o.selfAvatar}, {"muted", false}, {"speakerOff", false},
                   {"noAnswer", o.noAnswer}, {"inviter", o.inviter}};
     if (o.members) s.insert("members", *o.members);
     setState(s);
     if (m_fallback) {
-        m_fallback->incoming(UiIncoming{o.title, o.text}, [this](bool) { if (m_accept) { auto a = m_accept; m_accept = nullptr; a(false); } },
+        UiIncoming f;
+        f.title = o.title;
+        f.statusCode = o.statusCode;
+        f.statusParams = o.statusParams;
+        m_fallback->incoming(f, [this](bool) { if (m_accept) { auto a = m_accept; m_accept = nullptr; a(false); } },
                              [this](const QString& why) { if (m_reject) { auto r = m_reject; m_reject = nullptr; r(why); } });
     }
 }
 
-void ElectronCallUi::status(const QString& text, double since) {
+void ElectronCallUi::status(const QString& code, double since, const QJsonObject& params) {
     if (!m_hasState) return;
     QJsonObject s = m_state;
     QString phase = s.value("phase").toString();
     if (since != 0) phase = QStringLiteral("connected");
     else if (phase == QLatin1String("incoming")) phase = QStringLiteral("connecting");
     s.insert("phase", phase);
-    s.insert("text", text);
+    s.insert("statusCode", code);
+    s.insert("statusParams", params);
+    s.insert("text", statusText(code, params));
     s.insert("since", since);
     setState(s);
 }
 
-void ElectronCallUi::close(const QString& text) {
+void ElectronCallUi::close(const QString& code, const QJsonObject& params) {
     m_accept = nullptr;
     m_reject = nullptr;
     m_hasState = false;
     m_state = QJsonObject();
-    send(QJsonObject{{"type", "close"}, {"text", text}});
-    if (m_fallback) m_fallback->close(text);
+    const QString closeCode = code.isEmpty() ? QStringLiteral("ended") : code;
+    send(QJsonObject{{"type", "close"}, {"statusCode", closeCode}, {"statusParams", params}, {"text", statusText(closeCode, params)}});
+    if (m_fallback) m_fallback->close(closeCode, params);
 }
 
-void ElectronCallUi::notice(const QString& text) {
+void ElectronCallUi::notice(const QString& code, const QJsonObject& params) {
     if (!m_hasState) return;
-    m_state.insert("notice", text);
+    m_state.insert("noticeCode", code);
+    m_state.insert("noticeParams", params);
+    m_state.insert("notice", statusText(code, params));
     QJsonObject msg = m_state;
     msg.insert("type", "state");
     send(msg);
-    if (m_fallback) m_fallback->status(text, m_state.value("since").toDouble());
+    if (m_fallback) m_fallback->status(code, m_state.value("since").toDouble(), params);
 }
 
 void ElectronCallUi::micVolume(int pct) {
@@ -236,11 +259,15 @@ void ElectronCallUi::useFallback() {
     if (!m_hasState) return;
     const QString phase = m_state.value("phase").toString();
     if (phase == QLatin1String("incoming") && m_accept) {
-        m_fallback->incoming(UiIncoming{m_state.value("name").toString(), m_state.value("text").toString()},
+        UiIncoming f;
+        f.title = m_state.value("name").toString();
+        f.statusCode = m_state.value("statusCode").toString();
+        f.statusParams = m_state.value("statusParams").toObject();
+        m_fallback->incoming(f,
                              [this](bool) { if (m_accept) { auto a = m_accept; m_accept = nullptr; a(false); } },
                              [this](const QString& why) { if (m_reject) { auto r = m_reject; m_reject = nullptr; r(why); } });
     } else {
-        m_fallback->open(UiOpen{m_state.value("name").toString(), m_state.value("text").toString(), {}, false, false, {}, std::nullopt});
+        m_fallback->open(fallbackOpen(m_state));
     }
 }
 

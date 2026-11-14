@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include "call_ui.h"
 #include "json_cpp.h"
 #include "send_rate.h"
 #include "vectors.h"
@@ -441,6 +442,41 @@ private Q_SLOTS:
             const QJsonObject o = e.toObject();
             QCOMPARE(jsonCpp(o["in"]), o["out"].toString());
         }
+    }
+
+    void uiStatusCodes() {
+        const QStringList specific{
+            "ringing", "endedWithDuration", "disconnected", "recipientUnreachable", "recipientNoAnswer", "recipientDeclined",
+            "callFailed", "serverUnreachable", "groupUnsupported", "groupCallIgnored", "groupCallFailed",
+            "groupCallFailedReason", "groupJoinRejected", "groupDeclined", "groupKicked", "groupNoAnswer", "groupCancelled",
+            "groupRinging", "groupWaitingOthers", "groupParticipants", "incomingGroupInvite", "incomingGroupUnsupported",
+            "audioMicSpeakerFailed", "audioMicFailed", "audioSpeakerFailed"};
+        const QStringList generic{"calling", "connecting", "connected", "ended", "incomingVoice", "incomingVideo",
+                                  "groupEnded", "groupCalling"};
+        const QString ended = zcall::statusText(QStringLiteral("ended"));
+        QVERIFY(!ended.isEmpty());
+        for (const QString& code : specific + generic) {
+            const QString text = zcall::statusText(code);
+            QVERIFY2(!text.isEmpty(), qPrintable(code));
+            if (code != QLatin1String("ended")) QVERIFY2(text != ended, qPrintable(code));
+        }
+        QCOMPARE(zcall::statusText(QStringLiteral("not-a-code")), ended);
+        QCOMPARE(zcall::statusText(QString()), QString());
+        QCOMPARE(zcall::statusText(QStringLiteral("endedWithDuration"), QJsonObject{{"duration", 42}}),
+                 QStringLiteral("Kết thúc — 42 s"));
+        QCOMPARE(zcall::statusText(QStringLiteral("groupParticipants"),
+                                   QJsonObject{{"count", 3}, {"names", QJsonArray{"Fixture A", QJsonValue()}}}),
+                 QStringLiteral("3 người: Bạn, Fixture A, Thành viên"));
+        QCOMPARE(zcall::statusText(QStringLiteral("incomingGroupInvite"), QJsonObject{{"inviter", ""}}),
+                 QStringLiteral("Ai đó mời bạn vào cuộc gọi nhóm"));
+        QCOMPARE(zcall::statusText(QStringLiteral("groupCallFailedReason"), QJsonObject{{"message", "fixture"}}),
+                 QStringLiteral("Không gọi được: fixture"));
+
+        QFile overlay(QStringLiteral(ZCALL_VECTORS_DIR "/../../../../src/qml/CallOverlay.qml"));
+        if (!overlay.open(QIODevice::ReadOnly)) QSKIP("CallOverlay.qml not in this source tree");
+        const QString qml = QString::fromUtf8(overlay.readAll());
+        for (const QString& code : specific)
+            QVERIFY2(qml.contains(QStringLiteral("case \"%1\"").arg(code)), qPrintable(code));
     }
 };
 

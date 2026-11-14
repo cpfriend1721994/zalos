@@ -3,6 +3,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QNetworkCookie>
 #include <QNetworkReply>
 #include <QSettings>
 #include <QSoundEffect>
@@ -186,6 +187,34 @@ private slots:
         QCOMPARE(ThemeManager::familyFromFontSpec("Source Code Pro Semibold 10.5"), QString("Source Code Pro"));
         QCOMPARE(ThemeManager::familyFromFontSpec("Medium"), QString("Medium")); // never empties a one-word family
         QCOMPARE(QQuickWindow::textRenderType(), QQuickWindow::NativeTextRendering);
+    }
+
+    void testKdeGlobalsThemeParsing() {
+        using Zalos::Core::Platform::ThemeManager;
+        bool known = true;
+        const QByteArray dark =
+            "[ColorEffects:Disabled]\nColor=56,56,56\n\n[Colors:Window]\nBackgroundAlternate=49,54,59\n"
+            "BackgroundNormal=32,35,38\nForegroundNormal=252,252,252\n\n[General]\nAccentColor=61,174,233\n"
+            "ColorScheme=BreezeDark\nfont=Noto Sans,10,-1,5,400,0,0,0,0,0\n";
+        QVERIFY(ThemeManager::kdeDarkFromGlobals(dark, &known));
+        QVERIFY(known);
+        QCOMPARE(ThemeManager::kdeAccentFromGlobals(dark), QColor(61, 174, 233));
+
+        const QByteArray light = "[Colors:Window]\nBackgroundNormal=239,240,241\n[General]\nColorScheme=BreezeDark\n";
+        QVERIFY(!ThemeManager::kdeDarkFromGlobals(light, &known));
+        QVERIFY(known);
+
+        QVERIFY(ThemeManager::kdeDarkFromGlobals("[General]\nColorScheme=BreezeDark\n", &known));
+        QVERIFY(known);
+        QVERIFY(ThemeManager::kdeDarkFromGlobals("[KDE]\nLookAndFeelPackage=org.kde.breezedark.desktop\n", &known));
+        QVERIFY(known);
+        QVERIFY(!ThemeManager::kdeDarkFromGlobals("[General]\nColorScheme=BreezeLight\n", &known));
+        QVERIFY(known);
+
+        QVERIFY(!ThemeManager::kdeDarkFromGlobals("[Colors:View]\nBackgroundNormal=0,0,0\n", &known));
+        QVERIFY(!known);
+        QVERIFY(!ThemeManager::kdeAccentFromGlobals("[General]\nAccentColor=bad\n").isValid());
+        QVERIFY(!ThemeManager::kdeAccentFromGlobals("").isValid());
     }
 
     void init() {
@@ -1762,6 +1791,7 @@ private slots:
         QVERIFY2(cookieHeader.contains("zpw_uin=123456789"), cookieHeader.constData());
         QVERIFY2(cookieHeader.contains("zpw_sek=fixture_sek"), cookieHeader.constData());
         QCOMPARE(replyZaloapp->request().rawHeader("Referer"), QByteArray("https://chat.zalo.me/"));
+        QCOMPARE(replyZaloapp->request().transferTimeout(), 150000);
         replyZaloapp->abort();
         replyZaloapp->deleteLater();
 
@@ -1770,6 +1800,91 @@ private slots:
         QVERIFY(!replyExternal->request().hasRawHeader("Cookie"));
         replyExternal->abort();
         replyExternal->deleteLater();
+
+        auto makeCookie = [](const QByteArray& name, const QByteArray& value, const QString& domain) {
+            QNetworkCookie c(name, value);
+            c.setDomain(domain);
+            c.setPath(QStringLiteral("/"));
+            return c;
+        };
+        client.apiClient()->cookieJar()->replaceCookies({
+            makeCookie("zpw_sek", "", QStringLiteral(".zalo.me")),
+            makeCookie("zpw_uin", "", QStringLiteral(".zalo.me")),
+            makeCookie("fixture_chat", "chat_value", QStringLiteral(".zalo.me")),
+            makeCookie("fixture_cdn", "cdn_value", QStringLiteral(".zaloapp.com")),
+        });
+        QNetworkReply* replyJar = session->getWithCookies(QUrl("https://trans-bin.zaloapp.com/download/test_batch"));
+        QVERIFY(replyJar != nullptr);
+        QCOMPARE(replyJar->request().attribute(QNetworkRequest::CookieLoadControlAttribute).toInt(),
+                 int(QNetworkRequest::Manual));
+        const QByteArray jarHeader = replyJar->request().rawHeader("Cookie");
+        QVERIFY2(jarHeader.contains("zpw_sek=fixture_sek"), jarHeader.constData());
+        QVERIFY2(jarHeader.contains("zpw_uin=123456789"), jarHeader.constData());
+        QVERIFY2(jarHeader.contains("fixture_chat=chat_value"), jarHeader.constData());
+        QVERIFY2(!jarHeader.contains("zpw_sek=;") && !jarHeader.endsWith("zpw_sek="), jarHeader.constData());
+        QVERIFY2(!jarHeader.contains("fixture_cdn"), jarHeader.constData());
+        replyJar->abort();
+        replyJar->deleteLater();
+        client.apiClient()->cookieJar()->replaceCookies({});
+    }
+
+    void testExternalUrlNormalisation() {
+        QCOMPARE(ZaloClient::externalUrl(QStringLiteral("zalo.me/fixture")).host(), QStringLiteral("zalo.me"));
+        QVERIFY(ZaloClient::externalUrl(QStringLiteral("  https://example.com/a?b=1 ")).isValid());
+        QVERIFY(ZaloClient::externalUrl(QStringLiteral("mailto:fixture@example.com")).isValid());
+        QVERIFY(ZaloClient::externalUrl(QStringLiteral("file:///tmp/fixture.txt")).isLocalFile());
+        QVERIFY(!ZaloClient::externalUrl(QString()).isValid());
+        QVERIFY(!ZaloClient::externalUrl(QStringLiteral("   ")).isValid());
+        QVERIFY(!ZaloClient::externalUrl(QStringLiteral("javascript:alert(1)")).isValid());
+    }
+
+    void testUniqueDownloadFilePath() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QCOMPARE(ZaloClient::uniqueFilePath(dir.path(), "CV.pdf"), dir.filePath("CV.pdf"));
+        QFile a(dir.filePath("CV.pdf"));
+        QVERIFY(a.open(QIODevice::WriteOnly));
+        a.close();
+        QCOMPARE(ZaloClient::uniqueFilePath(dir.path(), "CV.pdf"), dir.filePath("CV (1).pdf"));
+        QFile b(dir.filePath("CV (1).pdf"));
+        QVERIFY(b.open(QIODevice::WriteOnly));
+        b.close();
+        QCOMPARE(ZaloClient::uniqueFilePath(dir.path(), "CV.pdf"), dir.filePath("CV (2).pdf"));
+        QFile c(dir.filePath("README"));
+        QVERIFY(c.open(QIODevice::WriteOnly));
+        c.close();
+        QCOMPARE(ZaloClient::uniqueFilePath(dir.path(), "README"), dir.filePath("README (1)"));
+        QCOMPARE(ZaloClient::uniqueFilePath(dir.path(), ""), dir.filePath("file"));
+    }
+
+    void testMobileSyncDownloadRetryPolicy() {
+        using Zalos::Core::Sync::MobileHistorySync;
+        const QDateTime now = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+        const int none = int(QNetworkReply::NoError);
+
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(404, none, 1, {}, now), 1000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(400, none, 2, {}, now), 2000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(502, none, 3, {}, now), 4000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(500, none, 4, {}, now), 8000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(500, none, 5, {}, now), -1);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(403, none, 1, {}, now), -1);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(401, none, 1, {}, now), -1);
+
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(0, int(QNetworkReply::RemoteHostClosedError), 1, {}, now), 1000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(0, int(QNetworkReply::TimeoutError), 1, {}, now), 1000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(0, int(QNetworkReply::HostNotFoundError), 1, {}, now), 1000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(0, int(QNetworkReply::OperationCanceledError), 1, {}, now), -1);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(0, int(QNetworkReply::SslHandshakeFailedError), 1, {}, now), -1);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(0, int(QNetworkReply::InsecureRedirectError), 1, {}, now), -1);
+
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(429, none, 1, "5", now), 5000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(503, none, 1, " 12 ", now), 12000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(429, none, 3, "0", now), 4000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(429, none, 1, "86400", now), 30000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(429, none, 1, "Thu, 01 Jan 2026 00:00:07 GMT", now), 7000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(429, none, 1, "Wed, 31 Dec 2025 23:00:00 GMT", now), 1000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(429, none, 1, "garbage", now), 1000);
+        QCOMPARE(MobileHistorySync::downloadRetryDelayMs(500, none, 1, "20", now), 1000);
     }
 
     // QML singletons: I18n.t is typed (compiled to C++), Theme reads ThemeManager directly.
@@ -1792,6 +1907,133 @@ private slots:
 
     // UI gallery: renders the main screens with neutral fixtures into build/ui_*.png for visual review
     // (light and dark). Keep it in sync when screens change; it also fails on QML errors via the loader.
+    void testMyDocumentsIsNotTheLastChat() {
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.apiClient()->session()->setLoginInfoForTesting(QJsonObject{{"uid", "u-me"}, {"send2me_id", "u-docs"}});
+        QCOMPARE(client.myCloudId(), QStringLiteral("u-docs"));
+        client.setUserForTesting("u-peer", "Fixture Peer", "");
+        Zalos::Core::Models::ConversationItem peer;
+        peer.id = "u-peer";
+        peer.name = "Fixture Peer";
+        client.conversationModel()->upsertConversation(peer);
+
+        client.openMessagesTab();
+        QVERIFY(client.currentConversationId().isEmpty());
+
+        client.openMyCloud();
+        QCOMPARE(client.currentConversationId(), QStringLiteral("u-docs"));
+        client.openMessagesTab();
+        QVERIFY2(client.currentConversationId().isEmpty(), "no regular chat yet: Messages shows the welcome screen");
+
+        client.selectConversation("u-peer", "Fixture Peer", "");
+        client.openMyCloud();
+        QCOMPARE(client.currentConversationId(), QStringLiteral("u-docs"));
+        QCOMPARE(client.lastChatId(), QStringLiteral("u-peer"));
+        client.openMessagesTab();
+        QCOMPARE(client.currentConversationId(), QStringLiteral("u-peer"));
+        QCOMPARE(client.currentNavigationTab(), QStringLiteral("messages"));
+
+        client.openMessagesTab();
+        QCOMPARE(client.currentConversationId(), QStringLiteral("u-peer"));
+    }
+
+    void testChatScrollbarDragIsNotPulledBack() {
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        client.setLoggedInForTesting(true);
+        QImage pic(480, 640, QImage::Format_RGB32);
+        pic.fill(qRgb(90, 120, 160));
+        const QString picPath = QDir::temp().filePath("zalos-scroll-photo.png");
+        pic.save(picPath);
+        const QString picUrl = QUrl::fromLocalFile(picPath).toString();
+        auto* session = client.apiClient()->session();
+        const qint64 base = QDateTime::currentMSecsSinceEpoch() - 200LL * 60000;
+        QJsonArray msgs;
+        for (int i = 0; i < 160; ++i) {
+            const bool mine = i % 3 == 0;
+            const QString id = QString::number(50000 + i);
+            QJsonValue content = QString::fromUtf8("Fixture line %1 ").arg(i).repeated(1 + (i * 7) % 9);
+            QString type = QStringLiteral("webchat");
+            if (i % 11 == 5) {
+                type = QStringLiteral("chat.photo");
+                content = QJsonObject{{"thumb", picUrl}, {"href", picUrl}, {"title", ""}};
+            }
+            msgs.append(QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", mine ? "0" : "u-scroll"},
+                                    {"idTo", mine ? "u-scroll" : "u-me"}, {"msgType", type}, {"content", content},
+                                    {"ts", QString::number(base + qint64(i) * 60000)}});
+        }
+        client.setUserForTesting("u-scroll", "Fixture Scroll", "");
+        emit session->messagesReceived(msgs, false, true);
+        client.selectConversation("u-scroll", "Fixture Scroll", "");
+        client.setMyUidForTesting("u-me");
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
+        engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath("qrc:/");
+        engine.addImportPath("qrc:/qt/qml");
+        loadMainWindow(engine);
+        auto window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(1280, 800);
+        QTest::qWait(600);
+        auto* list = window->findChild<QQuickItem*>("messageList");
+        QVERIFY(list != nullptr);
+        QTRY_VERIFY(list->property("atYEnd").toBool());
+
+        auto* bar = window->findChild<QQuickItem*>("messageScrollBar");
+        QVERIFY(bar != nullptr);
+        const double start = list->property("contentY").toDouble();
+        const double size = bar->property("size").toDouble();
+        const QPointF barTop = bar->mapToScene(QPointF(bar->width() / 2, 0));
+        QPoint grab = (barTop + QPointF(0, bar->height() * (1.0 - size / 2))).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, grab);
+        for (int step = 1; step <= 10; ++step) {
+            grab.ry() -= 20;
+            QTest::mouseMove(window, grab);
+            QTest::qWait(40);
+        }
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, grab);
+        QTest::qWait(1200);
+        const double afterDrag = list->property("contentY").toDouble();
+        QVERIFY2(!list->property("atYEnd").toBool(),
+                 qPrintable(QStringLiteral("scrollbar drag pulled back: start %1 now %2").arg(start).arg(afterDrag)));
+        QVERIFY(!list->property("stickToBottom").toBool());
+
+        QMetaObject::invokeMethod(list, "scrollToEnd");
+        QTRY_VERIFY(list->property("atYEnd").toBool());
+        QVERIFY(list->property("stickToBottom").toBool());
+
+        QMetaObject::invokeMethod(list, "scrollToEnd");
+        QTRY_VERIFY(list->property("atYEnd").toBool());
+        list->setProperty("contentY", list->property("contentY").toDouble() - 30);
+        QVERIFY2(!list->property("stickToBottom").toBool(), "a 30 px scroll up (one wheel notch) must stop following");
+        QMetaObject::invokeMethod(list, "scrollToEnd");
+        QTRY_VERIFY(list->property("atYEnd").toBool());
+
+        const QPointF center = list->mapToScene(QPointF(list->width() / 2, list->height() / 2));
+        ulong stamp = 5000;
+        for (int n = 0; n < 3; ++n) {
+            QWheelEvent notch(center, window->mapToGlobal(center), QPoint(0, 0), QPoint(0, 120), Qt::NoButton,
+                              Qt::NoModifier, Qt::NoScrollPhase, false);
+            notch.setTimestamp(stamp += 40);
+            QCoreApplication::sendEvent(window, &notch);
+            QTest::qWait(40);
+        }
+        QTest::qWait(400);
+        QVERIFY2(!list->property("stickToBottom").toBool(), "a wheel scroll up must stop following the bottom");
+        const QString lateId = QStringLiteral("59999");
+        emit session->messagesReceived(QJsonArray{QJsonObject{
+            {"msgId", lateId}, {"cliMsgId", lateId}, {"uidFrom", "u-scroll"}, {"idTo", "u-me"}, {"msgType", "chat.photo"},
+            {"content", QJsonObject{{"thumb", picUrl}, {"href", picUrl}, {"title", ""}}},
+            {"ts", QString::number(QDateTime::currentMSecsSinceEpoch())}}}, false, true);
+        QTest::qWait(1500);
+        QVERIFY2(!list->property("atYEnd").toBool(), "a wheel scroll up was pulled back to the end");
+    }
+
     void testUiGalleryScreenshots() {
         ZaloClient client;
         ThemeManager themeMgr;
@@ -1868,6 +2110,14 @@ private slots:
             client.pins()->applyListForTesting("u-gallery", initialPins, false);
             client.setCurrentNavigationTab("messages");
             shot("chat_" + suffix);
+            if (auto* ml = window->findChild<QQuickItem*>("messageList")) {
+                QVERIFY2(ml->property("atYEnd").toBool(), "the chat must open at its end, bottom margin included");
+                QCOMPARE(ml->property("bottomMargin").toDouble(), 19.0);
+                auto* pill = window->findChild<QQuickItem*>("typingPill");
+                QVERIFY(pill != nullptr);
+                const double pillTop = pill->height() + pill->property("anchors").value<QObject*>()->property("bottomMargin").toDouble();
+                QVERIFY2(pillTop <= 19.0 + 10.0 - 3.0, "the typing pill must fit in the gap under the last row");
+            }
             if (mode == 0) {
                 // QML weight of the message list: objects per instantiated message row (memory review 2026-11-04).
                 // ListView delegates are not QObject children of the window: walk the visual item tree.
@@ -4702,6 +4952,22 @@ private slots:
             QCOMPARE(window->size(), size);
             window->grabWindow().save(QString("/workspace/build/test_chat_%1x%2.png").arg(size.width()).arg(size.height()));
         }
+
+        client.setShowConversationInfo(true);
+        for (const QSize& size : sizes) {
+            window->resize(size);
+            QTest::qWait(250);
+            auto* panel = window->findChild<QQuickItem*>("conversationInfoPanel");
+            auto* list = window->findChild<QQuickItem*>("messageList");
+            QVERIFY(panel != nullptr && list != nullptr);
+            const QString where = QStringLiteral("%1x%2 panel %3 list %4 visible %5")
+                                      .arg(size.width()).arg(size.height()).arg(panel->width()).arg(list->width())
+                                      .arg(list->isVisible());
+            QVERIFY2(panel->width() <= 280.5, qPrintable(where));
+            QVERIFY2(list->isVisible() && list->width() > 200, qPrintable(where));
+            window->grabWindow().save(QString("/workspace/build/test_chat_info_%1x%2.png").arg(size.width()).arg(size.height()));
+        }
+        client.setShowConversationInfo(false);
 
         window->resize(1280, 720);
         client.setCurrentNavigationTab("contacts");

@@ -77,7 +77,7 @@ QHash<int, QByteArray> ConversationModel::roleNames() const {
 void ConversationModel::setCategoryFilter(const QString& category) {
     if (m_activeCategory != category) {
         m_activeCategory = category;
-        applyFilter();
+        refilter();
         emit filterChanged();
     }
 }
@@ -85,7 +85,7 @@ void ConversationModel::setCategoryFilter(const QString& category) {
 void ConversationModel::setSearchFilter(const QString& query) {
     if (m_searchQuery != query) {
         m_searchQuery = query;
-        applyFilter();
+        refilter();
         emit filterChanged();
     }
 }
@@ -115,8 +115,8 @@ void ConversationModel::applyFilter() {
         return;
     }
     m_filterDirty = false;
-    beginResetModel();
-    m_filteredItems.clear();
+    QVector<ConversationItem> next;
+    next.reserve(m_allItems.size());
 
     const QStringList terms = foldTerms(m_searchQuery);
     const bool searching = !terms.isEmpty();
@@ -147,21 +147,128 @@ void ConversationModel::applyFilter() {
                                   : (item.isGroup ? QStringLiteral("Nhóm chưa đặt tên Unnamed group")
                                                   : QStringLiteral("Người dùng Zalo Zalo user"));
         if (searching) {
-            const QString haystack = isHidden ? foldForSearch(shownName)
-                                              : foldForSearch(shownName) + QLatin1Char(' ') + foldForSearch(item.lastMessage);
-            if (!containsAllTerms(haystack, terms)) continue;
+            bool match = containsAllTerms(folded(shownName), terms);
+            if (!match && !isHidden) {
+                const QString haystack = folded(shownName) + QLatin1Char(' ') + folded(item.lastMessage);
+                match = containsAllTerms(haystack, terms);
+            }
+            if (!match) continue;
         }
-        m_filteredItems.append(item);
+        next.append(item);
     }
 
-    std::stable_sort(m_filteredItems.begin(), m_filteredItems.end(), [](const ConversationItem& a, const ConversationItem& b) {
+    std::stable_sort(next.begin(), next.end(), [](const ConversationItem& a, const ConversationItem& b) {
         if (a.isPinned != b.isPinned) {
             return a.isPinned > b.isPinned;
         }
         return a.lastTs > b.lastTs;
     });
 
-    endResetModel();
+    if (m_resetPending) {
+        m_resetPending = false;
+        beginResetModel();
+        m_filteredItems = std::move(next);
+        endResetModel();
+        return;
+    }
+    publishFiltered(std::move(next));
+}
+
+void ConversationModel::refilter() {
+    m_resetPending = true;
+    applyFilter();
+}
+
+QString ConversationModel::folded(const QString& text) const {
+    auto it = m_foldCache.constFind(text);
+    if (it != m_foldCache.constEnd()) return it.value();
+    if (m_foldCache.size() > 8192) m_foldCache.clear();
+    return m_foldCache.insert(text, foldForSearch(text)).value();
+}
+
+namespace {
+bool sameItem(const ConversationItem& a, const ConversationItem& b) {
+    return a.id == b.id && a.name == b.name && a.lastMessage == b.lastMessage && a.timestampStr == b.timestampStr
+           && a.unreadCount == b.unreadCount && a.isOnline == b.isOnline && a.isPinned == b.isPinned
+           && a.avatarUrl == b.avatarUrl && a.category == b.category && a.senderPrefix == b.senderPrefix
+           && a.isMuted == b.isMuted && a.tag == b.tag && a.tagColor == b.tagColor && a.labelId == b.labelId
+           && a.memberCount == b.memberCount && a.isGroup == b.isGroup && a.lastTs == b.lastTs
+           && a.isTyping == b.isTyping && a.hasUnreadMention == b.hasUnreadMention;
+}
+
+bool sameIds(const QVector<ConversationItem>& a, int aFrom, const QVector<ConversationItem>& b, int bFrom, int count) {
+    for (int i = 0; i < count; ++i) {
+        if (a[aFrom + i].id != b[bFrom + i].id) return false;
+    }
+    return true;
+}
+}
+
+void ConversationModel::publishFiltered(QVector<ConversationItem> next) {
+    QVector<ConversationItem>& cur = m_filteredItems;
+    const int n = cur.size();
+    const int m = next.size();
+    int f = 0;
+    while (f < qMin(n, m) && cur[f].id == next[f].id) ++f;
+    bool structural = true;
+    if (n == m) {
+        if (f == n) {
+            structural = false;
+        } else {
+            int j = -1;
+            for (int i = f + 1; i < n; ++i) {
+                if (cur[i].id == next[f].id) { j = i; break; }
+            }
+            int k = -1;
+            if (j < 0) {
+                for (int i = f + 1; i < m; ++i) {
+                    if (next[i].id == cur[f].id) { k = i; break; }
+                }
+            }
+            if (j > f && sameIds(cur, f, next, f + 1, j - f) && sameIds(cur, j + 1, next, j + 1, n - j - 1)) {
+                beginMoveRows(QModelIndex(), j, j, QModelIndex(), f);
+                cur.move(j, f);
+                endMoveRows();
+                structural = false;
+            } else if (k > f && sameIds(cur, f + 1, next, f, k - f) && sameIds(cur, k + 1, next, k + 1, n - k - 1)) {
+                beginMoveRows(QModelIndex(), f, f, QModelIndex(), k + 1);
+                cur.move(f, k);
+                endMoveRows();
+                structural = false;
+            }
+        }
+    } else if (m == n + 1 && sameIds(cur, f, next, f + 1, n - f)) {
+        beginInsertRows(QModelIndex(), f, f);
+        cur.insert(f, next[f]);
+        endInsertRows();
+        structural = false;
+    } else if (m == n - 1 && sameIds(cur, f + 1, next, f, m - f)) {
+        beginRemoveRows(QModelIndex(), f, f);
+        cur.remove(f);
+        endRemoveRows();
+        structural = false;
+    }
+    if (structural) {
+        beginResetModel();
+        cur = std::move(next);
+        endResetModel();
+        return;
+    }
+    for (int i = 0; i < cur.size(); ++i) {
+        if (sameItem(cur[i], next[i])) continue;
+        cur[i] = std::move(next[i]);
+        emit dataChanged(index(i), index(i));
+    }
+}
+
+void ConversationModel::reindex() {
+    m_index.clear();
+    m_index.reserve(m_allItems.size());
+    for (int i = 0; i < m_allItems.size(); ++i) m_index.insert(m_allItems[i].id, i);
+}
+
+int ConversationModel::indexOf(const QString& convId) const {
+    return m_index.value(convId, -1);
 }
 
 void ConversationModel::stampLabel(ConversationItem& item) const {
@@ -174,50 +281,50 @@ void ConversationModel::stampLabel(ConversationItem& item) const {
 
 void ConversationModel::addConversation(const ConversationItem& item) {
     m_allItems.append(item);
+    m_index.insert(item.id, m_allItems.size() - 1);
     stampLabel(m_allItems.last());
     applyFilter();
     emitUnreadChanged();
 }
 
 void ConversationModel::upsertConversation(const ConversationItem& item) {
-    for (auto& existing : m_allItems) {
-        if (existing.id == item.id) {
-            existing = item;
-            stampLabel(existing);
-            applyFilter();
-            emitUnreadChanged();
-            return;
-        }
+    const int i = indexOf(item.id);
+    if (i < 0) {
+        addConversation(item);
+        return;
     }
-    addConversation(item);
+    m_allItems[i] = item;
+    stampLabel(m_allItems[i]);
+    applyFilter();
+    emitUnreadChanged();
 }
 
 void ConversationModel::setConversations(const QVector<ConversationItem>& items) {
     m_allItems = items;
     for (auto& item : m_allItems) stampLabel(item);
+    reindex();
+    m_resetPending = true;
     applyFilter();
     emitUnreadChanged();
 }
 
 bool ConversationModel::contains(const QString& convId) const {
-    return std::any_of(m_allItems.cbegin(), m_allItems.cend(), [&](const ConversationItem& c) { return c.id == convId; });
+    return indexOf(convId) >= 0;
 }
 
 ConversationItem ConversationModel::conversation(const QString& convId) const {
-    for (const auto& item : m_allItems) {
-        if (item.id == convId) return item;
-    }
-    return {};
+    const int i = indexOf(convId);
+    return i >= 0 ? m_allItems[i] : ConversationItem{};
 }
 
 void ConversationModel::updateProfile(const QString& convId, const QString& name, const QString& avatarUrl, int memberCount) {
     bool changed = false;
-    for (auto& item : m_allItems) {
-        if (item.id != convId) continue;
+    const int i = indexOf(convId);
+    if (i >= 0) {
+        auto& item = m_allItems[i];
         if (!name.isEmpty() && item.name != name) { item.name = name; changed = true; }
         if (!avatarUrl.isEmpty() && item.avatarUrl != avatarUrl) { item.avatarUrl = avatarUrl; changed = true; }
         if (memberCount >= 0 && item.memberCount != memberCount) { item.memberCount = memberCount; changed = true; }
-        break;
     }
     if (!changed) return;
     for (int row = 0; row < m_filteredItems.size(); ++row) {
@@ -231,41 +338,34 @@ void ConversationModel::updateProfile(const QString& convId, const QString& name
 
 void ConversationModel::recordMessage(const QString& convId, const QString& preview, const QString& senderPrefix,
                                       qint64 ts, bool incrementUnread, bool hasMention) {
-    for (auto& item : m_allItems) {
-        if (item.id != convId) continue;
-        if (ts >= item.lastTs) {
-            item.lastMessage = preview;
-            item.senderPrefix = senderPrefix;
-            item.lastTs = ts;
-        }
-        if (incrementUnread) {
-            item.unreadCount++;
-            if (hasMention) item.hasUnreadMention = true;
-        }
-        applyFilter();
-        if (incrementUnread) emitUnreadChanged();
-        return;
+    const int i = indexOf(convId);
+    if (i < 0) return;
+    auto& item = m_allItems[i];
+    if (ts >= item.lastTs) {
+        item.lastMessage = preview;
+        item.senderPrefix = senderPrefix;
+        item.lastTs = ts;
     }
+    if (incrementUnread) {
+        item.unreadCount++;
+        if (hasMention) item.hasUnreadMention = true;
+    }
+    applyFilter();
+    if (incrementUnread) emitUnreadChanged();
 }
 
 void ConversationModel::setPinned(const QString& convId, bool pinned) {
-    for (auto& item : m_allItems) {
-        if (item.id == convId && item.isPinned != pinned) {
-            item.isPinned = pinned;
-            applyFilter();
-            return;
-        }
-    }
+    const int i = indexOf(convId);
+    if (i < 0 || m_allItems[i].isPinned == pinned) return;
+    m_allItems[i].isPinned = pinned;
+    applyFilter();
 }
 
 void ConversationModel::setMuted(const QString& convId, bool muted) {
-    for (auto& item : m_allItems) {
-        if (item.id == convId && item.isMuted != muted) {
-            item.isMuted = muted;
-            applyFilter();
-            return;
-        }
-    }
+    const int i = indexOf(convId);
+    if (i < 0 || m_allItems[i].isMuted == muted) return;
+    m_allItems[i].isMuted = muted;
+    applyFilter();
 }
 
 namespace {
@@ -274,10 +374,15 @@ void patchRows(QVector<ConversationItem>& all, QVector<ConversationItem>& filter
                const QList<int>& roles, Fn fn) {
     for (auto& item : all) fn(item);
     for (int row = 0; row < filtered.size(); ++row) {
-        ConversationItem before = filtered[row];
-        fn(filtered[row]);
-        if (before.tag != filtered[row].tag || before.tagColor != filtered[row].tagColor ||
-            before.isOnline != filtered[row].isOnline || before.isTyping != filtered[row].isTyping) {
+        ConversationItem& item = filtered[row];
+        const QString tag = item.tag;
+        const QString tagColor = item.tagColor;
+        const int labelId = item.labelId;
+        const bool online = item.isOnline;
+        const bool typing = item.isTyping;
+        fn(item);
+        if (tag != item.tag || tagColor != item.tagColor || labelId != item.labelId || online != item.isOnline
+            || typing != item.isTyping) {
             emit model->dataChanged(model->index(row), model->index(row), roles);
         }
     }
@@ -293,7 +398,7 @@ void ConversationModel::setTag(const QString& convId, const QString& tag, const 
 void ConversationModel::setLabelFilter(int labelId) {
     if (labelId == m_labelFilter) return;
     m_labelFilter = labelId;
-    applyFilter();
+    refilter();
     emit filterChanged();
 }
 
@@ -301,14 +406,14 @@ void ConversationModel::setViewMode(const QString& mode) {
     const QString next = mode.isEmpty() ? QStringLiteral("normal") : mode;
     if (next == m_viewMode) return;
     m_viewMode = next;
-    applyFilter();
+    refilter();
     emit filterChanged();
 }
 
 void ConversationModel::setHiddenThreads(const QSet<QString>& ids) {
     if (ids == m_hiddenIds) return;
     m_hiddenIds = ids;
-    applyFilter();
+    refilter();
     emitUnreadChanged();
     emit filterChanged();
 }
@@ -316,20 +421,20 @@ void ConversationModel::setHiddenThreads(const QSet<QString>& ids) {
 void ConversationModel::setHiddenPinReveal(bool reveal) {
     if (reveal == m_hiddenPinReveal) return;
     m_hiddenPinReveal = reveal;
-    applyFilter();
+    refilter();
 }
 
 void ConversationModel::setArchivedThreads(const QSet<QString>& ids) {
     if (ids == m_archivedIds) return;
     m_archivedIds = ids;
-    applyFilter();
+    refilter();
     emit filterChanged();
 }
 
 void ConversationModel::setStrangerOnly(bool on) {
     if (on == m_strangerOnly) return;
     m_strangerOnly = on;
-    applyFilter();
+    refilter();
     emit filterChanged();
 }
 
@@ -340,7 +445,7 @@ void ConversationModel::setFriendContext(const QSet<QString>& friends, const QSe
     m_officialIds = officials;
     m_myUid = myUid;
     m_friendsKnown = known;
-    if (m_strangerOnly) applyFilter();
+    if (m_strangerOnly) refilter();
     emit filterChanged();
 }
 
@@ -351,9 +456,8 @@ bool ConversationModel::strangerId(const QString& convId, bool isGroup) const {
 }
 
 bool ConversationModel::isStranger(const QString& convId) const {
-    for (const auto& item : m_allItems)
-        if (item.id == convId) return strangerId(convId, item.isGroup);
-    return strangerId(convId, false);
+    const int i = indexOf(convId);
+    return strangerId(convId, i >= 0 && m_allItems[i].isGroup);
 }
 
 void ConversationModel::applyLabels(const QHash<QString, QVariantMap>& labels) {
@@ -364,7 +468,7 @@ void ConversationModel::applyLabels(const QHash<QString, QVariantMap>& labels) {
         item.tag = l.value("text").toString();
         item.tagColor = l.value("color").toString();
     });
-    if (m_labelFilter > 0) applyFilter();
+    if (m_labelFilter > 0) refilter();
 }
 
 void ConversationModel::setOnlineIds(const QSet<QString>& ids) {
@@ -374,9 +478,15 @@ void ConversationModel::setOnlineIds(const QSet<QString>& ids) {
 }
 
 void ConversationModel::setTyping(const QString& convId, bool typing) {
-    patchRows(m_allItems, m_filteredItems, this, {IsTypingRole}, [&](ConversationItem& item) {
-        if (item.id == convId) item.isTyping = typing;
-    });
+    const int i = indexOf(convId);
+    if (i < 0 || m_allItems[i].isTyping == typing) return;
+    m_allItems[i].isTyping = typing;
+    for (int row = 0; row < m_filteredItems.size(); ++row) {
+        if (m_filteredItems[row].id != convId) continue;
+        m_filteredItems[row].isTyping = typing;
+        emit dataChanged(index(row), index(row), {IsTypingRole});
+        break;
+    }
 }
 
 QString ConversationModel::adjacentId(const QString& convId, int delta) const {
@@ -432,45 +542,39 @@ void ConversationModel::clearDrafts() {
 }
 
 void ConversationModel::updateLastMessage(const QString& convId, const QString& message, const QString& timeStr) {
-    for (int i = 0; i < m_allItems.size(); ++i) {
-        if (m_allItems[i].id == convId) {
-            m_allItems[i].lastMessage = message;
-            m_allItems[i].timestampStr = timeStr;
-            break;
-        }
-    }
+    const int i = indexOf(convId);
+    if (i < 0 || (m_allItems[i].lastMessage == message && m_allItems[i].timestampStr == timeStr)) return;
+    m_allItems[i].lastMessage = message;
+    m_allItems[i].timestampStr = timeStr;
     applyFilter();
 }
 
 void ConversationModel::clearUnread(const QString& convId) {
-    for (int i = 0; i < m_allItems.size(); ++i) {
-        if (m_allItems[i].id == convId && (m_allItems[i].unreadCount > 0 || m_allItems[i].hasUnreadMention)) {
-            m_allItems[i].unreadCount = 0;
-            m_allItems[i].hasUnreadMention = false;
-            break;
-        }
-    }
+    const int i = indexOf(convId);
+    if (i < 0 || (m_allItems[i].unreadCount == 0 && !m_allItems[i].hasUnreadMention)) return;
+    m_allItems[i].unreadCount = 0;
+    m_allItems[i].hasUnreadMention = false;
     applyFilter();
     emitUnreadChanged();
 }
 
 void ConversationModel::setUnreadCount(const QString& convId, int count) {
-    for (auto& item : m_allItems) {
-        if (item.id != convId) continue;
-        if (count == 0) item.hasUnreadMention = false;
-        if (item.unreadCount == qMax(0, count)) return;
-        item.unreadCount = qMax(0, count);
-        applyFilter();
-        emitUnreadChanged();
-        return;
-    }
+    const int i = indexOf(convId);
+    if (i < 0) return;
+    auto& item = m_allItems[i];
+    const bool mentionCleared = count == 0 && item.hasUnreadMention;
+    if (count == 0) item.hasUnreadMention = false;
+    if (item.unreadCount == qMax(0, count) && !mentionCleared) return;
+    item.unreadCount = qMax(0, count);
+    applyFilter();
+    emitUnreadChanged();
 }
 
 void ConversationModel::removeConversation(const QString& convId) {
-    const auto it = std::find_if(m_allItems.begin(), m_allItems.end(),
-                                 [&](const ConversationItem& c) { return c.id == convId; });
-    if (it == m_allItems.end()) return;
-    m_allItems.erase(it);
+    const int i = indexOf(convId);
+    if (i < 0) return;
+    m_allItems.remove(i);
+    reindex();
     applyFilter();
     emitUnreadChanged();
 }
@@ -494,6 +598,8 @@ void ConversationModel::clearAll() {
     beginResetModel();
     m_allItems.clear();
     m_filteredItems.clear();
+    m_index.clear();
+    m_foldCache.clear();
     endResetModel();
     emit unreadCountChanged(0, false);
 }

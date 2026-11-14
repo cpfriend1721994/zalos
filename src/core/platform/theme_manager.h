@@ -10,6 +10,7 @@ class QJSEngine;
 #include <QPalette>
 #include <QString>
 #include <QFileSystemWatcher>
+#include <QTimer>
 
 namespace Zalos::Core::Platform {
 
@@ -139,6 +140,9 @@ public:
 
     Q_INVOKABLE void toggleTheme();
 
+    static bool kdeDarkFromGlobals(const QByteArray& content, bool* known);
+    static QColor kdeAccentFromGlobals(const QByteArray& content);
+
 signals:
     void darkModeChanged(bool isDark);
     void themeModeChanged(int mode);
@@ -153,6 +157,7 @@ public slots:
 private:
     void initSystemThemeDetection();
     void detectKdeTheme();
+    void watchKdeGlobals();
     void detectSystemFont();
     void syncApplicationPalette();
     QColor resolveColor(const QString& lightZalo, const QString& darkZalo, const QColor& systemColor = QColor()) const;
@@ -164,6 +169,7 @@ private:
     QPalette m_systemPalette;
     QString m_systemFontFamily;
     QFileSystemWatcher* m_kdeWatcher{nullptr};
+    QTimer m_kdeDebounce;
 };
 
 }

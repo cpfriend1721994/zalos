@@ -25,6 +25,7 @@
 #include <QMediaPlayer>
 #include <QPointer>
 #include <QDir>
+#include <QNetworkInformation>
 #include <QNetworkReply>
 #include <QDesktopServices>
 #include <QSaveFile>
@@ -249,6 +250,7 @@ ZaloClient::ZaloClient(QObject* parent)
         m_qrCodeData = token;
         m_qrLoginStep = 0;
         m_qrSecondsRemaining = kQrLifetimeSeconds;
+        if (m_qrTimer && !m_qrTimer->isActive()) m_qrTimer->start(1000);
         emit qrCodeChanged();
         emit qrTimerTick();
         emit qrLoginStepChanged();
@@ -308,6 +310,7 @@ ZaloClient::ZaloClient(QObject* parent)
         setLoginStatus(L("Đang kết nối tới máy chủ...", "Connecting to the server..."), false);
         if (!m_apiClient->restoreSavedSession(m_appLanguage)) onSessionLoginFailed(QStringLiteral("no_credentials"));
     });
+    watchConnectivity();
     connect(session, &ZaloSession::messagesReceived, this, &ZaloClient::handleIncomingMessages);
     connect(session, &ZaloSession::reactionsReceived, this, &ZaloClient::handleReactions);
     connect(session, &ZaloSession::typingReceived, this, &ZaloClient::handleTyping);
@@ -640,7 +643,11 @@ ZaloClient::ZaloClient(QObject* parent)
 
     m_qrTimer = new QTimer(this);
     connect(m_qrTimer, &QTimer::timeout, this, [this]() {
-        if (m_isLoggedIn || m_qrImageUrl.isEmpty()) return;
+        if (m_isLoggedIn) {
+            m_qrTimer->stop();
+            return;
+        }
+        if (m_isLoggingIn || m_qrLoginStep >= 1 || m_qrImageUrl.isEmpty()) return;
         if (m_qrSecondsRemaining > 0) {
             m_qrSecondsRemaining--;
             emit qrTimerTick();
@@ -899,11 +906,42 @@ void ZaloClient::onSessionLoginUnavailable(const QString& reason) {
                          "Couldn't reach Zalo's servers. Check your connection and try again."), true);
         return;
     }
-    const int delay = qMin(60, 5 << qMin(m_restoreAttempts, 4));
+    const int delay = qMin(30, 5 << qMin(m_restoreAttempts, 3));
     ++m_restoreAttempts;
     setLoginStatus(L("Chưa kết nối được máy chủ. Thử lại sau %1 giây...", "Can't reach the server. Retrying in %1 s...")
                        .arg(delay), !m_isOfflineMode);
     m_restoreRetryTimer->start(delay * 1000);
+}
+
+void ZaloClient::watchConnectivity() {
+    m_reconnectProbeTimer = new QTimer(this);
+    m_reconnectProbeTimer->setSingleShot(true);
+    m_reconnectProbeTimer->setInterval(2000);
+    connect(m_reconnectProbeTimer, &QTimer::timeout, this, [this]() {
+        if (!m_isLoggedIn && !m_restoringSession) return;
+        ErrorCatalog::trace("network", QStringLiteral("reconnect probe reason=%1").arg(m_reconnectProbeReason));
+        syncOfflineData();
+    });
+    if (QNetworkInformation::loadBackendByFeatures(QNetworkInformation::Feature::Reachability)) {
+        if (QNetworkInformation* info = QNetworkInformation::instance()) {
+            connect(info, &QNetworkInformation::reachabilityChanged, this, [this](QNetworkInformation::Reachability r) {
+                if (r == QNetworkInformation::Reachability::Online) scheduleReconnectProbe(QStringLiteral("network-online"));
+            });
+        }
+    }
+    QDBusConnection::systemBus().connect(QStringLiteral("org.freedesktop.login1"), QStringLiteral("/org/freedesktop/login1"),
+                                         QStringLiteral("org.freedesktop.login1.Manager"), QStringLiteral("PrepareForSleep"),
+                                         this, SLOT(onPrepareForSleep(bool)));
+}
+
+void ZaloClient::onPrepareForSleep(bool sleeping) {
+    if (!sleeping) scheduleReconnectProbe(QStringLiteral("resume"));
+}
+
+void ZaloClient::scheduleReconnectProbe(const QString& reason) {
+    if (!m_reconnectProbeTimer || (!m_isLoggedIn && !m_restoringSession)) return;
+    m_reconnectProbeReason = reason;
+    m_reconnectProbeTimer->start();
 }
 
 void ZaloClient::onSessionLoginFailed(const QString& reason) {
@@ -973,6 +1011,7 @@ void ZaloClient::logout() {
     m_showSettingsModal = false;
     m_showUserProfileModal = false;
     m_currentConvId.clear();
+    m_lastChatId.clear();
     m_currentConvName.clear();
     m_currentConvAvatar.clear();
     m_users.clear();
@@ -1370,7 +1409,39 @@ void ZaloClient::openLink(const QString& url, const QString& title, const QStrin
         emit appOnlyLinkRequested(url, title, thumb);
         return;
     }
-    QDesktopServices::openUrl(QUrl::fromUserInput(url));
+    openExternalUrl(url);
+}
+
+QUrl ZaloClient::externalUrl(const QString& url) {
+    const QString trimmed = url.trimmed();
+    if (trimmed.isEmpty()) return QUrl();
+    const QUrl u = QUrl::fromUserInput(trimmed);
+    if (!u.isValid() || u.scheme().isEmpty()) return QUrl();
+    if (u.isLocalFile()) return u;
+    if (u.host().isEmpty() && u.scheme() != QLatin1String("mailto") && u.scheme() != QLatin1String("tel")) return QUrl();
+    return u;
+}
+
+bool ZaloClient::openExternalUrl(const QString& url) {
+    const QUrl u = externalUrl(url);
+    if (!u.isValid()) {
+        emit notice(L("Liên kết không hợp lệ.", "This link is not valid."));
+        return false;
+    }
+    if (u.isLocalFile()) return openLocalFile(u.toLocalFile());
+    if (QDesktopServices::openUrl(u)) return true;
+    ErrorCatalog::trace("open", QStringLiteral("open url failed scheme=%1").arg(u.scheme()));
+    emit notice(L("Không mở được liên kết. Hãy kiểm tra trình duyệt mặc định trong cài đặt hệ thống.",
+                  "Couldn't open the link. Check the default browser in your system settings."));
+    return false;
+}
+
+bool ZaloClient::openLocalFile(const QString& path) {
+    if (QDesktopServices::openUrl(QUrl::fromLocalFile(path))) return true;
+    ErrorCatalog::trace("open", QStringLiteral("open local file failed suffix=%1").arg(QFileInfo(path).suffix()));
+    emit notice(L("Không có ứng dụng nào mở được tệp này. Tệp vẫn được lưu tại ", "No app could open this file. It is saved at ")
+                + QDir::toNativeSeparators(path));
+    return false;
 }
 
 bool ZaloClient::isAppOnlyLink(const QString& url) {
@@ -2542,6 +2613,7 @@ void ZaloClient::openWelcomeScreen() {
 
 void ZaloClient::selectConversation(const QString& id, const QString& name, const QString& avatar) {
     m_currentConvId = id;
+    if (!id.isEmpty() && id != myCloudId()) m_lastChatId = id;
     const Models::ConversationItem existing = m_conversationModel->conversation(id);
     const Profile known = isGroupThread(id) ? m_groups.value(id) : m_users.value(id);
     m_currentConvName = !name.isEmpty() ? name : (!existing.name.isEmpty() ? existing.name : known.name);
@@ -2824,6 +2896,17 @@ void ZaloClient::openMyCloud() {
         return;
     }
     openConversationWithContact(id, L("My Documents", "My Documents"), QString());
+}
+
+void ZaloClient::openMessagesTab() {
+    setCurrentNavigationTab(QStringLiteral("messages"));
+    const QString cloud = myCloudId();
+    if (m_currentConvId.isEmpty() || cloud.isEmpty() || m_currentConvId != cloud) return;
+    if (!m_lastChatId.isEmpty() && m_lastChatId != cloud && m_conversationModel->contains(m_lastChatId)) {
+        selectConversation(m_lastChatId, QString(), QString());
+    } else {
+        openWelcomeScreen();
+    }
 }
 
 QVariantList ZaloClient::cloudSharedItems(const QString& kind) const {
@@ -3432,10 +3515,8 @@ QString ZaloClient::suggestedMediaFileName(const QString& url) const {
 void ZaloClient::saveMediaTo(const QString& url, const QString& destinationFileUrl) {
     const QString dest = QUrl(destinationFileUrl).isLocalFile() ? QUrl(destinationFileUrl).toLocalFile() : destinationFileUrl;
     if (url.isEmpty() || dest.isEmpty()) return;
-    fetchBytes(url, [this, dest](const QByteArray& data, const QString& error) {
-        QSaveFile out(dest);
-        if (!error.isEmpty() || data.isEmpty() || !out.open(QIODevice::WriteOnly) || out.write(data) != data.size()
-            || !out.commit()) {
+    downloadToFile(url, dest, [this, dest](const QString& error) {
+        if (!error.isEmpty()) {
             emit notice(L("Không lưu được tệp đa phương tiện", "Couldn't save the media file")
                         + (error.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(friendlyError(error))));
             return;
@@ -3470,28 +3551,92 @@ void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, con
         emit notice(L("Tệp này không còn đường dẫn tải.", "This file has no download link."));
         return;
     }
+    const QString key = QStringLiteral("downloadIndex/")
+                        + QString::fromLatin1(QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Md5).toHex());
+    const QString known = QSettings("Zalos", "ZalosApp").value(key).toString();
+    if (!known.isEmpty() && QFileInfo::exists(known)) {
+        openLocalFile(known);
+        return;
+    }
+    if (m_downloadsInFlight.contains(key)) {
+        emit notice(L("Tệp đang được tải, vui lòng chờ...", "The file is still downloading..."));
+        return;
+    }
     const QString dir = QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).filePath("Zalos");
     QDir().mkpath(dir);
     QString safe = QFileInfo(fileName).fileName();
     if (safe.isEmpty()) safe = suggestedMediaFileName(url);
-    const QString path = QDir(dir).filePath(safe);
-    if (QFileInfo::exists(path)) {
-        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
-        return;
-    }
-    emit notice(L("Đang tải ", "Downloading ") + safe + "...");
-    fetchBytes(url, [this, path, goneText](const QByteArray& data, const QString& error) {
+    const QString path = uniqueFilePath(dir, safe);
+    m_downloadsInFlight.insert(key);
+    emit notice(L("Đang tải ", "Downloading ") + QFileInfo(path).fileName() + "...");
+    downloadToFile(url, path, [this, path, key, goneText](const QString& error) {
+        m_downloadsInFlight.remove(key);
         if (isGoneError(error)) {
             emit notice(goneText);
             return;
         }
-        QSaveFile out(path);
-        if (!error.isEmpty() || !out.open(QIODevice::WriteOnly) || out.write(data) != data.size() || !out.commit()) {
-            emit notice(L("Tải tệp thất bại", "Download failed") + (error.isEmpty() ? QString() : " (" + friendlyError(error) + ")"));
+        if (!error.isEmpty()) {
+            emit notice(L("Tải tệp thất bại", "Download failed") + " (" + friendlyError(error) + ")");
             return;
         }
+        QSettings("Zalos", "ZalosApp").setValue(key, path);
         emit notice(L("Đã tải về ", "Downloaded to ") + path);
-        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+        openLocalFile(path);
+    });
+}
+
+QString ZaloClient::uniqueFilePath(const QString& dir, const QString& fileName) {
+    const QString name = fileName.isEmpty() ? QStringLiteral("file") : fileName;
+    QString candidate = QDir(dir).filePath(name);
+    if (!QFileInfo::exists(candidate)) return candidate;
+    const QFileInfo info(name);
+    const QString base = info.completeBaseName().isEmpty() ? name : info.completeBaseName();
+    const QString suffix = info.suffix().isEmpty() || info.completeBaseName().isEmpty() ? QString() : "." + info.suffix();
+    for (int n = 1; n < 10000; ++n) {
+        candidate = QDir(dir).filePath(QStringLiteral("%1 (%2)%3").arg(base).arg(n).arg(suffix));
+        if (!QFileInfo::exists(candidate)) return candidate;
+    }
+    return QDir(dir).filePath(QStringLiteral("%1 (%2)%3").arg(base, QString::number(QDateTime::currentMSecsSinceEpoch()), suffix));
+}
+
+void ZaloClient::downloadToFile(const QString& url, const QString& path, std::function<void(const QString& error)> done) {
+    const QUrl u(url);
+    if (u.isLocalFile()) {
+        QFile::remove(path);
+        done(QFile::copy(u.toLocalFile(), path) ? QString() : QStringLiteral("local_file_error"));
+        return;
+    }
+    auto out = std::make_shared<QSaveFile>(path);
+    if (!out->open(QIODevice::WriteOnly)) {
+        done(QStringLiteral("local_file_error"));
+        return;
+    }
+    auto writeFailed = std::make_shared<bool>(false);
+    QNetworkReply* reply = m_apiClient->session()->getWithCookies(u);
+    connect(reply, &QNetworkReply::readyRead, this, [reply, out, writeFailed]() {
+        const QByteArray chunk = reply->readAll();
+        if (*writeFailed || chunk.isEmpty()) return;
+        if (out->write(chunk) != chunk.size()) {
+            *writeFailed = true;
+            reply->abort();
+        }
+    });
+    connect(reply, &QNetworkReply::finished, this, [reply, out, writeFailed, done]() {
+        reply->deleteLater();
+        const QByteArray tail = reply->readAll();
+        if (!*writeFailed && !tail.isEmpty() && out->write(tail) != tail.size()) *writeFailed = true;
+        if (*writeFailed) {
+            out->cancelWriting();
+            done(QStringLiteral("local_file_error"));
+            return;
+        }
+        if (reply->error() != QNetworkReply::NoError) {
+            out->cancelWriting();
+            const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            done(http > 0 ? QStringLiteral("HTTP %1").arg(http) : reply->errorString());
+            return;
+        }
+        done(out->commit() ? QString() : QStringLiteral("local_file_error"));
     });
 }
 
@@ -4993,38 +5138,36 @@ void ZaloClient::forwardMessage(const QString& targetThreadId, const QString& ms
                     }
                 });
         } else if (!mediaUrl.isEmpty() && (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://"))) {
-            fetchBytes(mediaUrl, [this, targetThreadId, isGroup, text, localId, msgType, mediaUrl](const QByteArray& data, const QString& err) {
-                if (data.isEmpty() || !err.isEmpty()) {
+            const QString href = item.value("href").toString();
+            const QString sourceUrl = msgType == QLatin1String("file") && href.startsWith(QLatin1String("http")) ? href : mediaUrl;
+            QString name = msgType == QLatin1String("file") ? QFileInfo(text.trimmed()).fileName() : QString();
+            if (name.isEmpty()) name = suggestedMediaFileName(sourceUrl);
+            if (QFileInfo(name).suffix().isEmpty()) name += msgType == QLatin1String("image") ? QStringLiteral(".jpg") : QString();
+            const QString tempDir = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+                                        .filePath(QStringLiteral("zalos_fwd_%1_%2").arg(now).arg(++m_localSeq));
+            QDir().mkpath(tempDir);
+            const QString tempPath = QDir(tempDir).filePath(name);
+            const QString caption = msgType == QLatin1String("file") ? QString() : text;
+            auto finish = [this, targetThreadId, localId](bool ok, const QJsonValue& res) {
+                m_messageModel->setStatus(targetThreadId, localId, ok ? QStringLiteral("sent") : QStringLiteral("failed"));
+                if (ok) {
+                    const QString serverId = idOf(res.toObject().value("msgId"));
+                    if (!serverId.isEmpty()) m_messageModel->confirmMessage(targetThreadId, localId, serverId);
+                }
+            };
+            downloadToFile(sourceUrl, tempPath, [this, targetThreadId, isGroup, text, caption, mediaUrl, tempDir, tempPath, finish](const QString& err) {
+                if (!err.isEmpty()) {
+                    QDir(tempDir).removeRecursively();
                     const QString forwardContent = text.isEmpty() ? mediaUrl : (text + "\n" + mediaUrl);
                     m_apiClient->session()->sendText(targetThreadId, isGroup, forwardContent,
-                        [this, targetThreadId, localId](bool ok, const QJsonValue& res, const QString&, int) {
-                            m_messageModel->setStatus(targetThreadId, localId, ok ? QStringLiteral("sent") : QStringLiteral("failed"));
-                            if (ok) {
-                                const QString serverId = idOf(res.toObject().value("msgId"));
-                                if (!serverId.isEmpty()) m_messageModel->confirmMessage(targetThreadId, localId, serverId);
-                            }
-                        });
+                        [finish](bool ok, const QJsonValue& res, const QString&, int) { finish(ok, res); });
                     return;
                 }
-                const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-                const QString tempPath = QString("%1/zalos_fwd_%2_%3.%4")
-                                             .arg(tempDir)
-                                             .arg(QDateTime::currentMSecsSinceEpoch())
-                                             .arg(++m_localSeq)
-                                             .arg(msgType == "image" ? "png" : "bin");
-                QFile tf(tempPath);
-                if (tf.open(QIODevice::WriteOnly)) {
-                    tf.write(data);
-                    tf.close();
-                    m_apiClient->session()->sendAttachment(targetThreadId, isGroup, tempPath, text,
-                        [this, targetThreadId, localId](bool ok, const QJsonValue& res, const QString&, int) {
-                            m_messageModel->setStatus(targetThreadId, localId, ok ? QStringLiteral("sent") : QStringLiteral("failed"));
-                            if (ok) {
-                                const QString serverId = idOf(res.toObject().value("msgId"));
-                                if (!serverId.isEmpty()) m_messageModel->confirmMessage(targetThreadId, localId, serverId);
-                            }
-                        });
-                }
+                m_apiClient->session()->sendAttachment(targetThreadId, isGroup, tempPath, caption,
+                    [finish, tempDir](bool ok, const QJsonValue& res, const QString&, int) {
+                        QDir(tempDir).removeRecursively();
+                        finish(ok, res);
+                    });
             });
         } else {
             m_apiClient->session()->sendText(targetThreadId, isGroup, text.isEmpty() ? mediaUrl : text,
@@ -5380,7 +5523,7 @@ QString ZaloClient::recognizeImageText(const QString& imagePath) {
 
 void ZaloClient::syncOfflineData() {
     m_offlineStore->startSyncRecovery();
-    if (m_isLoggedIn && !m_isConnected) m_apiClient->session()->connectRealtime();
+    if (m_isLoggedIn) m_apiClient->session()->probeRealtime();
     else if (m_restoringSession && m_restoreRetryTimer->isActive()) m_restoreRetryTimer->start(0);
 }
 

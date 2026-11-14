@@ -230,8 +230,8 @@ private:
     void groupEnded(const QString& why);
     void groupHangup(const QString& why);
     void groupCancel(const QString& why);
-    void groupFinish(int status, const QString& closeText = QString(), bool emitSignals = true);
-    void finish(int status, const QString& closeText = QString(), bool emitSignals = true);
+    void groupFinish(int status, const QString& closeCode = QString(), bool emitSignals = true);
+    void finish(int status, const QString& closeCode = QString(), bool emitSignals = true);
     void clearCallTimers(Call& c);
 
     EmitFn m_emit;

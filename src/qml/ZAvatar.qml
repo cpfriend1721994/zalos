@@ -18,6 +18,8 @@ Item {
     property var memberAvatars: []
 
     readonly property bool hasImage: avatarImage.status === Image.Ready
+    readonly property bool imagePending: root.avatarUrl.length > 0 && avatarImage.status === Image.Loading
+    readonly property color placeholderColor: ThemeManager.isDarkMode ? "#3B4048" : "#E4E7EC"
     readonly property bool composite: root.isGroup && root.avatarUrl.length === 0 && root.memberAvatars.length > 0
     readonly property int shownMembers: root.memberCount > 4 ? 3 : Math.min(4, root.memberAvatars.length)
     readonly property bool countCell: root.memberCount > 4
@@ -42,11 +44,11 @@ Item {
         anchors.fill: parent
         radius: width / 2
         visible: !root.hasImage && !root.composite
-        color: root.paletteColor(root.name || "")
+        color: root.imagePending ? root.placeholderColor : root.paletteColor(root.name || "")
 
         Text {
             anchors.centerIn: parent
-            visible: !root.isGroup && text.length > 0
+            visible: !root.imagePending && !root.isGroup && text.length > 0
             text: root.initials(root.name)
             font.family: Theme.fontFamily
             font.bold: true
@@ -56,7 +58,7 @@ Item {
 
         ZIcon {
             anchors.centerIn: parent
-            visible: root.isGroup || root.initials(root.name).length === 0
+            visible: !root.imagePending && (root.isGroup || root.initials(root.name).length === 0)
             name: root.isGroup ? "contacts" : "user"
             size: Math.max(12, Math.floor(root.size * 0.5))
             color: "#FFFFFF"
@@ -120,21 +122,23 @@ Item {
                 width: compositeBox.cell
                 height: compositeBox.cell
                 readonly property bool unnamed: (memberCell.modelData.name || "").length === 0
+                readonly property bool pending: memberImage.status === Image.Loading
                 radius: width / 2
-                color: memberCell.unnamed ? (ThemeManager.isDarkMode ? "#4A5361" : "#B8C1CC")
-                                          : root.paletteColor(memberCell.modelData.name)
+                color: memberCell.pending ? root.placeholderColor
+                       : memberCell.unnamed ? (ThemeManager.isDarkMode ? "#4A5361" : "#B8C1CC")
+                                            : root.paletteColor(memberCell.modelData.name)
                 border.color: ThemeManager.surfaceColor
                 border.width: 1
                 ZIcon {
                     anchors.centerIn: parent
-                    visible: memberCell.unnamed && memberImage.status !== Image.Ready
+                    visible: memberCell.unnamed && memberImage.status !== Image.Ready && !memberCell.pending
                     name: "user"
                     size: Math.max(8, Math.floor(compositeBox.cell * 0.6))
                     color: "#FFFFFF"
                 }
                 Text {
                     anchors.centerIn: parent
-                    visible: !memberCell.unnamed && memberImage.status !== Image.Ready
+                    visible: !memberCell.unnamed && memberImage.status !== Image.Ready && !memberCell.pending
                     text: root.initials(memberCell.modelData.name).charAt(0)
                     font.family: Theme.fontFamily
                     font.bold: true

@@ -273,16 +273,18 @@ bool CallBridge::ensureEngine() {
     m_process->setProcessChannelMode(QProcess::ForwardedErrorChannel);
     connect(m_process, &QProcess::finished, this, [this]() {
         const bool wasInCall = !m_activePeer.isEmpty();
+        const bool showing = !phase().isEmpty() && phase() != QLatin1String("ended");
         shutdown();
-        if (wasInCall) {
-            m_ui = QJsonObject{{"phase", "ended"}};
+        if (wasInCall || showing) {
+            m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}, {"group", isGroup()},
+                               {"statusCode", "disconnected"}};
             emit stateChanged();
         }
     });
     connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;
         shutdown();
-        m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}};
+        m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}, {"statusCode", "disconnected"}};
         emit stateChanged();
     });
     const QStringList engineArgs{"--token", m_token,
@@ -750,8 +752,9 @@ void CallBridge::onUiLine(const QByteArray& line) {
     } else if (type == "keyframe") {
         if (m_cameraSender) m_cameraSender->requestKeyFrame();
     } else if (type == "close") {
-        m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()},
-                           {"text", msg.value("text")}};
+        m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}, {"group", isGroup()},
+                           {"text", msg.value("text")}, {"statusCode", msg.value("statusCode")},
+                           {"statusParams", msg.value("statusParams")}};
         m_isVideoMode = false;
         emit stateChanged();
     }

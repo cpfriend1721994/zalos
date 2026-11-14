@@ -60,8 +60,18 @@ ZaloSession::ZaloSession(QNetworkAccessManager* nam, SessionCookieJar* jar, QObj
     : QObject(parent), m_nam(nam), m_jar(jar) {
     m_pongWatchdog.setSingleShot(true);
     connect(&m_pongWatchdog, &QTimer::timeout, this, [this]() {
-        logRealtime(QStringLiteral("no frame 15 s after ping: reconnecting"));
-        QMetaObject::invokeMethod(this, [this]() { if (m_ws) m_ws->abort(); }, Qt::QueuedConnection);
+        logRealtime(QStringLiteral("no frame after ping or socket open: reconnecting"));
+        QMetaObject::invokeMethod(this, [this]() {
+            if (!m_ws) return;
+            m_ws->abort();
+            if (!m_ws) return;
+            logRealtime(QStringLiteral("socket never connected: dropping it and retrying"));
+            m_ws->disconnect(this);
+            m_ws->deleteLater();
+            m_ws = nullptr;
+            m_realtimeReady = false;
+            if (!m_secretKey.isEmpty()) QTimer::singleShot(5000, this, &ZaloSession::connectRealtime);
+        }, Qt::QueuedConnection);
     });
 
     m_pingTimer.setSingleShot(false);
@@ -761,7 +771,8 @@ void ZaloSession::sendAttachment(const QString& threadId, bool isGroup, const QS
     QSize size;
     if (isImage) size = QImageReader(filePath).size();
     const UploadKind kind = isImage ? UploadKind::Photo : (isVideo ? UploadKind::Video : UploadKind::File);
-    uploadChunks(threadId, isGroup, file.readAll(), info.fileName(), kind,
+    file.close();
+    uploadChunks(threadId, isGroup, filePath, info.fileName(), kind,
                  size.width(), size.height(), caption, cb, sendClientId, ttl);
 }
 
@@ -772,16 +783,23 @@ void ZaloSession::sendVoice(const QString& threadId, bool isGroup, const QString
         cb(false, {}, QStringLiteral("file_unreadable"), -1);
         return;
     }
-    uploadChunks(threadId, isGroup, file.readAll(), QFileInfo(filePath).fileName(), UploadKind::Voice, 0, 0, {}, cb,
+    file.close();
+    uploadChunks(threadId, isGroup, filePath, QFileInfo(filePath).fileName(), UploadKind::Voice, 0, 0, {}, cb,
                  clientId, ttl);
 }
 
-void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByteArray& content,
+void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QString& filePath,
                                const QString& fileName, UploadKind kind, int width, int height, const QString& caption,
                                Callback cb, const QString& sendClientId, qint64 ttl) {
     const bool isImage = kind == UploadKind::Photo;
+    auto source = std::make_shared<QFile>(filePath);
+    if (!source->open(QIODevice::ReadOnly) || source->size() <= 0) {
+        cb(false, {}, QStringLiteral("file_unreadable"), -1);
+        return;
+    }
+    const qint64 totalSize = source->size();
     const int chunkSize = qMax(65536, sharefileSetting("chunk_size_file", 3145728));
-    const int totalChunk = int((content.size() + chunkSize - 1) / chunkSize);
+    const int totalChunk = int((totalSize + chunkSize - 1) / chunkSize);
     const qint64 clientId = sendClientId.isEmpty() ? QDateTime::currentMSecsSinceEpoch() : sendClientId.toLongLong();
     const QString base = serviceUrl("file");
     if (base.isEmpty()) {
@@ -796,7 +814,7 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
         {"totalChunk", totalChunk},
         {"fileName", fileName},
         {"clientId", clientId},
-        {"totalSize", content.size()},
+        {"totalSize", totalSize},
         {"imei", m_imei},
         {"isE2EE", 0},
         {"jxl", 0},
@@ -822,7 +840,14 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
         part.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
         part.setHeader(QNetworkRequest::ContentDispositionHeader,
                        QStringLiteral("form-data; name=\"chunkContent\"; filename=\"%1\"").arg(fileName));
-        part.setBody(content.mid(qint64(index) * chunkSize, chunkSize));
+        QByteArray chunk;
+        if (source->seek(qint64(index) * chunkSize)) chunk = source->read(chunkSize);
+        if (chunk.isEmpty()) {
+            delete multi;
+            cb(false, {}, QStringLiteral("file_unreadable"), -1);
+            return;
+        }
+        part.setBody(chunk);
         multi->append(part);
 
         QNetworkReply* reply = m_nam->post(req, multi);
@@ -848,7 +873,7 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
                         {"rawUrl", res.value("normalUrl")},
                         {"hdUrl", res.value("hdUrl")},
                         {"thumbUrl", res.value("thumbUrl")},
-                        {"hdSize", QString::number(content.size())},
+                        {"hdSize", QString::number(totalSize)},
                         {"zsource", -1},
                         {"ttl", ttl},
                         {"jcp", "{\"convertible\":\"jxl\"}"},
@@ -869,8 +894,10 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
                     cb(false, {}, QStringLiteral("upload_rejected"), -1);
                     return;
                 }
-                const QString checksum = QString::fromLatin1(
-                    QCryptographicHash::hash(content, QCryptographicHash::Md5).toHex());
+                QCryptographicHash md5(QCryptographicHash::Md5);
+                if (source->seek(0)) md5.addData(source.get());
+                const QString checksum = QString::fromLatin1(md5.result().toHex());
+                source->close();
                 auto awaitFileDone = [this, cb](const QString& fid, std::function<void(const QJsonObject&)> onDone) {
                     const auto early = m_earlyFileDone.constFind(fid);
                     if (early != m_earlyFileDone.constEnd()) {
@@ -896,7 +923,7 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
                         }
                         const QJsonObject info{{"voiceUrl", voiceUrl},
                                                {"m4aUrl", !aac.isEmpty() ? aac : voiceUrl},
-                                               {"fileSize", content.size()}};
+                                               {"fileSize", totalSize}};
                         QJsonObject send{
                             {"ttl", 0},
                             {"zsource", -1},
@@ -924,7 +951,7 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QByt
                         {"checksum", checksum},
                         {"checksumSha", ""},
                         {"extention", QFileInfo(fileName).suffix()},
-                        {"totalSize", content.size()},
+                        {"totalSize", totalSize},
                         {"fileName", fileName},
                         {"clientId", res.value("clientFileId")},
                         {"fType", kind == UploadKind::Video ? 2 : 1},
@@ -1204,6 +1231,7 @@ QNetworkReply* ZaloSession::getWithCookies(const QUrl& url) {
     req.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
     req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    req.setTransferTimeout(150000);
     return m_nam->get(req);
 }
 
@@ -1733,6 +1761,19 @@ void ZaloSession::removeFriend(const QString& userId, Callback cb) {
     apiPost("friend", "/api/friend/remove", params, cb);
 }
 
+void ZaloSession::probeRealtime() {
+    if (m_secretKey.isEmpty()) return;
+    if (!m_ws) {
+        logRealtime(QStringLiteral("probe: no socket, connecting now"));
+        connectRealtime();
+        return;
+    }
+    if (!m_realtimeReady) return;
+    logRealtime(QStringLiteral("probe: ping after network change or resume"));
+    sendWs(2, 1, QJsonObject{{"eventId", QDateTime::currentMSecsSinceEpoch()}}, QString());
+    m_pongWatchdog.start(15000);
+}
+
 void ZaloSession::connectRealtime() {
     const QJsonArray urls = m_loginInfo.value("zpw_ws").toArray();
     if (urls.isEmpty() || m_ws) return;
@@ -1780,6 +1821,8 @@ void ZaloSession::connectRealtime() {
     bool hasSek = false;
     for (const QNetworkCookie& c : m_jar->cookiesForUrl(QUrl("https://chat.zalo.me/"))) {
         const QByteArray name = c.name();
+        const bool authCookie = name == "zpw_uin" || name == "zpw_sek";
+        if (authCookie && c.value().isEmpty()) continue;
         if (name == "zpw_uin") hasUin = true;
         if (name == "zpw_sek") hasSek = true;
         cookieParts << QString::fromUtf8(name) + "=" + QString::fromUtf8(c.value());
@@ -1793,6 +1836,7 @@ void ZaloSession::connectRealtime() {
     }
     req.setRawHeader("Cookie", cookieParts.join("; ").toUtf8());
     m_ws->open(req);
+    m_pongWatchdog.start(20000);
 }
 
 void ZaloSession::disconnectRealtime() {

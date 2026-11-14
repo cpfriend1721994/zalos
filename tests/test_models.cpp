@@ -56,6 +56,22 @@ private slots:
         QCOMPARE(model.latestMessageId("t"), QString("5002"));
     }
 
+    void testSameBatchCliMsgIdDuplicatesInOpenThread() {
+        MessageModel model;
+        model.loadConversation("t");
+        MessageItem first; first.id = "100"; first.cliMsgId = "1700000000100"; first.senderId = "u1"; first.ts = 1;
+        model.mergeMessages("t", {first});
+        QCOMPARE(model.rowCount(), 1);
+
+        MessageItem phoneCopy; phoneCopy.id = "1700000000200"; phoneCopy.cliMsgId = "1700000000200";
+        phoneCopy.senderId = "u1"; phoneCopy.text = "fixture"; phoneCopy.ts = 2;
+        MessageItem serverCopy = phoneCopy; serverCopy.id = "9200";
+        model.mergeMessages("t", {phoneCopy, serverCopy});
+        QCOMPARE(model.rowCount(), 2);
+        QVERIFY(model.contains("t", "9200"));
+        QVERIFY(!model.contains("t", "1700000000200"));
+    }
+
     void testResyncDedupesByCliMsgId() {
         MessageModel model;
         model.loadConversation("t");

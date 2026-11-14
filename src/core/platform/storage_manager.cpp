@@ -102,10 +102,10 @@ qint64 StorageManager::clear(const QString& key) {
     return before - stats(dir).bytes;
 }
 
-void StorageManager::openDownloadsFolder() const {
+bool StorageManager::openDownloadsFolder() const {
     const QString dir = directory("downloads");
     QDir().mkpath(dir);
-    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+    return QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
 }
 
 qint64 StorageManager::pruneDirectory(const QString& dir, qint64 limitBytes, qint64 maxAgeMs) {

@@ -206,6 +206,7 @@ public:
     void inviteToGroups(const QString& userId, const QStringList& groupIds, Callback cb);
 
     void connectRealtime();
+    void probeRealtime();
     void disconnectRealtime();
     bool isRealtimeConnected() const { return m_realtimeReady; }
     void requestOldMessages(bool isGroup, const QString& lastMsgId = QString());
@@ -265,7 +266,7 @@ public:
 private:
 #endif
     enum class UploadKind { Photo, File, Voice, Video };
-    void uploadChunks(const QString& threadId, bool isGroup, const QByteArray& content, const QString& fileName,
+    void uploadChunks(const QString& threadId, bool isGroup, const QString& filePath, const QString& fileName,
                       UploadKind kind, int width, int height, const QString& caption, Callback cb,
                       const QString& sendClientId = QString(), qint64 ttl = 0);
     int sharefileSetting(const char* key, int fallback) const;

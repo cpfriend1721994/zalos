@@ -248,10 +248,20 @@ Rectangle {
             icon: "chat"
             tip: I18n.t("Tin nhắn", "Messages")
             active: root.currentTab === "messages" && (!root.foldersShown || ZaloClient.conversationModel.labelFilter === 0)
+                    && !(ZaloClient.currentConversationId !== "" && ZaloClient.currentConversationId === ZaloClient.myCloudId)
             badge: ZaloClient.conversationModel.totalUnreadCount
             onClicked: {
-                ZaloClient.setCurrentNavigationTab("messages");
+                ZaloClient.openMessagesTab();
                 if (root.foldersShown) ZaloClient.conversationModel.setLabelFilter(0);
+            }
+        }
+
+        RailButton {
+            icon: "my_docs"
+            tip: I18n.t("My Documents", "My Documents")
+            active: root.currentTab === "cloud" || (root.currentTab === "messages" && ZaloClient.currentConversationId !== "" && ZaloClient.currentConversationId === ZaloClient.myCloudId)
+            onClicked: {
+                ZaloClient.openMyCloud();
             }
         }
 
@@ -333,15 +343,6 @@ Rectangle {
             badge: 0
             onClicked: {
                 ZaloClient.setCurrentNavigationTab("kiki");
-            }
-        }
-
-        RailButton {
-            icon: "cloud"
-            tip: I18n.t("My Documents", "My Documents")
-            active: root.currentTab === "cloud" || (root.currentTab === "messages" && ZaloClient.currentConversationId !== "" && ZaloClient.currentConversationId === ZaloClient.myCloudId)
-            onClicked: {
-                ZaloClient.openMyCloud();
             }
         }
 

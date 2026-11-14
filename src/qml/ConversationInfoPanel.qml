@@ -9,9 +9,6 @@ import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
-    Layout.fillHeight: true
-    Layout.preferredWidth: ZaloClient.showConversationInfo ? 280 : 0
-    visible: ZaloClient.showConversationInfo
     clip: true
     color: ThemeManager.surfaceColor
     border.color: ThemeManager.borderColor

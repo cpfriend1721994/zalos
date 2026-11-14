@@ -136,7 +136,7 @@ Popup {
             ZButton {
                 variant: "secondary"
                 text: I18n.t("Mở trong trình duyệt", "Open in browser")
-                onClicked: { Qt.openUrlExternally(root.url); root.close(); }
+                onClicked: { ZaloClient.openExternalUrl(root.url); root.close(); }
             }
 
             ZButton {

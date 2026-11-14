@@ -33,7 +33,8 @@ void CallWindow::open(const UiOpen& o) {
     });
     m_proc = proc;
     proc->start(QStringLiteral("zenity"), {QStringLiteral("--progress"), QStringLiteral("--pulsate"),
-                                           QStringLiteral("--title=Zalo — %1").arg(o.title), QStringLiteral("--text=%1").arg(o.text),
+                                           QStringLiteral("--title=Zalo — %1").arg(o.title),
+                                           QStringLiteral("--text=%1").arg(statusText(o.statusCode, o.statusParams)),
                                            QStringLiteral("--cancel-label=Kết thúc"), QStringLiteral("--width=360")});
 }
 
@@ -59,12 +60,13 @@ void CallWindow::incoming(const UiIncoming& o, AcceptFn onAccept, RejectFn onRej
     });
     m_proc = proc;
     proc->start(QStringLiteral("zenity"), {QStringLiteral("--question"), QStringLiteral("--title=Zalo — %1").arg(o.title),
-                                           QStringLiteral("--text=%1").arg(o.text), QStringLiteral("--ok-label=Nghe"),
+                                           QStringLiteral("--text=%1").arg(statusText(o.statusCode, o.statusParams)), QStringLiteral("--ok-label=Nghe"),
                                            QStringLiteral("--cancel-label=Từ chối"), QStringLiteral("--timeout=60"),
                                            QStringLiteral("--width=360")});
 }
 
-void CallWindow::status(const QString& text, double since) {
+void CallWindow::status(const QString& code, double since, const QJsonObject& params) {
+    const QString text = statusText(code, params);
     m_timer.stop();
     m_timer.disconnect();
     auto write = [this, text, since] {
@@ -83,7 +85,8 @@ void CallWindow::status(const QString& text, double since) {
     }
 }
 
-void CallWindow::close(const QString& text) {
+void CallWindow::close(const QString& code, const QJsonObject& params) {
+    const QString text = statusText(code, params);
     if (!text.isEmpty()) zlog(QStringLiteral("call window: %1").arg(text));
     kill();
 }

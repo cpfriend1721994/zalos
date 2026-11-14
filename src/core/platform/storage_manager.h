@@ -27,7 +27,7 @@ public:
 
     Q_INVOKABLE QVariantList usage() const;
     Q_INVOKABLE qint64 clear(const QString& key);
-    Q_INVOKABLE void openDownloadsFolder() const;
+    Q_INVOKABLE bool openDownloadsFolder() const;
     Q_INVOKABLE qint64 prune();
 
     void setAvatarMemoryCleaner(std::function<void()> cleaner) { m_avatarMemoryCleaner = std::move(cleaner); }

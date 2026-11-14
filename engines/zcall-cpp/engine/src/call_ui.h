@@ -13,9 +13,12 @@
 
 namespace zcall {
 
+QString statusText(const QString& code, const QJsonObject& params = {});
+
 struct UiOpen {
     QString title;
-    QString text;
+    QString statusCode;
+    QJsonObject statusParams;
     QString avatar;
     bool video{false};
     bool group{false};
@@ -25,7 +28,8 @@ struct UiOpen {
 
 struct UiIncoming {
     QString title;
-    QString text;
+    QString statusCode;
+    QJsonObject statusParams;
     QString avatar;
     bool video{false};
     bool noAnswer{false};
@@ -67,11 +71,11 @@ public:
 
     virtual void open(const UiOpen& o) = 0;
     virtual void incoming(const UiIncoming& o, AcceptFn onAccept, RejectFn onReject) = 0;
-    virtual void status(const QString& text, double since = 0) = 0;
-    virtual void close(const QString& text) = 0;
+    virtual void status(const QString& code, double since = 0, const QJsonObject& params = {}) = 0;
+    virtual void close(const QString& code, const QJsonObject& params = {}) = 0;
 
     virtual bool rich() const { return false; }
-    virtual void notice(const QString&) {}
+    virtual void notice(const QString&, const QJsonObject& = {}) {}
     virtual void micVolume(int) {}
     virtual void micLevel(int) {}
     virtual void peer(bool, bool, bool) {}
@@ -91,8 +95,8 @@ class HeadlessUi : public CallUi {
 public:
     void open(const UiOpen&) override {}
     void incoming(const UiIncoming& o, AcceptFn onAccept, RejectFn onReject) override;
-    void status(const QString&, double) override {}
-    void close(const QString&) override {}
+    void status(const QString&, double, const QJsonObject&) override {}
+    void close(const QString&, const QJsonObject&) override {}
 };
 
 }

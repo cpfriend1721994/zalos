@@ -20,6 +20,8 @@ namespace {
 
 constexpr auto kTagAttr = QNetworkRequest::Attribute(QNetworkRequest::User + 1);
 constexpr auto kGenAttr = QNetworkRequest::Attribute(QNetworkRequest::User + 2);
+constexpr int kTransferTimeoutMs = 45000;
+constexpr int kLongPollTimeoutMs = 180000;
 
 const QString kRefererPc = QStringLiteral("https://id.zalo.me/account?continue=https%3A%2F%2Fzalo.me%2Fpc");
 const QString kRefererChat = QStringLiteral("https://id.zalo.me/account?continue=https%3A%2F%2Fchat.zalo.me%2F");
@@ -42,6 +44,7 @@ void applyIdHeaders(QNetworkRequest& req, const QString& referer, bool navigate 
 ZaloApiClient::ZaloApiClient(QObject* parent)
     : QObject(parent) {
     m_netManager = new QNetworkAccessManager(this);
+    m_netManager->setTransferTimeout(kTransferTimeoutMs);
     m_jar = new SessionCookieJar(this);
     m_netManager->setCookieJar(m_jar);
     m_jar->setParent(this);
@@ -94,6 +97,8 @@ void ZaloApiClient::postIdForm(const QString& url, const QList<QPair<QString, QS
     applyIdHeaders(req, referer);
     req.setAttribute(kTagAttr, tag);
     req.setAttribute(kGenAttr, m_qrGeneration);
+    if (tag == QLatin1String("qr_step5_waiting_scan") || tag == QLatin1String("qr_step6_waiting_confirm"))
+        req.setTransferTimeout(kLongPollTimeoutMs);
     m_netManager->post(req, body);
 }
 

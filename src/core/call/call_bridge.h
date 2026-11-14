@@ -10,6 +10,7 @@
 #include <QPointer>
 #include <QString>
 #include <QTemporaryFile>
+#include <QVariantMap>
 #include <QVideoSink>
 #include <QPointer>
 #include "camera_sender.h"
@@ -41,6 +42,10 @@ class CallBridge : public QObject {
     Q_PROPERTY(QString peerName READ peerName NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString peerAvatar READ peerAvatar NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString statusCode READ statusCode NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QVariantMap statusParams READ statusParams NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString noticeCode READ noticeCode NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QVariantMap noticeParams READ noticeParams NOTIFY stateChanged FINAL)
     Q_PROPERTY(qint64 since READ since NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool muted READ muted NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool speakerOff READ speakerOff NOTIFY stateChanged FINAL)
@@ -66,6 +71,10 @@ public:
     QString peerName() const { return m_ui.value("name").toString(); }
     QString peerAvatar() const { return m_ui.value("avatar").toString(); }
     QString statusText() const { return m_ui.value("text").toString(); }
+    QString statusCode() const { return m_ui.value("statusCode").toString(); }
+    QVariantMap statusParams() const { return m_ui.value("statusParams").toObject().toVariantMap(); }
+    QString noticeCode() const { return m_ui.value("noticeCode").toString(); }
+    QVariantMap noticeParams() const { return m_ui.value("noticeParams").toObject().toVariantMap(); }
     qint64 since() const { return m_ui.value("since").toVariant().toLongLong(); }
     bool muted() const { return m_ui.value("muted").toBool(); }
     bool speakerOff() const { return m_ui.value("speakerOff").toBool(); }

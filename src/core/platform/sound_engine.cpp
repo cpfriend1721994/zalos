@@ -212,19 +212,43 @@ void SoundEngine::startExternal() {
         m_process = new QProcess(this);
         m_process->setProcessChannelMode(QProcess::ForwardedErrorChannel);
         m_process->setStandardOutputFile(QProcess::nullDevice());
-        connect(m_process, &QProcess::finished, this, [this]() {
-            if (m_externalLoop && !m_externalFile.isEmpty()) {
+        connect(m_process, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus status) {
+            if (m_externalStopping) {
+                m_externalStopping = false;
+                emit playingChanged(false);
+                return;
+            }
+            const bool healthy = status == QProcess::NormalExit && exitCode == 0 && m_externalStarted.elapsed() >= 200;
+            if (healthy && m_externalLoop && !m_externalFile.isEmpty()) {
                 startExternal();
                 return;
             }
+            if (!healthy && !m_externalFile.isEmpty()) {
+                playWithMediaPlayer(m_externalFile, m_externalLoop);
+                return;
+            }
             emit playingChanged(false);
+        });
+        connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+            if (error != QProcess::FailedToStart || m_externalFile.isEmpty()) return;
+            playWithMediaPlayer(m_externalFile, m_externalLoop);
         });
     }
     QStringList args;
     if (tool.endsWith(QLatin1String("canberra-gtk-play"))) args << "-f" << m_externalFile;
     else args << m_externalFile;
+    m_externalStopping = false;
+    m_externalStarted.start();
     m_process->start(tool, args);
     emit playingChanged(true);
+}
+
+void SoundEngine::playWithMediaPlayer(const QString& file, bool loop) {
+    ensurePlayer();
+    m_player->stop();
+    m_player->setSource(QUrl::fromLocalFile(file));
+    m_player->setLoops(loop ? QMediaPlayer::Infinite : 1);
+    m_player->play();
 }
 
 void SoundEngine::play(const QString& kind, const QString& key, bool loop) {
@@ -234,6 +258,7 @@ void SoundEngine::play(const QString& kind, const QString& key, bool loop) {
         if (!externalPlayer().isEmpty()) {
             if (m_process && m_process->state() != QProcess::NotRunning) {
                 m_externalLoop = false;
+                m_externalStopping = true;
                 m_process->kill();
                 m_process->waitForFinished(500);
             }
@@ -242,16 +267,13 @@ void SoundEngine::play(const QString& kind, const QString& key, bool loop) {
             startExternal();
             return;
         }
-        ensurePlayer();
-        m_player->stop();
-        m_player->setSource(QUrl::fromLocalFile(key.mid(7)));
-        m_player->setLoops(loop ? QMediaPlayer::Infinite : 1);
-        m_player->play();
+        playWithMediaPlayer(key.mid(7), loop);
         return;
     }
     if (m_player) m_player->stop();
     if (m_process && m_process->state() != QProcess::NotRunning) {
         m_externalLoop = false;
+        m_externalStopping = true;
         m_process->kill();
     }
     QString effective = key;
@@ -271,6 +293,7 @@ void SoundEngine::stop() {
     if (m_process && m_process->state() != QProcess::NotRunning) {
         m_externalLoop = false;
         m_externalFile.clear();
+        m_externalStopping = true;
         m_process->kill();
     }
 }

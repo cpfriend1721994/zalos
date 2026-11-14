@@ -25,6 +25,7 @@ add_library(zcall_core STATIC
     src/wire/zrtp_packet.cpp
     src/media.h
     src/call_ui.h
+    src/call_ui.cpp
     src/call_window.h
     src/call_window.cpp
     src/ui_client.h

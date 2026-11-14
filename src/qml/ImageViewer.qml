@@ -350,7 +350,7 @@ Rectangle {
                 visible: root.isVideo && String(root.current.url || "").length > 0
                 Layout.alignment: Qt.AlignHCenter
                 text: I18n.t("Mở bằng trình phát ngoài", "Open in external player")
-                onClicked: Qt.openUrlExternally(root.current.url)
+                onClicked: ZaloClient.openExternalUrl(String(root.current.url || ""))
             }
         }
 
@@ -591,7 +591,7 @@ Rectangle {
                 icon: "open_external"
                 tip: root.isVideo ? I18n.t("Mở video trong trình duyệt", "Open video in browser")
                                   : I18n.t("Mở ảnh gốc trong trình duyệt", "Open original in browser")
-                onClicked: Qt.openUrlExternally(root.current.url)
+                onClicked: ZaloClient.openExternalUrl(String(root.current.url || ""))
             }
             ToolButtonIcon { icon: "close"; tip: I18n.t("Đóng (Esc)", "Close (Esc)"); onClicked: { root.stopVideo(); ImageViewerState.close(); } }
         }

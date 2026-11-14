@@ -222,8 +222,6 @@ bool ZaloOfflineStore::initializeDatabase(const QString& customPath) {
                                      std::pair{"seen_uids", "TEXT DEFAULT ''"}}) {
         ensureColumn(m_db, "messages", col, type);
     }
-    q.exec("UPDATE messages SET text = '' WHERE message_type IN ('image', 'sticker', 'video') "
-           "AND trim(text) LIKE '[%]' AND length(trim(text)) <= 26;");
     q.exec("CREATE INDEX IF NOT EXISTS idx_messages_conv_ts ON messages(conv_id, ts);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_messages_expire ON messages(expire_on) WHERE expire_on > 0;");
 
@@ -304,6 +302,12 @@ void ZaloOfflineStore::migrateStorage() {
         }
         setMeta("ttl_version", "2");
         m_db.commit();
+    }
+    if (meta("media_label_cleanup") != QLatin1String("1")) {
+        QSqlQuery u(m_db);
+        u.exec("UPDATE messages SET text = '' WHERE message_type IN ('image', 'sticker', 'video') "
+               "AND trim(text) LIKE '[%]' AND length(trim(text)) <= 26;");
+        setMeta("media_label_cleanup", "1");
     }
     if (meta("dedup_cli_version") != QLatin1String("1")) {
         m_db.transaction();
@@ -610,18 +614,22 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
 
     if (!item.cliMsgId.isEmpty() && item.cliMsgId != QLatin1String("0")) {
         QSqlQuery chk(m_db);
-        chk.prepare("SELECT id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND id <> :id LIMIT 1;");
+        chk.prepare("SELECT id, sender_id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND id <> :id;");
         chk.bindValue(":conv", convId);
         chk.bindValue(":cli", item.cliMsgId);
         chk.bindValue(":id", item.id);
-        if (chk.exec() && chk.next()) {
-            const QString existingId = chk.value(0).toString();
-            if (existingId.startsWith(QLatin1String("local-"))) {
-                QSqlQuery del(m_db);
-                del.prepare("DELETE FROM messages WHERE id = :oldId;");
-                del.bindValue(":oldId", existingId);
-                del.exec();
+        QStringList stale;
+        if (chk.exec()) {
+            while (chk.next()) {
+                const QString existingId = chk.value(0).toString();
+                if (existingId.startsWith(QLatin1String("local-")) || chk.value(1).toString() == item.senderId) stale << existingId;
             }
+        }
+        for (const QString& oldId : stale) {
+            QSqlQuery del(m_db);
+            del.prepare("DELETE FROM messages WHERE id = :oldId;");
+            del.bindValue(":oldId", oldId);
+            del.exec();
         }
     }
 

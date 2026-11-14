@@ -132,9 +132,17 @@ signals:
 
 private:
     void applyFilter();
+    void refilter();
+    void publishFiltered(QVector<ConversationItem> next);
+    void reindex();
+    int indexOf(const QString& convId) const;
+    QString folded(const QString& text) const;
     void emitUnreadChanged();
     int m_batchDepth{0};
     bool m_filterDirty{false};
+    bool m_resetPending{false};
+    QHash<QString, int> m_index;
+    mutable QHash<QString, QString> m_foldCache;
     bool m_unreadDirty{false};
 
     QVector<ConversationItem> m_allItems;

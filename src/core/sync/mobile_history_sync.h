@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -63,6 +64,8 @@ public:
     static QVector<BackupConversation> readBackupDirectory(const QString& dir, QString* error);
     static QJsonArray toMessages(const BackupConversation& conv, const QHash<QString, QString>& ids,
                                  const QString& myPlainUid, const QString& myNoisedUid, int* skipped = nullptr);
+    static int downloadRetryDelayMs(int httpStatus, int networkError, int attempt, const QByteArray& retryAfter,
+                                    const QDateTime& now);
 
 signals:
     void stateChanged(int state, const QString& status, int progress);

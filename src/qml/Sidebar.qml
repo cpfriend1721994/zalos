@@ -210,7 +210,19 @@ Rectangle {
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
                             clip: true
-                            onTextChanged: ZaloClient.conversationModel.setSearchFilter(text)
+                            onTextChanged: {
+                                if (text.length === 0) {
+                                    searchDebounce.stop();
+                                    ZaloClient.conversationModel.setSearchFilter("");
+                                } else {
+                                    searchDebounce.restart();
+                                }
+                            }
+                            Timer {
+                                id: searchDebounce
+                                interval: 150
+                                onTriggered: ZaloClient.conversationModel.setSearchFilter(searchInput.text)
+                            }
                             onActiveFocusChanged: if (activeFocus && ZaloClient.hiddenUnread) ZaloClient.dismissHiddenUnread()
                             Keys.onEscapePressed: { text = ""; focus = false; }
 
@@ -587,6 +599,18 @@ Rectangle {
             spacing: 0
             reuseItems: true
             cacheBuffer: 300
+
+            property bool pinnedToTop: true
+            onMovementEnded: convList.pinnedToTop = convList.atYBeginning
+            Connections {
+                target: ZaloClient.conversationModel
+                function onRowsMoved(parent: var, start: int, end: int, destination: var, row: int) {
+                    if (row === 0 && convList.pinnedToTop) Qt.callLater(() => convList.positionViewAtBeginning());
+                }
+                function onRowsInserted(parent: var, first: int, last: int) {
+                    if (first === 0 && convList.pinnedToTop) Qt.callLater(() => convList.positionViewAtBeginning());
+                }
+            }
 
             property double now: Date.now()
             Timer {

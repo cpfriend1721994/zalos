@@ -1554,7 +1554,8 @@ Item {
                                                 enabled: !usageRow.itemClearable || usageRow.itemBytes > 0
                                                 onClicked: {
                                                     if (usageRow.itemClearable) ZaloClient.storage.clear(usageRow.itemKey);
-                                                    else ZaloClient.storage.openDownloadsFolder();
+                                                    else if (!ZaloClient.storage.openDownloadsFolder())
+                                                        ZaloClient.showNotice(I18n.t("Không mở được thư mục tải về.", "Couldn't open the downloads folder."));
                                                 }
                                             }
                                         }

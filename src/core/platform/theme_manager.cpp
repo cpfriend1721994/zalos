@@ -14,6 +14,7 @@
 #include <QFile>
 #include <QDir>
 #include <QFileSystemWatcher>
+#include <QFileInfo>
 #include <QDebug>
 
 namespace Zalos::Core::Platform {
@@ -400,15 +401,86 @@ void ThemeManager::initSystemThemeDetection() {
         SLOT(detectGnomeOrPortalTheme())
     );
 
-    const QString kdeGlobalsPath = QDir::homePath() + "/.config/kdeglobals";
-    if (QFile::exists(kdeGlobalsPath)) {
+    watchKdeGlobals();
+}
+
+namespace {
+
+QString kdeGlobalsPath() {
+    return QDir::homePath() + QStringLiteral("/.config/kdeglobals");
+}
+
+QString kdeValue(const QByteArray& content, const QString& group, const QString& key) {
+    QString current;
+    const QStringList lines = QString::fromUtf8(content).split(QLatin1Char('\n'));
+    for (QString line : lines) {
+        line = line.trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) continue;
+        if (line.startsWith(QLatin1Char('[')) && line.endsWith(QLatin1Char(']'))) {
+            current = line.mid(1, line.size() - 2);
+            continue;
+        }
+        if (current != group) continue;
+        const int eq = line.indexOf(QLatin1Char('='));
+        if (eq <= 0) continue;
+        if (line.left(eq).trimmed() == key) return line.mid(eq + 1).trimmed();
+    }
+    return QString();
+}
+
+QColor kdeRgb(const QString& value) {
+    const QStringList parts = value.split(QLatin1Char(','));
+    if (parts.size() < 3) return QColor();
+    bool okR = false, okG = false, okB = false;
+    const int r = parts[0].trimmed().toInt(&okR);
+    const int g = parts[1].trimmed().toInt(&okG);
+    const int b = parts[2].trimmed().toInt(&okB);
+    if (!okR || !okG || !okB) return QColor();
+    return QColor(r, g, b);
+}
+
+}
+
+bool ThemeManager::kdeDarkFromGlobals(const QByteArray& content, bool* known) {
+    if (known) *known = false;
+    const QColor bg = kdeRgb(kdeValue(content, QStringLiteral("Colors:Window"), QStringLiteral("BackgroundNormal")));
+    if (bg.isValid()) {
+        if (known) *known = true;
+        return 0.299 * bg.red() + 0.587 * bg.green() + 0.114 * bg.blue() < 128.0;
+    }
+    QString scheme = kdeValue(content, QStringLiteral("General"), QStringLiteral("ColorScheme"));
+    if (scheme.isEmpty()) scheme = kdeValue(content, QStringLiteral("KDE"), QStringLiteral("LookAndFeelPackage"));
+    if (scheme.isEmpty()) return false;
+    if (known) *known = true;
+    return scheme.contains(QLatin1String("dark"), Qt::CaseInsensitive);
+}
+
+QColor ThemeManager::kdeAccentFromGlobals(const QByteArray& content) {
+    return kdeRgb(kdeValue(content, QStringLiteral("General"), QStringLiteral("AccentColor")));
+}
+
+void ThemeManager::watchKdeGlobals() {
+    const QString path = kdeGlobalsPath();
+    const QString dir = QFileInfo(path).absolutePath();
+    if (!QFile::exists(path) && !QDir(dir).exists()) return;
+    if (!m_kdeWatcher) {
         m_kdeWatcher = new QFileSystemWatcher(this);
-        m_kdeWatcher->addPath(kdeGlobalsPath);
-        connect(m_kdeWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
+        m_kdeDebounce.setSingleShot(true);
+        m_kdeDebounce.setInterval(150);
+        connect(&m_kdeDebounce, &QTimer::timeout, this, [this]() {
+            const QString file = kdeGlobalsPath();
+            if (QFile::exists(file) && !m_kdeWatcher->files().contains(file)) m_kdeWatcher->addPath(file);
             detectKdeTheme();
             detectSystemAccentColor();
         });
+        connect(m_kdeWatcher, &QFileSystemWatcher::fileChanged, &m_kdeDebounce, qOverload<>(&QTimer::start));
+        connect(m_kdeWatcher, &QFileSystemWatcher::directoryChanged, this, [this](const QString&) {
+            const QString file = kdeGlobalsPath();
+            if (QFile::exists(file) && !m_kdeWatcher->files().contains(file)) m_kdeDebounce.start();
+        });
     }
+    if (QFile::exists(path)) m_kdeWatcher->addPath(path);
+    if (QDir(dir).exists()) m_kdeWatcher->addPath(dir);
 }
 
 void ThemeManager::detectSystemAccentColor() {
@@ -443,21 +515,8 @@ void ThemeManager::detectSystemAccentColor() {
     }
 
     if (!detectedAccent.isValid()) {
-        const QString kdeGlobalsPath = QDir::homePath() + "/.config/kdeglobals";
-        if (QFile::exists(kdeGlobalsPath)) {
-            QSettings kdeSettings(kdeGlobalsPath, QSettings::IniFormat);
-            kdeSettings.beginGroup("General");
-            QString accentStr = kdeSettings.value("AccentColor").toString();
-            kdeSettings.endGroup();
-            if (!accentStr.isEmpty()) {
-                const auto parts = accentStr.split(',');
-                if (parts.size() >= 3) {
-                    detectedAccent = QColor(parts[0].trimmed().toInt(),
-                                            parts[1].trimmed().toInt(),
-                                            parts[2].trimmed().toInt());
-                }
-            }
-        }
+        QFile kdeGlobals(kdeGlobalsPath());
+        if (kdeGlobals.open(QIODevice::ReadOnly)) detectedAccent = kdeAccentFromGlobals(kdeGlobals.readAll());
     }
 
     if (!detectedAccent.isValid()) {
@@ -477,29 +536,13 @@ void ThemeManager::detectSystemAccentColor() {
 }
 
 void ThemeManager::detectKdeTheme() {
-    const QString kdeGlobalsPath = QDir::homePath() + "/.config/kdeglobals";
-    if (!QFile::exists(kdeGlobalsPath)) {
-        return;
-    }
-
-    QSettings kdeSettings(kdeGlobalsPath, QSettings::IniFormat);
-    kdeSettings.beginGroup("Colors:Window");
-    QString bgNormal = kdeSettings.value("BackgroundNormal").toString();
-    kdeSettings.endGroup();
-
-    if (!bgNormal.isEmpty()) {
-        const auto parts = bgNormal.split(',');
-        if (parts.size() >= 3) {
-            int r = parts[0].trimmed().toInt();
-            int g = parts[1].trimmed().toInt();
-            int b = parts[2].trimmed().toInt();
-            double luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-            m_systemIsDark = (luminance < 128.0);
-            if (m_themeMode == 2) {
-                setDarkMode(m_systemIsDark);
-            }
-        }
-    }
+    QFile file(kdeGlobalsPath());
+    if (!file.open(QIODevice::ReadOnly)) return;
+    bool known = false;
+    const bool dark = kdeDarkFromGlobals(file.readAll(), &known);
+    if (!known) return;
+    m_systemIsDark = dark;
+    if (m_themeMode == 2) setDarkMode(m_systemIsDark);
 }
 
 void ThemeManager::detectGnomeOrPortalTheme() {
@@ -597,15 +640,10 @@ void ThemeManager::detectSystemFont() {
     if (reply.isValid()) detectedFont = familyFromFontSpec(reply.value().variant().toString());
 
     if (detectedFont.isEmpty()) {
-        const QString kdeGlobalsPath = QDir::homePath() + "/.config/kdeglobals";
-        if (QFile::exists(kdeGlobalsPath)) {
-            QSettings kdeSettings(kdeGlobalsPath, QSettings::IniFormat);
-            kdeSettings.beginGroup("General");
-            QString kdeFont = kdeSettings.value("font").toString();
-            kdeSettings.endGroup();
-            if (!kdeFont.isEmpty()) {
-                detectedFont = familyFromFontSpec(kdeFont);
-            }
+        QFile kdeGlobals(kdeGlobalsPath());
+        if (kdeGlobals.open(QIODevice::ReadOnly)) {
+            const QString kdeFont = kdeValue(kdeGlobals.readAll(), QStringLiteral("General"), QStringLiteral("font"));
+            if (!kdeFont.isEmpty()) detectedFont = familyFromFontSpec(kdeFont);
         }
     }
 

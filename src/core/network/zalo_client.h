@@ -603,6 +603,8 @@ public:
     Q_INVOKABLE void sendFriendRequest(const QString& uid, const QString& message);
     Q_INVOKABLE void createGroup(const QString& name, const QStringList& members);
     Q_INVOKABLE void openMyCloud();
+    Q_INVOKABLE void openMessagesTab();
+    QString lastChatId() const { return m_lastChatId; }
     Q_INVOKABLE QVariantList cloudSharedItems(const QString& kind = QStringLiteral("all")) const;
     Q_INVOKABLE void loadOlderMessages();
     Q_INVOKABLE void refreshContacts();
@@ -636,6 +638,9 @@ public:
     Q_INVOKABLE QString avatarOf(const QString& uid) const;
     Q_INVOKABLE void showNotice(const QString& text) { emit notice(text); }
     Q_INVOKABLE void openLink(const QString& url, const QString& title = QString(), const QString& thumb = QString());
+    Q_INVOKABLE bool openExternalUrl(const QString& url);
+    static QUrl externalUrl(const QString& url);
+    static QString uniqueFilePath(const QString& dir, const QString& fileName);
     Q_INVOKABLE QVariantMap qrModules(const QString& text) const;
     static bool isAppOnlyLink(const QString& url);
     Q_INVOKABLE QVariantList groupsForInvite(const QString& userId) const;
@@ -781,6 +786,9 @@ signals:
     void requestHideForScreenshot();
     void requestRestoreAfterScreenshot();
 
+private Q_SLOTS:
+    void onPrepareForSleep(bool sleeping);
+
 private:
     struct Profile {
         QString name;
@@ -795,12 +803,15 @@ private:
     void generateQrMatrix();
     QString L(const QString& vi, const QString& en) const { return m_appLanguage == "en" ? en : vi; }
     void noticeCallUnavailable(const QString& reason);
+    bool openLocalFile(const QString& path);
     void setLoginStatus(const QString& message, bool isError);
     QString friendlyError(const QString& error, int code = 0) const;
 
     void onSessionLoggedIn();
     void onSessionLoginFailed(const QString& reason);
     void onSessionLoginUnavailable(const QString& reason);
+    void watchConnectivity();
+    void scheduleReconnectProbe(const QString& reason);
     void loadAccountData();
     void preloadRecentThreads();
     void handleSyncControl(const QString& actType, const QString& act, const QJsonValue& data);
@@ -810,6 +821,7 @@ private:
     void migrateCachedParses();
     void noteAccountFlags(const QString& uid, const QJsonObject& profile);
     void openRemoteFile(const QString& url, const QString& fileName, const QString& goneText);
+    void downloadToFile(const QString& url, const QString& path, std::function<void(const QString& error)> done);
     void queueUnknownSenders(int first, int last);
     void scheduleExpiry();
     void loadReadOnlyThreads();
@@ -1021,6 +1033,9 @@ private:
     bool m_showSyncPrompt{false};
     QString m_voiceTarget;
     QTimer* m_restoreRetryTimer{nullptr};
+    QTimer* m_reconnectProbeTimer{nullptr};
+    QSet<QString> m_downloadsInFlight;
+    QString m_reconnectProbeReason;
     bool m_loadingHistory{false};
     bool m_syncing{false};
     int m_pendingSyncJobs{0};
@@ -1045,6 +1060,7 @@ private:
     QTimer* m_qrTimer{nullptr};
 
     QString m_currentConvId{""};
+    QString m_lastChatId;
     QString m_currentConvName;
     QString m_currentConvAvatar;
     bool m_isConnected{false};

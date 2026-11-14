@@ -28,9 +28,69 @@ Rectangle {
         return ("0" + m).slice(-2) + ":" + ("0" + (s % 60)).slice(-2);
     }
 
+    function clockText(seconds: int): string {
+        var s = Math.max(0, seconds);
+        var m = Math.floor(s / 60);
+        return ("0" + m).slice(-2) + ":" + ("0" + (s % 60)).slice(-2);
+    }
+
+    function joinNames(list: var): string {
+        var out = [];
+        if (list) {
+            for (var i = 0; i < list.length; ++i)
+                out.push(list[i] ? String(list[i]) : I18n.t("Thành viên", "Participant"));
+        }
+        return out.join(", ");
+    }
+
+    function statusLabel(code: string, params: var): string {
+        var p = params || {};
+        var inviter = p.inviter ? String(p.inviter) : I18n.t("Ai đó", "Someone");
+        switch (code) {
+        case "ringing":
+        case "groupRinging": return I18n.t("Đang đổ chuông...", "Ringing...");
+        case "endedWithDuration": return I18n.t("Cuộc gọi đã kết thúc", "Call ended") + " · " + clockText(Number(p.duration || 0));
+        case "disconnected": return I18n.t("Mất kết nối với bộ gọi điện", "Lost connection to the call engine");
+        case "recipientUnreachable": return I18n.t("Người nhận không liên lạc được", "The recipient can't be reached");
+        case "recipientNoAnswer": return I18n.t("Người nhận không trả lời", "No answer");
+        case "recipientDeclined": return I18n.t("Người nhận đã từ chối cuộc gọi", "The recipient declined the call");
+        case "callFailed": return I18n.t("Không gọi được", "Couldn't place the call");
+        case "serverUnreachable": return I18n.t("Không kết nối được máy chủ cuộc gọi", "Couldn't reach the call server");
+        case "groupUnsupported": return I18n.t("Gọi nhóm chưa được hỗ trợ trên Linux", "Group calls aren't supported on Linux yet");
+        case "groupCallIgnored": return I18n.t("Đã bỏ qua cuộc gọi nhóm", "Group call ignored");
+        case "groupCallFailed": return I18n.t("Không gọi được nhóm", "Couldn't start the group call");
+        case "groupCallFailedReason": return I18n.t("Không gọi được nhóm: ", "Couldn't start the group call: ") + String(p.message || "");
+        case "groupJoinRejected": return I18n.t("Không vào được cuộc gọi nhóm (máy chủ từ chối)", "Couldn't join the group call (refused by the server)");
+        case "groupDeclined": return I18n.t("Đã từ chối cuộc gọi nhóm", "Group call declined");
+        case "groupKicked": return I18n.t("Bạn đã bị mời ra khỏi cuộc gọi", "You were removed from the call");
+        case "groupNoAnswer": return I18n.t("Không ai trả lời", "Nobody answered");
+        case "groupCancelled": return I18n.t("Đã huỷ cuộc gọi nhóm", "Group call cancelled");
+        case "groupWaitingOthers": return I18n.t("Đang chờ người khác...", "Waiting for others...");
+        case "groupParticipants":
+            return I18n.t("%1 người: Bạn, %2", "%1 people: You, %2").arg(Number(p.count || 0)).arg(joinNames(p.names));
+        case "incomingGroupInvite": return I18n.t("%1 mời bạn vào cuộc gọi nhóm", "%1 invited you to a group call").arg(inviter);
+        case "incomingGroupUnsupported":
+            return I18n.t("%1 đang gọi nhóm. Gọi nhóm chưa được hỗ trợ trên Linux.",
+                          "%1 is calling the group. Group calls aren't supported on Linux yet.").arg(inviter);
+        case "audioMicSpeakerFailed":
+            return I18n.t("Không mở được micro và loa. Hãy kiểm tra thiết bị âm thanh trong cài đặt hệ thống.",
+                          "Couldn't open the microphone and speaker. Check the sound devices in your system settings.");
+        case "audioMicFailed":
+            return I18n.t("Không mở được micro, người kia không nghe thấy bạn. Hãy kiểm tra micro trong cài đặt hệ thống.",
+                          "Couldn't open the microphone, so the other person can't hear you. Check the microphone in your system settings.");
+        case "audioSpeakerFailed":
+            return I18n.t("Không phát được âm thanh ra loa. Hãy kiểm tra loa trong cài đặt hệ thống.",
+                          "Couldn't play sound on the speaker. Check the speaker in your system settings.");
+        }
+        return "";
+    }
+
     function phaseText(): string {
         var isVid = !!(call && call.isVideo);
         var isGrp = !!(call && call.isGroup);
+        if (root.phase === "connected" && !isGrp) return "";
+        var label = call && call.statusCode.length > 0 ? statusLabel(call.statusCode, call.statusParams) : "";
+        if (label.length > 0) return label;
         switch (root.phase) {
         case "outgoing":
             if (isGrp) return isVid ? I18n.t("Đang gọi video nhóm...", "Calling group video...") : I18n.t("Đang gọi nhóm...", "Calling group...");
@@ -160,6 +220,32 @@ Rectangle {
                 color: "#CFD3D8"
                 font.family: Theme.fontFamily
                 font.pixelSize: 16
+            }
+            Rectangle {
+                id: noticeStrip
+                readonly property string label: root.call && root.call.noticeCode.length > 0 && root.phase !== "ended"
+                                                ? root.statusLabel(root.call.noticeCode, root.call.noticeParams) : ""
+                Layout.alignment: Qt.AlignHCenter
+                Layout.maximumWidth: Math.min(420, root.width - 32)
+                Layout.preferredWidth: noticeText.implicitWidth + 24
+                Layout.preferredHeight: noticeText.implicitHeight + 12
+                visible: label.length > 0
+                radius: 10
+                color: Qt.rgba(0.85, 0.2, 0.2, 0.85)
+                Text {
+                    id: noticeText
+                    anchors.fill: parent
+                    anchors.margins: 6
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    text: noticeStrip.label
+                    wrapMode: Text.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: "#FFFFFF"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                }
             }
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
