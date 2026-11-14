@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] - 2026-11-14
+
+### Fixed
+- **Mobile history sync is more reliable.** The backup download retries transient errors (HTTP 400/404/429/5xx and
+  dropped connections) with backoff, honours `Retry-After`, and no longer logs the private backup URL. The download
+  cookies are sent correctly even when the cookie jar holds empty `zpw_uin` / `zpw_sek` values, and Qt can no longer
+  replace them. Thanks to @daiphuc for PR #3 (`fix: retry transient HTTP 400 on mobile sync backup download`).
+- **Chat no longer jumps back to the newest message** when you scroll up with the scroll bar or the mouse wheel,
+  including chats with many photos or links.
+- **Call status is accurate.** Declined, unanswered, unreachable and server-unreachable calls show their real reason;
+  a microphone or speaker failure shows a warning for the rest of the call; an engine crash shows "lost connection"
+  instead of a blank screen.
+- **Reconnects are faster.** The app reconnects at once after the network comes back or the computer wakes from
+  suspend, and logins or requests that stall now time out instead of hanging on "Đang kết nối...".
+- **Downloads and uploads stream from disk**, so large files no longer load fully into memory. Opening a downloaded
+  file no longer opens another file with the same name.
+- **Forwarded files keep their name and type**, and temporary files are removed after sending.
+- **Ringtone** no longer restarts the external player in a loop when PipeWire is not running.
+- **Theme and fonts from KDE** (`kdeglobals`) are read correctly, and changes made while Zalos runs are picked up.
+- **Message list:** the "typing" indicator no longer covers the last message, and a crash when two copies of the same
+  message arrived in one history page is fixed.
+- **Chat info panel** in narrow windows floats over the chat instead of hiding it.
+- **QR sign-in** no longer loses the confirmation while you are still approving it on your phone.
+
+### Changed
+- **My Documents** has its own button in the left bar between Messages and Contacts, with a document icon. The
+  Messages button returns to your last regular chat instead of My Documents.
+- **Faster and lighter UI:** the conversation list and message list update in place (no full redraw per message);
+  avatars and photos decode off the interface thread; history pages are inserted at the top without resetting the
+  list; unread and read-status updates touch only the rows that changed; opening the app does no full-table database
+  work.
+- Avatar and photo requests time out after 30 s, API requests after 45 s, and sign-in long-polls after 3 min.
+
 ## [1.2.0] - 2026-11-11
 
 ### Added

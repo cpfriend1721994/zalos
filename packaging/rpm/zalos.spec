@@ -4,7 +4,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.2.0
+Version:        1.2.1
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT AND BSD-3-Clause
@@ -79,6 +79,16 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
 
 %changelog
+* Sat Nov 14 2026 Zalos Team <dev@zalos.local> - 1.2.1-1
+- Mobile history sync: transient download errors (HTTP 400/404/429/5xx, dropped connections) are retried with backoff; the download no longer logs private URLs (thanks @daiphuc).
+- Call status shows the real reason (declined, no answer, unreachable, server unreachable, audio device failure); engine crash shows "lost connection".
+- Chat stays where you scroll: scroll-bar and wheel scrolling are no longer pulled back to the newest message.
+- Message list and sidebar update in place (no full redraw per message); avatars decode off the UI thread; smoother history loading.
+- Reconnect at once after network-up or resume from suspend; stalled logins and requests time out instead of hanging.
+- Large uploads and downloads stream from disk; downloads are no longer confused by files with the same name.
+- My Documents has its own rail button between Messages and Contacts; the Messages button returns to your last chat.
+- Chat info panel floats over the chat in narrow windows instead of hiding it.
+
 * Wed Nov 11 2026 Zalos Team <dev@zalos.local> - 1.2.0-1
 - C++ call engine (zalos-call, zalos-call-audio) is the only call engine; no Node.js or Python in calls or packages.
 - Fix a crash when starting a call; lighter memory use (lazy QML pages and menus, image provider for chat media).

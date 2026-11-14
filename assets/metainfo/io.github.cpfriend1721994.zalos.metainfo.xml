@@ -30,6 +30,11 @@
     <binary>zalos</binary>
   </provides>
   <releases>
+    <release version="1.2.1" date="2026-11-14">
+      <description>
+        <p>Mobile history sync retries transient download errors; chat no longer jumps back to the newest message when scrolling up; accurate call status with microphone and speaker warnings; faster reconnects after network changes or resume; faster, lighter message and conversation lists; My Documents has its own button; chat info panel fits narrow windows.</p>
+      </description>
+    </release>
     <release version="1.2.0" date="2026-11-11">
       <description>
         <p>Calls run on Zalos's own C++ engine with no Node.js or Python needed; fixed a crash when starting a call; lower memory use from lazily created pages and menus and a dedicated image path for chat photos.</p>

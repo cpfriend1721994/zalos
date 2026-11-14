@@ -73,13 +73,13 @@ installed on the oldest and newest one in CI.
 
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.0-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.0-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.1-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.1-1~ubuntu24.04_amd64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.0-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.1-1.fc43.x86_64.rpm
 ```
 
 ### NixOS / Nix
@@ -91,14 +91,14 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (other distributions)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.0-x86_64.AppImage
-chmod +x Zalos-1.2.0-x86_64.AppImage
-./Zalos-1.2.0-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.1-x86_64.AppImage
+chmod +x Zalos-1.2.1-x86_64.AppImage
+./Zalos-1.2.1-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.0-aarch64.AppImage
-chmod +x Zalos-1.2.0-aarch64.AppImage
-./Zalos-1.2.0-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.1-aarch64.AppImage
+chmod +x Zalos-1.2.1-aarch64.AppImage
+./Zalos-1.2.1-aarch64.AppImage
 ```
 The AppImage relies on your system's runtime; on a minimal install you may need the usual desktop
 runtime packages.
