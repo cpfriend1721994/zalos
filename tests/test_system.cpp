@@ -9,6 +9,7 @@
 #include <QSettings>
 #include <QSoundEffect>
 #include <QQmlComponent>
+#include <QPointer>
 #include <QQuickItem>
 #include <QQuickWindow>
 #ifdef __GLIBC__
@@ -6662,6 +6663,107 @@ private slots:
             QCOMPARE(calls->phase(), QStringLiteral("outgoing"));
             calls->hangup();
             QCOMPARE(calls->phase(), QString());
+        }
+    }
+
+    // Regression test: changing DPI on Wayland calls QQuickWindow::physicalDpiChanged() -> updatePixelRatioHelper(),
+    // which iterates a raw snapshot of ZRoundedImage::childItems(). Reloading the inner async Image must not
+    // synchronously delete any sibling item (e.g. QQuickItemLayer's internal ShaderEffectSource) or disarm the mask.
+    void testRoundedImageReloadKeepsMaskChildrenStable() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString imgPath = dir.filePath(QStringLiteral("sample.png"));
+        QImage sample(64, 64, QImage::Format_RGBA8888);
+        sample.fill(QColor(0xE0, 0x30, 0x30));
+        QVERIFY(sample.save(imgPath, "PNG"));
+
+        ThemeManager themeMgr;
+        QQmlEngine engine;
+        engine.addImportPath(QStringLiteral("qrc:/"));
+        engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+
+        QQmlComponent comp(&engine);
+        comp.setData(
+            "import QtQuick\n"
+            "import QtQuick.Window\n"
+            "import Zalos\n"
+            "Window {\n"
+            "  width: 200; height: 200\n"
+            "  ZRoundedImage {\n"
+            "    id: rounded\n"
+            "    objectName: \"roundedTarget\"\n"
+            "    anchors.centerIn: parent\n"
+            "    width: 120; height: 120\n"
+            "    radius: 16\n"
+            "    cache: false\n"
+            "  }\n"
+            "}\n",
+            QUrl(QStringLiteral("qrc:/test_rounded_image.qml")));
+        std::unique_ptr<QObject> rootObj(comp.create());
+        QVERIFY2(rootObj, qPrintable(comp.errorString()));
+        auto* window = qobject_cast<QQuickWindow*>(rootObj.get());
+        QVERIFY(window != nullptr);
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+
+        auto* rounded = window->findChild<QQuickItem*>(QStringLiteral("roundedTarget"));
+        QVERIFY(rounded != nullptr);
+        rounded->setProperty("sourceSize", QSize(120, 120));
+        rounded->setProperty("source", QUrl::fromLocalFile(imgPath));
+
+        QTRY_COMPARE_WITH_TIMEOUT(rounded->property("status").toInt(), 1, 2000); // Image.Ready
+        QCOMPARE(rounded->property("maskArmed").toBool(), true);
+        const bool gpu = rounded->property("gpu").toBool();
+        if (gpu) {
+            QTRY_COMPARE_WITH_TIMEOUT(rounded->property("masked").toBool(), true, 2000);
+            // Verify the static maskLayer actually masks rounded corners on GPU rendering.
+            QTRY_VERIFY_WITH_TIMEOUT(([&]() {
+                const QImage frame = window->grabWindow();
+                if (frame.isNull()) return false;
+                const QPoint center = rounded->mapToScene(QPointF(60, 60)).toPoint();
+                const QPoint corner = rounded->mapToScene(QPointF(1, 1)).toPoint();
+                const QColor cCenter = frame.pixelColor(center);
+                const QColor cCorner = frame.pixelColor(corner);
+                return cCenter.red() > 180 && cCenter.green() < 80 && cCorner != cCenter;
+            }()), 2000);
+        }
+
+        // No direct child may rely on QQuickItem::layer.enabled, which dynamically allocates and synchronously
+        // deletes a sibling QQuickShaderEffectSource under ZRoundedImage.
+        const QList<QQuickItem*> initialChildren = rounded->childItems();
+        QList<QPointer<QQuickItem>> watchedChildren;
+        for (QQuickItem* child : initialChildren) {
+            watchedChildren.append(child);
+            QObject* layerObj = child->property("layer").value<QObject*>();
+            if (layerObj) {
+                QCOMPARE(layerObj->property("enabled").toBool(), false);
+            }
+        }
+
+        // Simulate the async Image.Ready -> Image.Loading reload triggered by a Wayland DPR change.
+        rounded->setProperty("sourceSize", QSize(180, 180));
+        QEvent dprEvent(QEvent::DevicePixelRatioChange);
+        QCoreApplication::sendEvent(window, &dprEvent);
+
+        QCOMPARE(rounded->property("maskArmed").toBool(), true);
+        if (gpu) {
+            QCOMPARE(rounded->property("masked").toBool(), true);
+        }
+        QCOMPARE(rounded->childItems(), initialChildren);
+        for (const QPointer<QQuickItem>& ptr : watchedChildren) {
+            QVERIFY2(!ptr.isNull(), "A ZRoundedImage child item was destroyed during async reload / DPR update");
+        }
+
+        QTRY_COMPARE_WITH_TIMEOUT(rounded->property("status").toInt(), 1, 2000);
+        QCOMPARE(rounded->childItems(), initialChildren);
+
+        // Clearing the source disarms the mask to release GPU resources without removing any sibling item.
+        rounded->setProperty("source", QUrl());
+        QCOMPARE(rounded->property("maskArmed").toBool(), false);
+        QCOMPARE(rounded->property("masked").toBool(), false);
+        QCOMPARE(rounded->childItems(), initialChildren);
+        for (const QPointer<QQuickItem>& ptr : watchedChildren) {
+            QVERIFY(!ptr.isNull());
         }
     }
 };
