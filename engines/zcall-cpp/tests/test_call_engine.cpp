@@ -199,6 +199,102 @@ private Q_SLOTS:
         if (!run.proc.waitForFinished(3000)) run.proc.kill();
     }
 
+    void ringPingWhileRingingStopsOnAnswer() {
+        QUdpSocket relay;
+        QVERIFY(relay.bind(QHostAddress::LocalHost, 0));
+        int pingCount = 0;
+        int endCallCount = 0;
+        connect(&relay, &QUdpSocket::readyRead, this, [&] {
+            while (relay.hasPendingDatagrams()) {
+                QByteArray buf(int(relay.pendingDatagramSize()), Qt::Uninitialized);
+                QHostAddress addr;
+                quint16 port = 0;
+                relay.readDatagram(buf.data(), buf.size(), &addr, &port);
+                if (buf.size() < kControlHeaderLen || u8at(buf, 0) != MsgType::Control) continue;
+                const int cmd = rd16le(buf, 18);
+                ControlHeader h;
+                h.msgType = MsgType::ServerReply;
+                h.magic = u8at(buf, 1);
+                h.cmd = cmd;
+                h.subCmd = u8at(buf, 20);
+                if (cmd == Cmd::InitCallCaller || cmd == Cmd::InitCallCallee) {
+                    const QByteArray reply = buildControlHeader(h) + le32(0) + le32(rd32le(buf, kControlHeaderLen + 0))
+                                             + le32(0x11223344u) + u16String(QByteArray("203.0.113.9|5"));
+                    relay.writeDatagram(reply, addr, port);
+                } else if (cmd == Cmd::Ping) {
+                    ++pingCount;
+                    relay.writeDatagram(buildControlHeader(h), addr, port);
+                } else if (cmd == Cmd::EndCall) {
+                    ++endCallCount;
+                }
+            }
+        });
+
+        EngineRun run;
+        QVERIFY(run.recv.listen(QHostAddress::LocalHost, 0));
+        QVERIFY(run.send.listen(QHostAddress::LocalHost, 0));
+        run.key = m_key;
+        run.parser = std::make_unique<FrameParser>(run.key, true, [&run](const IpcFrame& f) {
+            if (!f.isToken && !f.isError && f.json.isObject()) run.frames.append(f.json.toObject());
+        });
+        connect(&run.recv, &QTcpServer::newConnection, this, [&run] {
+            QTcpSocket* s = run.recv.nextPendingConnection();
+            connect(s, &QTcpSocket::readyRead, s, [&run, s] { run.parser->push(s->readAll()); });
+        });
+        connect(&run.send, &QTcpServer::newConnection, this, [&run] { run.out = run.send.nextPendingConnection(); });
+
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("ZCALL_PING_MS"), QStringLiteral("40"));
+        run.proc.setProcessEnvironment(env);
+        run.proc.start(QStringLiteral(ZCALL_ENGINE_BIN),
+                       {QStringLiteral("--token"), QLatin1String(kToken),
+                        QStringLiteral("--key-file"), m_dir.filePath(QStringLiteral("transport.key")),
+                        QStringLiteral("--recv"), QString::number(run.recv.serverPort()),
+                        QStringLiteral("--send"), QString::number(run.send.serverPort()),
+                        QStringLiteral("--media"), QStringLiteral("zrtc"), QStringLiteral("--send-udp"),
+                        QStringLiteral("--no-window")});
+        QVERIFY(run.proc.waitForStarted(5000));
+        QTRY_VERIFY_WITH_TIMEOUT(run.out != nullptr, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(run.hasUpdate(QStringLiteral("native-ready")), 10000);
+
+        run.write(QJsonObject{{"type", "request"}, {"command", "makeCall"},
+                              {"data", QJsonObject{{"type", 1}, {"partner", QJsonArray{QJsonObject{{"id", "123456"}, {"name", "Người thử"}}}}}}});
+        QTRY_VERIFY_WITH_TIMEOUT(run.hasSignal(401), 5000);
+
+        double callId = 0;
+        for (const QJsonObject& f : run.frames) {
+            if (f.value("type").toString() == "sendSignal" && f.value("command").toInt() == 401) {
+                callId = f.value("data").toObject().value("callId").toDouble();
+            }
+        }
+        const QString relayAddr = QStringLiteral("127.0.0.1:%1").arg(relay.localPort());
+        run.write(QJsonObject{{"type", "recvSignal"}, {"command", 401},
+                              {"data", QJsonObject{{"status", 0}, {"sessId", "S" + QString(40, QLatin1Char('r'))},
+                                                   {"fromId", "111111111"}, {"toId", "222222222"},
+                                                   {"servers", QJsonArray{QJsonObject{{"rtpaddr", relayAddr},
+                                                                                       {"rtcpaddr", relayAddr}}}}}}});
+        QTRY_VERIFY_WITH_TIMEOUT(run.hasSignal(416), 8000);
+        QTRY_VERIFY_WITH_TIMEOUT(pingCount >= 2, 3000);
+
+        const int pingsBeforeAnswer = pingCount;
+        run.write(QJsonObject{{"type", "control"},
+                              {"data", QJsonObject{{"act", "answer"},
+                                                   {"data", QJsonObject{{"callId", callId}, {"status", 0},
+                                                                        {"params", QJsonObject{{"status", 0}, {"rtpSerIp", relayAddr}}}}}}}});
+        QTRY_VERIFY_WITH_TIMEOUT(run.hasSignal(408), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(pingCount > pingsBeforeAnswer, 3000);
+
+        run.write(QJsonObject{{"type", "control"},
+                              {"data", QJsonObject{{"act", "end_call"}, {"data", QJsonObject{{"callId", callId}}}}}});
+        QTRY_VERIFY_WITH_TIMEOUT(endCallCount >= 1, 5000);
+        const int pingsAtEnd = pingCount;
+        QTest::qWait(150);
+        QCOMPARE(pingCount, pingsAtEnd);
+
+        run.proc.terminate();
+        if (!run.proc.waitForFinished(3000)) run.proc.kill();
+    }
+
     void uiHangupAfterAcceptAndOutgoing() {
         QTcpServer recvSrv;
         QTcpServer sendSrv;
@@ -312,9 +408,20 @@ private Q_SLOTS:
                 }}
             }}
         });
-        QTRY_VERIFY_WITH_TIMEOUT(hasUiPhase(QStringLiteral("incoming")), 5000);
+        auto hasUiMicAutoGain = [&](bool expected) {
+            for (const QJsonObject& m : uiMsgs) {
+                if (m.value("type").toString() == "state" && m.contains("micAutoGain")
+                    && m.value("micAutoGain").toBool() == expected) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(hasUiPhase(QStringLiteral("incoming")) && hasUiMicAutoGain(true), 5000);
+        uiMsgs.clear();
+        sendUi(QJsonObject{{"action", "micAutoGain"}, {"on", false}});
         sendUi(QJsonObject{{"action", "accept"}, {"camStartOff", false}});
-        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(402) && hasUiPhase(QStringLiteral("connected")), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(402) && hasUiPhase(QStringLiteral("connected")) && hasUiMicAutoGain(false), 5000);
 
         frames.clear();
         uiMsgs.clear();

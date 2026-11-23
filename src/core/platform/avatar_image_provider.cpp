@@ -279,8 +279,8 @@ public:
             decodePool().start([bytes, cachePath, specs]() {
                 bool decodable = false;
                 {
-                    QByteArray probeBytes = bytes;
-                    QBuffer checkBuf(&probeBytes);
+                    QBuffer checkBuf;
+                    checkBuf.setData(bytes);
                     if (checkBuf.open(QIODevice::ReadOnly)) decodable = QImageReader(&checkBuf).canRead();
                 }
                 if (decodable) {
@@ -298,8 +298,8 @@ public:
                             images[i] = *it;
                             continue;
                         }
-                        QByteArray copy = bytes;
-                        QBuffer buf(&copy);
+                        QBuffer buf;
+                        buf.setData(bytes);
                         buf.open(QIODevice::ReadOnly);
                         const QImage decoded = AvatarImageProvider::decodeScaled(&buf, specs[i].diameter, specs[i].circular);
                         images[i] = shape(decoded, specs[i].diameter, specs[i].circular);

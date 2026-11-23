@@ -107,8 +107,13 @@ Rectangle {
 
     onCurrentUrlChanged: {
         root.stopVideo();
-        if (root.isVideo && root.currentUrl.length > 0) root.loadVideo(root.currentUrl);
-        else if (videoPlayer) videoPlayer.source = "";
+        if (root.isVideo && root.currentUrl.length > 0) {
+            root.loadVideo(root.currentUrl);
+        } else if (videoPlayer) {
+            releaseVideo();
+            videoPlayer.destroy();
+            videoPlayer = null;
+        }
     }
 
     Component.onCompleted: {

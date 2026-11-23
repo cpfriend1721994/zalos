@@ -1360,6 +1360,7 @@ Item {
                                     id: seenAvatarItem
                                     required property string modelData
                                     required property int index
+                                    readonly property string avatarUrl: ZaloClient.avatarOf(seenAvatarItem.modelData)
                                     z: 10 - index
                                     width: 16
                                     height: 16
@@ -1370,8 +1371,8 @@ Item {
                                     clip: true
                                     Image {
                                         anchors.fill: parent
-                                        source: ZaloClient.avatarOf(seenAvatarItem.modelData).length > 0
-                                            ? "image://avatar/" + encodeURIComponent(ZaloClient.avatarOf(seenAvatarItem.modelData)) : ""
+                                        source: seenAvatarItem.avatarUrl.length > 0
+                                            ? "image://avatar/" + encodeURIComponent(seenAvatarItem.avatarUrl) : ""
                                         sourceSize.width: 16
                                         sourceSize.height: 16
                                         fillMode: Image.PreserveAspectCrop
@@ -1379,7 +1380,7 @@ Item {
                                     }
                                     ZIcon {
                                         anchors.centerIn: parent
-                                        visible: ZaloClient.avatarOf(seenAvatarItem.modelData).length === 0
+                                        visible: seenAvatarItem.avatarUrl.length === 0
                                         name: "user"
                                         size: 10
                                         color: ThemeManager.textColor

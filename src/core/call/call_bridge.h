@@ -65,6 +65,7 @@ class CallBridge : public QObject {
     Q_PROPERTY(bool videoSupported READ videoSupported CONSTANT FINAL)
     Q_PROPERTY(bool peerVideoActive READ peerVideoActive NOTIFY peerVideoChanged FINAL)
     Q_PROPERTY(int micVolume READ micVolume NOTIFY micStateChanged FINAL)
+    Q_PROPERTY(bool micAutoGain READ micAutoGain NOTIFY micStateChanged FINAL)
     Q_PROPERTY(int micLevel READ micLevel NOTIFY micStateChanged FINAL)
     Q_PROPERTY(QString selectedMicId READ selectedMicId NOTIFY devicesChanged FINAL)
     Q_PROPERTY(QString selectedSpeakerId READ selectedSpeakerId NOTIFY devicesChanged FINAL)
@@ -104,6 +105,7 @@ public:
     static bool videoSupported();
     bool peerVideoActive() const { return m_peerVideoActive; }
     int micVolume() const { return m_micVolume; }
+    bool micAutoGain() const { return m_micAutoGain; }
     int micLevel() const { return m_micLevel; }
     QString selectedMicId() const { return m_selectedMicId; }
     QString selectedSpeakerId() const { return m_selectedSpeakerId; }
@@ -115,6 +117,7 @@ public:
     Q_INVOKABLE void selectAudioDevice(const QString& kind, const QString& id);
     Q_INVOKABLE void selectCameraDevice(const QString& id);
     Q_INVOKABLE void setMicVolume(int pct);
+    Q_INVOKABLE void setMicAutoGain(bool on);
 
     Q_INVOKABLE void setPeerVideoSink(QVideoSink* sink);
 
@@ -230,6 +233,7 @@ private:
     QString m_activePeer;
     bool m_activeOutgoing{false};
     int m_micVolume{100};
+    bool m_micAutoGain{true};
     int m_micLevel{60};
     QString m_selectedMicId;
     QString m_selectedSpeakerId;

@@ -1533,6 +1533,9 @@ void EngineCore::mediaAudioFault(const QString& kind) { audioFault(kind); }
 void EngineCore::mediaMicVolume(int pct) {
     if (m_ui->rich()) m_ui->micVolume(pct);
 }
+void EngineCore::mediaMicAutoGain(bool on) {
+    if (m_ui->rich()) m_ui->micAutoGain(on);
+}
 void EngineCore::mediaMicLevel(int level) {
     if (m_ui->rich()) m_ui->micLevel(level);
 }
@@ -1569,6 +1572,7 @@ void EngineCore::uiVideoFrame(const OutVideoFrame& f) {
 void EngineCore::uiCamera(bool on) { camMic(on); }
 void EngineCore::uiDevice(const QString& kind, const QString& name) { m_media->setDevice(kind, name); }
 void EngineCore::uiMicVolume(double pct) { m_media->setMicVolume(pct); }
+void EngineCore::uiMicAutoGain(bool on) { m_media->setMicAutoGain(on); }
 void EngineCore::uiScreen(bool on) { screenShare(on); }
 void EngineCore::uiNeedKey(const QString& why, const QJsonValue& src) { askPeerKey(QStringLiteral("window ") + why, src); }
 void EngineCore::uiTile(uint32_t src, double width) {

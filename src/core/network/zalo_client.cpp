@@ -122,10 +122,57 @@ QString idOf(const QJsonValue& v) {
     return v.toVariant().toString();
 }
 
+QString pickString(const QJsonObject& obj, std::initializer_list<const char*> keys) {
+    for (const char* key : keys) {
+        const QString v = obj.value(QLatin1String(key)).toString().trimmed();
+        if (!v.isEmpty()) return v;
+    }
+    return {};
+}
+
 QString captionOf(const QJsonObject& attach) {
     static const QRegularExpression placeholder(QStringLiteral("^\\[[^\\]]{1,24}\\]$"));
-    const QString title = attach.value("title").toString().trimmed();
-    return placeholder.match(title).hasMatch() ? QString() : title;
+    for (const char* key : {"title", "description", "caption"}) {
+        const QString candidate = attach.value(QLatin1String(key)).toString().trimmed();
+        if (candidate.isEmpty() || placeholder.match(candidate).hasMatch()) continue;
+        if (candidate.startsWith(QLatin1String("http://"), Qt::CaseInsensitive)
+            || candidate.startsWith(QLatin1String("https://"), Qt::CaseInsensitive)) {
+            continue;
+        }
+        return candidate;
+    }
+    return {};
+}
+
+QJsonObject unwrapCloudHistoryPayload(const QJsonValue& raw, QJsonArray* msgsOut) {
+    QJsonValue val = raw;
+    if (val.isString()) {
+        const QJsonDocument doc = QJsonDocument::fromJson(val.toString().toUtf8());
+        if (doc.isObject()) val = doc.object();
+        else if (doc.isArray()) val = doc.array();
+    }
+    if (val.isArray()) {
+        for (const QJsonValue& v : val.toArray()) msgsOut->append(v);
+        return {};
+    }
+    QJsonObject obj = val.toObject();
+    if (obj.contains("data") && !obj.contains("groupMsgs") && !obj.contains("msgs") && !obj.contains("messages")) {
+        const QJsonValue inner = obj.value("data");
+        if (inner.isString()) {
+            const QJsonDocument doc = QJsonDocument::fromJson(inner.toString().toUtf8());
+            if (doc.isArray()) {
+                for (const QJsonValue& v : doc.array()) msgsOut->append(v);
+                return obj;
+            }
+            if (doc.isObject()) obj = doc.object();
+        } else if (inner.isObject()) {
+            obj = inner.toObject();
+        }
+    }
+    for (const char* key : {"groupMsgs", "msgs", "messages", "data"}) {
+        for (const QJsonValue& v : obj.value(QLatin1String(key)).toArray()) msgsOut->append(v);
+    }
+    return obj;
 }
 
 QString pickName(const QJsonObject& obj) {
@@ -847,7 +894,7 @@ void ZaloClient::loadSession() {
     m_cachedUid = settings.value("auth/uid", "").toString();
     m_isLoggedIn = false;
 
-    m_appLanguage = settings.value("settings/language", "vi").toString();
+    m_appLanguage = settings.value("settings/language", "en").toString();
 
     m_notifyNewMessage = settings.value("settings/notifyNewMessage", true).toBool();
     m_notifySound = settings.value("settings/notifySound", false).toBool();
@@ -1050,6 +1097,9 @@ void ZaloClient::onSessionLoggedIn() {
     refreshFriendRequests();
     if (m_windowVisible) m_presenceTimer->start();
     session->connectRealtime();
+    if (!m_currentConvId.isEmpty() && !m_historyLoaded.contains(m_currentConvId)) {
+        fetchInitialConversationHistory(m_currentConvId);
+    }
 }
 
 void ZaloClient::onSessionLoginUnavailable(const QString& reason) {
@@ -1818,7 +1868,7 @@ void ZaloClient::storePollDetail(qint64 pollId, const QJsonObject& detail) {
     if (pollId <= 0 || detail.isEmpty()) return;
     if (!m_pollDetails.contains(pollId)) dropOldestIfFull(m_pollDetails);
     m_pollDetails.insert(pollId, detail);
-    m_messageModel->setPollData(pollId, pollView(pollId));
+    m_messageModel->setPollData(pollId, pollView(pollId), m_pollGroups.value(pollId));
     ++m_pollRevision;
     emit pollRevisionChanged();
 }
@@ -2562,7 +2612,15 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
     }
 
     const QString type = msg.value("msgType").toString();
-    const QJsonValue content = msg.value("content");
+    QJsonValue content = msg.value("content");
+    if (content.isString() && !type.isEmpty() && type != QLatin1String("webchat")) {
+        const QString trimmed = content.toString().trimmed();
+        if (trimmed.startsWith(QLatin1Char('{')) || trimmed.startsWith(QLatin1Char('['))) {
+            const QJsonDocument doc = QJsonDocument::fromJson(trimmed.toUtf8());
+            if (doc.isObject()) content = doc.object();
+            else if (doc.isArray()) content = doc.array();
+        }
+    }
     const QJsonObject obj = content.toObject();
     QString label;
 
@@ -2587,9 +2645,10 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         }
     } else if (type == "chat.photo" || type == "chat.gif" || type == "chat.doodle") {
         item.messageType = "image";
-        item.mediaUrl = obj.value("thumb").toString();
-        item.href = obj.value("href").toString();
+        item.mediaUrl = pickString(obj, {"thumb", "thumbUrl", "hd"});
+        item.href = pickString(obj, {"href", "hdUrl", "oriUrl", "normalUrl", "url"});
         if (item.mediaUrl.isEmpty()) item.mediaUrl = item.href;
+        if (item.href.isEmpty()) item.href = item.mediaUrl;
         item.text = captionOf(obj);
         if (Offline::ZaloOfflineStore::isAnimatedImageHref(type, item.href))
             item.extra.insert("animatedUrl", item.href);
@@ -3228,111 +3287,128 @@ void ZaloClient::selectConversation(const QString& id, const QString& name, cons
         }
     }
 
-    if (!m_isLoggedIn || m_historyLoaded.contains(id)) return;
+    fetchInitialConversationHistory(id);
+}
+
+void ZaloClient::fetchInitialConversationHistory(const QString& id) {
+    if (id.isEmpty() || !m_isLoggedIn || m_historyLoaded.contains(id)) return;
     m_historyLoaded.insert(id);
-    if (currentConversationIsGroup()) {
+    const bool isGroup = isGroupThread(id) || m_conversationModel->conversation(id).isGroup;
+    const bool isMyCloud = (id == myCloudId());
+    if (isGroup || isMyCloud) {
         m_loadingHistory = true;
         emit historyLoadingChanged();
-        ZaloSession* session = m_apiClient->session();
-        session->fetchCloudHistory(id, false, QString(), 50,
-            [this, id, session](bool ok, const QJsonValue& data, const QString&, int errorCode) {
-                if (ok) {
-                    const QJsonObject obj = data.toObject();
-                    QJsonArray msgs = data.isArray() ? data.toArray() : QJsonArray();
-                    for (const char* key : {"groupMsgs", "msgs", "messages"}) {
-                        for (const QJsonValue& v : obj.value(key).toArray()) msgs.append(v);
-                    }
-                    handleIncomingMessages(msgs, true, true);
-                    const QString lastId = idOf(obj.value("lastMsgId"));
-                    if (obj.contains("hasMore") || obj.contains("isOld") || !lastId.isEmpty()) {
-                        CloudPageState& st = m_cloudPageState[id];
-                        st.initialized = true;
-                        st.useOld = obj.value("isOld").toVariant().toInt() != 0;
-                        if (!lastId.isEmpty() && lastId != QLatin1String("0")) st.lastMsgId = lastId;
-                        if (obj.contains("hasMore") && obj.value("hasMore").toVariant().toInt() == 0)
-                            m_historyExhausted.insert(id);
-                    }
-                    m_loadingHistory = false;
-                    emit historyLoadingChanged();
-                    return;
-                }
-                if (errorCode == -69) {
-                    m_historyExhausted.insert(id);
-                    m_loadingHistory = false;
-                    emit historyLoadingChanged();
-                    return;
-                }
-                session->fetchGroupHistory(id, 50, [this](bool gOk, const QJsonValue& gData, const QString&, int) {
-                    m_loadingHistory = false;
-                    emit historyLoadingChanged();
-                    if (gOk) handleIncomingMessages(gData.toObject().value("groupMsgs").toArray(), true, true);
-                });
-            },
-            false);
-    } else if (m_messageModel->threadSize(id) < 20) {
-        loadOlderMessages();
+        fetchCloudHistoryPage(id, isGroup, isMyCloud, QString(), false, true, true);
+    } else {
+        if (m_messageModel->threadSize(id) < 20) loadOlderMessages();
+        if (m_apiClient->session()->isRealtimeConnected()) m_apiClient->session()->requestOldMessages(false);
     }
+}
+
+void ZaloClient::fetchCloudHistoryPage(const QString& convId, bool isGroup, bool isMyCloud, const QString& cursor,
+                                       bool useOld, bool initialOpen, bool allowOldFollowup) {
+    ZaloSession* session = m_apiClient->session();
+    const quint64 gen = m_accountLoadGen;
+    QPointer<ZaloClient> guard(this);
+    session->fetchCloudHistory(convId, isMyCloud, cursor, 50,
+        [guard, this, convId, isGroup, isMyCloud, session, cursor, useOld, initialOpen, allowOldFollowup, gen](
+            bool ok, const QJsonValue& data, const QString&, int errorCode) {
+            if (!guard || gen != guard->m_accountLoadGen) return;
+            if (!ok) {
+                if (errorCode == -69) {
+                    m_historyExhausted.insert(convId);
+                    m_loadingHistory = false;
+                    emit historyLoadingChanged();
+                    return;
+                }
+                if (initialOpen && isGroup) {
+                    session->fetchGroupHistory(convId, 50,
+                        [guard, this, isGroup, gen](bool gOk, const QJsonValue& gData, const QString&, int) {
+                            if (!guard || gen != guard->m_accountLoadGen) return;
+                            if (gOk) {
+                                QJsonArray gMsgs;
+                                unwrapCloudHistoryPayload(gData, &gMsgs);
+                                handleIncomingMessages(gMsgs, isGroup, true);
+                            }
+                            m_loadingHistory = false;
+                            emit historyLoadingChanged();
+                        });
+                    return;
+                }
+                m_loadingHistory = false;
+                emit historyLoadingChanged();
+                if (!initialOpen && session->isRealtimeConnected()) {
+                    session->requestOldMessages(isGroup, m_messageModel->oldestMessageId(convId));
+                }
+                return;
+            }
+
+            QJsonArray msgs;
+            const QJsonObject obj = unwrapCloudHistoryPayload(data, &msgs);
+            const bool hasMorePresent = obj.contains("hasMore");
+            const bool hasMore = obj.value("hasMore").toVariant().toInt() != 0;
+            const bool isFiltered = obj.value("isFiltered").toVariant().toInt() != 0;
+            const bool isOldPresent = obj.contains("isOld");
+            const bool isOld = isOldPresent ? (obj.value("isOld").toVariant().toInt() != 0) : useOld;
+            const QString nextCursor = idOf(obj.value("lastMsgId"));
+            if (hasMorePresent || isOldPresent || !nextCursor.isEmpty()) {
+                CloudPageState& st = m_cloudPageState[convId];
+                st.initialized = true;
+                st.useOld = isOld;
+                if (!nextCursor.isEmpty() && nextCursor != QLatin1String("0")) st.lastMsgId = nextCursor;
+            }
+            const int before = m_messageModel->threadSize(convId);
+            handleIncomingMessages(msgs, isGroup, true);
+            const int after = m_messageModel->threadSize(convId);
+
+            const bool exhaustedByMore = hasMorePresent && !hasMore && (!initialOpen || !msgs.isEmpty() || !isOld);
+            const bool emptyStop = !initialOpen && msgs.isEmpty()
+                && (isFiltered || !hasMorePresent || nextCursor.isEmpty() || nextCursor == cursor);
+            const bool stalledStop = !initialOpen && !hasMorePresent && after == before;
+            if (exhaustedByMore || emptyStop || stalledStop) {
+                m_historyExhausted.insert(convId);
+            }
+
+            const CloudPageState stAfter = m_cloudPageState.value(convId);
+            const bool needInitialOld = initialOpen && msgs.size() < 20 && (stAfter.useOld || msgs.size() <= 1);
+            const bool needScrollOld = !initialOpen && !useOld && stAfter.useOld && hasMore && after == before;
+            if (allowOldFollowup && !m_historyExhausted.contains(convId) && (needInitialOld || needScrollOld)) {
+                const QString nextOldCursor = (!stAfter.lastMsgId.isEmpty() && stAfter.lastMsgId != QLatin1String("0"))
+                    ? stAfter.lastMsgId
+                    : m_messageModel->oldestMessageId(convId);
+                fetchCloudHistoryPage(convId, isGroup, isMyCloud, nextOldCursor, true, false, false);
+                return;
+            }
+
+            m_loadingHistory = false;
+            emit historyLoadingChanged();
+        },
+        useOld);
 }
 
 void ZaloClient::loadOlderMessages() {
     if (m_currentConvId.isEmpty() || m_loadingHistory) return;
     const QString convId = m_currentConvId;
-    if (loadOlderFromCache(convId)) return;
-    if (!m_isLoggedIn) return;
     const bool isGroup = currentConversationIsGroup();
     const bool isMyCloud = convId == myCloudId();
+    const CloudPageState st = m_cloudPageState.value(convId);
+    if (!m_isLoggedIn || (!isGroup && !isMyCloud) || st.initialized) {
+        if (loadOlderFromCache(convId)) return;
+    }
+    if (!m_isLoggedIn) return;
     ZaloSession* session = m_apiClient->session();
     if (!isGroup && !isMyCloud) {
         if (session->isRealtimeConnected()) session->requestOldMessages(false, m_messageModel->oldestMessageId(convId));
         return;
     }
     if (m_historyExhausted.contains(convId)) return;
-    const CloudPageState st = m_cloudPageState.value(convId);
     const QString cursor = (!st.lastMsgId.isEmpty() && st.lastMsgId != QLatin1String("0"))
         ? st.lastMsgId
         : m_messageModel->oldestMessageId(convId);
     const bool useOld = st.initialized ? st.useOld : true;
     m_loadingHistory = true;
     emit historyLoadingChanged();
-    session->fetchCloudHistory(convId, isMyCloud, cursor, 50,
-        [this, convId, isGroup, session, cursor](bool ok, const QJsonValue& data, const QString&, int errorCode) {
-            m_loadingHistory = false;
-            if (!ok) {
-                if (errorCode == -69) {
-                    m_historyExhausted.insert(convId);
-                    emit historyLoadingChanged();
-                    return;
-                }
-                emit historyLoadingChanged();
-                if (session->isRealtimeConnected()) {
-                    session->requestOldMessages(isGroup, m_messageModel->oldestMessageId(convId));
-                }
-                return;
-            }
-            QJsonArray msgs = data.isArray() ? data.toArray() : QJsonArray();
-            const QJsonObject obj = data.toObject();
-            for (const char* key : {"groupMsgs", "msgs", "messages"}) {
-                for (const QJsonValue& v : obj.value(key).toArray()) msgs.append(v);
-            }
-            const bool hasMorePresent = obj.contains("hasMore");
-            const bool hasMore = obj.value("hasMore").toVariant().toInt() != 0;
-            const bool isFiltered = obj.value("isFiltered").toVariant().toInt() != 0;
-            const QString nextCursor = idOf(obj.value("lastMsgId"));
-            if (obj.contains("hasMore") || obj.contains("isOld") || !nextCursor.isEmpty()) {
-                CloudPageState& nextSt = m_cloudPageState[convId];
-                nextSt.initialized = true;
-                nextSt.useOld = obj.value("isOld").toVariant().toInt() != 0;
-                if (!nextCursor.isEmpty() && nextCursor != QLatin1String("0")) nextSt.lastMsgId = nextCursor;
-            }
-            const int before = m_messageModel->threadSize(convId);
-            handleIncomingMessages(msgs, isGroup, true);
-            const bool emptyStop = msgs.isEmpty() && (isFiltered || !hasMorePresent || nextCursor.isEmpty() || nextCursor == cursor);
-            if ((hasMorePresent && !hasMore) || emptyStop || (!hasMorePresent && m_messageModel->threadSize(convId) == before)) {
-                m_historyExhausted.insert(convId);
-            }
-            emit historyLoadingChanged();
-        },
-        useOld);
+    fetchCloudHistoryPage(convId, isGroup, isMyCloud, cursor, useOld, false, !useOld);
 }
 
 void ZaloClient::sendMessage(const QString& text) {
@@ -4395,7 +4471,9 @@ bool ZaloClient::isReparsedOnLoad(const QString& msgType) {
         QStringLiteral("chat.recommended"), QStringLiteral("chat.voice"), QStringLiteral("group.poll"),
         QStringLiteral("chat.link"), QStringLiteral("chat.webcontent"), QStringLiteral("chat.webcontent.v2"),
         QStringLiteral("chat.ecard"), QStringLiteral("chat.list.action"), QStringLiteral("chat.location.new"),
-        QStringLiteral("chat.gif"), QStringLiteral("chat.undo"), QStringLiteral("chat.delete.everyone")};
+        QStringLiteral("chat.photo"), QStringLiteral("chat.doodle"), QStringLiteral("chat.gif"),
+        QStringLiteral("chat.video.msg"), QStringLiteral("share.file"),
+        QStringLiteral("chat.undo"), QStringLiteral("chat.delete.everyone")};
     return types.contains(msgType);
 }
 
@@ -4512,6 +4590,12 @@ void ZaloClient::resyncAfterReconnect() {
     loadLabels();
     loadUnreadMarks();
     preloadRecentThreads();
+    if (!m_currentConvId.isEmpty()) {
+        m_historyLoaded.remove(m_currentConvId);
+        if ((currentConversationIsGroup() || m_currentConvId == myCloudId()) && !m_loadingHistory) {
+            fetchInitialConversationHistory(m_currentConvId);
+        }
+    }
 }
 
 void ZaloClient::addSystemNotice(const QString& threadId, bool isGroup, const QString& text, qint64 ts) {

@@ -52,7 +52,7 @@ with a lean, purpose-built architecture:
 - **Polls like Zalo PC** — poll cards and activity lines in chat, a full vote dialog (single/multiple choice, change or remove votes,
   add options, see who voted), every creation setting (pin, deadline, hide results, hide voters) and closing polls for creators/admins.
 - **Smart mobile history sync** — detects empty group histories on sign-in and offers encrypted phone sync.
-- **Voice & video calls** — 1-1 voice/video calls with OpenH264 video encoding, in-call screen sharing (X11 & Wayland), floating PiP minimize mode, and in-call device/mic-volume picker; group calls are in beta.
+- **Voice & video calls** — 1-1 voice/video calls with OpenH264 video encoding, in-call screen sharing (X11 & Wayland), floating PiP minimize mode, and in-call device picker with mic volume slider & Auto/Manual gain toggle, ring-ping keepalive, and automatic P2P/relay network handover; group calls are in beta.
 - **My Documents** — the personal storage thread with instant filters for photos, videos, files and links.
 - **Desktop utilities** — screenshot capture (`Ctrl+Alt+S`), configurable Kiki assistant and zBusiness tools (profile, product catalog, auto reply).
 - **Contacts & groups** — 1-click voice call, video call, and chat on every contact row, pending group invite box, friend recommendations, mutual groups in profiles, and Community upgrade for group owners.
@@ -102,13 +102,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (`.deb` single file)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (`.rpm` single file)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.9-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.10-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -136,9 +136,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.9-${ARCH}.AppImage"
-chmod +x "Zalos-1.2.9-${ARCH}.AppImage"
-"./Zalos-1.2.9-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.10-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.10-${ARCH}.AppImage"
+"./Zalos-1.2.10-${ARCH}.AppImage"
 ```
 The AppImage (~22 MB) uses your host Qt 6 when available and automatically falls back to its bundled Qt 6.4 runtime on systems without Qt 6 (requiring only standard desktop libraries and `glibc ≥ 2.35`, e.g. Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -176,7 +176,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.2.9 && git push origin v1.2.9`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.2.10 && git push origin v1.2.10`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.

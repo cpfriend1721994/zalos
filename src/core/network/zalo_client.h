@@ -355,7 +355,7 @@ public:
     Q_INVOKABLE void openConversationWithContact(const QString& id, const QString& name, const QString& avatarUrl);
     Call::ZCallEngine* callEngine() const { return m_callEngine; }
     Offline::ZaloOfflineStore* offlineStore() const { return m_offlineStore; }
-    static constexpr int kCacheParseVersion = 5;
+    static constexpr int kCacheParseVersion = 6;
     ZaloApiClient* apiClient() const { return m_apiClient; }
 
     bool showSettingsModal() const { return m_showSettingsModal; }
@@ -1182,6 +1182,9 @@ private:
         bool initialized{false};
     };
     QHash<QString, CloudPageState> m_cloudPageState;
+    void fetchInitialConversationHistory(const QString& id);
+    void fetchCloudHistoryPage(const QString& convId, bool isGroup, bool isMyCloud, const QString& cursor,
+                               bool useOld, bool initialOpen, bool allowOldFollowup);
     QVariantMap m_replyTarget;
     class MessageScheduler* m_scheduler{nullptr};
     Platform::DesktopNotifications* m_notifications{nullptr};
@@ -1348,7 +1351,7 @@ private:
     QString m_currentPreviewSound{""};
     QTimer* m_previewTimer{nullptr};
     QNetworkAccessManager* m_updateNam{nullptr};
-    QString m_appLanguage{"vi"};
+    QString m_appLanguage{"en"};
 
     Models::ConversationModel* m_conversationModel{nullptr};
     Models::MessageModel* m_messageModel{nullptr};

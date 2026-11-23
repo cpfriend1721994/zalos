@@ -112,10 +112,15 @@ ClipGuard::ClipGuard(std::optional<std::string> source, std::shared_ptr<VolumeCo
                 + (d ? pyFloat(*d) : std::string("None")) + " dB)");
         announce();
     }
+    announceMode();
 }
 
 ClipGuard::~ClipGuard() {
     m_state->dead.store(true);
+}
+
+void ClipGuard::announceMode() const {
+    logLine(std::string("mic mode: ") + ((m_state->on.load() && !m_state->manual.load()) ? "auto" : "manual"));
 }
 
 bool ClipGuard::computeOn() const {
@@ -139,6 +144,15 @@ void ClipGuard::setSource(std::optional<std::string> source) {
         m_state->source = std::move(source);
     }
     m_state->on.store(computeOn());
+    m_state->manual.store(false);
+    m_state->resetWindow.store(true);
+}
+
+void ClipGuard::setAutoGain(bool wantAuto) {
+    const bool actualAuto = wantAuto && m_state->on.load();
+    const bool prevManual = m_state->manual.exchange(!actualAuto);
+    if (actualAuto && prevManual) m_state->resetWindow.store(true);
+    announceMode();
 }
 
 std::optional<int> ClipGuard::statePercent(State& st) {
@@ -186,13 +200,19 @@ void ClipGuard::setPercent(int pct) {
     const auto cur = statePercent(*m_state);
     if (cur && std::abs(*cur - pct) <= 2) return;
     m_state->control->setVolume(*src, rawFromPercent(pct));
-    m_state->manual.store(true);
+    const bool prevManual = m_state->manual.exchange(true);
     m_state->setDb = stateDb(*m_state);
     announceState(*m_state);
+    if (!prevManual) announceMode();
 }
 
 void ClipGuard::feed(const int16_t* pcm, size_t n) {
     if (!pcm || n == 0) return;
+    if (m_state->resetWindow.exchange(false)) {
+        m_frames = 0;
+        m_clipped = 0;
+        m_lastStep = -1e9;
+    }
     int count = 0;
     int hi = -32768, lo = 32767;
     for (size_t i = 0; i < n; ++i) {

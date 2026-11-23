@@ -51,7 +51,7 @@
 - **Bình chọn như Zalo PC** — thẻ bình chọn và dòng hoạt động ngay trong chat, cửa sổ bình chọn đầy đủ (chọn một/nhiều, đổi hoặc bỏ bình chọn,
   thêm phương án, xem ai đã chọn), đủ thiết lập khi tạo (ghim, thời hạn, ẩn kết quả, ẩn người bình chọn) và khóa bình chọn cho người tạo/quản trị viên.
 - **Đồng bộ lịch sử điện thoại thông minh** — tự nhận diện khi nhóm chưa có tin nhắn sau đăng nhập để gợi ý đồng bộ mã hóa từ điện thoại.
-- **Gọi thoại và gọi video** — gọi thoại/video 1-1 với mã hóa OpenH264, chia sẻ màn hình (X11 & Wayland), thu nhỏ nổi PiP để vừa gọi vừa chat, và chọn Micro/Loa/Camera + âm lượng Micro ngay trong cuộc gọi; gọi nhóm đang ở giai đoạn thử nghiệm.
+- **Gọi thoại và gọi video** — gọi thoại/video 1-1 với mã hóa OpenH264, chia sẻ màn hình (X11 & Wayland), thu nhỏ nổi PiP để vừa gọi vừa chat, chọn Micro/Loa/Camera + thanh âm lượng & nút chuyển độ lợi Micro Tự động/Thủ công, cùng cơ chế giữ kết nối khi đổ chuông lâu và tự chuyển mạng P2P/relay; gọi nhóm đang ở giai đoạn thử nghiệm.
 - **My Documents** — luồng lưu trữ cá nhân với bộ lọc nhanh ảnh, video, tệp và liên kết.
 - **Tiện ích máy tính** — chụp màn hình (`Ctrl+Alt+S`), trợ lý Kiki (có thể ẩn/hiện) và công cụ zBusiness (hồ sơ, danh mục sản phẩm, tin nhắn tự động).
 - **Danh bạ & nhóm** — 1 cú nhấp gọi thoại, gọi video, nhắn tin trên mỗi liên hệ; quản lý lời mời nhóm, gợi ý kết bạn, xem nhóm chung trong hồ sơ và nâng cấp nhóm lên Cộng đồng.
@@ -101,13 +101,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (file `.deb` lẻ)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (file `.rpm` lẻ)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.9-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.10-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -135,9 +135,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (di động, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.9-${ARCH}.AppImage"
-chmod +x "Zalos-1.2.9-${ARCH}.AppImage"
-"./Zalos-1.2.9-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.10-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.10-${ARCH}.AppImage"
+"./Zalos-1.2.10-${ARCH}.AppImage"
 ```
 AppImage (~22 MB) ưu tiên dùng Qt 6 sẵn có trên máy và tự chuyển sang runtime Qt 6.4 nhúng sẵn khi hệ thống chưa cài Qt 6 (chỉ cần các thư viện desktop cơ bản và `glibc ≥ 2.35` như Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -175,7 +175,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Đẩy một tag theo chuẩn semantic (`git tag v1.2.9 && git push origin v1.2.9`) sẽ build toàn bộ gói và phát hành
+Đẩy một tag theo chuẩn semantic (`git tag v1.2.10 && git push origin v1.2.10`) sẽ build toàn bộ gói và phát hành
 một GitHub Release.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết quy trình đóng góp.

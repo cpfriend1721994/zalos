@@ -948,12 +948,49 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.topMargin: 4
+                    spacing: 6
                     Text {
                         Layout.fillWidth: true
                         text: I18n.t("Âm lượng micro", "Microphone volume")
                         color: "#CFD3D8"
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
+                    }
+                    Rectangle {
+                        id: micModeToggle
+                        objectName: "callMicModeToggle"
+                        property bool autoGain: ZaloClient.calls ? ZaloClient.calls.micAutoGain : true
+                        implicitWidth: micModeRow.implicitWidth + 14
+                        implicitHeight: 20
+                        radius: 10
+                        color: autoGain ? "#2A0068FF" : "#18FFFFFF"
+                        border.color: autoGain ? "#664C9BFF" : "#30FFFFFF"
+                        border.width: 1
+                        RowLayout {
+                            id: micModeRow
+                            anchors.centerIn: parent
+                            spacing: 4
+                            Rectangle {
+                                width: 6
+                                height: 6
+                                radius: 3
+                                color: micModeToggle.autoGain ? "#4CD964" : "#9DB2CE"
+                            }
+                            Text {
+                                text: micModeToggle.autoGain
+                                      ? I18n.t("Tự động", "Auto")
+                                      : I18n.t("Thủ công", "Manual")
+                                color: micModeToggle.autoGain ? "#DCEBFF" : "#CFD3D8"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 10
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (ZaloClient.calls) ZaloClient.calls.setMicAutoGain(!micModeToggle.autoGain)
+                        }
                     }
                     Text {
                         text: String(ZaloClient.calls ? ZaloClient.calls.micVolume : 100) + "%"

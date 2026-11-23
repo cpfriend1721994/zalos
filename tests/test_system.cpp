@@ -1818,6 +1818,41 @@ private slots:
         // 6. Sync is refused without a session and never reports success.
         client.requestMobileSync();
         QCOMPARE(client.mobileSyncState(), 5);
+
+        // 7. Sync v2 rows preserve string quote/mentions/ttl metadata directly without znoise.
+        MobileHistorySync::BackupConversation v2Conv;
+        v2Conv.plainId = "u-v2-peer";
+        v2Conv.isGroup = true;
+        MobileHistorySync::BackupRow v2Row;
+        v2Row.globalMsgId = "9009";
+        v2Row.cliMsgId = "5005";
+        v2Row.msgType = 1;
+        v2Row.ts = 1700000300000ULL;
+        v2Row.ttl = 30000;
+        v2Row.senderId = "u-v2-sender";
+        v2Row.text = "@All hello";
+        Zalos::Core::Sync::V2::ParsedSyncV2Quote q;
+        q.ownerId = "u-v2-owner";
+        q.globalMsgId = 8008;
+        q.cliMsgId = 4004;
+        q.msg = "prev";
+        q.fromD = "Owner";
+        q.ts = 1700000200000ULL;
+        v2Row.v2Quote = q;
+        v2Row.v2Mentions = {Zalos::Core::Sync::V2::ParsedSyncV2Mention{QStringLiteral("-1"), 0, 4, 1},
+                            Zalos::Core::Sync::V2::ParsedSyncV2Mention{QStringLiteral("u-v2-ment"), 5, 2, 0}};
+        v2Conv.rows = {v2Row};
+        const QHash<QString, QString> v2Ids{{"u-v2-peer", "u-v2-peer"}, {"u-v2-sender", "u-v2-sender"},
+                                            {"u-v2-owner", "u-v2-owner"}, {"u-v2-ment", "u-v2-ment"}};
+        const QJsonArray v2Out = MobileHistorySync::toMessages(v2Conv, v2Ids, "u-me-fixture", "u-me-fixture");
+        QCOMPARE(v2Out.size(), 1);
+        const QJsonObject v2Obj = v2Out.at(0).toObject();
+        QCOMPARE(v2Obj.value("ttl").toVariant().toLongLong(), 30000LL);
+        QCOMPARE(v2Obj.value("quote").toObject().value("ownerId").toString(), QStringLiteral("u-v2-owner"));
+        QCOMPARE(v2Obj.value("quote").toObject().value("msg").toString(), QStringLiteral("prev"));
+        QCOMPARE(v2Obj.value("mentions").toArray().size(), 2);
+        QCOMPARE(v2Obj.value("mentions").toArray().at(0).toObject().value("uid").toString(), QStringLiteral("-1"));
+        QCOMPARE(v2Obj.value("mentions").toArray().at(1).toObject().value("uid").toString(), QStringLiteral("u-v2-ment"));
     }
 
 
@@ -2234,7 +2269,7 @@ private slots:
         QCOMPARE(MobileHistorySync::downloadRetryDelayMs(500, none, 1, "20", now), 1000);
     }
 
-    // QML singletons: I18n.t is typed (compiled to C++), Theme reads ThemeManager directly.
+    // QML singletons: I18n.t is typed (compiled to C++) and defaults to English, Theme reads ThemeManager directly.
     void testTypedQmlSingletons() {
         ThemeManager themeMgr;
         QQmlEngine engine;
@@ -2242,12 +2277,12 @@ private slots:
         engine.addImportPath("qrc:/qt/qml");
         QQmlComponent c(&engine);
         c.setData("import QtQuick\nimport Zalos\nQtObject {\n"
-                  "  property string vi: I18n.t('Tin nhắn', 'Messages')\n"
+                  "  property string label: I18n.t('Tin nhắn', 'Messages')\n"
                   "  property color blue: Theme.zaloBlue\n"
                   "  property bool sameTheme: ThemeManager === ThemeManager\n}", QUrl());
         std::unique_ptr<QObject> o(c.create());
         QVERIFY2(o, qPrintable(c.errorString()));
-        QCOMPARE(o->property("vi").toString(), QString::fromUtf8("Tin nhắn"));
+        QCOMPARE(o->property("label").toString(), QStringLiteral("Messages")); // English until a language is saved
         QCOMPARE(o->property("blue").value<QColor>(), themeMgr.accentColor());
     }
 
@@ -3946,6 +3981,25 @@ private slots:
         session.setLoginInfoForTesting(QJsonObject{{"zpw_service_map_v3", QJsonObject{
             {"boards", QJsonArray{"https://boards.example"}}, {"board", QJsonArray{"https://board.example"}}}}});
         QCOMPARE(session.serviceUrls("boards"), QStringList{"https://boards.example"});
+
+        session.setLoginInfoForTesting(QJsonObject{{"zpw_service_map_v3", QJsonObject{
+            {"group", QJsonArray{"https://group-fallback.example"}}}}});
+        QCOMPARE(session.serviceUrls("group_poll"), QStringList{"https://group-fallback.example"});
+        session.setLoginInfoForTesting(QJsonObject{{"zpw_service_map_v3", QJsonObject{
+            {"group", QJsonArray{"https://group-fallback.example"}},
+            {"group_poll", QJsonArray{"https://grouppoll.example"}}}}});
+        QCOMPARE(session.serviceUrls("group_poll"), QStringList{"https://grouppoll.example"});
+
+        Zalos::Core::Call::CallBridge bridge(nullptr);
+        QVERIFY(bridge.micAutoGain());
+        bridge.injectUiLineForTesting(QByteArray(R"({"type":"state","phase":"connected","micVolume":65,"micAutoGain":false})"));
+        QCOMPARE(bridge.micVolume(), 65);
+        QVERIFY(!bridge.micAutoGain());
+        bridge.setMicAutoGain(true);
+        QVERIFY(bridge.micAutoGain());
+        bridge.setMicVolume(45);
+        QCOMPARE(bridge.micVolume(), 45);
+        QVERIFY(!bridge.micAutoGain());
     }
 
     // Reactions by other people reach the store from every socket shape: 612 live / 610-611 old arrays (handled by
@@ -6742,8 +6796,10 @@ private slots:
 
         // Simulate the async Image.Ready -> Image.Loading reload triggered by a Wayland DPR change.
         rounded->setProperty("sourceSize", QSize(180, 180));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
         QEvent dprEvent(QEvent::DevicePixelRatioChange);
         QCoreApplication::sendEvent(window, &dprEvent);
+#endif
 
         QCOMPARE(rounded->property("maskArmed").toBool(), true);
         if (gpu) {
@@ -6765,6 +6821,275 @@ private slots:
         for (const QPointer<QQuickItem>& ptr : watchedChildren) {
             QVERIFY(!ptr.isNull());
         }
+    }
+
+    void testGroupImageThenTextViewedOnPhoneHistorySync() {
+        ZaloClient parseClient;
+        QCOMPARE(parseClient.apiClient()->session()->serviceUrls(QStringLiteral("group_cloud_message")),
+                 QStringList{QStringLiteral("https://tt-group-cm.api.zaloapp.com")});
+        const MessageItem stringPhoto = parseClient.toMessageItemForTesting(
+            QJsonObject{{"msgId", "1998"},
+                        {"uidFrom", "u-peer"},
+                        {"idTo", "g-photo"},
+                        {"msgType", "chat.photo"},
+                        {"ts", "1730000000500"},
+                        {"content", QStringLiteral("{\"normalUrl\":\"https://cdn.example/norm.jpg\","
+                                                   "\"thumbUrl\":\"https://cdn.example/th.jpg\","
+                                                   "\"description\":\"Ảnh nhóm\"}")}},
+            true);
+        QCOMPARE(stringPhoto.messageType, QStringLiteral("image"));
+        QCOMPARE(stringPhoto.mediaUrl, QStringLiteral("https://cdn.example/th.jpg"));
+        QCOMPARE(stringPhoto.href, QStringLiteral("https://cdn.example/norm.jpg"));
+        QCOMPARE(stringPhoto.text, QString::fromUtf8("Ảnh nhóm"));
+
+        const MessageItem hdPlaceholder = parseClient.toMessageItemForTesting(
+            QJsonObject{{"msgId", "1999"},
+                        {"uidFrom", "u-peer"},
+                        {"idTo", "g-photo"},
+                        {"msgType", "chat.photo"},
+                        {"ts", "1730000000700"},
+                        {"content", QJsonObject{{"title", "[Photo]"},
+                                                {"description", "https://cdn.example/desc-url"},
+                                                {"hdUrl", "https://cdn.example/hd.jpg"}}}},
+            true);
+        QCOMPARE(hdPlaceholder.messageType, QStringLiteral("image"));
+        QCOMPARE(hdPlaceholder.mediaUrl, QStringLiteral("https://cdn.example/hd.jpg"));
+        QCOMPARE(hdPlaceholder.href, QStringLiteral("https://cdn.example/hd.jpg"));
+        QVERIFY(hdPlaceholder.text.isEmpty());
+
+        {
+            ZaloOfflineStore owner;
+            owner.bindOwner("u-photo-rep");
+            owner.clearCache();
+            owner.bindOwner("u-photo-rep");
+            MessageItem stale;
+            stale.id = "2000";
+            stale.senderId = "u-peer";
+            stale.text = QString();
+            stale.messageType = "image";
+            stale.ts = 1730000000800LL;
+            const QJsonObject raw{
+                {"msgId", "2000"},
+                {"uidFrom", "u-peer"},
+                {"idTo", "g-photo"},
+                {"msgType", "chat.photo"},
+                {"ts", "1730000000800"},
+                {"content", QStringLiteral("{\"href\":\"https://cdn.example/full2000.jpg\","
+                                           "\"thumb\":\"https://cdn.example/th2000.jpg\"}")}};
+            QVERIFY(owner.saveMessage("g-photo", stale, raw, true));
+            owner.setMetaValue("parse_version", "5");
+        }
+        {
+            ZaloClient repClient;
+            repClient.openOfflineCacheForTesting("u-photo-rep");
+            auto* store = repClient.offlineStore();
+            QCOMPARE(store->metaValue("parse_version"), QString::number(ZaloClient::kCacheParseVersion));
+            const auto rows = store->loadMessages("g-photo");
+            QCOMPARE(rows.size(), 1);
+            QCOMPARE(rows.first().messageType, QStringLiteral("image"));
+            QCOMPARE(rows.first().mediaUrl, QStringLiteral("https://cdn.example/th2000.jpg"));
+            QCOMPARE(rows.first().href, QStringLiteral("https://cdn.example/full2000.jpg"));
+            store->clearCache();
+        }
+
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        QStringList cmPaths;
+        QStringList oldCursors;
+        int oldCalls = 0;
+        const QString keyB64 = QString::fromLatin1(QByteArray(32, 'C').toBase64());
+
+        connect(&server, &QTcpServer::newConnection, this, [&]() {
+            while (QTcpSocket* sock = server.nextPendingConnection()) {
+                connect(sock, &QTcpSocket::readyRead, sock, [&, sock]() {
+                    const QByteArray raw = sock->readAll();
+                    const int sp1 = raw.indexOf(' ');
+                    const int sp2 = raw.indexOf(' ', sp1 + 1);
+                    const QUrl url(QString::fromUtf8(raw.mid(sp1 + 1, sp2 - sp1 - 1)));
+                    const QString path = url.path();
+                    if (path.startsWith(QLatin1String("/api/cm/"))) cmPaths.append(path);
+
+                    QJsonObject dataObj;
+                    if (path == QLatin1String("/api/cm/getrecentv2")) {
+                        dataObj = QJsonObject{
+                            {"data", QJsonObject{{"groupMsgs", QJsonArray{}},
+                                                 {"hasMore", 1},
+                                                 {"isOld", 1},
+                                                 {"lastMsgId", "2002"}}}};
+                    } else if (path == QLatin1String("/api/cm/getoldv2")) {
+                        ++oldCalls;
+                        const QUrlQuery q(url.query(QUrl::FullyDecoded));
+                        const QString enc = QUrl::fromPercentEncoding(
+                            q.queryItemValue(QStringLiteral("params"), QUrl::FullyEncoded).toUtf8());
+                        bool decOk = false;
+                        const QByteArray dec = Zalos::Core::Network::ZaloCrypto::decodeAES(keyB64, enc, &decOk);
+                        if (decOk) {
+                            oldCursors.append(
+                                QJsonDocument::fromJson(dec).object().value("globalMsgId").toVariant().toString());
+                        }
+                        const QJsonObject img2001{
+                            {"msgId", "2001"},
+                            {"uidFrom", "u-peer"},
+                            {"idTo", "g-img-sync"},
+                            {"msgType", "chat.photo"},
+                            {"ts", "1730000001000"},
+                            {"content", QStringLiteral("{\"href\":\"https://cdn.example/full2001.jpg\","
+                                                       "\"thumb\":\"https://cdn.example/th2001.jpg\"}")}};
+                        const QJsonObject txt2002{
+                            {"msgId", "2002"},
+                            {"uidFrom", "u-peer"},
+                            {"idTo", "g-img-sync"},
+                            {"msgType", "webchat"},
+                            {"ts", "1730000002000"},
+                            {"content", "Đã xem ảnh"}};
+                        const QJsonObject older2000{
+                            {"msgId", "2000"},
+                            {"uidFrom", "u-peer"},
+                            {"idTo", "g-img-sync"},
+                            {"msgType", "webchat"},
+                            {"ts", "1730000000500"},
+                            {"content", "Tin cũ hơn"}};
+                        if (oldCalls == 1) {
+                            dataObj = QJsonObject{{"groupMsgs", QJsonArray{img2001, txt2002}},
+                                                  {"hasMore", 1},
+                                                  {"isOld", 1},
+                                                  {"lastMsgId", "2001"}};
+                        } else {
+                            dataObj = QJsonObject{{"groupMsgs", QJsonArray{older2000}},
+                                                  {"hasMore", 0},
+                                                  {"isOld", 1},
+                                                  {"lastMsgId", "2000"}};
+                        }
+                    }
+
+                    const QByteArray body = QJsonDocument(QJsonObject{{"error_code", 0}, {"data", dataObj}})
+                                                .toJson(QJsonDocument::Compact);
+                    sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                    sock->disconnectFromHost();
+                });
+                connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+            }
+        });
+
+        ZaloClient client;
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.setGroupForTesting(QStringLiteral("g-img-sync"), QString::fromUtf8("Nhóm Ảnh"), {});
+        const QString baseUrl = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+        client.apiClient()->session()->setLoginInfoForTesting(QJsonObject{
+            {"uid", "u-me"},
+            {"zpw_enk", keyB64},
+            {"zpw_service_map_v3", QJsonObject{{"group_cloud_message", QJsonArray{baseUrl}},
+                                               {"conversation", QJsonArray{baseUrl}},
+                                               {"group", QJsonArray{baseUrl}},
+                                               {"profile", QJsonArray{baseUrl}}}}
+        });
+
+        client.setLoggedInForTesting(false);
+        client.selectConversation(QStringLiteral("g-img-sync"), QString::fromUtf8("Nhóm Ảnh"), {});
+        QCoreApplication::processEvents();
+        QVERIFY(cmPaths.isEmpty());
+
+        client.setLoggedInForTesting(true);
+        client.selectConversation(QStringLiteral("g-img-sync"), QString::fromUtf8("Nhóm Ảnh"), {});
+        QTRY_VERIFY_WITH_TIMEOUT(client.messageModel()->rowCount() == 2 && !client.isLoadingHistory(), 3000);
+
+        QCOMPARE(cmPaths, (QStringList{QStringLiteral("/api/cm/getrecentv2"), QStringLiteral("/api/cm/getoldv2")}));
+        QCOMPARE(oldCursors, QStringList{QStringLiteral("2002")});
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
+                 QStringLiteral("2001"));
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::MessageTypeRole).toString(),
+                 QStringLiteral("image"));
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::MediaUrlRole).toString(),
+                 QStringLiteral("https://cdn.example/th2001.jpg"));
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::HrefRole).toString(),
+                 QStringLiteral("https://cdn.example/full2001.jpg"));
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(1), MessageModel::IdRole).toString(),
+                 QStringLiteral("2002"));
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(1), MessageModel::TextRole).toString(),
+                 QString::fromUtf8("Đã xem ảnh"));
+
+        client.loadOlderMessages();
+        QTRY_VERIFY_WITH_TIMEOUT(client.messageModel()->rowCount() == 3 && !client.isLoadingHistory(), 3000);
+        QCOMPARE(oldCalls, 2);
+        QCOMPARE(oldCursors.at(1), QStringLiteral("2001"));
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
+                 QStringLiteral("2000"));
+        QVERIFY(client.historyExhausted());
+    }
+
+    void testCloudHistoryFallbackAndExhaustedErrorCode() {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        QString mode = QStringLiteral("fallback");
+        QStringList hitPaths;
+        const QString keyB64 = QString::fromLatin1(QByteArray(32, 'D').toBase64());
+
+        connect(&server, &QTcpServer::newConnection, this, [&]() {
+            while (QTcpSocket* sock = server.nextPendingConnection()) {
+                connect(sock, &QTcpSocket::readyRead, sock, [&, sock]() {
+                    const QByteArray raw = sock->readAll();
+                    const int sp1 = raw.indexOf(' ');
+                    const int sp2 = raw.indexOf(' ', sp1 + 1);
+                    const QString path = QUrl(QString::fromUtf8(raw.mid(sp1 + 1, sp2 - sp1 - 1))).path();
+                    if (path.startsWith(QLatin1String("/api/cm/")) || path == QLatin1String("/api/group/history")) {
+                        hitPaths.append(path);
+                    }
+                    QJsonObject payload{{"error_code", 0}, {"data", QJsonObject{}}};
+                    if (path == QLatin1String("/api/cm/getrecentv2")) {
+                        payload = QJsonObject{{"error_code", mode == QLatin1String("exhausted") ? -69 : -1},
+                                              {"error_message", QStringLiteral("cloud err")}};
+                    } else if (path == QLatin1String("/api/group/history")) {
+                        const QJsonObject img3001{
+                            {"msgId", "3001"},
+                            {"uidFrom", "u-peer"},
+                            {"idTo", "g-fallback"},
+                            {"msgType", "chat.photo"},
+                            {"ts", "1730000003000"},
+                            {"content", QJsonObject{{"href", "https://cdn.example/full3001.jpg"},
+                                                    {"thumb", "https://cdn.example/th3001.jpg"}}}};
+                        payload = QJsonObject{{"error_code", 0},
+                                              {"data", QJsonObject{{"groupMsgs", QJsonArray{img3001}}}}};
+                    }
+                    const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
+                    sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                    sock->disconnectFromHost();
+                });
+                connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+            }
+        });
+
+        ZaloClient client;
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.setGroupForTesting(QStringLiteral("g-fallback"), QStringLiteral("Group Fallback"), {});
+        client.setGroupForTesting(QStringLiteral("g-exhaust"), QStringLiteral("Group Exhaust"), {});
+        const QString baseUrl = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+        client.apiClient()->session()->setLoginInfoForTesting(QJsonObject{
+            {"uid", "u-me"},
+            {"zpw_enk", keyB64},
+            {"zpw_service_map_v3", QJsonObject{{"group_cloud_message", QJsonArray{baseUrl}},
+                                               {"group", QJsonArray{baseUrl}},
+                                               {"conversation", QJsonArray{baseUrl}},
+                                               {"profile", QJsonArray{baseUrl}}}}
+        });
+        client.setLoggedInForTesting(true);
+
+        client.selectConversation(QStringLiteral("g-fallback"), QStringLiteral("Group Fallback"), {});
+        QTRY_VERIFY_WITH_TIMEOUT(client.messageModel()->rowCount() == 1 && !client.isLoadingHistory(), 3000);
+        QCOMPARE(hitPaths, (QStringList{QStringLiteral("/api/cm/getrecentv2"), QStringLiteral("/api/group/history")}));
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
+                 QStringLiteral("3001"));
+        QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::MessageTypeRole).toString(),
+                 QStringLiteral("image"));
+        QVERIFY(!client.historyExhausted());
+
+        hitPaths.clear();
+        mode = QStringLiteral("exhausted");
+        client.selectConversation(QStringLiteral("g-exhaust"), QStringLiteral("Group Exhaust"), {});
+        QTRY_VERIFY_WITH_TIMEOUT(client.historyExhausted() && !client.isLoadingHistory(), 3000);
+        QCOMPARE(hitPaths, QStringList{QStringLiteral("/api/cm/getrecentv2")});
+        QCOMPARE(client.messageModel()->rowCount(), 0);
     }
 };
 

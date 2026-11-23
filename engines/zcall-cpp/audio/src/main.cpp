@@ -242,6 +242,10 @@ int main(int argc, char** argv) {
                     logLine("mic volume: no microphone level to set");
                 }
                 break;
+            case InMessage::Kind::AutoGain:
+                if (mic && mic->guard) mic->guard->setAutoGain(msg.on);
+                else logLine("mic mode: manual");
+                break;
             case InMessage::Kind::Mute:
                 muted.store(msg.on);
                 logLine(msg.on ? "mute" : "unmute");
@@ -256,6 +260,8 @@ int main(int argc, char** argv) {
                         if (!src) src = pulseMic();
                         if (!src) src = defaultSource();
                         mic->guard->setSource(src);
+                        mic->guard->announce();
+                        mic->guard->announceMode();
                     }
                 } else {
                     chosenSpeaker = present(name, "sinks");

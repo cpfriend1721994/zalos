@@ -47,7 +47,16 @@ Stream::Stream(std::unique_ptr<Decoder> decoder, int maxTarget, Stats& stats, in
 
 void Stream::push(int64_t idx, const uint8_t* payload, size_t len, double now) {
     m_last = now;
-    if (m_hasNext && idx < m_next) {
+    if (m_hasNext && ((idx < m_next && m_next - idx > 500) || (idx > m_next && idx - m_next > 500))) {
+        m_packets.clear();
+        m_carry.clear();
+        m_carryPos = 0;
+        m_transit.clear();
+        m_hasNext = false;
+        m_playing = false;
+        m_expand = 0;
+        m_stats.add(Stat::Reset);
+    } else if (m_hasNext && idx < m_next) {
         m_stats.add(Stat::Late);
         return;
     }

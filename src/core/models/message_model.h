@@ -149,7 +149,7 @@ public:
     static QString linkify(const QString& text);
     static QString linkify(const QString& text, const QVector<MessageMention>& mentions);
     static QString styledHtml(const QString& text, const QVector<MessageMention>& mentions, const QVariantList& styles);
-    void setPollData(qint64 pollId, const QVariantMap& data);
+    void setPollData(qint64 pollId, const QVariantMap& data, const QString& convId = QString());
     void refreshPollCards(const QString& convId);
     Q_INVOKABLE QVariantList sharedItems(const QString& kind, int limit = 60) const;
 
@@ -163,12 +163,16 @@ signals:
 private:
     QVector<MessageItem>& threadFor(const QString& convId);
     void recomputeLastMineRow();
+    void rebuildActiveIndex();
+    int activeRowOf(const QString& msgId) const;
     void markOwnUpTo(const QString& convId, const QString& msgId, const QString& status);
     void placeUnreadMarker();
     bool isRunTile(int row) const;
     bool joinsPrevious(int row) const;
 
     QVector<MessageItem> m_items;
+    QHash<QString, int> m_activeRowById;
+    QHash<QString, int> m_activeRowByCliId;
     SenderResolver m_senderResolver;
     QHash<QString, QVector<MessageItem>> m_store;
     QString m_currentConvId;

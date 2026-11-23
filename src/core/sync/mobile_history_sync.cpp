@@ -47,16 +47,33 @@ constexpr int kMaxDownloadAttempts = 5;
 constexpr int kDownloadRetryBaseMs = 1000;
 constexpr int kDownloadRetryMaxMs = 8000;
 constexpr int kRetryAfterMaxMs = 30000;
+constexpr qint64 kMaxV2BatchBytes = 64LL * 1024 * 1024;
+constexpr qint64 kMaxSyncLogBytes = 2LL * 1024 * 1024;
 
 QString typeName(int t) {
-    static const QHash<int, QString> map{
-        {0, "webchat"}, {2, "chat.doodle"}, {3, "chat.photo"}, {4, "chat.photo"}, {6, "chat.voice"},
-        {10, "chat.sticker"}, {12, "chat.recommended"}, {15, "chat.list.action"}, {18, "chat.location.new"},
-        {19, "chat.video.msg"}, {20, "webchat"}, {22, "share.file"}, {23, "chat.gif"}, {24, "chat.webcontent"},
-        {53, "chat.webcontent.v2"}, {25, "chat.video.live.msg"}, {26, "group.poll"}, {31, "chat.photo"},
-        {33, "chat.delete"}, {36, "chat.undo"},
-    };
-    return map.value(t, QStringLiteral("webchat"));
+    switch (t) {
+    case 2: return QStringLiteral("chat.doodle");
+    case 3:
+    case 4:
+    case 31: return QStringLiteral("chat.photo");
+    case 6: return QStringLiteral("chat.voice");
+    case 10: return QStringLiteral("chat.sticker");
+    case 12: return QStringLiteral("chat.recommended");
+    case 15: return QStringLiteral("chat.list.action");
+    case 18: return QStringLiteral("chat.location.new");
+    case 19: return QStringLiteral("chat.video.msg");
+    case 22: return QStringLiteral("share.file");
+    case 23: return QStringLiteral("chat.gif");
+    case 24: return QStringLiteral("chat.webcontent");
+    case 25: return QStringLiteral("chat.video.live.msg");
+    case 26: return QStringLiteral("group.poll");
+    case 33: return QStringLiteral("chat.delete");
+    case 36: return QStringLiteral("chat.undo");
+    case 53: return QStringLiteral("chat.webcontent.v2");
+    case 0:
+    case 20:
+    default: return QStringLiteral("webchat");
+    }
 }
 
 bool isSkippedType(int t) {
@@ -125,7 +142,10 @@ void MobileHistorySync::log(const QString& line) const {
     const QString dir = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath("logs");
     QDir().mkpath(dir);
     QFile f(QDir(dir).filePath(QStringLiteral("mobile-sync.log")));
-    if (!f.open(QIODevice::Append | QIODevice::Text)) return;
+    const QIODevice::OpenMode mode = (f.exists() && f.size() > kMaxSyncLogBytes)
+        ? (QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)
+        : (QIODevice::Append | QIODevice::Text);
+    if (!f.open(mode)) return;
     f.write((QDateTime::currentDateTime().toString(Qt::ISODateWithMs) + " " + line + "\n").toUtf8());
 }
 
@@ -377,6 +397,18 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
                                        {"attach", str(bin.quote.attach)},
                                        {"fromD", str(bin.quote.fromD)},
                                        {"ts", QString::number(bin.quote.ts)}};
+        } else if (row.v2Quote.has_value()) {
+            const auto& vq = *row.v2Quote;
+            if (vq.globalMsgId > 0 || vq.cliMsgId > 0 || !vq.msg.isEmpty()) {
+                const QString noisedOwner = noised(vq.ownerId);
+                msg["quote"] = QJsonObject{{"ownerId", noisedOwner.isEmpty() ? vq.ownerId : noisedOwner},
+                                           {"globalMsgId", QString::number(vq.globalMsgId)},
+                                           {"cliMsgId", QString::number(vq.cliMsgId)},
+                                           {"msg", vq.msg},
+                                           {"attach", vq.attach},
+                                           {"fromD", vq.fromD},
+                                           {"ts", QString::number(vq.ts)}};
+            }
         }
         if (!bin.mentions.empty()) {
             QJsonArray mentionsArr;
@@ -388,6 +420,18 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
                     const QString plain = QString::number(m.uid);
                     mUid = noised(plain);
                     if (mUid.isEmpty()) mUid = plain;
+                }
+                if (mUid.isEmpty()) continue;
+                mentionsArr.append(QJsonObject{{"uid", mUid}, {"pos", m.pos}, {"len", m.len}, {"type", m.type}});
+            }
+            if (!mentionsArr.isEmpty()) msg["mentions"] = mentionsArr;
+        } else if (!row.v2Mentions.isEmpty()) {
+            QJsonArray mentionsArr;
+            for (const auto& m : row.v2Mentions) {
+                QString mUid = m.uid;
+                if (mUid != QLatin1String("-1") && !mUid.isEmpty()) {
+                    const QString resolved = noised(mUid);
+                    if (!resolved.isEmpty()) mUid = resolved;
                 }
                 if (mUid.isEmpty()) continue;
                 mentionsArr.append(QJsonObject{{"uid", mUid}, {"pos", m.pos}, {"len", m.len}, {"type", m.type}});
@@ -466,6 +510,31 @@ void MobileHistorySync::startV2Fallback(const QString& why) {
     }
 
     m_v2Active = true;
+    m_v2Phase = V2Phase::Conversation;
+    m_v2ConvCursor = 0;
+    m_v2UssIdx = 0;
+    m_v2PendingConvs.clear();
+    m_v2PendingConvKeys.clear();
+    m_v2Conversations.clear();
+    m_ids.clear();
+
+    setState(WaitingConfirm,
+             L("Đã gửi yêu cầu (Sync v2). Mở Zalo trên điện thoại và bấm Đồng ý để chuyển tin nhắn.",
+               "Request sent (Sync v2). Open Zalo on your phone and tap Allow to transfer messages."),
+             10);
+
+    const QJsonArray queries{QJsonObject{
+        {"partition", QStringLiteral("")},
+        {"from", 0},
+        {"to", qint64(9007199254740991LL)},
+        {"limit", qint64(2147483647LL)},
+    }};
+    sendV2SessionRequest(QStringLiteral("conversation"), 0, queries, 0);
+}
+
+void MobileHistorySync::sendV2SessionRequest(const QString& type, int priority, const QJsonArray& queries,
+                                             int ussidx) {
+    if (!m_session) return;
     static constexpr char kBase62[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     m_v2SyncId.clear();
     m_v2SyncId.reserve(32);
@@ -476,10 +545,11 @@ void MobileHistorySync::startV2Fallback(const QString& why) {
     m_v2HasSession = false;
     m_v2SawLastBatch = false;
     m_v2InFlightDownload = false;
+    m_v2WakeUpSent = false;
+    m_v2ExpectedBatches = -1;
+    m_v2SeenBatchIdxs.clear();
     m_v2SeenUrls.clear();
     m_v2DownloadQueue.clear();
-    m_v2Conversations.clear();
-    m_ids.clear();
 
     const QJsonObject syncData{
         {"syncId", m_v2SyncId},
@@ -490,32 +560,60 @@ void MobileHistorySync::startV2Fallback(const QString& why) {
         {"tempKey", m_mobileTempKey},
         {"deviceName", m_pcName},
         {"req", QJsonObject{
-                    {"type", QStringLiteral("conversation")},
-                    {"priority", 1},
-                    {"queries", QJsonArray{QJsonObject{
-                                    {"partition", QStringLiteral("")},
-                                    {"from", 0},
-                                    {"to", qint64(9007199254740991LL)},
-                                    {"limit", qint64(9007199254740991LL)},
-                                }}},
+                    {"type", type},
+                    {"priority", priority},
+                    {"queries", queries},
                     {"batchSize", 2000},
                 }},
         {"ver", 1},
-        {"ussidx", 0},
+        {"ussidx", ussidx},
     };
 
-    const quint64 gen = ++m_generation;
-    setState(WaitingConfirm,
-             L("Đã gửi yêu cầu (Sync v2). Mở Zalo trên điện thoại và bấm Đồng ý để chuyển tin nhắn.",
-               "Request sent (Sync v2). Open Zalo on your phone and tap Allow to transfer messages."),
-             10);
+    ++m_generation;
     m_timeout.start(kConfirmTimeoutMs);
     const bool wsSent = m_session->sendSyncV2Request(m_v2SyncId, syncData);
-    log(QStringLiteral("v2 590 sent sync=%1 ws=%2").arg(m_v2SyncId.left(8)).arg(wsSent));
+    log(QStringLiteral("v2 590 sent type=%1 ussidx=%2 queries=%3 sync=%4 ws=%5")
+            .arg(type).arg(ussidx).arg(queries.size()).arg(m_v2SyncId.left(8)).arg(wsSent));
     if (!wsSent) {
         fail(L("Chưa kết nối được máy chủ realtime để gửi yêu cầu Sync v2.",
                "Realtime connection is not ready to send the Sync v2 request."));
     }
+}
+
+void MobileHistorySync::sendNextV2MessageSession() {
+    constexpr int kMaxQueriesPerRequest = 30;
+    if (!m_v2Active || !m_session || m_v2ConvCursor >= m_v2PendingConvs.size()) return;
+
+    m_v2Ek = V2::generateKeyPair();
+    if (m_v2Ek.pub.size() != 33 || m_v2Ek.priv.size() != 32) {
+        fail(L("Không tạo được khóa Sync v2.", "Couldn't create Sync v2 keys."));
+        return;
+    }
+
+    QJsonArray queries;
+    const int end = qMin(static_cast<int>(m_v2PendingConvs.size()), m_v2ConvCursor + kMaxQueriesPerRequest);
+    for (int i = m_v2ConvCursor; i < end; ++i) {
+        const auto& conv = m_v2PendingConvs.at(i);
+        const QString prefix = conv.convType == 2 ? QStringLiteral("group/") : QStringLiteral("oneone/");
+        const qint64 toTs = conv.lastTs > 0 ? static_cast<qint64>(conv.lastTs) : qint64(9007199254740991LL);
+        queries.append(QJsonObject{
+            {"partition", prefix + conv.convId},
+            {"from", 0},
+            {"to", toTs},
+            {"limit", qint64(2147483647LL)},
+        });
+    }
+    m_v2ConvCursor = end;
+    ++m_v2UssIdx;
+
+    const int progress = 50 + (18 * m_v2ConvCursor) / qMax(1, static_cast<int>(m_v2PendingConvs.size()));
+    setState(PhonePreparing,
+             L("Đang tải tin nhắn từng hội thoại Sync v2 (%1/%2)...",
+               "Fetching Sync v2 conversation messages (%1/%2)...")
+                 .arg(m_v2ConvCursor).arg(m_v2PendingConvs.size()),
+             progress);
+
+    sendV2SessionRequest(QStringLiteral("message"), 2, queries, m_v2UssIdx);
 }
 
 void MobileHistorySync::cancel() {
@@ -527,12 +625,20 @@ void MobileHistorySync::cancel() {
         m_session->sendSyncV2Release(m_v2SyncId, 0);
     }
     m_v2Active = false;
+    m_v2Phase = V2Phase::Conversation;
     m_v2SyncId.clear();
     m_v2HasSession = false;
     m_v2SawLastBatch = false;
     m_v2InFlightDownload = false;
+    m_v2WakeUpSent = false;
+    m_v2ExpectedBatches = -1;
+    m_v2ConvCursor = 0;
+    m_v2UssIdx = 0;
+    m_v2SeenBatchIdxs.clear();
     m_v2SeenUrls.clear();
     m_v2DownloadQueue.clear();
+    m_v2PendingConvs.clear();
+    m_v2PendingConvKeys.clear();
     m_v2Conversations.clear();
     if (active && m_session && !m_keys.publicKeyBase64.isEmpty()) {
         m_session->cancelPullMobileMessages(m_pcName, m_keys.publicKeyBase64, [](bool, const QJsonValue&, const QString&, int) {});
@@ -864,7 +970,7 @@ void MobileHistorySync::decryptAndRead() {
                                             : L("dữ liệu bị lỗi hoặc sai định dạng", "the data is damaged or in an unexpected format")));
             return;
         }
-        m_conversations = result->conversations;
+        m_conversations = std::move(result->conversations);
         cleanup();
         if (m_session && !m_keys.publicKeyBase64.isEmpty()) {
             m_session->cleanMobileSync(m_keys.publicKeyBase64, [](bool, const QJsonValue&, const QString&, int) {});
@@ -1040,7 +1146,7 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
                      L("Đã gửi yêu cầu (Sync v2). Mở Zalo trên điện thoại và bấm Đồng ý để chuyển tin nhắn.",
                        "Request sent (Sync v2). Open Zalo on your phone and tap Allow to transfer messages."),
                      10);
-        } else if (status == 4 || status == 5) {
+        } else if (status == 1 || status == 4 || status == 5) {
             setState(PhonePreparing,
                      L("Điện thoại đã đồng ý. Đang chờ điện thoại đóng gói và gửi tin nhắn (Sync v2)...",
                        "The phone agreed. Waiting for it to pack and send messages (Sync v2)..."),
@@ -1060,6 +1166,11 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
                      L("Hãy mở Zalo trên điện thoại và giữ màn hình sáng để tiếp tục sao lưu.",
                        "Keep Zalo open on your phone so the backup can continue."),
                      20);
+            if (!m_v2WakeUpSent) {
+                m_v2WakeUpSent = true;
+                m_session->sendSyncV2WakeUp(m_v2SyncId);
+            }
+            m_timeout.start(kConfirmTimeoutMs);
         } else if (status == 9 || status == 10) {
             m_session->sendSyncV2Release(m_v2SyncId, 2);
             m_v2Active = false;
@@ -1087,8 +1198,15 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
         }
         const QString msgUrl = data.value("msgUrl").toString(data.value("url").toString());
         const int batchType = data.value("batchType").toVariant().toInt();
+        bool idxOk = false;
+        const int idxParsed = data.value("idx").toVariant().toInt(&idxOk);
+        const int batchIdx = (data.contains("idx") && idxOk && idxParsed >= 0) ? idxParsed : -1;
         const bool isLast = data.value("isLast").toVariant().toInt() == 1 || data.value("isLast").toBool();
-        if (isLast) m_v2SawLastBatch = true;
+        if (batchIdx >= 0) m_v2SeenBatchIdxs.insert(batchIdx);
+        if (isLast) {
+            m_v2SawLastBatch = true;
+            if (batchIdx >= 0) m_v2ExpectedBatches = batchIdx + 1;
+        }
         if (msgUrl.isEmpty()) {
             if (isLast) maybeFinishV2();
             return;
@@ -1111,11 +1229,116 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
         ErrorKind errorKind{None};
         V2::CryptoStatus cryptoStatus{V2::CryptoStatus::Ok};
         QVector<MobileHistorySync::BackupConversation> conversations;
+        QVector<V2::ParsedSyncV2Conversation> metaConversations;
         QStringList discoveredIds;
     };
 
+    QString stripV2PartitionPrefix(QString id) {
+        if (id.startsWith(QLatin1String("oneone/"))) return id.mid(7);
+        if (id.startsWith(QLatin1String("group/"))) return id.mid(6);
+        return id;
+    }
+
+    void decodeV2PlaintextChunk(const QByteArray& compressed, bool tryConversationChunk, const QString& myNoisedUid,
+                                V2MessageParseResult* out) {
+        QByteArray proto = compressed;
+        if (compressed.size() >= 4 &&
+            static_cast<unsigned char>(compressed.at(0)) == 0x28 &&
+            static_cast<unsigned char>(compressed.at(1)) == 0xb5 &&
+            static_cast<unsigned char>(compressed.at(2)) == 0x2f &&
+            static_cast<unsigned char>(compressed.at(3)) == 0xfd) {
+            QByteArray zstdErr;
+            const V2::ZstdStatus zs = V2::zstdDecompress(compressed, &proto, &zstdErr);
+            if (zs != V2::ZstdStatus::Ok) {
+                out->errorKind = V2MessageParseResult::ZstdFailed;
+                return;
+            }
+        }
+        if (tryConversationChunk) {
+            QVector<V2::ParsedSyncV2Conversation> convs;
+            if (V2::parseSyncV2ConversationChunk(proto, &convs) && !convs.isEmpty()) {
+                out->metaConversations.append(std::move(convs));
+                return;
+            }
+        }
+        QVector<V2::ParsedSyncV2Partition> parts;
+        if (!V2::parseSyncV2Chunk(proto, &parts)) {
+            out->errorKind = V2MessageParseResult::ParseFailed;
+            return;
+        }
+        for (const V2::ParsedSyncV2Partition& part : parts) {
+            MobileHistorySync::BackupConversation conv;
+            if (part.id.startsWith(QLatin1String("group/"))) {
+                conv.isGroup = true;
+                conv.plainId = part.id.mid(6);
+            } else if (part.id.startsWith(QLatin1String("oneone/"))) {
+                conv.isGroup = false;
+                conv.plainId = part.id.mid(7);
+            } else {
+                conv.plainId = part.id;
+            }
+            if (conv.plainId.isEmpty()) continue;
+            out->discoveredIds.append(conv.plainId);
+
+            conv.rows.reserve(part.messages.size());
+            for (const V2::ParsedSyncV2Message& pm : part.messages) {
+                MobileHistorySync::BackupRow row;
+                row.globalMsgId = pm.globalId;
+                row.cliMsgId = QString::number(pm.clientId);
+                row.msgType = pm.msgType;
+                row.ts = static_cast<qint64>(pm.timestamp);
+                row.ttl = static_cast<qint64>(pm.ttl);
+                const QString sender = stripV2PartitionPrefix(pm.senderId);
+                if (!myNoisedUid.isEmpty() && sender == myNoisedUid) {
+                    row.senderId = QStringLiteral("0");
+                } else {
+                    row.senderId = sender;
+                    if (!sender.isEmpty()) out->discoveredIds.append(sender);
+                }
+                row.text = pm.content;
+                if (!pm.attaches.isEmpty()) {
+                    row.hasParsedBin = true;
+                    for (const V2::ParsedSyncV2Attach& pa : pm.attaches) {
+                        decltype(row.parsedBin.attachs)::value_type ba;
+                        ba.type = pa.attachType.toUtf8().toStdString();
+                        ba.action = pa.action.toUtf8().toStdString();
+                        ba.params = pa.params.toUtf8().toStdString();
+                        ba.title = pa.title.toUtf8().toStdString();
+                        ba.href = pa.href.toUtf8().toStdString();
+                        ba.thumb = pa.thumb.toUtf8().toStdString();
+                        ba.description = pa.description.toUtf8().toStdString();
+                        ba.catId = pa.catId;
+                        ba.id = pa.id;
+                        row.parsedBin.attachs.push_back(std::move(ba));
+                    }
+                }
+                if (pm.quote.has_value()) {
+                    V2::ParsedSyncV2Quote q = *pm.quote;
+                    q.ownerId = stripV2PartitionPrefix(q.ownerId);
+                    if (!q.ownerId.isEmpty() && q.ownerId != myNoisedUid && q.ownerId != QLatin1String("-1")) {
+                        out->discoveredIds.append(q.ownerId);
+                    }
+                    row.v2Quote = std::move(q);
+                }
+                if (!pm.mentions.isEmpty()) {
+                    row.v2Mentions.reserve(pm.mentions.size());
+                    for (const V2::ParsedSyncV2Mention& pmMention : pm.mentions) {
+                        V2::ParsedSyncV2Mention m = pmMention;
+                        m.uid = stripV2PartitionPrefix(m.uid);
+                        if (!m.uid.isEmpty() && m.uid != myNoisedUid && m.uid != QLatin1String("-1")) {
+                            out->discoveredIds.append(m.uid);
+                        }
+                        row.v2Mentions.append(std::move(m));
+                    }
+                }
+                conv.rows.append(std::move(row));
+            }
+            if (!conv.rows.isEmpty()) out->conversations.append(std::move(conv));
+        }
+    }
+
     V2MessageParseResult parseV2MessageBatch(const QByteArray& bytes, const V2::SessionRecord& session,
-                                             const QString& myNoisedUid) {
+                                             const QString& myNoisedUid, bool tryConversationChunk) {
         V2MessageParseResult out;
         QVector<QByteArray> frames;
         if (!V2::splitFrames(bytes, &frames) || frames.isEmpty()) {
@@ -1130,75 +1353,8 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
                 out.cryptoStatus = st;
                 return out;
             }
-            QByteArray proto = compressed;
-            if (compressed.size() >= 4 &&
-                static_cast<unsigned char>(compressed.at(0)) == 0x28 &&
-                static_cast<unsigned char>(compressed.at(1)) == 0xb5 &&
-                static_cast<unsigned char>(compressed.at(2)) == 0x2f &&
-                static_cast<unsigned char>(compressed.at(3)) == 0xfd) {
-                QByteArray zstdErr;
-                const V2::ZstdStatus zs = V2::zstdDecompress(compressed, &proto, &zstdErr);
-                if (zs != V2::ZstdStatus::Ok) {
-                    out.errorKind = V2MessageParseResult::ZstdFailed;
-                    return out;
-                }
-            }
-            QVector<V2::ParsedSyncV2Partition> parts;
-            if (!V2::parseSyncV2Chunk(proto, &parts)) {
-                out.errorKind = V2MessageParseResult::ParseFailed;
-                return out;
-            }
-            for (const V2::ParsedSyncV2Partition& part : parts) {
-                MobileHistorySync::BackupConversation conv;
-                if (part.id.startsWith(QLatin1String("group/"))) {
-                    conv.isGroup = true;
-                    conv.plainId = part.id.mid(6);
-                } else if (part.id.startsWith(QLatin1String("oneone/"))) {
-                    conv.isGroup = false;
-                    conv.plainId = part.id.mid(7);
-                } else {
-                    conv.plainId = part.id;
-                }
-                if (conv.plainId.isEmpty()) continue;
-                out.discoveredIds.append(conv.plainId);
-
-                conv.rows.reserve(part.messages.size());
-                for (const V2::ParsedSyncV2Message& pm : part.messages) {
-                    MobileHistorySync::BackupRow row;
-                    row.globalMsgId = pm.globalId;
-                    row.cliMsgId = QString::number(pm.clientId);
-                    row.msgType = pm.msgType;
-                    row.ts = static_cast<qint64>(pm.timestamp);
-                    QString sender = pm.senderId;
-                    if (sender.startsWith(QLatin1String("oneone/"))) sender = sender.mid(7);
-                    else if (sender.startsWith(QLatin1String("group/"))) sender = sender.mid(6);
-                    if (!myNoisedUid.isEmpty() && sender == myNoisedUid) {
-                        row.senderId = QStringLiteral("0");
-                    } else {
-                        row.senderId = sender;
-                        if (!sender.isEmpty()) out.discoveredIds.append(sender);
-                    }
-                    row.text = pm.content;
-                    if (!pm.attaches.isEmpty()) {
-                        row.hasParsedBin = true;
-                        for (const V2::ParsedSyncV2Attach& pa : pm.attaches) {
-                            decltype(row.parsedBin.attachs)::value_type ba;
-                            ba.type = pa.attachType.toUtf8().toStdString();
-                            ba.action = pa.action.toUtf8().toStdString();
-                            ba.params = pa.params.toUtf8().toStdString();
-                            ba.title = pa.title.toUtf8().toStdString();
-                            ba.href = pa.href.toUtf8().toStdString();
-                            ba.thumb = pa.thumb.toUtf8().toStdString();
-                            ba.description = pa.description.toUtf8().toStdString();
-                            ba.catId = pa.catId;
-                            ba.id = pa.id;
-                            row.parsedBin.attachs.push_back(std::move(ba));
-                        }
-                    }
-                    conv.rows.append(std::move(row));
-                }
-                if (!conv.rows.isEmpty()) out.conversations.append(std::move(conv));
-            }
+            decodeV2PlaintextChunk(compressed, tryConversationChunk, myNoisedUid, &out);
+            if (out.errorKind != V2MessageParseResult::None) return out;
         }
         return out;
     }
@@ -1230,16 +1386,30 @@ void MobileHistorySync::processNextV2Download() {
 
     const quint64 gen = m_generation;
     QNetworkReply* reply = m_session->getWithCookies(QUrl(task.url));
+    reply->setReadBufferSize(kMaxV2BatchBytes + 1);
     m_download = reply;
-    connect(reply, &QNetworkReply::downloadProgress, this, [this, gen](qint64, qint64) {
-        if (gen == m_generation && m_v2Active) m_timeout.start(kDownloadStallMs);
+    auto tooLarge = std::make_shared<bool>(false);
+    connect(reply, &QNetworkReply::downloadProgress, this, [this, reply, gen, tooLarge](qint64 got, qint64 total) {
+        if (gen != m_generation || !m_v2Active) return;
+        m_timeout.start(kDownloadStallMs);
+        if (got > kMaxV2BatchBytes || total > kMaxV2BatchBytes) {
+            *tooLarge = true;
+            reply->abort();
+        }
     });
-    connect(reply, &QNetworkReply::finished, this, [this, reply, gen, task]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, gen, task, tooLarge]() {
         reply->deleteLater();
         if (m_download == reply) m_download.clear();
         if (gen != m_generation || !m_v2Active) return;
 
         const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (*tooLarge) {
+            m_v2InFlightDownload = false;
+            m_session->sendSyncV2Release(m_v2SyncId, 2);
+            m_v2Active = false;
+            fail(L("Gói Sync v2 vượt quá giới hạn 64 MB.", "Sync v2 batch exceeds the 64 MB limit."));
+            return;
+        }
         if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
             m_v2InFlightDownload = false;
             m_session->sendSyncV2Release(m_v2SyncId, 2);
@@ -1248,6 +1418,13 @@ void MobileHistorySync::processNextV2Download() {
             return;
         }
         const QByteArray bytes = reply->readAll();
+        if (bytes.size() > kMaxV2BatchBytes) {
+            m_v2InFlightDownload = false;
+            m_session->sendSyncV2Release(m_v2SyncId, 2);
+            m_v2Active = false;
+            fail(L("Gói Sync v2 vượt quá giới hạn 64 MB.", "Sync v2 batch exceeds the 64 MB limit."));
+            return;
+        }
         if (task.batchType == 1) {
             if (!m_v2HasSession) {
                 m_v2InFlightDownload = false;
@@ -1258,9 +1435,10 @@ void MobileHistorySync::processNextV2Download() {
             }
             const V2::SessionRecord session = m_v2Session;
             const QString myNoisedUid = m_myNoisedUid;
+            const bool tryConv = m_v2Phase == V2Phase::Conversation;
             const QPointer<MobileHistorySync> self(this);
-            QThreadPool::globalInstance()->start([self, gen, bytes, session, myNoisedUid]() {
-                V2MessageParseResult res = parseV2MessageBatch(bytes, session, myNoisedUid);
+            QThreadPool::globalInstance()->start([self, gen, bytes, session, myNoisedUid, tryConv]() {
+                V2MessageParseResult res = parseV2MessageBatch(bytes, session, myNoisedUid, tryConv);
                 if (!self) return;
                 QMetaObject::invokeMethod(self, [self, gen, res = std::move(res)]() mutable {
                     if (!self || gen != self->m_generation || !self->m_v2Active) return;
@@ -1292,6 +1470,13 @@ void MobileHistorySync::processNextV2Download() {
                     }
                     for (const QString& id : std::as_const(res.discoveredIds)) {
                         self->m_ids.insert(id, id);
+                    }
+                    for (const auto& mc : std::as_const(res.metaConversations)) {
+                        const QString key = QStringLiteral("%1:%2").arg(mc.convType).arg(mc.convId);
+                        if (!self->m_v2PendingConvKeys.contains(key)) {
+                            self->m_v2PendingConvKeys.insert(key);
+                            self->m_v2PendingConvs.append(mc);
+                        }
                     }
                     for (auto& conv : res.conversations) {
                         self->m_v2Conversations.append(std::move(conv));
@@ -1333,6 +1518,25 @@ bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& byte
             }
             m_v2Session = metaOut.session;
             m_v2HasSession = true;
+            if (!metaOut.plaintext.isEmpty()) {
+                V2MessageParseResult metaRes;
+                decodeV2PlaintextChunk(metaOut.plaintext, m_v2Phase == V2Phase::Conversation, m_myNoisedUid, &metaRes);
+                if (metaRes.errorKind == V2MessageParseResult::None) {
+                    for (const QString& id : std::as_const(metaRes.discoveredIds)) {
+                        m_ids.insert(id, id);
+                    }
+                    for (const auto& mc : std::as_const(metaRes.metaConversations)) {
+                        const QString key = QStringLiteral("%1:%2").arg(mc.convType).arg(mc.convId);
+                        if (!m_v2PendingConvKeys.contains(key)) {
+                            m_v2PendingConvKeys.insert(key);
+                            m_v2PendingConvs.append(mc);
+                        }
+                    }
+                    for (auto& conv : metaRes.conversations) {
+                        m_v2Conversations.append(std::move(conv));
+                    }
+                }
+            }
         }
         return true;
     }
@@ -1342,7 +1546,7 @@ bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& byte
             if (error) *error = L("Thiếu khóa phiên Sync v2.", "Missing Sync v2 session key.");
             return false;
         }
-        V2MessageParseResult res = parseV2MessageBatch(bytes, m_v2Session, m_myNoisedUid);
+        V2MessageParseResult res = parseV2MessageBatch(bytes, m_v2Session, m_myNoisedUid, m_v2Phase == V2Phase::Conversation);
         if (res.errorKind != V2MessageParseResult::None) {
             if (error) {
                 switch (res.errorKind) {
@@ -1369,6 +1573,13 @@ bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& byte
         for (const QString& id : std::as_const(res.discoveredIds)) {
             m_ids.insert(id, id);
         }
+        for (const auto& mc : std::as_const(res.metaConversations)) {
+            const QString key = QStringLiteral("%1:%2").arg(mc.convType).arg(mc.convId);
+            if (!m_v2PendingConvKeys.contains(key)) {
+                m_v2PendingConvKeys.insert(key);
+                m_v2PendingConvs.append(mc);
+            }
+        }
         for (auto& conv : res.conversations) {
             m_v2Conversations.append(std::move(conv));
         }
@@ -1379,8 +1590,19 @@ bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& byte
 
 void MobileHistorySync::maybeFinishV2() {
     if (!m_v2Active || !m_v2SawLastBatch || m_v2InFlightDownload || !m_v2DownloadQueue.isEmpty()) return;
+    if (m_v2ExpectedBatches >= 0 && m_v2SeenBatchIdxs.size() < m_v2ExpectedBatches) return;
     m_timeout.stop();
     if (m_session) m_session->sendSyncV2Release(m_v2SyncId, 1);
+    if (m_v2Phase == V2Phase::Conversation && m_v2Conversations.isEmpty() && !m_v2PendingConvs.isEmpty()) {
+        m_v2Phase = V2Phase::Message;
+        m_v2ConvCursor = 0;
+        sendNextV2MessageSession();
+        return;
+    }
+    if (m_v2Phase == V2Phase::Message && m_v2ConvCursor < m_v2PendingConvs.size()) {
+        sendNextV2MessageSession();
+        return;
+    }
     m_v2Active = false;
     m_conversations = std::move(m_v2Conversations);
     m_v2Conversations.clear();

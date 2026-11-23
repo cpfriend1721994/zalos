@@ -17,7 +17,7 @@ if [ -f "${WORKSPACE_DIR}/CMakeLists.txt" ]; then
     done < "${WORKSPACE_DIR}/CMakeLists.txt"
 fi
 if [ -z "${VERSION}" ]; then
-    VERSION="1.2.9"
+    VERSION="1.2.10"
 fi
 mkdir -p "${OUTPUT_DIR}"
 

@@ -206,7 +206,7 @@ Rectangle {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: I18n.setLanguage("vi")
+                                onClicked: { ZaloClient.setAppLanguage("vi"); I18n.setLanguage("vi"); }
                             }
                         }
 
@@ -220,7 +220,7 @@ Rectangle {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: I18n.setLanguage("en")
+                                onClicked: { ZaloClient.setAppLanguage("en"); I18n.setLanguage("en"); }
                             }
                         }
                     }

@@ -175,6 +175,70 @@ std::optional<ParsedSyncV2Attach> parseAttach(const QByteArray& data) {
     return att;
 }
 
+std::optional<ParsedSyncV2Mention> parseMention(const QByteArray& data) {
+    const auto fields = parseProto(data);
+    if (!fields.has_value()) return std::nullopt;
+    ParsedSyncV2Mention mention;
+    for (const auto& f : *fields) {
+        if (f.wireType == 2 && f.number == 1) {
+            mention.uid = QString::fromUtf8(f.bytes);
+        } else if (f.wireType == 0) {
+            if (f.number == 2) mention.pos = static_cast<int>(static_cast<qint32>(f.varint));
+            else if (f.number == 3) mention.len = static_cast<int>(static_cast<qint32>(f.varint));
+            else if (f.number == 4) mention.type = static_cast<int>(static_cast<qint32>(f.varint));
+        }
+    }
+    return mention;
+}
+
+std::optional<ParsedSyncV2Quote> parseQuote(const QByteArray& data) {
+    const auto fields = parseProto(data);
+    if (!fields.has_value()) return std::nullopt;
+    ParsedSyncV2Quote quote;
+    for (const auto& f : *fields) {
+        if (f.wireType == 2) {
+            if (f.number == 1) quote.attach = QString::fromUtf8(f.bytes);
+            else if (f.number == 2) quote.ownerId = QString::fromUtf8(f.bytes);
+            else if (f.number == 4) quote.fromD = QString::fromUtf8(f.bytes);
+            else if (f.number == 7) quote.msg = QString::fromUtf8(f.bytes);
+        } else if (f.wireType == 0) {
+            if (f.number == 3) quote.ts = f.varint;
+            else if (f.number == 5) quote.cliMsgId = f.varint;
+            else if (f.number == 6) quote.globalMsgId = f.varint;
+            else if (f.number == 8) quote.cliMsgType = static_cast<int>(static_cast<qint32>(f.varint));
+            else if (f.number == 9) quote.ttl = f.varint;
+        }
+    }
+    return quote;
+}
+
+std::optional<ParsedSyncV2Conversation> parseConversation(const QByteArray& data) {
+    const auto fields = parseProto(data);
+    if (!fields.has_value()) return std::nullopt;
+    ParsedSyncV2Conversation conv;
+    bool hasConvType = false;
+    for (const auto& f : *fields) {
+        if (f.wireType == 2 && f.number == 1) {
+            conv.convId = QString::fromUtf8(f.bytes);
+        } else if (f.wireType == 0) {
+            if (f.number == 2) {
+                conv.convType = static_cast<int>(static_cast<qint32>(f.varint));
+                hasConvType = true;
+            }
+            else if (f.number == 3) conv.respondedByMe = f.varint != 0;
+            else if (f.number == 4) conv.lastTs = f.varint;
+            else if (f.number == 5) conv.lastGlobalId = f.varint;
+            else if (f.number == 6) conv.lastClientId = f.varint;
+        } else if (f.number == 2 && f.wireType == 2) {
+            return std::nullopt;
+        }
+    }
+    if (conv.convId.isEmpty() || !hasConvType || (conv.convType != 1 && conv.convType != 2)) {
+        return std::nullopt;
+    }
+    return conv;
+}
+
 std::optional<ParsedSyncV2Message> parseMessage(const QByteArray& data) {
     const auto fields = parseProto(data);
     if (!fields.has_value()) return std::nullopt;
@@ -193,8 +257,16 @@ std::optional<ParsedSyncV2Message> parseMessage(const QByteArray& data) {
                 const auto metaFields = parseProto(f.bytes);
                 if (metaFields.has_value()) {
                     for (const auto& mf : *metaFields) {
-                        if (mf.number == 1 && mf.wireType == 2) {
-                            if (const auto att = parseAttach(mf.bytes)) msg.attaches.append(*att);
+                        if (mf.wireType == 2) {
+                            if (mf.number == 1) {
+                                if (const auto att = parseAttach(mf.bytes)) msg.attaches.append(*att);
+                            } else if (mf.number == 2) {
+                                if (const auto mention = parseMention(mf.bytes)) msg.mentions.append(*mention);
+                            } else if (mf.number == 4) {
+                                if (const auto quote = parseQuote(mf.bytes)) msg.quote = quote;
+                            }
+                        } else if (mf.wireType == 0 && mf.number == 6) {
+                            msg.ttl = mf.varint;
                         }
                     }
                 }
@@ -226,6 +298,21 @@ bool parseSyncV2Chunk(const QByteArray& data, QVector<ParsedSyncV2Partition>* pa
     for (const auto& f : *fields) {
         if (f.number == 2 && f.wireType == 2) {
             if (const auto part = parsePartition(f.bytes)) partitions->append(*part);
+        }
+    }
+    return true;
+}
+
+bool parseSyncV2ConversationChunk(const QByteArray& data,
+                                  QVector<ParsedSyncV2Conversation>* conversations) {
+    if (!conversations) return false;
+    const auto fields = parseProto(data);
+    if (!fields.has_value()) return false;
+    for (const auto& f : *fields) {
+        if (f.number == 2 && f.wireType == 2) {
+            const auto conv = parseConversation(f.bytes);
+            if (!conv.has_value()) return false;
+            conversations->append(*conv);
         }
     }
     return true;

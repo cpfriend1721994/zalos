@@ -39,6 +39,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.2.10" date="2026-11-23">
+      <description>
+        <p>Fixed being stuck on "Connecting to server" (WebSocket error 501) on Qt 6.4, a crash with fractional scaling on Wayland, the AppImage falling back to its bundled Qt after a normal exit, the chat jumping back to the bottom while scrolling up, and missing images when opening conversations after reading photo+text sequences on your phone. Also keeps 1-1 call relay servers alive during long ringing, adds seamless P2P-to-relay network handover and audio recovery across Wi-Fi/VPN changes, adds an Auto/Manual microphone gain toggle in the call device menu, improves two-phase Phone History Sync v2 with idle-phone wake-up and quote/mention/TTL metadata, and fixes group_poll host fallback and quote reply normalization. New installs now start in English, and the AppImage uses the system Qt only from 6.4 to 6.12.</p>
+      </description>
+    </release>
     <release version="1.2.9" date="2026-11-20">
       <description>
         <p>Zalo PC-style polls with a full vote dialog and all creation settings, chats read on the phone now sync as read, phone history sync no longer fails when the phone app goes to the background, poll voting fixes, lower image/video viewer memory, software rendering by default with automatic fallback when the GPU renderer fails, fewer required system packages, no crash on systems without media codecs, and a safer choice between the system and bundled Qt in the AppImage.</p>

@@ -598,6 +598,89 @@ private slots:
         QVERIFY(!xss.contains(QStringLiteral("<script>")));
         QVERIFY(!xss.contains(QStringLiteral("\"'><")));
     }
+
+    void testConversationModelMultiRowMoveNoResetAndOfficialCache() {
+        ConversationModel model;
+        ConversationItem c1; c1.id = "c1"; c1.name = QStringLiteral("Nguyễn Văn A"); c1.lastTs = 100;
+        ConversationItem c2; c2.id = "c2"; c2.name = QStringLiteral("Trần B"); c2.lastTs = 90;
+        ConversationItem c3; c3.id = "c3"; c3.name = QStringLiteral("ZaloPay"); c3.lastTs = 80;
+        ConversationItem c4; c4.id = "c4"; c4.name = QStringLiteral("Cửa hàng"); c4.lastTs = 70;
+        model.setConversations({c1, c2, c3, c4});
+
+        QCOMPARE(model.data(model.index(2), ConversationModel::IsOfficialRole).toBool(), true);
+        QCOMPARE(model.data(model.index(3), ConversationModel::IsOfficialRole).toBool(), false);
+
+        QSignalSpy resetSpy(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy moveSpy(&model, &QAbstractItemModel::rowsMoved);
+        QSignalSpy dataSpy(&model, &QAbstractItemModel::dataChanged);
+
+        model.beginBatch();
+        model.recordMessage("c4", "hi", "", 200, true);
+        model.recordMessage("c3", "yo", "", 150, false);
+        model.endBatch();
+
+        QCOMPARE(resetSpy.count(), 0);
+        QVERIFY(moveSpy.count() >= 1);
+        QCOMPARE(dataSpy.isEmpty(), false);
+        QCOMPARE(model.data(model.index(0), ConversationModel::IdRole).toString(), QStringLiteral("c4"));
+        QCOMPARE(model.data(model.index(1), ConversationModel::IdRole).toString(), QStringLiteral("c3"));
+        QCOMPARE(model.data(model.index(2), ConversationModel::IdRole).toString(), QStringLiteral("c1"));
+        QCOMPARE(model.data(model.index(3), ConversationModel::IdRole).toString(), QStringLiteral("c2"));
+
+        model.updateProfile("c4", QStringLiteral("ZBusiness"), QString());
+        QCOMPARE(model.data(model.index(0), ConversationModel::IsOfficialRole).toBool(), true);
+    }
+
+    void testMessageModelActiveIndexAndTargetedPollData() {
+        MessageModel model;
+        MessageItem p1; p1.id = "10"; p1.cliMsgId = "c10"; p1.messageType = "poll"; p1.text = QStringLiteral("Ăn gì?"); p1.ts = 100;
+        p1.pollData = {{"poll_id", 77LL}, {"question", QStringLiteral("Ăn gì?")}};
+        MessageItem m1; m1.id = "20"; m1.cliMsgId = "c20"; m1.text = "unread1"; m1.ts = 200;
+        MessageItem m2; m2.id = "30"; m2.cliMsgId = "c30"; m2.text = "unread2"; m2.ts = 300;
+        model.mergeMessages("g1", {p1, m1, m2});
+
+        MessageItem p2; p2.id = "99"; p2.messageType = "poll"; p2.text = QStringLiteral("Uống gì?"); p2.ts = 100;
+        p2.pollData = {{"poll_id", 77LL}, {"question", QStringLiteral("Uống gì?")}};
+        model.mergeMessages("g2", {p2});
+
+        model.loadConversation("g1");
+        model.setPollData(77LL, {{"poll_id", 77LL}, {"question", QStringLiteral("Trưa nay ăn gì?")}, {"loaded", true}},
+                          QStringLiteral("g1"));
+        QCOMPARE(model.message("g1", "10").text, QStringLiteral("Trưa nay ăn gì?"));
+        QCOMPARE(model.message("g2", "99").text, QStringLiteral("Uống gì?"));
+
+        QCOMPARE(model.rowOfMessage("10"), 0);
+        QCOMPARE(model.rowOfMessage("c20"), 1);
+        QCOMPARE(model.getMessageById("30").value("text").toString(), QStringLiteral("unread2"));
+        QVERIFY(model.contains("g1", "20"));
+
+        model.setUnreadMarker("g1", 2);
+        QCOMPARE(model.unreadMarkerRow(), 1);
+        model.clearUnreadMarker();
+        QCOMPARE(model.unreadMarkerRow(), -1);
+
+        model.addMessage("temp", true);
+        const QString localId = model.data(model.index(3), MessageModel::IdRole).toString();
+        QCOMPARE(model.rowOfMessage(localId), 3);
+        model.confirmMessage("g1", localId, "40");
+        QCOMPARE(model.rowOfMessage(localId), -1);
+        QCOMPARE(model.rowOfMessage("40"), 3);
+
+        model.removeMessage("g1", "20");
+        QCOMPARE(model.rowOfMessage("20"), -1);
+        QCOMPARE(model.rowOfMessage("30"), 1);
+        QCOMPARE(model.rowOfMessage("40"), 2);
+
+        model.removeMessagesUpTo("g1", "10");
+        QCOMPARE(model.rowOfMessage("10"), -1);
+        QCOMPARE(model.rowOfMessage("30"), 0);
+
+        model.loadConversation("g2");
+        QCOMPARE(model.rowOfMessage("99"), 0);
+        QCOMPARE(model.rowOfMessage("30"), -1);
+        model.loadConversation("g1");
+        QCOMPARE(model.rowOfMessage("30"), 0);
+    }
 };
 
 QTEST_MAIN(TestModels)

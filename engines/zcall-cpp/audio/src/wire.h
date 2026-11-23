@@ -8,7 +8,7 @@
 namespace zcall::audio {
 
 struct InMessage {
-    enum class Kind { Frame, Mute, Speaker, Volume, Device, Bad };
+    enum class Kind { Frame, Mute, Speaker, Volume, AutoGain, Device, Bad };
     Kind kind{Kind::Bad};
     uint32_t idx{0};
     uint32_t src{0};

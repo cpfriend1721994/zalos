@@ -56,6 +56,7 @@ public:
     virtual void uiCamera(bool on) = 0;
     virtual void uiDevice(const QString& kind, const QString& name) = 0;
     virtual void uiMicVolume(double pct) = 0;
+    virtual void uiMicAutoGain(bool) {}
     virtual void uiScreen(bool on) = 0;
     virtual void uiNeedKey(const QString& why, const QJsonValue& src) = 0;
     virtual void uiTile(uint32_t src, double width) = 0;
@@ -77,6 +78,7 @@ public:
     virtual bool rich() const { return false; }
     virtual void notice(const QString&, const QJsonObject& = {}) {}
     virtual void micVolume(int) {}
+    virtual void micAutoGain(bool) {}
     virtual void micLevel(int) {}
     virtual void peer(bool, bool, bool) {}
     virtual void setCameraEncode(const QJsonObject&) {}

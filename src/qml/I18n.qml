@@ -4,7 +4,7 @@ import QtQuick
 QtObject {
     id: root
 
-    property string currentLanguage: "vi"
+    property string currentLanguage: "en"
     property var s: translations[currentLanguage] || translations["vi"]
     property int _rev: 0
 

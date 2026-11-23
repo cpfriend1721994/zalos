@@ -18,6 +18,7 @@
 #include <QSet>
 #include <iostream>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <string>
 
@@ -299,9 +300,14 @@ void markColdAnonymousMappings() {
 
 }
 
+// AppRun writes "pending" before starting on the system Qt; any normal exit (QML loaded, --version,
+// --help, hand-off to a running instance) proves that Qt works. Only a crash, or a failed QML load or
+// dependency check, leaves "pending" so the next launch switches to the bundled Qt.
+static bool g_hostQtFailed = false;
+
 static void markHostQtHealthy() {
     const QByteArray path = qgetenv("ZALOS_HOST_QT_GUARD");
-    if (path.isEmpty()) return;
+    if (path.isEmpty() || g_hostQtFailed) return;
     QFile file(QString::fromLocal8Bit(path));
     if (!file.open(QIODevice::ReadOnly)) return;
     const QByteArray state = file.readLine().trimmed();
@@ -321,6 +327,7 @@ int main(int argc, char* argv[]) {
     ::prctl(kPrSetMemoryMerge, 1, 0, 0, 0);
 #endif
 
+    std::atexit(markHostQtHealthy);
     QCoreApplication::setOrganizationName("Zalos");
     QCoreApplication::setApplicationName("Zalos");
     for (int i = 1; i < argc; ++i) {
@@ -328,7 +335,7 @@ int main(int argc, char* argv[]) {
         if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
         QApplication probe(argc, argv);
         const int code = Zalos::Core::Platform::DependencyReport::run();
-        if (code == 0) markHostQtHealthy();
+        g_hostQtFailed = code != 0;
         return code;
     }
     bool foregroundRun = qEnvironmentVariableIsSet("ZALOS_DEBUG");
@@ -475,6 +482,7 @@ int main(int argc, char* argv[]) {
                      &app, [trayController, zaloClient, &singleInstance](QObject* obj, const QUrl& objUrl) {
         if (!obj) {
             std::cerr << "Failed to load QML root component: " << objUrl.toString().toStdString() << std::endl;
+            g_hostQtFailed = true;
             QCoreApplication::exit(-1);
             return;
         }

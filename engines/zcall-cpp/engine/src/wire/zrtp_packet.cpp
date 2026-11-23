@@ -154,6 +154,10 @@ QByteArray buildPingPacket(uint32_t uid, uint32_t token, const QByteArray& sessI
     return buildControlHeader(header(0x01, uid, token, Cmd::Ping, 0x01)) + u16String(sessId);
 }
 
+QByteArray buildChangeAddressPacket(uint32_t uid, uint32_t token, uint32_t seq, const QByteArray& sessId) {
+    return buildControlHeader(header(0x01, uid, token, Cmd::ChangeAddress, 0x01, seq)) + u16String(sessId);
+}
+
 QByteArray buildEndCallPacket(uint32_t uid, uint32_t token, uint32_t callId) {
     return buildControlHeader(header(kMagicByte, uid, token, Cmd::EndCall, 0)) + le32(callId);
 }
@@ -275,6 +279,13 @@ QByteArray buildP2pPong(bool callee, const QByteArray& ping) {
     pong[2] = char(callee ? 1 : 0);
     pong[9] = 2;
     return pong;
+}
+
+QByteArray buildP2pSignal(bool callee, uint32_t callId, int subCmd, uint32_t seq) {
+    QByteArray b(5, '\0');
+    b[0] = char(subCmd & 0xff);
+    wr32le(b, 1, seq);
+    return p2pHeader(callee, callId, P2p::Signal) + b;
 }
 
 QByteArray wrapP2pAudio(bool callee, uint32_t callId, const QByteArray& rtp) { return p2pHeader(callee, callId, P2p::Audio) + rtp; }

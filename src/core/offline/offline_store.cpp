@@ -958,14 +958,17 @@ QSet<QString> ZaloOfflineStore::reparseStored(
     {
         QSqlQuery r(m_db);
         r.setForwardOnly(true);
-        r.exec("SELECT id, conv_id, is_group, raw, text, message_type FROM messages "
+        r.exec("SELECT id, conv_id, is_group, raw, text, message_type, media_url, href FROM messages "
                "WHERE is_recalled = 0 AND raw IS NOT NULL AND length(raw) > 0;");
         while (r.next()) {
             const QJsonObject raw = decodeRaw(r.value(3));
             if (raw.isEmpty()) continue;
             Models::MessageItem item;
             if (!fn(raw, r.value(2).toInt() == 1, &item)) continue;
-            if (item.text == r.value(4).toString() && item.messageType == r.value(5).toString()) continue;
+            if (item.text == r.value(4).toString() && item.messageType == r.value(5).toString() &&
+                item.mediaUrl == r.value(6).toString() && item.href == r.value(7).toString()) {
+                continue;
+            }
             updates.append({r.value(0).toString(), r.value(1).toString(), item});
         }
     }

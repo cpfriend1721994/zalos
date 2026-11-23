@@ -148,6 +148,7 @@ public:
     void mediaEarlyAudio(const QString& phase) override;
     void mediaAudioFault(const QString& kind) override;
     void mediaMicVolume(int pct) override;
+    void mediaMicAutoGain(bool on) override;
     void mediaMicLevel(int level) override;
     void mediaRoster(const QVector<uint32_t>& uids) override;
     void mediaMemberLeft(uint32_t uid) override;
@@ -164,6 +165,7 @@ public:
     void uiCamera(bool on) override;
     void uiDevice(const QString& kind, const QString& name) override;
     void uiMicVolume(double pct) override;
+    void uiMicAutoGain(bool on) override;
     void uiScreen(bool on) override;
     void uiNeedKey(const QString& why, const QJsonValue& src) override;
     void uiTile(uint32_t src, double width) override;

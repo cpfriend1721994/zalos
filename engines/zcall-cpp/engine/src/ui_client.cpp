@@ -78,7 +78,8 @@ void ElectronCallUi::open(const UiOpen& o) {
     clearIncomingCallbacks();
     QJsonObject s{{"phase", "outgoing"}, {"name", o.title}, {"avatar", o.avatar}, {"statusCode", o.statusCode},
                   {"statusParams", o.statusParams}, {"text", statusText(o.statusCode, o.statusParams)}, {"since", 0},
-                  {"video", o.video}, {"group", o.group}, {"selfAvatar", o.selfAvatar}, {"muted", false}, {"speakerOff", false}};
+                  {"video", o.video}, {"group", o.group}, {"selfAvatar", o.selfAvatar}, {"muted", false}, {"speakerOff", false},
+                  {"micAutoGain", true}};
     if (o.members) s.insert("members", *o.members);
     setState(s);
 }
@@ -89,7 +90,7 @@ void ElectronCallUi::incoming(const UiIncoming& o, AcceptFn onAccept, RejectFn o
     QJsonObject s{{"phase", "incoming"}, {"name", o.title}, {"avatar", o.avatar}, {"statusCode", o.statusCode},
                   {"statusParams", o.statusParams}, {"text", statusText(o.statusCode, o.statusParams)}, {"since", 0},
                   {"video", o.video}, {"group", o.group}, {"selfAvatar", o.selfAvatar}, {"muted", false}, {"speakerOff", false},
-                  {"noAnswer", o.noAnswer}, {"inviter", o.inviter}};
+                  {"micAutoGain", true}, {"noAnswer", o.noAnswer}, {"inviter", o.inviter}};
     if (o.members) s.insert("members", *o.members);
     setState(s);
     if (m_fallback) {
@@ -140,6 +141,14 @@ void ElectronCallUi::notice(const QString& code, const QJsonObject& params) {
 void ElectronCallUi::micVolume(int pct) {
     if (!m_hasState) return;
     m_state.insert("micVolume", pct);
+    QJsonObject msg = m_state;
+    msg.insert("type", "state");
+    send(msg);
+}
+
+void ElectronCallUi::micAutoGain(bool on) {
+    if (!m_hasState) return;
+    m_state.insert("micAutoGain", on);
     QJsonObject msg = m_state;
     msg.insert("type", "state");
     send(msg);
@@ -266,6 +275,10 @@ void ElectronCallUi::onAction(const QJsonObject& m) {
         if (kind == QLatin1String("mic") || kind == QLatin1String("speaker")) m_listener->uiDevice(kind, m.value("id").toString());
     } else if (action == QLatin1String("micVolume")) {
         if (m.value("value").isDouble()) m_listener->uiMicVolume(m.value("value").toDouble());
+    } else if (action == QLatin1String("micAutoGain")) {
+        const bool on = m.value("on").toBool();
+        m_state.insert("micAutoGain", on);
+        m_listener->uiMicAutoGain(on);
     } else if (action == QLatin1String("mute")) {
         m_state.insert("muted", m.value("on").toBool());
         m_listener->uiMute(m.value("on").toBool());

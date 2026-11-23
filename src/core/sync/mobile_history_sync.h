@@ -13,8 +13,11 @@
 #include <QTimer>
 #include <QVector>
 
+#include <optional>
+
 #include "crypto/db_cross.h"
 #include "sync/v2/sync_v2_crypto.h"
+#include "sync/v2/sync_v2_frames.h"
 
 class QNetworkReply;
 
@@ -46,6 +49,8 @@ public:
         Crypto::BinNetMessage parsedBin;
         bool hasParsedBin{false};
         qint64 ttl{0};
+        std::optional<V2::ParsedSyncV2Quote> v2Quote;
+        QVector<V2::ParsedSyncV2Mention> v2Mentions;
     };
 
     struct BackupConversation {
@@ -86,6 +91,8 @@ private:
     void log(const QString& line) const;
     void fail(const QString& reason);
     void startV2Fallback(const QString& why);
+    void sendV2SessionRequest(const QString& type, int priority, const QJsonArray& queries, int ussidx);
+    void sendNextV2MessageSession();
     void handleV2Control(const QString& act, const QJsonObject& data);
     void processNextV2Download();
     bool handleV2BatchBytes(int batchType, const QByteArray& bytes, QString* error);
@@ -131,11 +138,13 @@ private:
     int m_skipped{0};
     quint64 m_generation{0};
 
+    enum class V2Phase { Conversation, Message };
     struct V2BatchTask {
         int batchType{0};
         QString url;
     };
     bool m_v2Active{false};
+    V2Phase m_v2Phase{V2Phase::Conversation};
     QString m_v2SyncId;
     V2::KeyPair m_v2Ik;
     V2::KeyPair m_v2Ek;
@@ -143,8 +152,15 @@ private:
     bool m_v2HasSession{false};
     bool m_v2SawLastBatch{false};
     bool m_v2InFlightDownload{false};
+    bool m_v2WakeUpSent{false};
+    int m_v2ExpectedBatches{-1};
+    int m_v2ConvCursor{0};
+    int m_v2UssIdx{0};
+    QSet<int> m_v2SeenBatchIdxs;
     QSet<QString> m_v2SeenUrls;
     QVector<V2BatchTask> m_v2DownloadQueue;
+    QVector<V2::ParsedSyncV2Conversation> m_v2PendingConvs;
+    QSet<QString> m_v2PendingConvKeys;
     QVector<BackupConversation> m_v2Conversations;
 };
 

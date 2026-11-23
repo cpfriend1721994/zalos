@@ -7,14 +7,15 @@ Item {
     id: root
     readonly property bool windowShowing: Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true
     property url source: ""
-    readonly property bool animReady: animLoader.item !== null && animLoader.item.status === Image.Ready
+    readonly property AnimatedImage anim: animLoader.item as AnimatedImage
+    readonly property bool animReady: root.anim !== null && root.anim.status === Image.Ready
     readonly property int status: root.animReady ? Image.Ready : img.status
     property alias sourceSize: img.sourceSize
     property alias fillMode: img.fillMode
-    readonly property real implicitImageWidth: (root.animReady && animLoader.item.implicitWidth > 0)
-                                               ? animLoader.item.implicitWidth : img.implicitWidth
-    readonly property real implicitImageHeight: (root.animReady && animLoader.item.implicitHeight > 0)
-                                                ? animLoader.item.implicitHeight : img.implicitHeight
+    readonly property real implicitImageWidth: (root.animReady && root.anim.implicitWidth > 0)
+                                               ? root.anim.implicitWidth : img.implicitWidth
+    readonly property real implicitImageHeight: (root.animReady && root.anim.implicitHeight > 0)
+                                                ? root.anim.implicitHeight : img.implicitHeight
     property url animatedSource: ""
     property real radius: 8
     property bool topOnly: false

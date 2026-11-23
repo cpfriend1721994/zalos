@@ -26,6 +26,7 @@ public:
     void close(const QString& code, const QJsonObject& params = {}) override;
     void notice(const QString& code, const QJsonObject& params = {}) override;
     void micVolume(int pct) override;
+    void micAutoGain(bool on) override;
     void micLevel(int level) override;
     void peer(bool camOff, bool muted, bool sharing) override;
     void setCameraEncode(const QJsonObject& p) override;

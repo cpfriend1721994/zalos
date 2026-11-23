@@ -221,6 +221,29 @@ private slots:
         QCOMPARE(g.steps(), 0);
     }
 
+    void clipGuardAutoGainToggle() {
+        qputenv("ZCALL_MIC_AGC", "1");
+        auto vol = std::make_shared<FakeVolume>();
+        ClipGuard g(std::string("alsa_input.test"), vol, false);
+        QVERIFY(g.autoGain());
+        QTest::qWait(650);
+        g.setPercent(40);
+        QVERIFY(g.manual());
+        QVERIFY(!g.autoGain());
+        g.setAutoGain(true);
+        QVERIFY(!g.manual());
+        QVERIFY(g.autoGain());
+        std::vector<int16_t> clip(kFrame, 32000);
+        for (int i = 0; i < ClipGuard::kWindow; ++i) g.feed(clip.data(), clip.size());
+        QCOMPARE(g.steps(), 1);
+        g.setAutoGain(false);
+        QVERIFY(g.manual());
+        QVERIFY(!g.autoGain());
+        QTest::qWait(1050);
+        for (int i = 0; i < ClipGuard::kWindow; ++i) g.feed(clip.data(), clip.size());
+        QCOMPARE(g.steps(), 1);
+    }
+
     void pwTopAndJournalParsers() {
         const std::string out =
             "S   ID  QUANT   RATE    WAIT    BUSY   W/Q   B/Q  ERR FORMAT           NAME\n"

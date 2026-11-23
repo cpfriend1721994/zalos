@@ -910,13 +910,22 @@ void CallBridge::onUiLine(const QByteArray& line) {
         if (msg.value("phase").toString() == "incoming" && previous != "incoming") {
             emit incomingCall(msg.value("name").toString());
         }
+        bool micChanged = false;
         if (msg.contains("micVolume") && msg.value("micVolume").isDouble()) {
             const int vol = std::clamp(msg.value("micVolume").toInt(100), 0, 100);
             if (m_micVolume != vol) {
                 m_micVolume = vol;
-                emit micStateChanged();
+                micChanged = true;
             }
         }
+        if (msg.contains("micAutoGain") && msg.value("micAutoGain").isBool()) {
+            const bool ag = msg.value("micAutoGain").toBool(true);
+            if (m_micAutoGain != ag) {
+                m_micAutoGain = ag;
+                micChanged = true;
+            }
+        }
+        if (micChanged) emit micStateChanged();
         emit stateChanged();
     } else if (type == "micLevel") {
         const int lvl = std::clamp(msg.value("level").toInt(60), 0, 127);
@@ -937,6 +946,7 @@ void CallBridge::onUiLine(const QByteArray& line) {
         m_screenShareOn = false;
         m_micLevel = 60;
         m_micVolume = 100;
+        m_micAutoGain = true;
         emit micStateChanged();
         emit stateChanged();
         emit cameraStateChanged();
@@ -963,6 +973,7 @@ void CallBridge::resetUi() {
     m_screenShareOn = false;
     m_micLevel = 60;
     m_micVolume = 100;
+    m_micAutoGain = true;
     m_uiSkipBytes = 0;
     emit micStateChanged();
     emit stateChanged();
@@ -1037,11 +1048,25 @@ void CallBridge::selectCameraDevice(const QString& id) {
 
 void CallBridge::setMicVolume(int pct) {
     const int clamped = std::clamp(pct, 0, 100);
+    bool changed = false;
     if (m_micVolume != clamped) {
         m_micVolume = clamped;
+        changed = true;
+    }
+    if (m_micAutoGain) {
+        m_micAutoGain = false;
+        changed = true;
+    }
+    if (changed) emit micStateChanged();
+    sendUi({{"action", "micVolume"}, {"value", clamped}});
+}
+
+void CallBridge::setMicAutoGain(bool on) {
+    if (m_micAutoGain != on) {
+        m_micAutoGain = on;
         emit micStateChanged();
     }
-    sendUi({{"action", "micVolume"}, {"value", clamped}});
+    sendUi({{"action", "micAutoGain"}, {"on", on}});
 }
 
 void CallBridge::accept(bool camStartOff) {

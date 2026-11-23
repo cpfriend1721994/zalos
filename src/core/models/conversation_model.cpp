@@ -46,12 +46,8 @@ QVariant ConversationModel::data(const QModelIndex& index, int role) const {
         case IsOfficialRole: {
             if (item.isGroup || item.id.isEmpty()) return false;
             if (m_officialIds.contains(item.id)) return true;
-            const QString key = foldForSearch(item.name).simplified();
-            if (key.isEmpty()) return false;
-            if (!m_friendIds.contains(item.id) && (key == QLatin1String("zalo") || key.startsWith(QLatin1String("zalo "))))
-                return true;
-            return key == QLatin1String("zbusiness") || key == QLatin1String("zcloud") || key == QLatin1String("zalopay")
-                || key == QLatin1String("thoi tiet") || key.contains(QLatin1String("medlatec"));
+            const QString key = !item.foldedName.isEmpty() ? item.foldedName : foldForSearch(item.name).simplified();
+            return !key.isEmpty() && isOfficialTitle(item, key);
         }
         default: return {};
     }
@@ -229,70 +225,90 @@ QVector<int> diffConversationRoles(const ConversationItem& a, const Conversation
     if (a.hasUnreadMention != b.hasUnreadMention) roles << ConversationModel::HasUnreadMentionRole;
     return roles;
 }
-
-bool sameIds(const QVector<ConversationItem>& a, int aFrom, const QVector<ConversationItem>& b, int bFrom, int count) {
-    for (int i = 0; i < count; ++i) {
-        if (a[aFrom + i].id != b[bFrom + i].id) return false;
-    }
-    return true;
-}
 }
 
 void ConversationModel::publishFiltered(QVector<ConversationItem> next) {
     QVector<ConversationItem>& cur = m_filteredItems;
-    const int n = cur.size();
-    const int m = next.size();
-    int f = 0;
-    while (f < qMin(n, m) && cur[f].id == next[f].id) ++f;
-    bool structural = true;
-    if (n == m) {
-        if (f == n) {
-            structural = false;
-        } else {
-            int j = -1;
-            for (int i = f + 1; i < n; ++i) {
-                if (cur[i].id == next[f].id) { j = i; break; }
-            }
-            int k = -1;
-            if (j < 0) {
-                for (int i = f + 1; i < m; ++i) {
-                    if (next[i].id == cur[f].id) { k = i; break; }
-                }
-            }
-            if (j > f && sameIds(cur, f, next, f + 1, j - f) && sameIds(cur, j + 1, next, j + 1, n - j - 1)) {
-                beginMoveRows(QModelIndex(), j, j, QModelIndex(), f);
-                cur.move(j, f);
-                endMoveRows();
-                structural = false;
-            } else if (k > f && sameIds(cur, f + 1, next, f, k - f) && sameIds(cur, k + 1, next, k + 1, n - k - 1)) {
-                beginMoveRows(QModelIndex(), f, f, QModelIndex(), k + 1);
-                cur.move(f, k);
-                endMoveRows();
-                structural = false;
-            }
-        }
-    } else if (m == n + 1 && sameIds(cur, f, next, f + 1, n - f)) {
-        beginInsertRows(QModelIndex(), f, f);
-        cur.insert(f, next[f]);
-        endInsertRows();
-        structural = false;
-    } else if (m == n - 1 && sameIds(cur, f + 1, next, f, m - f)) {
-        beginRemoveRows(QModelIndex(), f, f);
-        cur.remove(f);
-        endRemoveRows();
-        structural = false;
-    }
-    if (structural) {
+    if (cur.isEmpty() || next.isEmpty()) {
         beginResetModel();
         cur = std::move(next);
         endResetModel();
         return;
     }
-    for (int i = 0; i < cur.size(); ++i) {
-        const QVector<int> roles = diffConversationRoles(cur[i], next[i]);
-        if (roles.isEmpty()) continue;
-        cur[i] = std::move(next[i]);
-        emit dataChanged(index(i), index(i), roles);
+    QSet<QString> curIds;
+    curIds.reserve(cur.size());
+    for (const auto& item : cur) {
+        if (item.id.isEmpty() || curIds.contains(item.id)) {
+            beginResetModel();
+            cur = std::move(next);
+            endResetModel();
+            return;
+        }
+        curIds.insert(item.id);
+    }
+    QSet<QString> nextIds;
+    nextIds.reserve(next.size());
+    for (const auto& item : next) {
+        if (item.id.isEmpty() || nextIds.contains(item.id)) {
+            beginResetModel();
+            cur = std::move(next);
+            endResetModel();
+            return;
+        }
+        nextIds.insert(item.id);
+    }
+
+    int i = cur.size() - 1;
+    while (i >= 0) {
+        if (nextIds.contains(cur[i].id)) {
+            --i;
+            continue;
+        }
+        const int end = i;
+        while (i > 0 && !nextIds.contains(cur[i - 1].id)) --i;
+        beginRemoveRows(QModelIndex(), i, end);
+        cur.remove(i, end - i + 1);
+        endRemoveRows();
+        --i;
+    }
+
+    QSet<QString> remainingIds;
+    remainingIds.reserve(cur.size());
+    for (const auto& item : cur) remainingIds.insert(item.id);
+
+    for (int pos = 0; pos < next.size();) {
+        if (pos < cur.size() && cur[pos].id == next[pos].id) {
+            const QVector<int> roles = diffConversationRoles(cur[pos], next[pos]);
+            cur[pos] = std::move(next[pos]);
+            if (!roles.isEmpty()) emit dataChanged(index(pos), index(pos), roles);
+            ++pos;
+            continue;
+        }
+        int found = -1;
+        for (int j = pos + 1; j < cur.size(); ++j) {
+            if (cur[j].id == next[pos].id) {
+                found = j;
+                break;
+            }
+        }
+        if (found >= 0) {
+            beginMoveRows(QModelIndex(), found, found, QModelIndex(), pos);
+            cur.move(found, pos);
+            endMoveRows();
+            const QVector<int> roles = diffConversationRoles(cur[pos], next[pos]);
+            cur[pos] = std::move(next[pos]);
+            if (!roles.isEmpty()) emit dataChanged(index(pos), index(pos), roles);
+            ++pos;
+            continue;
+        }
+        int insertEnd = pos + 1;
+        while (insertEnd < next.size() && !remainingIds.contains(next[insertEnd].id)) ++insertEnd;
+        const int count = insertEnd - pos;
+        beginInsertRows(QModelIndex(), pos, insertEnd - 1);
+        cur.insert(pos, count, ConversationItem{});
+        for (int k = 0; k < count; ++k) cur[pos + k] = std::move(next[pos + k]);
+        endInsertRows();
+        pos = insertEnd;
     }
 }
 
@@ -304,6 +320,10 @@ void ConversationModel::reindex() {
 
 int ConversationModel::indexOf(const QString& convId) const {
     return m_index.value(convId, -1);
+}
+
+void ConversationModel::stampFolded(ConversationItem& item) {
+    item.foldedName = foldForSearch(item.name).simplified();
 }
 
 void ConversationModel::stampLabel(ConversationItem& item) const {
@@ -318,6 +338,7 @@ void ConversationModel::addConversation(const ConversationItem& item) {
     m_allItems.append(item);
     m_index.insert(item.id, m_allItems.size() - 1);
     stampLabel(m_allItems.last());
+    stampFolded(m_allItems.last());
     applyFilter();
     emitUnreadChanged();
 }
@@ -330,13 +351,17 @@ void ConversationModel::upsertConversation(const ConversationItem& item) {
     }
     m_allItems[i] = item;
     stampLabel(m_allItems[i]);
+    stampFolded(m_allItems[i]);
     applyFilter();
     emitUnreadChanged();
 }
 
 void ConversationModel::setConversations(const QVector<ConversationItem>& items) {
     m_allItems = items;
-    for (auto& item : m_allItems) stampLabel(item);
+    for (auto& item : m_allItems) {
+        stampLabel(item);
+        stampFolded(item);
+    }
     reindex();
     m_resetPending = true;
     applyFilter();
@@ -357,7 +382,11 @@ void ConversationModel::updateProfile(const QString& convId, const QString& name
     const int i = indexOf(convId);
     if (i >= 0) {
         auto& item = m_allItems[i];
-        if (!name.isEmpty() && item.name != name) { item.name = name; changed = true; }
+        if (!name.isEmpty() && item.name != name) {
+            item.name = name;
+            stampFolded(item);
+            changed = true;
+        }
         if (!avatarUrl.isEmpty() && item.avatarUrl != avatarUrl) { item.avatarUrl = avatarUrl; changed = true; }
         if (memberCount >= 0 && item.memberCount != memberCount) { item.memberCount = memberCount; changed = true; }
     }
@@ -513,17 +542,22 @@ void ConversationModel::setFriendContext(const QSet<QString>& friends, const QSe
     emit filterChanged();
 }
 
+bool ConversationModel::isOfficialTitle(const ConversationItem& item, const QString& key) const {
+    if (!m_friendIds.contains(item.id) && (key == QLatin1String("zalo") || key.startsWith(QLatin1String("zalo ")))) {
+        return true;
+    }
+    return key == QLatin1String("zbusiness") || key == QLatin1String("zcloud") || key == QLatin1String("zalopay")
+        || key == QLatin1String("thoi tiet") || key.contains(QLatin1String("medlatec"));
+}
+
 bool ConversationModel::isSystemOrOfficial(const ConversationItem& item) const {
     if (item.isGroup || item.id.isEmpty()) return false;
     if (m_officialIds.contains(item.id)) return true;
-    const QString key = foldForSearch(item.name).simplified();
+    const QString key = !item.foldedName.isEmpty() ? item.foldedName : foldForSearch(item.name).simplified();
     if (key.isEmpty()) return false;
     if (key == QLatin1String("my documents") || key == QLatin1String("cloud cua toi") || key == QLatin1String("truyen file"))
         return true;
-    if (!m_friendIds.contains(item.id) && (key == QLatin1String("zalo") || key.startsWith(QLatin1String("zalo "))))
-        return true;
-    return key == QLatin1String("zbusiness") || key == QLatin1String("zcloud") || key == QLatin1String("zalopay")
-        || key == QLatin1String("thoi tiet") || key.contains(QLatin1String("medlatec"));
+    return isOfficialTitle(item, key);
 }
 
 bool ConversationModel::strangerId(const QString& convId, bool isGroup) const {

@@ -18,6 +18,7 @@ private slots:
         for (uint8_t b : {uint8_t('M'), uint8_t(1), uint8_t('S'), uint8_t(0), uint8_t('V'), uint8_t(73)}) stream.push_back(b);
         for (uint8_t b : {uint8_t('D'), uint8_t('i'), uint8_t(0), uint8_t(3), uint8_t('a'), uint8_t('b'), uint8_t('c')}) stream.push_back(b);
         for (uint8_t b : {uint8_t('D'), uint8_t('o'), uint8_t(0), uint8_t(0)}) stream.push_back(b);
+        for (uint8_t b : {uint8_t('A'), uint8_t(1), uint8_t('A'), uint8_t(0)}) stream.push_back(b);
 
         InParser p;
         std::vector<InMessage> got;
@@ -26,7 +27,7 @@ private slots:
             p.feed(&b, 1);
             while (p.next(m)) got.push_back(m);
         }
-        QCOMPARE(got.size(), size_t(6));
+        QCOMPARE(got.size(), size_t(8));
         QCOMPARE(int(got[0].kind), int(InMessage::Kind::Frame));
         QCOMPARE(got[0].idx, 0x00020003u);
         QCOMPARE(got[0].src, 0xA1B2C3D4u);
@@ -42,6 +43,10 @@ private slots:
         QCOMPARE(QString::fromStdString(got[4].name), QStringLiteral("abc"));
         QCOMPARE(got[5].which, 'o');
         QVERIFY(got[5].name.empty());
+        QCOMPARE(int(got[6].kind), int(InMessage::Kind::AutoGain));
+        QVERIFY(got[6].on);
+        QCOMPARE(int(got[7].kind), int(InMessage::Kind::AutoGain));
+        QVERIFY(!got[7].on);
         QCOMPARE(p.pending(), size_t(0));
     }
 

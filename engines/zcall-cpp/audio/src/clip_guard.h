@@ -41,12 +41,15 @@ public:
 
     void setSource(std::optional<std::string> source);
     void setPercent(int pct);
+    void setAutoGain(bool wantAuto);
     void feed(const int16_t* pcm, size_t n);
     std::string report();
     void announce();
+    void announceMode() const;
 
     bool on() const { return m_state->on.load(); }
     bool manual() const { return m_state->manual.load(); }
+    bool autoGain() const { return m_state->on.load() && !m_state->manual.load(); }
     int steps() const { return m_state->steps.load(); }
     std::optional<std::string> source() const;
 
@@ -62,6 +65,7 @@ private:
         std::atomic<int> peak{0};
         std::atomic<int> steps{0};
         std::atomic<bool> manual{false};
+        std::atomic<bool> resetWindow{false};
         std::recursive_mutex volLock;
         std::optional<int> announcedPct;
         double announcedAt{0};

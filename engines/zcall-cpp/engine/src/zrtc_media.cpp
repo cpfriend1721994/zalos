@@ -53,6 +53,11 @@ int groupPingMs() {
     return v.isEmpty() || !std::isfinite(d) || d <= 0 ? 5000 : int(d);
 }
 
+int pingIntervalMs() {
+    const int ms = envInt("ZCALL_PING_MS", kPingIntervalMs);
+    return ms > 0 ? ms : kPingIntervalMs;
+}
+
 bool parseHostPort(const QString& addr, ServerAddr& out) {
     if (addr.isEmpty()) return false;
     if (addr.startsWith(QLatin1Char('['))) {
@@ -111,6 +116,26 @@ std::optional<std::pair<int, int>> sizeOf(int res) {
 
 uint32_t u32mod(double v) { return js::toUint32(v); }
 
+std::optional<Unprotected> unprotectWithTracker(const QByteArray& rtp, const SrtpKeys& srtp,
+                                                const RocTracker& tracker, uint32_t* outRoc) {
+    const uint16_t seq = rd16be(rtp, 2);
+    const uint32_t guessed = tracker.guess(seq);
+    if (auto got = unprotectRtp(rtp, srtp, guessed)) {
+        *outRoc = guessed;
+        return got;
+    }
+    const uint32_t candidates[3] = {0u, guessed + 1u, guessed > 0u ? guessed - 1u : guessed};
+    for (const uint32_t cand : candidates) {
+        if (cand == guessed) continue;
+        if (auto got = unprotectRtp(rtp, srtp, cand)) {
+            *outRoc = cand;
+            return got;
+        }
+    }
+    *outRoc = guessed;
+    return std::nullopt;
+}
+
 }
 
 uint32_t RocTracker::guess(uint16_t seq) const {
@@ -121,7 +146,14 @@ uint32_t RocTracker::guess(uint16_t seq) const {
 }
 
 void RocTracker::update(uint16_t seq, uint32_t r) {
-    if (!last || int64_t(r) * 0x10000 + seq > int64_t(roc) * 0x10000 + *last) {
+    if (!last) {
+        last = seq;
+        roc = r;
+        return;
+    }
+    const int64_t curExt = int64_t(roc) * 0x10000 + *last;
+    const int64_t newExt = int64_t(r) * 0x10000 + seq;
+    if (newExt > curExt || curExt - newExt > 100) {
         last = seq;
         roc = r;
     }
@@ -129,6 +161,7 @@ void RocTracker::update(uint16_t seq, uint32_t r) {
 
 ZrtcMedia::ZrtcMedia(bool sendUdp, QObject* parent) : QObject(parent), m_sendUdpEnabled(sendUdp) {
     m_mic = QString();
+    m_localIpSig = localIpSig();
     resetCounters();
     m_vTsBase = QRandomGenerator::global()->bounded(0x7fffffffu);
 }
@@ -167,6 +200,14 @@ void ZrtcMedia::resetCounters() {
     m_lastPliAt = 0;
     m_counters = Counters{};
     m_lastRxAt = 0;
+    m_lastAudioRxAt = 0;
+    m_lastP2pRxAt = 0;
+    m_lastRecoveryAt = 0;
+    m_lastIpCheckAt = 0;
+    m_relayAudioStreak = 0;
+    m_changeAddrSeq = 0;
+    m_seenAudioSeqs.clear();
+    m_seenAudioOrder.clear();
     m_p2pPath.reset();
     m_p2pSeen = false;
     m_p2pSeq = 0;
@@ -175,11 +216,13 @@ void ZrtcMedia::resetCounters() {
 }
 
 void ZrtcMedia::onNegotiated(const NegotiatedParams& params) {
+    stopRingPing(false);
     m_params = params;
     m_hasParams = true;
     m_group = params.group;
     m_muted = params.muted;
     m_speakerOff = params.speakerOff;
+    m_micAutoGain = true;
     m_servers.clear();
     for (const QJsonValue& sv : params.servers) {
         const QJsonObject raw = sv.toObject();
@@ -282,6 +325,7 @@ QTimer* ZrtcMedia::timer(int ms, bool repeat, std::function<void()> fn) {
 }
 
 void ZrtcMedia::clearTimers() {
+    m_ringPingTimer = nullptr;
     const QList<QTimer*> list = m_timers;
     m_timers.clear();
     for (QTimer* t : list) {
@@ -420,7 +464,46 @@ void ZrtcMedia::finishInit() {
     r.rttMs = best->rttMs;
     r.publicAddr = best->publicAddr;
     r.hex = best->hex;
+    if (!m_group) startRingPing();
     done(r);
+}
+
+void ZrtcMedia::startRingPing() {
+    stopRingPing(false);
+    if (m_replies.isEmpty()) return;
+    m_ringPingSince = nowMs();
+    m_ringPingSent = 0;
+    m_ringPingReplies = 0;
+    const int iv = pingIntervalMs();
+    m_ringPingTimer = timer(iv, true, [this] { sendRingPing(); });
+    zlog(QStringLiteral("media: ping before answer: %1 server(s) every %2 s")
+             .arg(m_replies.size())
+             .arg(js::numberString(iv / 1000.0)));
+}
+
+void ZrtcMedia::sendRingPing() {
+    if (!m_ringPingTimer) return;
+    for (const Reply& r : m_replies) {
+        const QString key = r.server.host + QLatin1Char(':') + QString::number(r.server.port);
+        if (m_ended.contains(key)) continue;
+        sendTo(buildPingPacket(u32mod(m_params.localUid), r.token, m_params.sessId.toUtf8()), r.server);
+        m_ringPingSent++;
+    }
+}
+
+void ZrtcMedia::stopRingPing(bool logSummary) {
+    if (!m_ringPingTimer) return;
+    QTimer* t = m_ringPingTimer;
+    m_ringPingTimer = nullptr;
+    t->stop();
+    m_timers.removeOne(t);
+    t->deleteLater();
+    if (logSummary) {
+        zlog(QStringLiteral("media: ping before answer: %1 sent, %2 replies (MsgType 2) in %3 s of ringing")
+                 .arg(m_ringPingSent)
+                 .arg(m_ringPingReplies)
+                 .arg(js::toFixed1((nowMs() - m_ringPingSince) / 1000.0)));
+    }
 }
 
 void ZrtcMedia::sendEndCall(const Server& s, uint32_t token) {
@@ -432,6 +515,7 @@ void ZrtcMedia::sendEndCall(const Server& s, uint32_t token) {
 
 void ZrtcMedia::start(const QString& role, const QString& rtpSerIp) {
     m_active = true;
+    stopRingPing(true);
     if (!m_sendUdpEnabled) {
         zlog(QStringLiteral("media: start role=%1 (observe-only)").arg(role));
         return;
@@ -457,11 +541,16 @@ void ZrtcMedia::start(const QString& role, const QString& rtpSerIp) {
     for (const Reply& r : m_replies)
         if (!(r.server == active)) sendEndCall(r.server, r.token);
     zlog(QStringLiteral("media: started"));
+    if (!m_group) sendPing();
     m_startedAt = nowMs();
     m_lastRxAt = nowMs();
+    m_lastAudioRxAt = m_lastRxAt;
+    m_localIpSig = localIpSig();
+    m_lastIpCheckAt = m_startedAt;
     if (m_group) {
         sendPing();
         timer(groupPingMs(), true, [this] { sendPing(); });
+        timer(kStatusIntervalMs, true, [this] { checkNetworkAndAudio(); });
         timer(3000, false, [this] {
             const auto& c = m_counters;
             if (m_plainMedia) zlog(QStringLiteral("media: group plain RTP: %1 good, %2 bad, %3 member(s) heard").arg(c.rx).arg(c.rxBad).arg(m_members.size()));
@@ -475,7 +564,7 @@ void ZrtcMedia::start(const QString& role, const QString& rtpSerIp) {
         startAudio();
         return;
     }
-    timer(kPingIntervalMs, true, [this] { sendPing(); });
+    timer(pingIntervalMs(), true, [this] { sendPing(); });
     timer(kStatusIntervalMs, true, [this] { sendStatus(); });
     timer(200, false, [this] {
         const QByteArray payload(QByteArray::fromHex("0400000000000000"));
@@ -542,6 +631,7 @@ void ZrtcMedia::onP2p(const QByteArray& msg, const QHostAddress& addr, quint16 p
     const bool callee = m_params.role == QLatin1String("callee");
     const uint32_t callId = u32mod(m_params.callId);
     if (callId && rd32le(msg, 3) != callId) return;
+    m_lastP2pRxAt = nowMs();
     if (!m_p2pSeen) {
         m_p2pSeen = true;
         zlog(QStringLiteral("media: first P2P packet from the peer (kind %1)").arg(kind));
@@ -552,6 +642,8 @@ void ZrtcMedia::onP2p(const QByteArray& msg, const QHostAddress& addr, quint16 p
     } else if (kind == P2p::Keepalive && msg.size() >= 10 && u8at(msg, 9) == 1) {
         sendTo(buildP2pPong(callee, msg), from);
         p2pUp(from);
+    } else if (kind == P2p::Signal && msg.size() >= 10) {
+        if (u8at(msg, 9) == 2) stopP2p(false, QStringLiteral("peer-p2p-signal-stop"));
     } else if (kind == P2p::Video && msg.size() > P2p::HeaderLen + 12) {
         if (onVideo(msg.mid(P2p::HeaderLen))) p2pUp(from);
     } else if (kind == P2p::VideoRtcp && msg.size() > P2p::HeaderLen) {
@@ -560,10 +652,91 @@ void ZrtcMedia::onP2p(const QByteArray& msg, const QHostAddress& addr, quint16 p
     } else if (kind == P2p::AudioRtcp && msg.size() > P2p::HeaderLen) {
         peerRtcp(false, msg.mid(P2p::HeaderLen));
     } else if (kind == P2p::Audio && msg.size() > P2p::HeaderLen + 12) {
-        if (onAudio(msg.mid(P2p::HeaderLen))) {
+        if (onAudio(msg.mid(P2p::HeaderLen), true)) {
             m_counters.rxP2p++;
             p2pUp(from);
         }
+    }
+}
+
+QString ZrtcMedia::localIpSig() const {
+    QStringList ips;
+    for (const QNetworkInterface& iface : QNetworkInterface::allInterfaces()) {
+        if (!iface.flags().testFlag(QNetworkInterface::IsUp) ||
+            iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
+            continue;
+        }
+        for (const QNetworkAddressEntry& e : iface.addressEntries()) {
+            if (e.ip().protocol() != QAbstractSocket::IPv4Protocol || e.ip().isLoopback()) continue;
+            ips.push_back(e.ip().toString());
+        }
+    }
+    ips.sort();
+    return ips.join(QLatin1Char(','));
+}
+
+void ZrtcMedia::stopP2p(bool notifyPeer, const QString& why) {
+    const std::optional<Server> oldPath = m_p2pPath;
+    m_p2pPath.reset();
+    m_lastP2pRxAt = 0;
+    m_relayAudioStreak = 0;
+    if (oldPath || notifyPeer) {
+        zlog(QStringLiteral("media: P2P stopped (%1), routing audio via relay").arg(why));
+    }
+    if (notifyPeer && m_active && m_hasParams) {
+        const bool callee = m_params.role == QLatin1String("callee");
+        const uint32_t callId = u32mod(m_params.callId);
+        const uint32_t uid = u32mod(m_params.localUid);
+        for (uint32_t seq = 0; seq < 3; ++seq) {
+            if (oldPath) sendTo(buildP2pSignal(callee, callId, 2, seq), *oldPath);
+            if (m_activeServer) sendTo(buildReqForwardPacket(uid, m_serverToken, seq, 2, QByteArray()), *m_activeServer);
+        }
+    }
+}
+
+void ZrtcMedia::sendChangeAddress(const QString& why) {
+    if (!m_active || !m_activeServer || !m_hasParams) return;
+    const uint32_t uid = u32mod(m_params.localUid);
+    sendTo(buildChangeAddressPacket(uid, m_serverToken, m_changeAddrSeq++, m_params.sessId.toUtf8()), *m_activeServer);
+    sendPing();
+    if (!m_group) {
+        const QByteArray payload(QByteArray::fromHex("0400000000000000"));
+        sendTo(buildReqForwardPacket(uid, m_serverToken, 0, 8, payload), *m_activeServer);
+    }
+    zlog(QStringLiteral("media: ChangeAddress sent (%1)").arg(why));
+}
+
+void ZrtcMedia::checkNetworkAndAudio() {
+    if (!m_active || !m_startedAt) return;
+    const double now = nowMs();
+    const double lastAudio = m_lastAudioRxAt > 0 ? m_lastAudioRxAt : m_startedAt;
+    if (m_lastIpCheckAt == 0 || now - m_lastIpCheckAt >= 3000.0 || (!m_group && now - lastAudio > 1000.0)) {
+        m_lastIpCheckAt = now;
+        const QString sig = localIpSig();
+        if (!sig.isEmpty() && sig != m_localIpSig) {
+            const QString prev = m_localIpSig.isEmpty() ? QStringLiteral("none") : m_localIpSig;
+            m_localIpSig = sig;
+            zlog(QStringLiteral("media: local network change detected (%1 -> %2), stopping P2P and sending ChangeAddress").arg(prev, sig));
+            stopP2p(true, QStringLiteral("local-ip-change"));
+            sendChangeAddress(QStringLiteral("local-ip-change"));
+            timer(1000, false, [this] { sendChangeAddress(QStringLiteral("local-ip-change-retry1")); });
+            timer(2500, false, [this] { sendChangeAddress(QStringLiteral("local-ip-change-retry2")); });
+            m_lastRecoveryAt = now;
+            return;
+        }
+    }
+    if (m_p2pPath && m_lastP2pRxAt > 0 && now - m_lastP2pRxAt > 2500) {
+        stopP2p(true, QStringLiteral("p2p-rx-timeout"));
+        sendChangeAddress(QStringLiteral("p2p-rx-timeout"));
+        m_lastRecoveryAt = now;
+        return;
+    }
+    if (!m_group && now - lastAudio > 2000 && now - lastAudio < kMediaTimeoutMs && now - m_lastRecoveryAt > 2500) {
+        m_lastRecoveryAt = now;
+        zlog(QStringLiteral("media: audio rx stalled for %1 ms, requesting relay fallback and ChangeAddress")
+                 .arg(js::numberString(std::round(now - lastAudio))));
+        stopP2p(true, QStringLiteral("audio-rx-stall"));
+        sendChangeAddress(QStringLiteral("audio-rx-stall"));
     }
 }
 
@@ -594,6 +767,11 @@ void ZrtcMedia::setMute(bool on) {
 void ZrtcMedia::setMicVolume(double pct) {
     const int p = std::clamp(int(std::lround(pct)), 0, 100);
     if (m_audio) m_audio->write(QByteArray(1, char(0x56)) + QByteArray(1, char(p)));
+}
+
+void ZrtcMedia::setMicAutoGain(bool on) {
+    m_micAutoGain = on;
+    if (m_audio) m_audio->write(QByteArray(1, char(0x41)) + QByteArray(1, char(on ? 1 : 0)));
 }
 
 void ZrtcMedia::setSpeaker(bool off) {
@@ -637,6 +815,7 @@ void ZrtcMedia::stop() {
     m_active = false;
     m_initActive = false;
     m_initDone = nullptr;
+    stopRingPing(false);
     clearTimers();
     stopAudio();
     if (QUdpSocket* sock = m_socket) {
@@ -695,6 +874,7 @@ void ZrtcMedia::startAudio() {
     proc->start(exec, args);
     if (m_muted) setMute(true);
     if (m_speakerOff) setSpeaker(true);
+    if (!m_micAutoGain) setMicAutoGain(false);
 }
 
 void ZrtcMedia::stopAudio() {
@@ -719,10 +899,16 @@ void ZrtcMedia::onAudioStderr() {
         zlog(QString(line).replace(QRegularExpression(QStringLiteral("^\\[audio-io\\] ")), QStringLiteral("audio: ")));
         static const QRegularExpression fault(QStringLiteral("^\\[audio-io\\] fault: (mic|speaker)\\b"));
         static const QRegularExpression vol(QStringLiteral("^\\[audio-io\\] mic volume: (\\d+)%"));
+        static const QRegularExpression mode(QStringLiteral("^\\[audio-io\\] mic mode: (auto|manual)\\b"));
         const auto fm = fault.match(line);
         if (fm.hasMatch() && m_listener) m_listener->mediaAudioFault(fm.captured(1));
         const auto vm = vol.match(line);
         if (vm.hasMatch() && m_listener) m_listener->mediaMicVolume(vm.captured(1).toInt());
+        const auto mm = mode.match(line);
+        if (mm.hasMatch()) {
+            m_micAutoGain = mm.captured(1) == QLatin1String("auto");
+            if (m_listener) m_listener->mediaMicAutoGain(m_micAutoGain);
+        }
     }
 }
 
@@ -898,7 +1084,6 @@ void ZrtcMedia::drainVideo() {
 void ZrtcMedia::drainStep() {
     if (!m_active) {
         m_vOut.clear();
-    m_vDraining = false;
         m_vDraining = false;
         return;
     }
@@ -1021,31 +1206,50 @@ void ZrtcMedia::onVideoRtcp(const QByteArray& buf) {
     }
 }
 
-bool ZrtcMedia::onAudio(const QByteArray& rtp) {
+bool ZrtcMedia::onAudio(const QByteArray& rtp, bool isP2p) {
     if ((!m_srtp && !m_plainMedia) || rtp.size() < 12) return false;
     const uint16_t seq = rd16be(rtp, 2);
-    const uint32_t ssrc = rd32be(rtp, 8);
+    uint32_t ssrc = rd32be(rtp, 8);
     RocTracker* tracker = &m_rxRoc;
     if (m_group) {
         if (m_params.localUid && ssrc == u32mod(m_params.localUid)) return false;
         tracker = &m_rxRocs[ssrc];
     }
-    const uint32_t roc = tracker->guess(seq);
+    uint32_t roc = tracker->guess(seq);
     std::optional<QByteArray> opus;
     if (m_plainMedia) {
         if ((u8at(rtp, 0) >> 6) == 2) {
             if (const auto p = parseRtp(rtp)) {
+                ssrc = p->ssrc;
                 if (rtp.size() > p->headerLen) opus = rtp.mid(p->headerLen);
             }
         }
-    } else if (const auto got = unprotectRtp(rtp, *m_srtp, roc)) {
+    } else if (const auto got = unprotectWithTracker(rtp, *m_srtp, *tracker, &roc)) {
         opus = got->payload;
+        ssrc = got->ssrc;
     }
     if (!opus) {
         m_counters.rxBad++;
         return false;
     }
     tracker->update(seq, roc);
+    const double now = nowMs();
+    m_lastRxAt = now;
+    m_lastAudioRxAt = now;
+    if (isP2p) {
+        m_relayAudioStreak = 0;
+    } else if (m_p2pPath) {
+        if (++m_relayAudioStreak >= 25) stopP2p(true, QStringLiteral("relay-audio-streak"));
+    }
+    const uint32_t extSeq = uint32_t(roc * 0x10000u + seq);
+    const uint64_t dedupKey = (uint64_t(ssrc) << 32) | extSeq;
+    if (m_seenAudioSeqs.contains(dedupKey)) return true;
+    m_seenAudioSeqs.insert(dedupKey);
+    m_seenAudioOrder.push_back(dedupKey);
+    if (m_seenAudioOrder.size() > 256) {
+        m_seenAudioSeqs.remove(m_seenAudioOrder.front());
+        m_seenAudioOrder.pop_front();
+    }
     if (m_group) {
         const int n = m_members.value(ssrc, 0) + 1;
         m_members[ssrc] = n;
@@ -1055,10 +1259,9 @@ bool ZrtcMedia::onAudio(const QByteArray& rtp) {
         }
         noteSpeaking(ssrc, rtp);
     }
-    if (m_rtcp) m_rtcp->onRtp(false, rtp, nowMs());
+    if (m_rtcp) m_rtcp->onRtp(false, rtp, now);
     m_counters.rx++;
     m_counters.rxSecond++;
-    m_lastRxAt = nowMs();
     if (m_counters.rx == 1) zlog(QStringLiteral("media: first audio from peer"));
     if (!m_startedAt && !m_group) {
         if (m_counters.rx == 1 && m_listener) m_listener->mediaEarlyAudio(QStringLiteral("first"));
@@ -1067,7 +1270,7 @@ bool ZrtcMedia::onAudio(const QByteArray& rtp) {
     if (m_audio) {
         QByteArray h(11, '\0');
         h[0] = char(0x46);
-        wr32be(h, 1, uint32_t(roc * 0x10000u + seq));
+        wr32be(h, 1, extSeq);
         wr32be(h, 5, ssrc);
         wr16be(h, 9, uint32_t(opus->size()));
         m_audio->write(h + *opus);
@@ -1101,7 +1304,7 @@ bool ZrtcMedia::onVideo(const QByteArray& rtp) {
         if (m_params.localUid && ssrc == u32mod(m_params.localUid)) return false;
         tracker = &m_videoRocs[ssrc];
     }
-    const uint32_t roc = tracker->guess(seq);
+    uint32_t roc = tracker->guess(seq);
     std::optional<QByteArray> payload;
     uint32_t ssrc = rd32be(rtp, 8);
     if (m_plainMedia) {
@@ -1110,7 +1313,7 @@ bool ZrtcMedia::onVideo(const QByteArray& rtp) {
                 if (rtp.size() > p->headerLen) payload = rtp.mid(p->headerLen);
             }
         }
-    } else if (const auto got = unprotectRtp(rtp, *m_srtp, roc)) {
+    } else if (const auto got = unprotectWithTracker(rtp, *m_srtp, *tracker, &roc)) {
         payload = got->payload;
         ssrc = got->ssrc;
     }
@@ -1243,6 +1446,7 @@ void ZrtcMedia::sendPing() {
 }
 
 void ZrtcMedia::sendStatus() {
+    checkNetworkAndAudio();
     const uint32_t rx = uint32_t(m_counters.rxSecond);
     m_counters.rxSecond = 0;
     if (m_activeServer)
@@ -1296,7 +1500,9 @@ void ZrtcMedia::onUdp(const QByteArray& msg, const QHostAddress& addr, quint16 p
     const auto p = unwrapPacket(msg);
     if (!p) return;
     const Server from{addr.toString(), port, {}};
-    if (p->msgType == MsgType::ServerReply && (p->cmd == Cmd::InitCallCaller || p->cmd == Cmd::InitCallCallee)) {
+    const bool initReply = p->msgType == MsgType::ServerReply && (p->cmd == Cmd::InitCallCaller || p->cmd == Cmd::InitCallCallee);
+    if (m_ringPingTimer && p->msgType == MsgType::ServerReply && !initReply) m_ringPingReplies++;
+    if (initReply) {
         const bool known = std::any_of(m_servers.begin(), m_servers.end(), [&from](const Server& s) { return s.host == from.host && s.port == from.port; });
         if (!known) return;
         Server server;
@@ -1341,8 +1547,18 @@ void ZrtcMedia::onUdp(const QByteArray& msg, const QHostAddress& addr, quint16 p
         }
         return;
     }
-    if (p->isMedia && p->msgType == MsgType::AudioRtpDown) onAudio(p->payload);
+    if (p->isMedia && p->msgType == MsgType::AudioRtpDown) onAudio(p->payload, false);
     else if (p->isMedia && p->msgType == MsgType::VideoDown) onVideo(p->payload);
+    else if (p->msgType == MsgType::ServerReply && p->cmd == Cmd::ChangeAddress) {
+        zlog(QStringLiteral("media: server acknowledged ChangeAddress (cmd 14)"));
+    } else if (!m_group && !p->isMedia && p->cmd == Cmd::ReqForward) {
+        if (p->subCmd == 2) {
+            stopP2p(false, QStringLiteral("peer-req-forward-stop"));
+        } else if (p->subCmd == 3) {
+            m_p2pPath.reset();
+            p2pStart();
+        }
+    }
 }
 
 }

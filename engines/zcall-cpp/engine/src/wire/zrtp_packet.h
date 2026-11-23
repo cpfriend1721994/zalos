@@ -44,6 +44,7 @@ constexpr int Bind = 1;
 constexpr int BindPeer = 2;
 constexpr int BindAnswer = 3;
 constexpr int Keepalive = 4;
+constexpr int Signal = 5;
 constexpr int Audio = 6;
 constexpr int AudioRtcp = 7;
 constexpr int Video = 8;
@@ -117,6 +118,7 @@ QByteArray buildShareZaviPingPacket(uint32_t uid, uint32_t token, const QByteArr
 QByteArray buildZaviPingPacket(uint32_t uid, uint32_t token, const QByteArray& sessId, bool videoOn);
 std::optional<QVector<uint32_t>> parseRoomUpdated(const QByteArray& data);
 QByteArray buildPingPacket(uint32_t uid, uint32_t token, const QByteArray& sessId);
+QByteArray buildChangeAddressPacket(uint32_t uid, uint32_t token, uint32_t seq, const QByteArray& sessId);
 QByteArray buildEndCallPacket(uint32_t uid, uint32_t token, uint32_t callId);
 QByteArray buildReqForwardPacket(uint32_t uid, uint32_t token, uint32_t seq, int subCmd, const QByteArray& payload);
 QByteArray reqForwardStatus(uint32_t rxPerSecond, uint32_t a = 0, uint32_t b5 = 0);
@@ -128,6 +130,7 @@ QByteArray buildGroupSyncPacket(uint32_t uid, uint32_t token, uint32_t seq, int 
 QByteArray buildP2pBind(bool callee, uint32_t callId, uint32_t seq, uint32_t index);
 QByteArray buildP2pBindAnswer(bool callee, uint32_t callId, const QByteArray& request, const QByteArray& peerAddr);
 QByteArray buildP2pPong(bool callee, const QByteArray& ping);
+QByteArray buildP2pSignal(bool callee, uint32_t callId, int subCmd = 2, uint32_t seq = 0);
 QByteArray wrapP2pAudio(bool callee, uint32_t callId, const QByteArray& rtp);
 QByteArray wrapP2pVideo(bool callee, uint32_t callId, const QByteArray& rtp);
 QByteArray wrapP2pRtcp(bool callee, uint32_t callId, bool video, const QByteArray& rtcp);

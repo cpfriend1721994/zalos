@@ -311,6 +311,12 @@ QStringList ZaloSession::serviceUrls(const QString& service) const {
         urls = map.value("board").toArray();
         if (urls.isEmpty()) urls = QJsonArray{QStringLiteral("https://board-wpa.api.zalo.me")};
     }
+    if (urls.isEmpty() && service == QLatin1String("group_poll")) {
+        urls = map.value(QStringLiteral("group")).toArray();
+    }
+    if (urls.isEmpty() && service == QLatin1String("group_cloud_message")) {
+        urls = QJsonArray{QStringLiteral("https://tt-group-cm.api.zaloapp.com")};
+    }
     QStringList out;
     for (const QJsonValue& v : urls) {
         const QString url = v.toString();
@@ -600,12 +606,22 @@ void ZaloSession::sendQuote(const QString& threadId, bool isGroup, const QString
                             Callback cb, const QString& cliMsgId, const QJsonArray& styles,
                             const QJsonArray& mentions, qint64 ttl) {
     const QJsonValue content = quoted.value("content");
+    QString qmsgOwner = quoted.value("uidFrom").toVariant().toString();
+    if (qmsgOwner.isEmpty() || qmsgOwner == QLatin1String("0")) {
+        qmsgOwner = !m_uid.isEmpty() ? m_uid : (!isGroup ? threadId : QStringLiteral("0"));
+    }
+    const QJsonValue qmsgId = quoted.value("msgId");
+    QJsonValue qmsgCliId = quoted.value("cliMsgId");
+    const QString qmsgCliIdStr = qmsgCliId.toVariant().toString();
+    if (qmsgCliIdStr.isEmpty() || qmsgCliIdStr == QLatin1String("0")) {
+        qmsgCliId = qmsgId;
+    }
     QJsonObject params{
         {"message", text},
         {"clientId", cliMsgId.isEmpty() ? QDateTime::currentMSecsSinceEpoch() : cliMsgId.toLongLong()},
-        {"qmsgOwner", quoted.value("uidFrom")},
-        {"qmsgId", quoted.value("msgId")},
-        {"qmsgCliId", quoted.value("cliMsgId")},
+        {"qmsgOwner", qmsgOwner},
+        {"qmsgId", qmsgId},
+        {"qmsgCliId", qmsgCliId},
         {"qmsgType", clientMessageType(quoted.value("msgType").toString())},
         {"qmsgTs", quoted.value("ts")},
         {"qmsg", content.isString() ? content.toString() : QString()},
@@ -1470,6 +1486,13 @@ void ZaloSession::sendSyncV2Release(const QString& syncId, int reason) {
            QStringLiteral("reqId"));
 }
 
+void ZaloSession::sendSyncV2WakeUp(const QString& syncId) {
+    if (syncId.isEmpty()) return;
+    sendWs(592, 0,
+           {{"data", QJsonObject{{"syncId", syncId}, {"toDevice", 0}}}},
+           QStringLiteral("reqId"));
+}
+
 void ZaloSession::fetchAliasList(int page, int count, Callback cb) {
     apiGet("alias", "/api/alias/list", {{"page", page}, {"count", count}, {"imei", m_imei}}, cb);
 }
@@ -2155,7 +2178,11 @@ void ZaloSession::connectRealtime() {
     });
 
     const QString base = urls.at(qMin(m_wsUrlIndex, int(urls.size()) - 1)).toString();
-    QNetworkRequest req(makeUrl(base, {{"t", QString::number(QDateTime::currentMSecsSinceEpoch())}}));
+    QUrl wsUrl = makeUrl(base, {{"t", QString::number(QDateTime::currentMSecsSinceEpoch())}});
+    // zpw_ws hosts come without a path ("wss://ws4-msg.chat.zalo.me?..."): newer Qt (6.10) sends "GET /?...",
+    // Qt 6.4 sends "GET ?..." and the server answers HTTP 501.
+    if (wsUrl.path().isEmpty()) wsUrl.setPath(QStringLiteral("/"));
+    QNetworkRequest req(wsUrl);
     req.setHeader(QNetworkRequest::UserAgentHeader, m_userAgent);
     req.setRawHeader("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
     req.setRawHeader("Cache-Control", "no-cache");
@@ -2371,6 +2398,7 @@ void ZaloSession::pullServerQueues() {
 }
 
 void ZaloSession::requestOldMessages(bool isGroup, const QString& lastMsgId) {
+    m_pullPages.remove(((isGroup ? 511 : 510) << 8) | 1);
     sendWs(isGroup ? 511 : 510, 1,
            {{"first", true}, {"lastId", lastMsgId.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(lastMsgId)},
             {"preIds", QJsonArray()}});

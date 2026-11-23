@@ -4,7 +4,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.2.9
+Version:        1.2.10
 Release:        1%{?dist}
 Summary:        Native Qt6 (C++/QML) messaging client for Zalo on Linux
 License:        MIT AND BSD-3-Clause
@@ -91,6 +91,17 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
 
 %changelog
+* Mon Nov 23 2026 Zalos Team <dev@zalos.local> - 1.2.10-1
+- Fix being stuck on "Connecting to server" with WebSocket error 501 on Qt 6.4 (the realtime URL now always has a "/" path).
+- Fix a crash in rounded images when the device pixel ratio changes on Wayland.
+- Stop the AppImage from falling back to the bundled Qt after a normal exit (--version, --check-deps, second instance).
+- Fix the chat jumping back to the bottom while scrolling up as photos load or messages arrive.
+- Start in English until a language is chosen and save the language picked on the sign-in screen.
+- Use the system Qt in the AppImage only from 6.4 to 6.12.
+- Keep 1-1 call relay servers alive while ringing, recover audio across Wi-Fi/VPN changes or P2P drops (ChangeAddress, P2P stop, multi-ROC SRTP fallback, packet deduplication, jitter buffer reset), and add an Auto/Manual microphone gain toggle in the call device menu.
+- Improve Sync v2 phone history transfer with two-phase conversation/message batches, idle-phone wake-up (cmd 592), and quote/mention/TTL metadata, plus group_poll host fallback and quote reply owner/cliMsgId normalization.
+- Fix missing images when opening conversations after reading photo+text sequences on mobile (getrecentv2-to-getoldv2 chaining, stringified/alternate chat.photo parsing, 1-1/post-login/reconnect history sync, group_cloud_message host fallback, and offline cache reparse).
+
 * Fri Nov 20 2026 Zalos Team <dev@zalos.local> - 1.2.9-1
 - Add Zalo PC-style polls: info lines for every poll event, card under the latest event, full vote dialog (single/multiple choice, change or remove votes, add options, voters per option, close and share), all creation settings with Zalo's limits, and pinned polls.
 - Fix chats read on the phone staying unread (persistent per-conversation read points applied in order, get-last-seen sync after reconnect/window show/every 15 minutes).

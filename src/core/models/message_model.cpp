@@ -207,6 +207,26 @@ void MessageModel::recomputeLastMineRow() {
     }
 }
 
+void MessageModel::rebuildActiveIndex() {
+    m_activeRowById.clear();
+    m_activeRowByCliId.clear();
+    m_activeRowById.reserve(m_items.size());
+    for (int i = 0; i < m_items.size(); ++i) {
+        const MessageItem& m = m_items.at(i);
+        if (!m.id.isEmpty()) m_activeRowById.insert(m.id, i);
+        if (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0")) {
+            m_activeRowByCliId.insert(m.cliMsgId, i);
+        }
+    }
+}
+
+int MessageModel::activeRowOf(const QString& msgId) const {
+    if (msgId.isEmpty()) return -1;
+    const auto it = m_activeRowById.constFind(msgId);
+    if (it != m_activeRowById.cend()) return it.value();
+    return m_activeRowByCliId.value(msgId, -1);
+}
+
 void MessageModel::addMessage(const QString& text, bool isMine, const QString& sender) {
     const int prevMine = isMine ? m_lastMineRow : -1;
     beginInsertRows(QModelIndex(), m_items.size(), m_items.size());
@@ -222,7 +242,9 @@ void MessageModel::addMessage(const QString& text, bool isMine, const QString& s
     item.reaction = "";
     item.messageType = "text";
     m_items.append(item);
-    if (isMine) m_lastMineRow = int(m_items.size()) - 1;
+    const int row = int(m_items.size()) - 1;
+    m_activeRowById.insert(item.id, row);
+    if (isMine) m_lastMineRow = row;
     endInsertRows();
     if (prevMine >= 0) emit dataChanged(index(prevMine), index(prevMine), {ShowStatusRole});
 }
@@ -242,7 +264,9 @@ void MessageModel::addAttachmentMessage(const QString& type, const QString& text
     item.messageType = type;
     item.mediaUrl = url;
     m_items.append(item);
-    if (isMine) m_lastMineRow = int(m_items.size()) - 1;
+    const int row = int(m_items.size()) - 1;
+    m_activeRowById.insert(item.id, row);
+    if (isMine) m_lastMineRow = row;
     endInsertRows();
     if (prevMine >= 0) emit dataChanged(index(prevMine), index(prevMine), {ShowStatusRole});
 }
@@ -263,7 +287,9 @@ void MessageModel::addMessageDirect(const QString& convId, const QString& id, co
         const int prevMine = isMine ? m_lastMineRow : -1;
         beginInsertRows(QModelIndex(), m_items.size(), m_items.size());
         m_items.append(item);
-        if (isMine) m_lastMineRow = int(m_items.size()) - 1;
+        const int row = int(m_items.size()) - 1;
+        m_activeRowById.insert(item.id, row);
+        if (isMine) m_lastMineRow = row;
         endInsertRows();
         if (prevMine >= 0) emit dataChanged(index(prevMine), index(prevMine), {ShowStatusRole});
     } else {
@@ -340,10 +366,19 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
             }
             byId.remove(oldId);
             byId.insert(merged.id, existingIdx);
+            const QString oldCli = existing.cliMsgId;
             const qint64 oldTs = existing.ts;
             const bool textOrStylesChanged = merged.text != existing.text
                 || merged.extra.value(QStringLiteral("styles")) != existing.extra.value(QStringLiteral("styles"));
             existing = std::move(merged);
+            if (isActive && existingIdx < baseSize) {
+                m_activeRowById.remove(oldId);
+                m_activeRowById.insert(existing.id, existingIdx);
+                if (!oldCli.isEmpty() && oldCli != QLatin1String("0")) m_activeRowByCliId.remove(oldCli);
+                if (!existing.cliMsgId.isEmpty() && existing.cliMsgId != QLatin1String("0")) {
+                    m_activeRowByCliId.insert(existing.cliMsgId, existingIdx);
+                }
+            }
             if (textOrStylesChanged) {
                 ++m_richTextRev;
                 m_richTextLru.clear();
@@ -394,6 +429,7 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         beginInsertRows(QModelIndex(), 0, prepended - 1);
         m_items = std::move(sorted);
         recomputeLastMineRow();
+        rebuildActiveIndex();
         endInsertRows();
         if (prepended < m_items.size()) {
             emit dataChanged(index(prepended), index(prepended));
@@ -408,8 +444,19 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         const int prevMine = m_lastMineRow;
         const int count = appended.size();
         beginInsertRows(QModelIndex(), before, before + count - 1);
-        if (needSort) m_items = std::move(sorted);
-        else m_items.append(std::move(appended));
+        if (needSort) {
+            m_items = std::move(sorted);
+            rebuildActiveIndex();
+        } else {
+            m_items.append(std::move(appended));
+            for (int idx = before; idx < m_items.size(); ++idx) {
+                const MessageItem& added = m_items.at(idx);
+                if (!added.id.isEmpty()) m_activeRowById.insert(added.id, idx);
+                if (!added.cliMsgId.isEmpty() && added.cliMsgId != QLatin1String("0")) {
+                    m_activeRowByCliId.insert(added.cliMsgId, idx);
+                }
+            }
+        }
         recomputeLastMineRow();
         endInsertRows();
         if (before > 0) {
@@ -428,6 +475,7 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         beginResetModel();
         m_items = std::move(sorted);
         recomputeLastMineRow();
+        rebuildActiveIndex();
         endResetModel();
     }
     if (m_pendingUnread > 0) placeUnreadMarker();
@@ -445,10 +493,9 @@ void MessageModel::clearUnreadMarker() {
     if (m_unreadMarkerId.isEmpty()) return;
     const QString old = m_unreadMarkerId;
     m_unreadMarkerId.clear();
-    for (int row = 0; row < m_items.size(); ++row) {
-        if (m_items.at(row).id != old) continue;
+    const int row = m_activeRowById.value(old, -1);
+    if (row >= 0 && row < m_items.size()) {
         emit dataChanged(index(row), index(row), {UnreadMarkerRole});
-        break;
     }
     emit unreadMarkerChanged(-1);
 }
@@ -469,33 +516,33 @@ void MessageModel::placeUnreadMarker() {
 
 int MessageModel::unreadMarkerRow() const {
     if (m_unreadMarkerId.isEmpty()) return -1;
-    for (int row = 0; row < m_items.size(); ++row) {
-        if (m_items.at(row).id == m_unreadMarkerId) return row;
-    }
-    return -1;
+    const int row = m_activeRowById.value(m_unreadMarkerId, -1);
+    return (row >= 0 && row < m_items.size()) ? row : -1;
 }
 
 void MessageModel::confirmMessage(const QString& convId, const QString& localId, const QString& serverId) {
-    auto& thread = threadFor(convId);
-    const bool alreadyPresent = std::any_of(thread.cbegin(), thread.cend(),
-                                            [&](const MessageItem& m) { return m.id == serverId; });
+    const bool active = m_currentConvId == convId;
+    const bool alreadyPresent = active
+        ? m_activeRowById.contains(serverId)
+        : std::any_of(threadOf(convId).cbegin(), threadOf(convId).cend(),
+                      [&](const MessageItem& m) { return m.id == serverId; });
     if (alreadyPresent) {
         removeMessage(convId, localId);
         return;
     }
-    if (m_currentConvId != convId) {
-        for (auto& m : thread) {
+    if (!active) {
+        for (auto& m : threadFor(convId)) {
             if (m.id == localId) { m.id = serverId; break; }
         }
         return;
     }
-    for (int row = 0; row < m_items.size(); ++row) {
-        if (m_items[row].id == localId) {
-            m_items[row].id = serverId;
-            emit dataChanged(index(row), index(row), {IdRole});
-            refreshRunsAround(row);
-            break;
-        }
+    const int row = m_activeRowById.value(localId, -1);
+    if (row >= 0 && row < m_items.size()) {
+        m_items[row].id = serverId;
+        m_activeRowById.remove(localId);
+        m_activeRowById.insert(serverId, row);
+        emit dataChanged(index(row), index(row), {IdRole});
+        refreshRunsAround(row);
     }
 }
 
@@ -508,36 +555,36 @@ void MessageModel::removeMessage(const QString& convId, const QString& msgId) {
         }
         return;
     }
-    for (int row = 0; row < m_items.size(); ++row) {
-        if (m_items[row].id == msgId) {
-            const bool wasUnreadMarker = !m_unreadMarkerId.isEmpty() && msgId == m_unreadMarkerId;
-            const bool wasMine = m_items[row].isMine;
-            beginRemoveRows(QModelIndex(), row, row);
-            m_items.removeAt(row);
-            if (wasMine || row < m_lastMineRow) recomputeLastMineRow();
-            endRemoveRows();
-            if (wasUnreadMarker) {
-                m_unreadMarkerId.clear();
-                emit unreadMarkerChanged(-1);
-            }
-            if (row < m_items.size()) {
-                emit dataChanged(index(row), index(row), {FirstInGroupRole, DateSeparatorRole, UnreadMarkerRole});
-            }
-            if (row > 0 && row - 1 < m_items.size()) {
-                emit dataChanged(index(row - 1), index(row - 1), {LastInGroupRole, ShowStatusRole});
-            }
-            if (wasMine && m_lastMineRow >= 0 && m_lastMineRow != row - 1) {
-                emit dataChanged(index(m_lastMineRow), index(m_lastMineRow), {ShowStatusRole});
-            }
-            refreshRunsAround(qMin(row, m_items.size() - 1));
-            break;
+    const int row = m_activeRowById.value(msgId, -1);
+    if (row >= 0 && row < m_items.size()) {
+        const bool wasUnreadMarker = !m_unreadMarkerId.isEmpty() && msgId == m_unreadMarkerId;
+        const bool wasMine = m_items[row].isMine;
+        beginRemoveRows(QModelIndex(), row, row);
+        m_items.removeAt(row);
+        if (wasMine || row < m_lastMineRow) recomputeLastMineRow();
+        rebuildActiveIndex();
+        endRemoveRows();
+        if (wasUnreadMarker) {
+            m_unreadMarkerId.clear();
+            emit unreadMarkerChanged(-1);
         }
+        if (row < m_items.size()) {
+            emit dataChanged(index(row), index(row), {FirstInGroupRole, DateSeparatorRole, UnreadMarkerRole});
+        }
+        if (row > 0 && row - 1 < m_items.size()) {
+            emit dataChanged(index(row - 1), index(row - 1), {LastInGroupRole, ShowStatusRole});
+        }
+        if (wasMine && m_lastMineRow >= 0 && m_lastMineRow != row - 1) {
+            emit dataChanged(index(m_lastMineRow), index(m_lastMineRow), {ShowStatusRole});
+        }
+        refreshRunsAround(qMin(row, int(m_items.size()) - 1));
     }
 }
 
 namespace {
 template <typename Fn>
-void updateItem(QHash<QString, QVector<MessageItem>>& store, QVector<MessageItem>& visible, const QString& currentConv,
+void updateItem(QHash<QString, QVector<MessageItem>>& store, QVector<MessageItem>& visible,
+                const QHash<QString, int>& activeRowById, const QString& currentConv,
                 const QString& convId, const QString& msgId, Fn fn, MessageModel* model, const QList<int>& roles) {
     if (currentConv != convId) {
         auto it = store.find(convId);
@@ -547,27 +594,25 @@ void updateItem(QHash<QString, QVector<MessageItem>>& store, QVector<MessageItem
         }
         return;
     }
-    for (int row = 0; row < visible.size(); ++row) {
-        if (visible[row].id == msgId) {
-            fn(visible[row]);
-            emit model->dataChanged(model->index(row), model->index(row), roles);
-            if (roles.contains(MessageModel::MediaUrlRole) || roles.contains(MessageModel::IsRecalledRole))
-                model->refreshRunsAround(row);
-            break;
-        }
+    const int row = activeRowById.value(msgId, -1);
+    if (row >= 0 && row < visible.size()) {
+        fn(visible[row]);
+        emit model->dataChanged(model->index(row), model->index(row), roles);
+        if (roles.contains(MessageModel::MediaUrlRole) || roles.contains(MessageModel::IsRecalledRole))
+            model->refreshRunsAround(row);
     }
 }
 }
 
 void MessageModel::setReaction(const QString& convId, const QString& msgId, const QString& summary) {
-    updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) { m.reaction = summary; },
-               this, {ReactionRole});
+    updateItem(m_store, m_items, m_activeRowById, m_currentConvId, convId, msgId,
+               [&](MessageItem& m) { m.reaction = summary; }, this, {ReactionRole});
 }
 
 void MessageModel::markRecalled(const QString& convId, const QString& msgId, const QString& placeholder) {
     ++m_richTextRev;
     m_richTextLru.clear();
-    updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) {
+    updateItem(m_store, m_items, m_activeRowById, m_currentConvId, convId, msgId, [&](MessageItem& m) {
         m.isRecalled = true;
         m.text = placeholder;
         m.messageType = "text";
@@ -577,12 +622,12 @@ void MessageModel::markRecalled(const QString& convId, const QString& msgId, con
 }
 
 void MessageModel::setMedia(const QString& convId, const QString& msgId, const QString& mediaUrl) {
-    updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) { m.mediaUrl = mediaUrl; },
-               this, {MediaUrlRole});
+    updateItem(m_store, m_items, m_activeRowById, m_currentConvId, convId, msgId,
+               [&](MessageItem& m) { m.mediaUrl = mediaUrl; }, this, {MediaUrlRole});
 }
 
 void MessageModel::setSticker(const QString& convId, const QString& msgId, const QVariantMap& info) {
-    updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) {
+    updateItem(m_store, m_items, m_activeRowById, m_currentConvId, convId, msgId, [&](MessageItem& m) {
         m.mediaUrl = info.value("url").toString();
         m.extra.insert("sticker", info);
     }, this, {MediaUrlRole, ExtraRole});
@@ -591,7 +636,7 @@ void MessageModel::setSticker(const QString& convId, const QString& msgId, const
 void MessageModel::setMessageExtra(const QString& convId, const QString& msgId, const QString& text, const QVariantMap& extra) {
     ++m_richTextRev;
     m_richTextLru.clear();
-    updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) {
+    updateItem(m_store, m_items, m_activeRowById, m_currentConvId, convId, msgId, [&](MessageItem& m) {
         if (!text.isEmpty()) m.text = text;
         for (auto it = extra.cbegin(); it != extra.cend(); ++it) {
             m.extra.insert(it.key(), it.value());
@@ -600,8 +645,8 @@ void MessageModel::setMessageExtra(const QString& convId, const QString& msgId, 
 }
 
 void MessageModel::setStatus(const QString& convId, const QString& msgId, const QString& status) {
-    updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) { m.status = status; },
-               this, {StatusRole});
+    updateItem(m_store, m_items, m_activeRowById, m_currentConvId, convId, msgId,
+               [&](MessageItem& m) { m.status = status; }, this, {StatusRole});
 }
 
 void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
@@ -610,7 +655,7 @@ void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
 
 void MessageModel::recordGroupSeen(const QString& convId, const QString& msgId, const QString& userId) {
     if (userId.isEmpty()) return;
-    updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) {
+    updateItem(m_store, m_items, m_activeRowById, m_currentConvId, convId, msgId, [&](MessageItem& m) {
         if (!m.seenUids.contains(userId)) {
             m.seenUids.append(userId);
             m.status = QStringLiteral("seen");
@@ -646,6 +691,7 @@ void MessageModel::markOwnUpTo(const QString& convId, const QString& msgId, cons
 }
 
 bool MessageModel::contains(const QString& convId, const QString& msgId) const {
+    if (!convId.isEmpty() && convId == m_currentConvId) return m_activeRowById.contains(msgId);
     const auto& thread = threadOf(convId);
     return std::any_of(thread.cbegin(), thread.cend(), [&](const MessageItem& m) { return m.id == msgId; });
 }
@@ -678,6 +724,10 @@ QString MessageModel::latestMessageId(const QString& convId) const {
 }
 
 MessageItem MessageModel::message(const QString& convId, const QString& msgId) const {
+    if (!convId.isEmpty() && convId == m_currentConvId) {
+        const int row = m_activeRowById.value(msgId, -1);
+        return (row >= 0 && row < m_items.size()) ? m_items.at(row) : MessageItem{};
+    }
     for (const auto& m : threadOf(convId)) {
         if (m.id == msgId) return m;
     }
@@ -722,6 +772,7 @@ void MessageModel::removeMessagesUpTo(const QString& convId, const QString& last
     beginResetModel();
     m_items.erase(std::remove_if(m_items.begin(), m_items.end(), older), m_items.end());
     recomputeLastMineRow();
+    rebuildActiveIndex();
     endResetModel();
 }
 
@@ -730,6 +781,8 @@ void MessageModel::clearThread(const QString& convId) {
     if (m_currentConvId != convId) return;
     beginResetModel();
     m_items.clear();
+    m_activeRowById.clear();
+    m_activeRowByCliId.clear();
     m_lastMineRow = -1;
     m_richTextLru.clear();
     endResetModel();
@@ -746,6 +799,8 @@ void MessageModel::trimThreadWindow(const QString& convId, int maxItems) {
 void MessageModel::clearAll() {
     beginResetModel();
     m_items.clear();
+    m_activeRowById.clear();
+    m_activeRowByCliId.clear();
     m_store.clear();
     m_currentConvId.clear();
     m_unreadMarkerId.clear();
@@ -770,42 +825,32 @@ void MessageModel::loadConversation(const QString& conversationId) {
         m_items = conversationId.isEmpty() ? QVector<MessageItem>{} : m_store.take(conversationId);
     }
     recomputeLastMineRow();
+    rebuildActiveIndex();
     endResetModel();
 }
 
 QVariantMap MessageModel::getMessageById(const QString& msgId) const {
-    for (const auto& item : m_items) {
-        if (item.id == msgId) {
-            return {
-                {"id", item.id},
-                {"senderName", item.senderName},
-                {"text", item.text},
-                {"time", item.timeStr},
-                {"isMine", item.isMine},
-                {"messageType", item.messageType},
-                {"mediaUrl", item.mediaUrl},
-                {"href", item.href},
-                {"ts", item.ts},
-                {"senderId", item.senderId}
-            };
-        }
+    auto toMap = [](const MessageItem& item) -> QVariantMap {
+        return {
+            {"id", item.id},
+            {"senderName", item.senderName},
+            {"text", item.text},
+            {"time", item.timeStr},
+            {"isMine", item.isMine},
+            {"messageType", item.messageType},
+            {"mediaUrl", item.mediaUrl},
+            {"href", item.href},
+            {"ts", item.ts},
+            {"senderId", item.senderId}
+        };
+    };
+    const int activeRow = m_activeRowById.value(msgId, -1);
+    if (activeRow >= 0 && activeRow < m_items.size()) {
+        return toMap(m_items.at(activeRow));
     }
     for (auto it = m_store.constBegin(); it != m_store.constEnd(); ++it) {
         for (const auto& item : it.value()) {
-            if (item.id == msgId) {
-                return {
-                    {"id", item.id},
-                    {"senderName", item.senderName},
-                    {"text", item.text},
-                    {"time", item.timeStr},
-                    {"isMine", item.isMine},
-                    {"messageType", item.messageType},
-                    {"mediaUrl", item.mediaUrl},
-                    {"href", item.href},
-                    {"ts", item.ts},
-                    {"senderId", item.senderId}
-                };
-            }
+            if (item.id == msgId) return toMap(item);
         }
     }
     return {};
@@ -956,11 +1001,8 @@ QString MessageModel::linkify(const QString& text) {
 }
 
 int MessageModel::rowOfMessage(const QString& msgId) const {
-    if (msgId.isEmpty()) return -1;
-    for (int i = 0; i < m_items.size(); ++i) {
-        if (m_items.at(i).id == msgId || m_items.at(i).cliMsgId == msgId) return i;
-    }
-    return -1;
+    const int row = activeRowOf(msgId);
+    return (row >= 0 && row < m_items.size()) ? row : -1;
 }
 
 QVariantList MessageModel::mediaItems() const {
@@ -1124,30 +1166,40 @@ void MessageModel::refreshPollCards(const QString& convId) {
     }
 }
 
-void MessageModel::setPollData(qint64 pollId, const QVariantMap& data) {
+void MessageModel::setPollData(qint64 pollId, const QVariantMap& data, const QString& convId) {
     if (pollId <= 0) return;
     auto matches = [pollId](const MessageItem& item) {
         return item.messageType == QLatin1String("poll") && item.pollData.value("poll_id").toLongLong() == pollId;
     };
-    for (int i = 0; i < m_items.size(); ++i) {
-        if (!matches(m_items[i])) continue;
-        m_items[i].pollData = data;
+    auto applyPoll = [&](MessageItem& item) {
+        item.pollData = data;
         if (!data.value("question").toString().isEmpty()) {
-            m_items[i].text = data.value("question").toString();
+            item.text = data.value("question").toString();
             ++m_richTextRev;
             m_richTextLru.clear();
         }
-        emit dataChanged(index(i), index(i), {PollDataRole, TextRole, RichTextRole});
+    };
+    if (convId.isEmpty() || convId == m_currentConvId) {
+        for (int i = 0; i < m_items.size(); ++i) {
+            if (!matches(m_items[i])) continue;
+            applyPoll(m_items[i]);
+            emit dataChanged(index(i), index(i), {PollDataRole, TextRole, RichTextRole});
+        }
+    }
+    if (!convId.isEmpty()) {
+        if (convId != m_currentConvId) {
+            auto it = m_store.find(convId);
+            if (it != m_store.end()) {
+                for (MessageItem& item : *it) {
+                    if (matches(item)) applyPoll(item);
+                }
+            }
+        }
+        return;
     }
     for (auto it = m_store.begin(); it != m_store.end(); ++it) {
         for (MessageItem& item : it.value()) {
-            if (!matches(item)) continue;
-            item.pollData = data;
-            if (!data.value("question").toString().isEmpty()) {
-                item.text = data.value("question").toString();
-                ++m_richTextRev;
-                m_richTextLru.clear();
-            }
+            if (matches(item)) applyPoll(item);
         }
     }
 }

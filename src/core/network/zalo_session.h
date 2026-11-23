@@ -131,6 +131,7 @@ public:
     void cleanMobileSync(const QString& publicKey, Callback cb);
     bool sendSyncV2Request(const QString& syncId, const QJsonObject& syncData);
     void sendSyncV2Release(const QString& syncId, int reason);
+    void sendSyncV2WakeUp(const QString& syncId);
     void fetchAliasList(int page, int count, Callback cb);
     void fetchUnreadMarks(Callback cb);
     void fetchNoisedIds(const QStringList& userIds, const QStringList& groupIds, Callback cb);

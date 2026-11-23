@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.10] - 2026-11-23
+
+### Fixed
+- **Stuck on "Connecting to server…" (WebSocket error 501):** on Qt 6.4 (the AppImage's bundled Qt, the Ubuntu 24.04 `.deb` and the Snap) the realtime connection was opened without a `/` path, so Zalo's server answered HTTP 501 and messages never arrived in real time. The path is now always set (#6, #8).
+- **Crash with Fractional Scaling on Wayland:** rounded avatars and images no longer crash when the window moves between screens with different scale factors (#7, thanks @QinZinn).
+- **AppImage Falling Back to the Bundled Qt for No Reason:** a normal exit (`--version`, `--help`, `--check-deps`, or opening Zalos while it is already running) no longer counts as a failed start, so the next launch no longer shows "system Qt … failed to start last time" and keeps using the system Qt.
+- **Chat Jumping Back to the Bottom:** scrolling up while photos are loading or new messages arrive no longer pulls the chat back to the latest message.
+- **One-Way or Dropped Audio After Long Ringing or Network Switch:** while a 1-1 call is ringing, Zalos now pings every candidate relay server so the server does not drop the session before the other side answers. During a call, changing Wi-Fi/VPN or losing P2P audio now switches cleanly back to the relay server (`ChangeAddress` / `P2P stop` / 25-packet relay streak / 2 s audio stall recovery), handles SRTP rollover/reset across multiple ROC candidates, deduplicates dual P2P + relay packets, and resets the audio jitter buffer on large sequence jumps.
+- **Poll Loading & Quote Replies:** `group_poll` requests now fall back to the `group` service host when `zpw_service_map_v3` omits `group_poll`, and `sendQuote` normalizes missing/`"0"` `qmsgOwner` and `qmsgCliId` fields so quoted replies are not rejected.
+- **Missing Images After Viewing Messages on Phone:** opening a group (or 1-1 chat) after reading a photo + text sequence on mobile no longer shows only the latest text message; Zalos now unwraps nested/stringified `chat.photo` payloads and alternate URL keys, falls back to `tt-group-cm.api.zaloapp.com` for `group_cloud_message`, chains `/api/cm/getrecentv2` into cold-storage `/api/cm/getoldv2`, syncs recent history after startup login/reconnect and with partial local caches, and upgrades previously misparsed offline photo cache rows (`kCacheParseVersion = 6`).
+
+### Changed & Improved
+- **English by Default:** a new install starts in English until a language is chosen, and the language picked on the sign-in screen is now saved.
+- **AppImage Uses the System Qt Only From 6.4 to 6.12:** older or newer system Qt versions, which Zalos is not tested against, run on the bundled Qt instead.
+- **Auto / Manual Microphone Gain Toggle in Calls:** the in-call device menu now shows an **Auto / Manual** pill next to the microphone volume slider (`CMD_IN_AUTO_GAIN`); dragging the slider locks manual volume, and clicking the pill re-enables automatic clipping protection.
+- **Richer Phone History Sync v2 (Beta):** Sync v2 now supports two-phase conversation discovery (`ConversationChunk` followed by batched `message` queries of up to 30 conversations with fresh ephemeral keys), wakes an idle phone with command `592` when `transfer_status` reports `status 2`, and imports quoted replies, `@mentions` (including `@All`), and message TTLs from `MetaSchema`.
+- **Sidebar, Message Lookup & Resource Optimizations:** `ConversationModel` pre-computes folded names and handles multi-row reorders incrementally without resetting the sidebar list; `MessageModel` adds `O(1)` active-thread row indexing and targeted poll updates; `ImageViewer` releases its video player immediately when switching back to photos; `AvatarImageProvider` and `MobileHistorySync` eliminate redundant buffer copies while bounding Sync v2 batch/log growth; and active calls throttle interface-change polling to reduce background syscalls.
+
 ## [1.2.9] - 2026-11-20
 
 ### Added

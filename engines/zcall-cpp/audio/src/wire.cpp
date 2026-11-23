@@ -42,12 +42,16 @@ bool InParser::next(InMessage& out) {
         m_pos += 11u + n;
         return true;
     }
+    case 'A':
     case 'S':
     case 'M':
     case 'V': {
         if (avail < 2) return false;
         out = InMessage{};
-        out.kind = kind == 'S' ? InMessage::Kind::Speaker : kind == 'M' ? InMessage::Kind::Mute : InMessage::Kind::Volume;
+        out.kind = kind == 'A' ? InMessage::Kind::AutoGain
+                 : kind == 'S' ? InMessage::Kind::Speaker
+                 : kind == 'M' ? InMessage::Kind::Mute
+                               : InMessage::Kind::Volume;
         out.value = p[1];
         out.on = p[1] != 0;
         m_pos += 2;

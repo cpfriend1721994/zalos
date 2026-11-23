@@ -1216,7 +1216,7 @@
         <img src="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg"
           alt="Biểu tượng Zalos" data-en-alt="Zalos logo" class="brand-logo" width="28" height="28">
         <span>Zalos</span>
-        <span class="version-pill">v1.2.9</span>
+        <span class="version-pill">v1.2.10</span>
       </a>
 
       <nav aria-label="Điều hướng chính" data-en-aria="Main navigation">
@@ -1281,7 +1281,7 @@
               <svg aria-hidden="true" viewBox="0 0 24 24">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
               </svg>
-              <span data-en="Download release v1.2.9">Tải bản phát hành v1.2.9</span>
+              <span data-en="Download release v1.2.10">Tải bản phát hành v1.2.10</span>
             </a>
             <a href="#install" class="btn-secondary">
               <span data-en="Installation guide">Hướng dẫn cài đặt</span>
@@ -1518,8 +1518,8 @@
                 <strong>Tích hợp hệ thống &amp; Cập nhật:</strong> bộ gõ <code>Fcitx5</code> / <code>IBus</code> mượt mà, chuyển ngôn ngữ Việt/Anh tức thì, tùy chọn tăng tốc phần cứng (GPU) tự quay về phần mềm khi lỗi và kiểm tra/cài đặt cập nhật trực tiếp (AppImage + <code>zsync</code>, <code>.deb</code>/<code>.rpm</code>).
               </li>
               <li
-                data-en="<strong>1-1 &amp; Group calls + screen share:</strong> built-in native engine for 1-1 calls with in-call screen sharing, floating PiP minimize mode, tray/device controls, and multi-participant group calls (beta), with OpenH264 video encoding and infrared (IR) camera filtering.">
-                <strong>Gọi thoại, Video 1-1 &amp; Chia sẻ màn hình:</strong> engine gọi thoại tích hợp cho cuộc gọi cá nhân 1-1 kèm chia sẻ màn hình, thu nhỏ nổi PiP để vừa gọi vừa chat, điều khiển qua khay hệ thống và chọn thiết bị âm thanh/camera ngay trong cuộc gọi, cùng gọi nhóm (thử nghiệm), mã hóa video OpenH264 và lọc camera hồng ngoại (IR).
+                data-en="<strong>1-1 &amp; Group calls + screen share:</strong> built-in native engine for 1-1 calls with in-call screen sharing, floating PiP minimize mode, tray/device controls, Auto/Manual microphone gain toggle, ring-ping keepalive and automatic P2P/relay network handover, plus multi-participant group calls (beta), OpenH264 video encoding and infrared (IR) camera filtering.">
+                <strong>Gọi thoại, Video 1-1 &amp; Chia sẻ màn hình:</strong> engine gọi thoại tích hợp cho cuộc gọi cá nhân 1-1 kèm chia sẻ màn hình, thu nhỏ nổi PiP để vừa gọi vừa chat, điều khiển qua khay hệ thống, chọn thiết bị &amp; chuyển độ lợi Micro Tự động/Thủ công, giữ kết nối khi đổ chuông lâu và tự chuyển mạng P2P/relay, cùng gọi nhóm (thử nghiệm), mã hóa video OpenH264 và lọc camera hồng ngoại (IR).
               </li>
             </ul>
           </article>
@@ -1683,8 +1683,8 @@ sudo dnf install -y zalos</code></pre>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-deb">Sao chép</button>
                 <pre id="code-deb" class="code-pre" tabindex="0"><code>ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"</code></pre>
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"</code></pre>
               </div>
               <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
                 <li data-en="<strong>Voice calls:</strong> Ready to use right after installing (audio libraries are installed automatically).">
@@ -1704,7 +1704,7 @@ sudo apt install "./zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"</code></pre>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-rpm">Sao chép</button>
                 <pre id="code-rpm" class="code-pre"
-                  tabindex="0"><code>sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.9-1.fc43.$(uname -m).rpm"</code></pre>
+                  tabindex="0"><code>sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.10-1.fc43.$(uname -m).rpm"</code></pre>
               </div>
               <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
                 <li data-en="<strong>Voice calls:</strong> Ready to use right after installing, no extra audio setup needed.">
@@ -1760,9 +1760,9 @@ flatpak run io.github.cpfriend1721994.zalos</code></pre>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-appimage">Sao chép</button>
                 <pre id="code-appimage" class="code-pre" tabindex="0"><code>ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.9-${ARCH}.AppImage"
-chmod +x "Zalos-1.2.9-${ARCH}.AppImage"
-"./Zalos-1.2.9-${ARCH}.AppImage"</code></pre>
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.10-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.10-${ARCH}.AppImage"
+"./Zalos-1.2.10-${ARCH}.AppImage"</code></pre>
               </div>
               <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
                 <li data-en="<strong>Voice calls:</strong> Ready to use on standard Linux desktops (Ubuntu, Fedora, Mint...). Only stripped-down setups without PulseAudio/PipeWire (e.g. Server/Netinstall builds) need <code class=&quot;inline-code&quot;>libpulse0</code> (Ubuntu/Debian) or <code class=&quot;inline-code&quot;>pulseaudio-libs</code> (Fedora).">

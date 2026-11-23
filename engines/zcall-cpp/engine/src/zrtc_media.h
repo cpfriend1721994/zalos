@@ -16,6 +16,7 @@
 #include <QTimer>
 #include <QUdpSocket>
 
+#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -48,6 +49,7 @@ public:
     QJsonArray localCandidates(const std::optional<QByteArray>& publicAddr) const override;
     void setDevice(const QString& kind, const QString& name) override;
     void setMicVolume(double pct) override;
+    void setMicAutoGain(bool on) override;
     void setSpeaker(bool off) override;
     void sendVideoFrame(const OutVideoFrame& f) override;
     void setGroupCamera(bool on) override;
@@ -109,7 +111,14 @@ private:
     std::optional<double> downlinkLoss();
 
     void sendPing();
+    void startRingPing();
+    void sendRingPing();
+    void stopRingPing(bool logSummary);
     void sendStatus();
+    void checkNetworkAndAudio();
+    void stopP2p(bool notifyPeer = true, const QString& why = QStringLiteral("fallback"));
+    void sendChangeAddress(const QString& why = QStringLiteral("network-change"));
+    QString localIpSig() const;
     void startAudio();
     void stopAudio();
     void onAudioStdout();
@@ -117,7 +126,7 @@ private:
     void sendAudioFrame(const QByteArray& opus, int level);
     void noteAudioTx();
     void noteVideoTx(bool key);
-    bool onAudio(const QByteArray& rtp);
+    bool onAudio(const QByteArray& rtp, bool isP2p = false);
     bool onVideo(const QByteArray& rtp);
     void onVideoRtcp(const QByteArray& buf);
     void onP2p(const QByteArray& msg, const QHostAddress& addr, quint16 port);
@@ -142,6 +151,7 @@ private:
     bool m_group{false};
     bool m_muted{false};
     bool m_speakerOff{false};
+    bool m_micAutoGain{true};
     bool m_plainMedia{false};
     NegotiatedParams m_params;
     std::optional<GroupVideoPlan> m_plan;
@@ -195,8 +205,22 @@ private:
     QVector<Queued> m_vOut;
     bool m_vDraining{false};
 
+    QTimer* m_ringPingTimer{nullptr};
+    double m_ringPingSince{0};
+    int m_ringPingSent{0};
+    int m_ringPingReplies{0};
+
     Counters m_counters;
     double m_lastRxAt{0};
+    double m_lastAudioRxAt{0};
+    double m_lastP2pRxAt{0};
+    double m_lastRecoveryAt{0};
+    int m_relayAudioStreak{0};
+    uint32_t m_changeAddrSeq{0};
+    QString m_localIpSig;
+    double m_lastIpCheckAt{0};
+    QSet<uint64_t> m_seenAudioSeqs;
+    std::deque<uint64_t> m_seenAudioOrder;
     double m_startedAt{0};
     std::optional<Server> m_p2pPath;
     bool m_p2pSeen{false};

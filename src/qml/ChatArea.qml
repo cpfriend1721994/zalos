@@ -28,6 +28,10 @@ Rectangle {
     function followEnd(): void {
         if (messageList && typeof messageList.scrollToEnd === "function") messageList.scrollToEnd();
     }
+    // Deferred follow: re-checks at run time, so a scroll up between the queueing and the call wins.
+    function followEndIfSticky(): void {
+        if (messageList && messageList.stickToBottom) root.followEnd();
+    }
     readonly property int infoPanelWidth: Math.min(280, width)
     readonly property bool infoOverlay: ZaloClient.showConversationInfo && width < 620
     readonly property int composerLineHeight: Math.ceil(composerMetrics.height)
@@ -463,6 +467,7 @@ Rectangle {
             pinBar.expanded = false;
             const markerRow = ZaloClient.messageModel.unreadMarkerRow();
             messageList.stickToBottom = markerRow < 0;
+            messageList.endReached = false;
             if (markerRow >= 0) Qt.callLater(() => messageList.positionViewAtIndex(markerRow, ListView.Beginning));
         }
         function onGroupMembersChanged(groupId: string) {
@@ -1305,9 +1310,13 @@ Rectangle {
                     if (end > messageList.contentY) messageList.contentY = end;
                     messageList.autoScrolling = false;
                     messageList.stickToBottom = true;
+                    messageList.endReached = true;
                 }
 
                 property bool stickToBottom: true
+                // False until the list has been at the end since the conversation opened: until then a contentY
+                // drop is the first layout settling, not the user scrolling up.
+                property bool endReached: false
                 property int countBeforeReset: 0
                 readonly property real distanceToEnd: Math.max(0, originY + contentHeight + bottomMargin - height - contentY)
                 property real lastContentY: 0
@@ -1317,15 +1326,18 @@ Rectangle {
                     lastContentY = contentY;
                     if (autoScrolling || resetting || count === 0) return;
                     const distance = Math.max(0, originY + contentHeight + bottomMargin - height - contentY);
-                    if (contentY < previous - 0.5 && distance > 2) stickToBottom = false;
-                    else if (distance < 48) stickToBottom = true;
+                    // Re-follow only at the end or on a move down near it: contentYChanged also fires with an
+                    // unchanged contentY while the layout settles, which must not undo a scroll up.
+                    if (distance <= 2) endReached = true;
+                    if (contentY < previous - 0.5 && distance > 2 && endReached) stickToBottom = false;
+                    else if (distance <= 2 || (contentY > previous + 0.5 && distance < 48)) stickToBottom = true;
                 }
                 onAtYEndChanged: if (atYEnd) root.newBelow = 0
                 onCountChanged: {
-                    if (stickToBottom) Qt.callLater(root.followEnd);
+                    if (stickToBottom) Qt.callLater(root.followEndIfSticky);
                 }
                 onContentHeightChanged: {
-                    if (stickToBottom && !moving) Qt.callLater(root.followEnd);
+                    if (stickToBottom && !moving) Qt.callLater(root.followEndIfSticky);
                 }
                 onHeightChanged: {
                     if (stickToBottom || distanceToEnd < 48) {

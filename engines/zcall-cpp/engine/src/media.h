@@ -74,6 +74,7 @@ public:
     virtual void mediaEarlyAudio(const QString& phase) = 0;
     virtual void mediaAudioFault(const QString& kind) = 0;
     virtual void mediaMicVolume(int pct) = 0;
+    virtual void mediaMicAutoGain(bool) {}
     virtual void mediaMicLevel(int level) = 0;
     virtual void mediaRoster(const QVector<uint32_t>& uids) = 0;
     virtual void mediaMemberLeft(uint32_t uid) = 0;
@@ -102,6 +103,7 @@ public:
     virtual bool hasDeviceControl() const { return false; }
     virtual void setDevice(const QString&, const QString&) {}
     virtual void setMicVolume(double) {}
+    virtual void setMicAutoGain(bool) {}
     virtual void setSpeaker(bool) {}
     virtual bool hasVideo() const { return false; }
     virtual void sendVideoFrame(const OutVideoFrame&) {}

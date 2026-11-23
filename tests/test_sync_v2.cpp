@@ -39,6 +39,7 @@ private slots:
     void metadataNegativeVectorRejected();
     void keyPairAndAgreementRoundTrip();
     void protoSyncV2ChunkParsesPartitionAndMessage();
+    void protoSyncV2ConversationAndMetaFields();
     void fallbackDecisions();
 };
 
@@ -259,6 +260,80 @@ void TestSyncV2::protoSyncV2ChunkParsesPartitionAndMessage() {
     QCOMPARE(m.attaches.size(), 1);
     QCOMPARE(m.attaches.at(0).title, QStringLiteral("photo.jpg"));
     QCOMPARE(m.attaches.at(0).href, QStringLiteral("https://example/p.jpg"));
+}
+
+void TestSyncV2::protoSyncV2ConversationAndMetaFields() {
+    auto fieldBytes = [](int fn, const QByteArray& body) {
+        QByteArray out;
+        out.append(static_cast<char>((fn << 3) | 2));
+        int len = body.size();
+        while (len >= 0x80) {
+            out.append(static_cast<char>((len & 0x7f) | 0x80));
+            len >>= 7;
+        }
+        out.append(static_cast<char>(len));
+        out.append(body);
+        return out;
+    };
+    auto fieldVarint = [](int fn, quint64 v) {
+        QByteArray out;
+        out.append(static_cast<char>(fn << 3));
+        while (v >= 0x80) {
+            out.append(static_cast<char>((v & 0x7f) | 0x80));
+            v >>= 7;
+        }
+        out.append(static_cast<char>(v));
+        return out;
+    };
+
+    const QByteArray c1 = fieldBytes(1, QByteArray("CONV1")) + fieldVarint(2, 1) + fieldVarint(3, 1)
+                          + fieldVarint(4, 1700000100000ULL) + fieldVarint(5, 55) + fieldVarint(6, 99);
+    const QByteArray c2 = fieldBytes(1, QByteArray("GRP2")) + fieldVarint(2, 2) + fieldVarint(4, 1700000200000ULL);
+    const QByteArray convChunk = fieldBytes(2, c1) + fieldBytes(2, c2);
+
+    QVector<ParsedSyncV2Conversation> convs;
+    QVERIFY(parseSyncV2ConversationChunk(convChunk, &convs));
+    QCOMPARE(convs.size(), 2);
+    QCOMPARE(convs.at(0).convId, QStringLiteral("CONV1"));
+    QCOMPARE(convs.at(0).convType, 1);
+    QVERIFY(convs.at(0).respondedByMe);
+    QCOMPARE(convs.at(0).lastTs, quint64(1700000100000ULL));
+    QCOMPARE(convs.at(0).lastGlobalId, quint64(55));
+    QCOMPARE(convs.at(0).lastClientId, quint64(99));
+    QCOMPARE(convs.at(1).convId, QStringLiteral("GRP2"));
+    QCOMPARE(convs.at(1).convType, 2);
+
+    const QByteArray mention = fieldBytes(1, QByteArray("u-ment")) + fieldVarint(2, 1) + fieldVarint(3, 5)
+                               + fieldVarint(4, 0);
+    const QByteArray quote = fieldBytes(2, QByteArray("oneone/u-owner")) + fieldVarint(3, 1700000000000ULL)
+                             + fieldBytes(4, QByteArray("Owner Name")) + fieldVarint(5, 321) + fieldVarint(6, 654)
+                             + fieldBytes(7, QByteArray("quoted text")) + fieldVarint(8, 1) + fieldVarint(9, 1000);
+    const QByteArray meta = fieldBytes(2, mention) + fieldBytes(4, quote) + fieldVarint(6, 60000);
+    const QByteArray msg = fieldBytes(1, QByteArray("oneone/u-sender")) + fieldVarint(2, 2002)
+                         + fieldVarint(4, 1) + fieldVarint(5, 1700000050000ULL)
+                         + fieldBytes(6, QByteArray("g2002")) + fieldBytes(7, QByteArray("@Owner hi"))
+                         + fieldBytes(8, meta);
+    const QByteArray msgChunk = fieldBytes(2, fieldBytes(1, QByteArray("oneone/u-peer")) + fieldBytes(2, msg));
+
+    QVector<ParsedSyncV2Conversation> rejected;
+    QVERIFY(!parseSyncV2ConversationChunk(msgChunk, &rejected));
+
+    QVector<ParsedSyncV2Partition> parts;
+    QVERIFY(parseSyncV2Chunk(msgChunk, &parts));
+    QCOMPARE(parts.size(), 1);
+    const ParsedSyncV2Message& parsed = parts.at(0).messages.at(0);
+    QCOMPARE(parsed.ttl, quint64(60000));
+    QCOMPARE(parsed.mentions.size(), 1);
+    QCOMPARE(parsed.mentions.at(0).uid, QStringLiteral("u-ment"));
+    QCOMPARE(parsed.mentions.at(0).pos, 1);
+    QCOMPARE(parsed.mentions.at(0).len, 5);
+    QVERIFY(parsed.quote.has_value());
+    QCOMPARE(parsed.quote->ownerId, QStringLiteral("oneone/u-owner"));
+    QCOMPARE(parsed.quote->globalMsgId, quint64(654));
+    QCOMPARE(parsed.quote->cliMsgId, quint64(321));
+    QCOMPARE(parsed.quote->msg, QStringLiteral("quoted text"));
+    QCOMPARE(parsed.quote->fromD, QStringLiteral("Owner Name"));
+    QCOMPARE(parsed.quote->ttl, quint64(1000));
 }
 
 void TestSyncV2::fallbackDecisions() {

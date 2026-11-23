@@ -3,6 +3,7 @@
 #include "json_cpp.h"
 #include "send_rate.h"
 #include "vectors.h"
+#include "zrtc_media.h"
 #include "wire/ipc_crypto.h"
 #include "wire/rtcp.h"
 #include "wire/rtp.h"
@@ -532,6 +533,58 @@ private Q_SLOTS:
         sr.tick(true, std::nullopt);
         QCOMPARE(sr.totals().twccPkts, int64_t(4));
         QCOMPARE(sr.totals().twccLost, int64_t(0));
+    }
+
+    void changeAddressAndP2pSignalPackets() {
+        const QByteArray sess("SESSION123");
+        const QByteArray ca = buildChangeAddressPacket(1001u, 0xdeadbeefu, 42u, sess);
+        const auto u = unwrapPacket(ca);
+        QVERIFY(u.has_value());
+        QVERIFY(u->isControl);
+        QCOMPARE(u->msgType, MsgType::Control);
+        QCOMPARE(u->magic, 0x01);
+        QCOMPARE(u->cmd, Cmd::ChangeAddress);
+        QCOMPARE(u->subCmd, 1);
+        QCOMPARE(u->seq, 42u);
+        QCOMPARE(u->uid, 1001u);
+        QCOMPARE(u->token, 0xdeadbeefu);
+
+        const QByteArray sig = buildP2pSignal(true, 0x12345678u, 2, 7);
+        QCOMPARE(sig.size(), P2p::HeaderLen + 5);
+        const auto ps = unwrapPacket(sig);
+        QVERIFY(ps.has_value());
+        QCOMPARE(ps->msgType, MsgType::P2pExt);
+        QCOMPARE(ps->cmd, P2p::Signal);
+        QCOMPARE(ps->b2, 1);
+        QCOMPARE(ps->field38, uint32_t(0x12345678u));
+        QCOMPARE(ps->data.size(), 5);
+        QCOMPARE(static_cast<uint8_t>(ps->data.at(0)), uint8_t(2));
+    }
+
+    void rocTrackerResetsOnBackwardJump() {
+        RocTracker rt;
+        QCOMPARE(rt.guess(1), 0u);
+        rt.update(200, 1);
+        QCOMPARE(rt.roc, 1u);
+        rt.update(180, 1);
+        QCOMPARE(rt.roc, 1u);
+        QCOMPARE(*rt.last, int64_t(200));
+        rt.update(5, 0);
+        QCOMPARE(rt.roc, 0u);
+        QCOMPARE(*rt.last, int64_t(5));
+    }
+
+    void sendRateUsesDefaultFallbackLadder() {
+        double now = 1000.0;
+        SendRate::Options o;
+        o.localSsrc = 4242;
+        o.log = [](const QString&) {};
+        o.onProfile = [](const SendProfile&) {};
+        o.now = [&now] { return now; };
+        SendRate sr(QJsonObject{}, o);
+        const SendProfile p = sr.profile();
+        QVERIFY(p.width > 0);
+        QVERIFY(p.bitrate > 0);
     }
 };
 

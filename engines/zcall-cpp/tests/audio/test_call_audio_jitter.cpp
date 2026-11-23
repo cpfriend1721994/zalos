@@ -262,6 +262,22 @@ private slots:
         }
         QVERIFY(!h.s.hasCarry());
     }
+
+    void largeSequenceJumpResetsStream() {
+        Harness h(2, 10);
+        int16_t out[kFrame];
+        for (int i = 0; i < 6; ++i) h.push(i, i * 0.02);
+        QVERIFY(h.pull(out));
+        QVERIFY(same(out, expectedFrame(0, 1)));
+        for (int i = 1000; i < 1006; ++i) h.push(i, 1.0 + (i - 1000) * 0.02);
+        QCOMPARE(h.stats.get(Stat::Reset), int64_t(1));
+        QVERIFY(h.pull(out));
+        QVERIFY(same(out, expectedFrame(1000 % 256, 1)));
+        for (int i = 10; i < 16; ++i) h.push(i, 2.0 + (i - 10) * 0.02);
+        QCOMPARE(h.stats.get(Stat::Reset), int64_t(2));
+        QVERIFY(h.pull(out));
+        QVERIFY(same(out, expectedFrame(10, 1)));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestCallAudioJitter)

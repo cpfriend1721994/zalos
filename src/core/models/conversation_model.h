@@ -32,6 +32,7 @@ struct ConversationItem {
     qint64 lastTs{0};
     bool isTyping{false};
     bool hasUnreadMention{false};
+    QString foldedName;
 };
 
 class ConversationModel : public QAbstractListModel {
@@ -169,7 +170,9 @@ private:
     QSet<QString> m_officialIds;
     QString m_myUid;
     bool strangerId(const QString& convId, bool isGroup) const;
+    bool isOfficialTitle(const ConversationItem& item, const QString& key) const;
     bool isSystemOrOfficial(const ConversationItem& item) const;
+    static void stampFolded(ConversationItem& item);
     void stampLabel(ConversationItem& item) const;
     QHash<QString, QVariantMap> m_labels;
 };
