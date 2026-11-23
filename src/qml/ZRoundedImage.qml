@@ -20,17 +20,36 @@ Item {
     property bool topOnly: false
     property bool cache: true
     readonly property bool gpu: GraphicsInfo.api !== GraphicsInfo.Software
+    readonly property bool ready: img.status === Image.Ready || root.animReady
+    readonly property real screenDpr: Screen.devicePixelRatio || 1
+    // Keep maskLoader armed across transient Image.Loading reloads (e.g. DPR changes)
+    // so Qt's updatePixelRatioHelper never sees a synchronous mask teardown mid-traversal.
+    property bool maskArmed: false
     readonly property bool masked: gpu && maskLoader.status === Loader.Ready
 
-    onWidthChanged: if (masked && !contentLayer.live) contentLayer.scheduleUpdate()
-    onHeightChanged: if (masked && !contentLayer.live) contentLayer.scheduleUpdate()
-    onMaskedChanged: if (masked && !contentLayer.live) contentLayer.scheduleUpdate()
+    onReadyChanged: if (ready) maskArmed = true
+    onAnimReadyChanged: if (!animReady && (img.status === Image.Null || img.status === Image.Error)) maskArmed = false
+    onWidthChanged: {
+        if (masked && !contentLayer.live) contentLayer.scheduleUpdate();
+        if (masked) maskLayer.scheduleUpdate();
+    }
+    onHeightChanged: {
+        if (masked && !contentLayer.live) contentLayer.scheduleUpdate();
+        if (masked) maskLayer.scheduleUpdate();
+    }
+    onRadiusChanged: if (masked) maskLayer.scheduleUpdate()
+    onTopOnlyChanged: if (masked) maskLayer.scheduleUpdate()
+    onScreenDprChanged: if (masked) maskLayer.scheduleUpdate()
+    onMaskedChanged: {
+        if (masked && !contentLayer.live) contentLayer.scheduleUpdate();
+        if (masked) maskLayer.scheduleUpdate();
+    }
 
     Rectangle {
         anchors.fill: parent
         radius: root.radius
         color: Theme.mediaPlaceholder
-        visible: img.status !== Image.Ready && !root.animReady
+        visible: !root.ready
     }
     Item {
         id: content
@@ -44,7 +63,14 @@ Item {
             smooth: true
             fillMode: Image.PreserveAspectCrop
             visible: !root.animReady
-            onStatusChanged: if (status === Image.Ready && root.masked && !contentLayer.live) contentLayer.scheduleUpdate()
+            onStatusChanged: {
+                if (status === Image.Ready && root.masked) {
+                    if (!contentLayer.live) contentLayer.scheduleUpdate();
+                    maskLayer.scheduleUpdate();
+                } else if ((status === Image.Null || status === Image.Error) && !root.animReady) {
+                    root.maskArmed = false;
+                }
+            }
             onSourceChanged: if (root.masked && !contentLayer.live) contentLayer.scheduleUpdate()
         }
         Loader {
@@ -72,8 +98,7 @@ Item {
     Item {
         id: maskShape
         anchors.fill: parent
-        layer.enabled: root.masked
-        visible: false
+        visible: root.masked
         Rectangle {
             anchors.fill: parent
             radius: root.radius
@@ -85,15 +110,25 @@ Item {
             }
         }
     }
+    ShaderEffectSource {
+        id: maskLayer
+        anchors.fill: maskShape
+        sourceItem: root.masked ? maskShape : null
+        hideSource: root.masked
+        live: false
+        visible: false
+    }
     Loader {
         id: maskLoader
         anchors.fill: content
-        active: root.gpu && root.radius > 0 && (img.status === Image.Ready || root.animReady)
+        active: root.gpu && root.radius > 0 && (root.ready || root.maskArmed)
+        visible: root.ready
         source: "ZMaskEffect.qml"
         onLoaded: {
             maskLoader.item.source = contentLayer;
-            maskLoader.item.maskSource = maskShape;
+            maskLoader.item.maskSource = maskLayer;
             if (!contentLayer.live) contentLayer.scheduleUpdate();
+            maskLayer.scheduleUpdate();
         }
     }
 }
