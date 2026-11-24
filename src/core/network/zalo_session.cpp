@@ -126,6 +126,7 @@ void ZaloSession::reset() {
     m_replacedByOtherClient = false;
     m_wsReconnectTimer.stop();
     disconnectRealtime();
+    m_pendingWsFrames.clear();
     m_uploadWaiters.clear();
     m_earlyFileDone.clear();
     m_pullPages.clear();
@@ -768,6 +769,18 @@ void ZaloSession::createGroup(const QString& name, const QStringList& members, C
         {"zsource", 601},
     };
     apiPost("group", "/api/group/create/v2", params, cb, {{"__params_in_query", "1"}});
+}
+
+void ZaloSession::sendReactSeen(const QString& threadId, bool isGroup, const QStringList& reactionIds, Callback cb) {
+    if (threadId.isEmpty() || reactionIds.isEmpty()) return;
+    QJsonArray infos;
+    for (const QString& id : reactionIds) {
+        QJsonObject info{{"msgIds", QJsonArray{id}}};
+        info.insert(isGroup ? QStringLiteral("groupId") : QStringLiteral("uid"), threadId);
+        infos.append(info);
+    }
+    apiPost("reaction", isGroup ? "/api/group/react_seen" : "/api/message/react_seen",
+            QJsonObject{{"seenInfos", infos}, {"imei", m_imei}}, cb);
 }
 
 void ZaloSession::addReaction(const QString& threadId, bool isGroup, const QJsonObject& msg, const QString& rIcon,
@@ -1683,6 +1696,97 @@ void ZaloSession::deleteQuickMessage(qint64 itemId, Callback cb) {
     apiGet("quick_message", "/api/quickmessage/delete", {{"itemIds", QJsonArray{itemId}}}, cb);
 }
 
+void ZaloSession::fetchBizAccount(const QString& fid, Callback cb) {
+    apiPost("profile", "/api/social/friend/get-bizacc", {{"fid", fid}}, std::move(cb));
+}
+
+void ZaloSession::registerCatalog(bool enable, Callback cb) {
+    apiPost("catalog", "/api/prodcatalog/catalog/register", {{"enable", enable ? 1 : 0}}, std::move(cb));
+}
+
+void ZaloSession::fetchCatalogList(int page, int limit, Callback cb) {
+    apiPost("catalog", "/api/prodcatalog/catalog/list",
+            {{"version_list_catalog", 0}, {"limit", limit}, {"last_product_id", -1}, {"page", page}},
+            std::move(cb));
+}
+
+void ZaloSession::createCatalog(const QString& name, Callback cb) {
+    apiPost("catalog", "/api/prodcatalog/catalog/create",
+            {{"catalog_name", name}, {"catalog_photo", QString()}}, std::move(cb));
+}
+
+void ZaloSession::updateCatalog(const QString& catalogId, const QString& name, Callback cb) {
+    apiPost("catalog", "/api/prodcatalog/catalog/update",
+            {{"catalog_id", catalogId}, {"catalog_name", name}, {"catalog_photo", QString()}},
+            std::move(cb));
+}
+
+void ZaloSession::deleteCatalog(const QString& catalogId, Callback cb) {
+    apiPost("catalog", "/api/prodcatalog/catalog/delete", {{"catalog_id", catalogId}}, std::move(cb));
+}
+
+void ZaloSession::fetchProductCatalogList(const QString& catalogId, int page, int limit, Callback cb) {
+    apiPost("catalog", "/api/prodcatalog/product/list",
+            {{"catalog_id", catalogId}, {"limit", limit}, {"version_catalog", 0},
+             {"last_product_id", -1}, {"page", page}},
+            std::move(cb));
+}
+
+void ZaloSession::createProductCatalog(const QString& catalogId, const QString& name, const QString& price,
+                                         const QString& description, const QStringList& photos, Callback cb) {
+    apiPost("catalog", "/api/prodcatalog/product/create",
+            {{"product_name", name}, {"price", price}, {"description", description},
+             {"product_photos", QJsonArray::fromStringList(photos)}, {"catalog_id", catalogId},
+             {"currency_unit", QStringLiteral("₫")}, {"create_time", QDateTime::currentMSecsSinceEpoch()}},
+            std::move(cb));
+}
+
+void ZaloSession::updateProductCatalog(const QString& catalogId, const QString& productId, const QString& name,
+                                         const QString& price, const QString& description, const QStringList& photos,
+                                         qint64 createTime, Callback cb) {
+    apiPost("catalog", "/api/prodcatalog/product/update",
+            {{"product_id", productId}, {"product_name", name}, {"price", price}, {"description", description},
+             {"product_photos", QJsonArray::fromStringList(photos)}, {"catalog_id", catalogId},
+             {"currency_unit", QStringLiteral("₫")},
+             {"create_time", createTime > 0 ? createTime : QDateTime::currentMSecsSinceEpoch()}},
+            std::move(cb));
+}
+
+void ZaloSession::deleteProductCatalog(const QString& catalogId, const QStringList& productIds, Callback cb) {
+    apiPost("catalog", "/api/prodcatalog/product/mdelete",
+            {{"product_ids", QJsonArray::fromStringList(productIds)}, {"catalog_id", catalogId}},
+            std::move(cb));
+}
+
+void ZaloSession::fetchAutoReplyList(const QString& lang, Callback cb) {
+    apiGet("auto_reply", "/api/autoreply/list", {{"version", 0}, {"cliLang", lang}}, std::move(cb));
+}
+
+void ZaloSession::createAutoReply(const QString& lang, const QString& content, bool enable, qint64 startTime,
+                                    qint64 endTime, int scope, const QStringList& uids, Callback cb) {
+    apiPost("auto_reply", "/api/autoreply/create",
+            {{"cliLang", lang}, {"enable", enable}, {"content", content},
+             {"startTime", startTime}, {"endTime", endTime},
+             {"recurrence", QJsonArray{QStringLiteral("RRULE:FREQ=DAILY;")}}, {"scope", scope},
+             {"uids", (scope == 2 || scope == 3) ? QJsonArray::fromStringList(uids) : QJsonArray{}}},
+            std::move(cb));
+}
+
+void ZaloSession::updateAutoReply(const QString& lang, qint64 id, const QString& content, bool enable,
+                                    qint64 startTime, qint64 endTime, int scope, const QStringList& uids,
+                                    Callback cb) {
+    apiPost("auto_reply", "/api/autoreply/update",
+            {{"cliLang", lang}, {"id", id}, {"enable", enable}, {"content", content},
+             {"startTime", startTime}, {"endTime", endTime},
+             {"recurrence", QJsonArray{QStringLiteral("RRULE:FREQ=DAILY;")}}, {"scope", scope},
+             {"uids", (scope == 2 || scope == 3) ? QJsonArray::fromStringList(uids) : QJsonArray{}}},
+            std::move(cb));
+}
+
+void ZaloSession::deleteAutoReply(const QString& lang, qint64 id, Callback cb) {
+    apiPost("auto_reply", "/api/autoreply/delete", {{"cliLang", lang}, {"id", id}}, std::move(cb));
+}
+
 void ZaloSession::getSettings(Callback cb) {
     apiGet("chat", "/api/setting/me", {}, cb, true);
 }
@@ -2130,6 +2234,7 @@ void ZaloSession::probeRealtime() {
     if (!m_realtimeReady) {
         logRealtime(QStringLiteral("probe: resetting half-open socket after network change or resume"));
         disconnectRealtime();
+    m_pendingWsFrames.clear();
         connectRealtime();
         return;
     }
@@ -2179,8 +2284,6 @@ void ZaloSession::connectRealtime() {
 
     const QString base = urls.at(qMin(m_wsUrlIndex, int(urls.size()) - 1)).toString();
     QUrl wsUrl = makeUrl(base, {{"t", QString::number(QDateTime::currentMSecsSinceEpoch())}});
-    // zpw_ws hosts come without a path ("wss://ws4-msg.chat.zalo.me?..."): newer Qt (6.10) sends "GET /?...",
-    // Qt 6.4 sends "GET ?..." and the server answers HTTP 501.
     if (wsUrl.path().isEmpty()) wsUrl.setPath(QStringLiteral("/"));
     QNetworkRequest req(wsUrl);
     req.setHeader(QNetworkRequest::UserAgentHeader, m_userAgent);
@@ -2224,6 +2327,7 @@ void ZaloSession::disconnectRealtime() {
     m_pongWatchdog.stop();
     m_realtimeReady = false;
     m_cipherKey.clear();
+    m_pendingWsFrames.clear();
     if (m_ws) {
         QWebSocket* ws = m_ws;
         m_ws = nullptr;
@@ -2416,8 +2520,21 @@ bool ZaloSession::canPullQueue(int cmd, int subCmd) const {
     return m_serverQueues.contains(pair);
 }
 
+void ZaloSession::enqueuePendingWsFrame(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey) {
+    if (cmd == 2 && subCmd == 1) return;
+    constexpr int kMaxPendingOutbound = 32;
+    while (m_pendingWsFrames.size() >= kMaxPendingOutbound) m_pendingWsFrames.removeFirst();
+    m_pendingWsFrames.append(PendingWsFrame{cmd, subCmd, std::move(data), reqIdKey});
+}
+
 void ZaloSession::sendWs(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey) {
-    if (!m_ws || m_ws->state() != QAbstractSocket::ConnectedState) return;
+    if (!m_ws) return;
+    const auto state = m_ws->state();
+    if (state == QAbstractSocket::ConnectingState || (state == QAbstractSocket::ConnectedState && !m_realtimeReady)) {
+        enqueuePendingWsFrame(cmd, subCmd, std::move(data), reqIdKey);
+        return;
+    }
+    if (state != QAbstractSocket::ConnectedState) return;
     if (!reqIdKey.isEmpty()) data[reqIdKey] = QStringLiteral("req_%1").arg(m_wsRequestId++);
     const QByteArray payload = QJsonDocument(data).toJson(QJsonDocument::Compact);
     QByteArray frame(4, '\0');
@@ -2453,6 +2570,8 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
         m_realtimeReady = true;
         emit realtimeStateChanged(true);
         pullServerQueues();
+        const auto queued = std::exchange(m_pendingWsFrames, {});
+        for (const auto& f : queued) sendWs(f.cmd, f.subCmd, f.data, f.reqIdKey);
         return;
     }
     if (cmd == 3000) {
@@ -2545,7 +2664,8 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
 
     if (userLive || groupLive || userOld || groupOld) {
         const bool isGroup = groupLive || groupOld;
-        const QJsonArray msgs = splitReactionMessages(data.value(isGroup ? "groupMsgs" : "msgs").toArray(), isGroup);
+        const QJsonArray msgs = splitReactionMessages(data.value(isGroup ? "groupMsgs" : "msgs").toArray(), isGroup,
+                                                     userLive || groupLive);
         if (!msgs.isEmpty() || userOld || groupOld) emit messagesReceived(msgs, isGroup, userOld || groupOld);
         return;
     }
@@ -2555,7 +2675,7 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
     }
 
     if (cmd == 612 || cmd == 610 || cmd == 611) {
-        emitReactionArrays(data, cmd != 611, cmd != 610);
+        emitReactionArrays(data, cmd != 611, cmd != 610, cmd == 612);
         return;
     }
 
@@ -2602,11 +2722,11 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
 
     if (cmd == 601 || cmd == 603 || cmd == 604) {
         handleControls(data.value("controls").toArray());
-        emitReactionArrays(data, true, true);
+        emitReactionArrays(data, true, true, true);
     }
 }
 
-void ZaloSession::emitReactionArrays(const QJsonObject& data, bool users, bool groups) {
+void ZaloSession::emitReactionArrays(const QJsonObject& data, bool users, bool groups, bool live) {
     auto normalise = [](const QJsonArray& in) {
         QJsonArray out;
         for (const QJsonValue& v : in) {
@@ -2619,15 +2739,15 @@ void ZaloSession::emitReactionArrays(const QJsonObject& data, bool users, bool g
     };
     if (users) {
         const QJsonArray reacts = normalise(data.value("reacts").toArray());
-        if (!reacts.isEmpty()) emit reactionsReceived(reacts, false);
+        if (!reacts.isEmpty()) emit reactionsReceived(reacts, false, live);
     }
     if (groups) {
         const QJsonArray reactGroups = normalise(data.value("reactGroups").toArray());
-        if (!reactGroups.isEmpty()) emit reactionsReceived(reactGroups, true);
+        if (!reactGroups.isEmpty()) emit reactionsReceived(reactGroups, true, live);
     }
 }
 
-QJsonArray ZaloSession::splitReactionMessages(const QJsonArray& msgs, bool isGroup) {
+QJsonArray ZaloSession::splitReactionMessages(const QJsonArray& msgs, bool isGroup, bool live) {
     QJsonArray kept, reactions;
     for (const QJsonValue& v : msgs) {
         const QJsonObject m = v.toObject();
@@ -2646,23 +2766,26 @@ QJsonArray ZaloSession::splitReactionMessages(const QJsonArray& msgs, bool isGro
         r["content"] = c;
         reactions.append(r);
     }
-    if (!reactions.isEmpty()) emit reactionsReceived(reactions, isGroup);
+    if (!reactions.isEmpty()) emit reactionsReceived(reactions, isGroup, live);
     return kept;
 }
 
 void ZaloSession::emitMessageBuckets(const QJsonObject& data, bool isOld) {
     QJsonArray users = data.value("msgs").toArray();
     for (const QJsonValue& v : data.value("pageMsgs").toArray()) users.append(v);
-    users = splitReactionMessages(users, false);
-    const QJsonArray groups = splitReactionMessages(data.value("groupMsgs").toArray(), true);
-    emitReactionArrays(data, true, true);
+    users = splitReactionMessages(users, false, false);
+    const QJsonArray groups = splitReactionMessages(data.value("groupMsgs").toArray(), true, false);
+    emitReactionArrays(data, true, true, false);
     if (!users.isEmpty()) emit messagesReceived(users, false, isOld);
     if (!groups.isEmpty()) emit messagesReceived(groups, true, isOld);
 }
 
 void ZaloSession::handleControls(const QJsonArray& controls) {
     for (const QJsonValue& v : controls) {
-        const QJsonObject content = v.toObject().value("content").toObject();
+        const QJsonValue rawContent = v.toObject().value("content");
+        const QJsonObject content = rawContent.isString()
+            ? QJsonDocument::fromJson(rawContent.toString().toUtf8()).object()
+            : rawContent.toObject();
         const QString type = content.value("act_type").toString();
         if (type == "file_done") {
             const QString fileId = content.value("fileId").toVariant().toString();

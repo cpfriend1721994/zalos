@@ -10,4 +10,4 @@ inline FallbackTrigger decideFallback(int pullErrorCode, bool confirmTimedOut, b
     return FallbackTrigger::None;
 }
 
-}  // namespace Zalos::Core::Sync::V2
+}

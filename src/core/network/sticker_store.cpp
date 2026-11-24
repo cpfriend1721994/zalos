@@ -298,8 +298,10 @@ void StickerStore::lookup(const QString& keyword, int limit, std::function<void(
     QPointer<StickerStore> self(this);
     auto finish = [self, done](const QList<qint64>& ids) {
         if (!self) return;
+        constexpr int kMaxInFlight = 4;
         auto results = std::make_shared<QHash<qint64, QVariantMap>>();
-        auto remaining = std::make_shared<int>(0);
+        auto pending = std::make_shared<QList<qint64>>();
+        auto inFlight = std::make_shared<int>(0);
         auto publish = [self, ids, results, done]() {
             if (!self) return;
             QVariantList list;
@@ -315,19 +317,39 @@ void StickerStore::lookup(const QString& keyword, int limit, std::function<void(
                 if (!cached.isEmpty()) results->insert(id, cached);
                 continue;
             }
-            ++*remaining;
-            session->fetchStickerDetail(id, [self, id, results, remaining, publish](bool ok, const QJsonValue& d, const QString&, int) {
-                if (self && ok) {
-                    const QVariantMap info = describe(d.toObject());
-                    if (!info.isEmpty()) {
-                        self->remember(info);
-                        results->insert(id, info);
-                    }
-                }
-                if (--*remaining == 0) publish();
-            });
+            pending->append(id);
         }
-        if (*remaining == 0) publish();
+        if (pending->isEmpty()) {
+            publish();
+            return;
+        }
+        auto pump = std::make_shared<std::function<void()>>();
+        *pump = [self, pending, inFlight, results, publish, pump]() {
+            if (!self) return;
+            ZaloSession* s2 = self->session();
+            while (*inFlight < kMaxInFlight && !pending->isEmpty()) {
+                if (!s2) {
+                    pending->clear();
+                    break;
+                }
+                const qint64 id = pending->takeFirst();
+                ++*inFlight;
+                s2->fetchStickerDetail(id, [self, id, results, pending, inFlight, publish, pump](bool ok, const QJsonValue& d, const QString&, int) {
+                    if (self && ok) {
+                        const QVariantMap info = describe(d.toObject());
+                        if (!info.isEmpty()) {
+                            self->remember(info);
+                            results->insert(id, info);
+                        }
+                    }
+                    --*inFlight;
+                    (*pump)();
+                    if (pending->isEmpty() && *inFlight == 0) publish();
+                });
+            }
+            if (pending->isEmpty() && *inFlight == 0) publish();
+        };
+        (*pump)();
     };
     s->searchStickers(keyword, [self, finish, keyword, limit](bool ok, const QJsonValue& data, const QString&, int) {
         if (!self) return;
@@ -379,7 +401,8 @@ void StickerStore::search(const QString& keyword) {
 }
 
 void StickerStore::loadBirthdayStickers() {
-    if (!m_birthday.isEmpty() || m_birthdayLoading || !session()) return;
+    if (m_birthdayAttempted || !m_birthday.isEmpty() || m_birthdayLoading || !session()) return;
+    m_birthdayAttempted = true;
     m_birthdayLoading = true;
     const quint64 gen = m_resetGen;
     QPointer<StickerStore> self(this);
@@ -431,6 +454,7 @@ void StickerStore::reset() {
     m_query.clear();
     m_birthday.clear();
     m_birthdayLoading = false;
+    m_birthdayAttempted = false;
     setStickers(kRecentId, {});
     if (wasLoading) emit loadingChanged();
     emit categoriesChanged();

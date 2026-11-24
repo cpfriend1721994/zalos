@@ -3,7 +3,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Templates as T
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import Zalos
 import "MediaSource.js" as MediaSource
 
@@ -91,6 +90,8 @@ Rectangle {
     Connections {
         target: ZaloClient
         function onCurrentConversationChanged() {
+            nameEditRow.isEditingName = false;
+            nameEditRow.editingConvId = "";
             root.showAllMembers = false;
             root.refreshMembers();
             root.refreshShared();
@@ -238,14 +239,14 @@ Rectangle {
             Layout.preferredHeight: 36
             radius: 18
             opacity: qa.actionEnabled ? 1.0 : 0.5
-            color: qa.active ? (ThemeManager.isDarkMode ? "#592E73BF" : Theme.zaloBlueLight)
+            color: qa.active ? ThemeManager.accentTonalColor
                              : (qaMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor)
 
             ZIcon {
                 anchors.centerIn: parent
                 name: qa.iconName
                 size: 18
-                color: qa.active ? (ThemeManager.isDarkMode ? "#45A3DD" : Theme.zaloBlue) : ThemeManager.textColor
+                color: qa.active ? ThemeManager.accentTonalTextColor : ThemeManager.textColor
             }
 
             MouseArea {
@@ -412,7 +413,7 @@ Rectangle {
                                 ToolTip.text: I18n.t("Đổi ảnh nhóm", "Change group photo")
                             }
                         }
-                        FileDialog {
+                        ZFilePicker {
                             id: groupPhotoDialog
                             title: I18n.t("Chọn ảnh nhóm", "Choose the group photo")
                             nameFilters: [I18n.t("Hình ảnh (*.jpg *.jpeg *.png *.webp)", "Images (*.jpg *.jpeg *.png *.webp)")]
@@ -427,6 +428,23 @@ Rectangle {
                         spacing: 6
 
                         property bool isEditingName: false
+                        property string editingConvId: ""
+
+                        function commitRename(): void {
+                            const cid = nameEditRow.editingConvId;
+                            if (cid.length > 0 && cid === ZaloClient.currentConversationId) {
+                                const trimmed = nameEditField.text.trim();
+                                if (trimmed.length > 0 || !ZaloClient.currentConversationIsGroup) {
+                                    if (ZaloClient.currentConversationIsGroup) {
+                                        ZaloClient.changeGroupName(cid, trimmed);
+                                    } else {
+                                        ZaloClient.changeFriendAlias(cid, trimmed);
+                                    }
+                                }
+                            }
+                            nameEditRow.isEditingName = false;
+                            nameEditRow.editingConvId = "";
+                        }
 
                         Item {
                             visible: renameButton.visible
@@ -439,6 +457,7 @@ Rectangle {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: ZaloClient.currentConversationName
+                            textFormat: Text.PlainText
                             font.family: Theme.fontFamily
                             font.weight: Font.DemiBold
                             font.pixelSize: 16
@@ -462,6 +481,7 @@ Rectangle {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
+                                    nameEditRow.editingConvId = ZaloClient.currentConversationId
                                     nameEditRow.isEditingName = true
                                     nameEditField.text = ZaloClient.currentConversationName
                                     nameEditField.forceActiveFocus()
@@ -484,16 +504,7 @@ Rectangle {
                                 border.color: Theme.zaloBlue
                                 border.width: 1
                             }
-                            onAccepted: {
-                                if (text.trim().length > 0 || !ZaloClient.currentConversationIsGroup) {
-                                    if (ZaloClient.currentConversationIsGroup) {
-                                        ZaloClient.changeGroupName(ZaloClient.currentConversationId, text.trim())
-                                    } else {
-                                        ZaloClient.changeFriendAlias(ZaloClient.currentConversationId, text.trim())
-                                    }
-                                }
-                                nameEditRow.isEditingName = false
-                            }
+                            onAccepted: nameEditRow.commitRename()
                         }
 
                         Rectangle {
@@ -506,16 +517,7 @@ Rectangle {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    if (nameEditField.text.trim().length > 0 || !ZaloClient.currentConversationIsGroup) {
-                                        if (ZaloClient.currentConversationIsGroup) {
-                                            ZaloClient.changeGroupName(ZaloClient.currentConversationId, nameEditField.text.trim())
-                                        } else {
-                                            ZaloClient.changeFriendAlias(ZaloClient.currentConversationId, nameEditField.text.trim())
-                                        }
-                                    }
-                                    nameEditRow.isEditingName = false
-                                }
+                                onClicked: nameEditRow.commitRename()
                             }
                         }
                     }
@@ -725,7 +727,7 @@ Rectangle {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 6
-                        ZIcon { name: "clock"; size: 16; color: ThemeManager.isDarkMode ? "#45A3DD" : Theme.zaloBlue }
+                        ZIcon { name: "clock"; size: 16; color: ThemeManager.accentTonalTextColor }
                         Text {
                             Layout.fillWidth: true
                             text: I18n.t("Tin nhắn tự xóa", "Disappearing messages")
@@ -883,8 +885,13 @@ Rectangle {
                                     Layout.fillWidth: true
                                     spacing: 0
                                     Text {
+                                        id: remTitleText
                                         Layout.fillWidth: true
-                                        text: remRow.remTitle
+                                        text: ZaloClient.linkifyText(remRow.remTitle)
+                                        textFormat: Text.StyledText
+                                        linkColor: Theme.linkColor
+                                        onLinkActivated: function(link) { ZaloClient.openLink(link); }
+                                        HoverHandler { cursorShape: remTitleText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
@@ -968,8 +975,17 @@ Rectangle {
                         color: ThemeManager.secondaryTextColor
                     }
 
-                    Repeater {
+                    ListView {
+                        id: membersList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.showAllMembers ? Math.min(contentHeight, 360) : contentHeight
+                        clip: true
+                        interactive: root.showAllMembers && contentHeight > height
+                        boundsBehavior: Flickable.StopAtBounds
+                        cacheBuffer: 160
+                        reuseItems: true
                         model: root.showAllMembers ? root.members : root.members.slice(0, root.memberLimit)
+                        ScrollBar.vertical: ScrollBar { policy: root.showAllMembers && membersList.contentHeight > membersList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
                         delegate: Rectangle {
                             id: memberRow
                             required property var modelData
@@ -980,8 +996,8 @@ Rectangle {
                             readonly property bool memberIsMe: !!memberRow.modelData.isMe
                             readonly property bool canManage: !memberRow.memberIsMe
                                 && (root.myRole === "owner" || (root.myRole === "admin" && memberRow.memberRole === "member"))
-                            Layout.fillWidth: true
-                            implicitHeight: 44
+                            width: membersList.width
+                            height: 44
                             radius: 6
                             color: memberHover.hovered ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
                             HoverHandler { id: memberHover }
@@ -1006,6 +1022,7 @@ Rectangle {
                                         Layout.fillWidth: true
                                         text: (memberRow.memberName.length > 0 ? memberRow.memberName : I18n.t("Đang tải tên…", "Loading name…"))
                                               + (memberRow.memberIsMe ? I18n.t(" (Bạn)", " (You)") : "")
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
@@ -1111,9 +1128,24 @@ Rectangle {
                                 required property var modelData
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: width
-                                Image {
+                                Rectangle {
                                     anchors.fill: parent
-                                    source: MediaSource.toSource(mediaCell.modelData.thumb)
+                                    radius: 4
+                                    color: Theme.mediaPlaceholder
+                                    ZIcon {
+                                        objectName: "sharedMediaGlyph"
+                                        anchors.centerIn: parent
+                                        visible: !(mediaThumb.status === Image.Ready && mediaThumb.source.toString().length > 0)
+                                                 && !mediaCell.modelData.isVideo
+                                        name: "image"
+                                        size: 20
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+                                }
+                                Image {
+                                    id: mediaThumb
+                                    anchors.fill: parent
+                                    source: (mediaCell.modelData.thumb || "").length > 0 ? MediaSource.toSource(mediaCell.modelData.thumb) : ""
                                     asynchronous: true
                                     fillMode: Image.PreserveAspectCrop
                                     sourceSize.width: 160

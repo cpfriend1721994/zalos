@@ -94,7 +94,6 @@ private slots:
         auto key = DbCross::deriveAes256Key(privateKey);
         QCOMPARE(key.size(), 32UL);
 
-        // Verifies uppercase derivation for the session key protocol
         QCOMPARE(static_cast<char>(key[10]), 'A');
         QCOMPARE(static_cast<char>(key[15]), 'F');
     }
@@ -113,10 +112,7 @@ private slots:
     }
 
     void testBinNetTlvParsing() {
-        // Construct a synthetic TLV packet:
-        // Key 0x0b (message text), length 12: "Xin chao Zalo" (LE: key=0x0b, 0, 0, 0, len=13, 0, 0, 0)
         std::vector<uint8_t> tlvPacket;
-        // Key 0x0b
         tlvPacket.push_back(0x0b); tlvPacket.push_back(0x00); tlvPacket.push_back(0x00); tlvPacket.push_back(0x00);
         std::string testText = "Xin chao Zalo";
         uint32_t textLen = static_cast<uint32_t>(testText.size());
@@ -131,7 +127,7 @@ private slots:
     }
 
     void testChunkedResetIvDecryption() {
-        std::vector<uint8_t> key(32, 0x41); // 'A'
+        std::vector<uint8_t> key(32, 0x41);
         std::vector<uint8_t> emptyCt;
         std::vector<uint8_t> pt;
         bool ok = DbCross::decryptAes256CbcChunkedResetIv(emptyCt, key, pt);

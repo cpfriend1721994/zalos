@@ -24,143 +24,14 @@ _has_host_lib() {
     fi
 }
 
-_need_openssl3=""
-if [ -d "${APPDIR}/usr/lib/openssl3-fallback" ] \
-   && { ! _has_host_lib "libcrypto\.so\.3" || ! _has_host_lib "libssl\.so\.3"; }; then
-    _need_openssl3="1"
+export ZALOS_BUNDLED_QT=1
+export LD_LIBRARY_PATH="${APPDIR}/usr/lib/qt6-fallback/lib:${APPDIR}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+if [ -d "${APPDIR}/usr/lib/xkb-fallback" ] && ! _has_host_lib "libxkbcommon-x11\.so\.0"; then
+    export LD_LIBRARY_PATH="${APPDIR}/usr/lib/xkb-fallback:${LD_LIBRARY_PATH}"
 fi
-
-# The system Qt is used only inside the range Zalos is built and tested against (Qt 6.4 to 6.12);
-# anything older or newer runs on the bundled Qt instead.
-_qt_min_minor=4
-_qt_max_minor=12
-_use_host_qt=""
-if [ "${ZALOS_FORCE_BUNDLED_QT:-0}" != "1" ] && [ -d "${APPDIR}/usr/lib/qt6-fallback/lib" ]; then
-    _probe_ld="${LD_LIBRARY_PATH:-}"
-    if [ -n "${_need_openssl3}" ]; then
-        _probe_ld="${APPDIR}/usr/lib/openssl3-fallback${_probe_ld:+:${_probe_ld}}"
-    fi
-    if _ldd_out="$(LD_LIBRARY_PATH="${_probe_ld}" ldd -r "${APPDIR}/usr/bin/zalos" 2>&1)" \
-       && ! printf '%s\n' "${_ldd_out}" | grep -Eq "not found|undefined symbol|version .* not found"; then
-        _host_qtcore="$(printf '%s\n' "${_ldd_out}" | sed -n 's/.*libQt6Core\.so\.6 => \([^ ]*\).*/\1/p' | head -n1)"
-        _host_qtcore="$(readlink -f "${_host_qtcore}" 2>/dev/null || true)"
-        _host_qt_minor="$(printf '%s\n' "${_host_qtcore##*/}" | sed -n 's/^libQt6Core\.so\.6\.\([0-9][0-9]*\)\..*/\1/p')"
-        _qt_in_range=""
-        if [ -n "${_host_qt_minor}" ] && [ "${_host_qt_minor}" -ge "${_qt_min_minor}" ] \
-           && [ "${_host_qt_minor}" -le "${_qt_max_minor}" ]; then
-            _qt_in_range="1"
-        fi
-        _has_qml=""
-        for _qdir in /usr/lib/qt6/qml /usr/lib64/qt6/qml /usr/lib/*/qt6/qml; do
-            if [ -d "${_qdir}/QtQuick/Controls" ] \
-               && [ -d "${_qdir}/QtQuick/Dialogs" ] \
-               && [ -d "${_qdir}/QtQuick/Shapes" ] \
-               && [ -d "${_qdir}/QtQuick/Layouts" ] \
-               && [ -d "${_qdir}/QtQuick/Window" ] \
-               && [ -d "${_qdir}/QtQuick/Templates" ] \
-               && [ -d "${_qdir}/QtMultimedia" ] \
-               && [ -d "${_qdir}/QtCore" ]; then
-                _has_qml="1"
-                break
-            fi
-        done
-        _has_sqlite=""
-        _has_tls=""
-        _has_platform=""
-        _has_multimedia=""
-        _has_svg=""
-        for _pdir in /usr/lib/qt6/plugins /usr/lib64/qt6/plugins /usr/lib/*/qt6/plugins; do
-            [ -f "${_pdir}/sqldrivers/libqsqlite.so" ] && _has_sqlite="1"
-            [ -f "${_pdir}/tls/libqopensslbackend.so" ] && _has_tls="1"
-            [ -f "${_pdir}/imageformats/libqsvg.so" ] && _has_svg="1"
-            if [ -f "${_pdir}/platforms/libqxcb.so" ] || ls "${_pdir}"/platforms/libqwayland*.so >/dev/null 2>&1; then
-                _has_platform="1"
-            fi
-            if ls "${_pdir}"/multimedia/*.so >/dev/null 2>&1; then
-                _has_multimedia="1"
-            fi
-        done
-        if [ -n "${_qt_in_range}" ] && [ -n "${_has_qml}" ] && [ -n "${_has_sqlite}" ] && [ -n "${_has_tls}" ] \
-           && [ -n "${_has_platform}" ] && [ -n "${_has_multimedia}" ] && [ -n "${_has_svg}" ]; then
-            _use_host_qt="1"
-        fi
-    fi
-elif [ ! -d "${APPDIR}/usr/lib/qt6-fallback/lib" ]; then
-    _use_host_qt="1"
-fi
-
-_qt_guard="${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/Zalos/apprun-host-qt.v2"
-_qt_guard_arm=""
-if [ -n "${_use_host_qt}" ] && [ -d "${APPDIR}/usr/lib/qt6-fallback/lib" ] && [ "${ZALOS_FORCE_HOST_QT:-0}" != "1" ]; then
-    _qtcore="$(printf '%s\n' "${_ldd_out:-}" | sed -n 's/.*libQt6Core\.so\.6 => \([^ ]*\).*/\1/p' | head -n1)"
-    _qt_sig="$(stat -Lc '%n:%s:%Y' "${_qtcore}" 2>/dev/null || echo unknown)"
-    _qt_state="$(head -n1 "${_qt_guard}" 2>/dev/null || true)"
-    if [ "${_qt_state}" = "pending ${_qt_sig}" ] || [ "${_qt_state}" = "broken ${_qt_sig}" ]; then
-        printf 'broken %s\n' "${_qt_sig}" > "${_qt_guard}" 2>/dev/null || true
-        echo "[zalos] system Qt (${_qtcore}) failed to start last time; using the bundled Qt. Delete ${_qt_guard} to retry." >&2
-        _use_host_qt=""
-    else
-        _qt_guard_arm="1"
-    fi
-fi
-
-_export_ssl_cert_file() {
-    if [ -z "${SSL_CERT_FILE:-}" ]; then
-        for _ca in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do
-            if [ -r "${_ca}" ]; then
-                export SSL_CERT_FILE="${_ca}"
-                break
-            fi
-        done
-    fi
-}
-
-if [ -n "${_use_host_qt}" ]; then
-    if [ -n "${_need_openssl3}" ]; then
-        export LD_LIBRARY_PATH="${APPDIR}/usr/lib/openssl3-fallback${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-        _export_ssl_cert_file
-    fi
-
-    if [ -d "${APPDIR}/usr/lib64/qt6/plugins" ]; then
-        export QT_PLUGIN_PATH="${APPDIR}/usr/lib64/qt6/plugins${QT_PLUGIN_PATH:+:${QT_PLUGIN_PATH}}"
-    fi
-
-    if [ -d "${APPDIR}/usr/lib/webp-fallback/imageformats" ]; then
-        _host_webp=""
-        if [ -n "${QT_PLUGIN_PATH:-}" ]; then
-            _saved_ifs="${IFS}"
-            IFS=:
-            for _d in ${QT_PLUGIN_PATH}; do
-                [ -n "${_d}" ] && [ -f "${_d}/imageformats/libqwebp.so" ] && _host_webp="1" && break
-            done
-            IFS="${_saved_ifs}"
-        fi
-        if [ -z "${_host_webp}" ]; then
-            for _d in /usr/lib/qt6/plugins /usr/lib64/qt6/plugins /usr/lib/*/qt6/plugins; do
-                [ -f "${_d}/imageformats/libqwebp.so" ] && _host_webp="1" && break
-            done
-        fi
-        [ -z "${_host_webp}" ] && export QT_PLUGIN_PATH="${APPDIR}/usr/lib/webp-fallback${QT_PLUGIN_PATH:+:${QT_PLUGIN_PATH}}"
-    fi
-
-    if [ -d "${APPDIR}/usr/lib64/qt6/qml" ]; then
-        export QML2_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml${QML2_IMPORT_PATH:+:${QML2_IMPORT_PATH}}"
-        export QML_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml${QML_IMPORT_PATH:+:${QML_IMPORT_PATH}}"
-    fi
-else
-    export ZALOS_BUNDLED_QT=1
-    export LD_LIBRARY_PATH="${APPDIR}/usr/lib/qt6-fallback/lib:${APPDIR}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-    if [ -n "${_need_openssl3}" ]; then
-        export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${APPDIR}/usr/lib/openssl3-fallback"
-        _export_ssl_cert_file
-    fi
-    if [ -d "${APPDIR}/usr/lib/xkb-fallback" ] && ! _has_host_lib "libxkbcommon-x11\.so\.0"; then
-        export LD_LIBRARY_PATH="${APPDIR}/usr/lib/xkb-fallback:${LD_LIBRARY_PATH}"
-    fi
-    export QT_PLUGIN_PATH="${APPDIR}/usr/lib/qt6-fallback/plugins"
-    export QML2_IMPORT_PATH="${APPDIR}/usr/lib/qt6-fallback/qml"
-    export QML_IMPORT_PATH="${APPDIR}/usr/lib/qt6-fallback/qml"
-fi
+export QT_PLUGIN_PATH="${APPDIR}/usr/lib/qt6-fallback/plugins"
+export QML2_IMPORT_PATH="${APPDIR}/usr/lib/qt6-fallback/qml"
+export QML_IMPORT_PATH="${APPDIR}/usr/lib/qt6-fallback/qml"
 
 
 export XDG_DATA_DIRS="${APPDIR}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
@@ -213,11 +84,6 @@ if [ "$#" -gt 0 ]; then
         esac
         _i=$((_i + 1))
     done
-fi
-
-if [ -n "${_qt_guard_arm}" ] && mkdir -p "$(dirname "${_qt_guard}")" 2>/dev/null \
-   && printf 'pending %s\n' "${_qt_sig}" > "${_qt_guard}" 2>/dev/null; then
-    export ZALOS_HOST_QT_GUARD="${_qt_guard}"
 fi
 
 exec "${APPDIR}/usr/bin/zalos" "$@"

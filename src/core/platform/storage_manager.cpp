@@ -1,8 +1,8 @@
 #include "storage_manager.h"
+#include "fs/file_utils.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
-#include <QDesktopServices>
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -108,7 +108,7 @@ qint64 StorageManager::clear(const QString& key) {
 bool StorageManager::openDownloadsFolder() const {
     const QString dir = directory("downloads");
     QDir().mkpath(dir);
-    return QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+    return Fs::FileUtils::openLocalPath(dir);
 }
 
 qint64 StorageManager::pruneDirectory(const QString& dir, qint64 limitBytes, qint64 maxAgeMs) {

@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-#==========================================================
-# Build the minified GitHub Pages site: docs/ -> _site/ (no host bind mounts).
-#
-#   bash scripts/minify-pages.sh [output-dir]        # default: <repo>/_site
-#   DOCKER=podman bash scripts/minify-pages.sh
-#
-# The readable source of truth stays docs/index.html; this only produces the deployable
-# artifact. The site is baked inside Dockerfile.pages (COPY docs) and copied out through
-# the docker API (`docker create` + `docker cp`), so the same script works on a local
-# machine and on the CI runner whose daemon cannot see the checkout.
-# Called by .github/workflows/pages.yml before upload-pages-artifact.
-#==========================================================
-
 DOCKER="${DOCKER:-docker}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"

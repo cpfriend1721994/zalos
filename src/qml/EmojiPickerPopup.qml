@@ -82,12 +82,25 @@ Rectangle {
             color: ThemeManager.borderColor
         }
 
+        Timer {
+            id: emojiSearchTimer
+            interval: 150
+            onTriggered: ZaloClient.emojis.search(emojiSearch.text)
+        }
+
         ZTextField {
             id: emojiSearch
             visible: root.tab === 0
             Layout.fillWidth: true
             placeholderText: I18n.t("Tìm biểu tượng (ví dụ: cười, tim, :), cà phê)", "Search emoji (e.g. smile, heart, :), coffee)")
-            onTextChanged: ZaloClient.emojis.search(text)
+            onTextChanged: {
+                if (text.length === 0) {
+                    emojiSearchTimer.stop();
+                    ZaloClient.emojis.search("");
+                } else {
+                    emojiSearchTimer.restart();
+                }
+            }
         }
 
         Item {
@@ -105,7 +118,7 @@ Rectangle {
                 spacing: 0
                 cacheBuffer: 80
                 reuseItems: true
-                model: ZaloClient.emojis.flatRows(emojiListContainer.columns)
+                model: ZaloClient.emojis.flatRows(emojiListContainer.columns, ZaloClient.emojis.revision)
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 property string hoveredCode: ""
                 ToolTip.visible: hoveredCode.length > 0

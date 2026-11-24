@@ -2,10 +2,8 @@
 
 pkgs.stdenv.mkDerivation rec {
   pname = "zalos";
-  version = "1.2.10";
+  version = "1.3.0";
 
-  # Only sources: never sessions (zsess.json), offline caches (.local/.config/.cache written by containers with
-  # HOME=/workspace), screenshots, build trees or packages — the Nix store is world-readable.
   src = pkgs.lib.cleanSourceWith {
     src = ./.;
     filter = path: type:
@@ -35,7 +33,7 @@ pkgs.stdenv.mkDerivation rec {
     qt6.qtbase
     qt6.qtdeclarative
     qt6.qtsvg
-    qt6.qtimageformats # WebP: animated stickers
+    qt6.qtimageformats
     qt6.qtwayland
     qt6.qtwebsockets
     qt6.qtmultimedia
@@ -43,11 +41,9 @@ pkgs.stdenv.mkDerivation rec {
     openssl
     xz
     sqlite
-    openh264 # headers at build time; the library is dlopen()ed through ZALOS_OPENH264 below
+    openh264
   ];
 
-  # NixOS has no global library path for dlopen("libopenh264.so.N"): point the app at the store copy.
-  # The C++ call engines (libexec/zalos) dlopen() libpulse-simple.so.0 / libpulse.so.0 and libopus.so.0 directly.
   qtWrapperArgs = [
     "--set-default ZALOS_OPENH264 ${pkgs.openh264}/lib/libopenh264.so"
     "--prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.pulseaudio ]}"
@@ -57,12 +53,13 @@ pkgs.stdenv.mkDerivation rec {
   cmakeFlags = [
     "-DCMAKE_BUILD_TYPE=Release"
     "-DBUILD_TESTING=OFF"
-  ] ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isAarch64 "-DZALOS_QML_AOT=OFF";
+    "-DZALOS_QML_AOT=ON"
+  ];
 
   meta = with pkgs.lib; {
     description = "Native Qt6 (C++/QML) messaging client for Zalo on Linux";
     homepage = "https://github.com/cpfriend1721994/zalos";
-    license = licenses.mit;
+    license = with licenses; [ mit bsd3 ofl ];
     platforms = platforms.linux;
     mainProgram = "zalos";
   };

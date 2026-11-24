@@ -1,20 +1,5 @@
 name: Zalos CD Pipeline
 
-# Release matrix (tests are NOT run here — the test suite runs locally; see the agent skills):
-#   rpm-*     Fedora 43 base (Dockerfile)           -> RPM for Fedora 43+            (x86_64 + aarch64)
-#   ubuntu-*  Ubuntu 24.04 base (Dockerfile.ubuntu) -> .deb (24.04+) and AppImage     (x86_64 + aarch64)
-#   nix-*     nixos/nix (newest nixos-unstable)     -> Nix package                   (x86_64 + aarch64)
-#
-# Every target is its own matrix leg and the legs run strictly one at a time (max-parallel: 1): the aarch64 legs
-# build under QEMU/binfmt on the x86_64 self-hosted runner and saturate it, so two builds must never overlap.
-# Separate legs make a failure per target: GitHub's "Re-run failed jobs" repeats only the failed leg and the
-# release job, while the legs that already finished keep their artifacts from the same run.
-#
-# Each leg also caches its finished dist/ under the commit SHA ("Restore a package already built for this
-# commit"). "Re-run all jobs" on the same commit then restores the packages that were already built instead of
-# rebuilding them, while a new commit always rebuilds — the SHA in the key makes a stale artifact impossible.
-# Network hops that used to fail a release on their own (GHCR pull, appimagetool download) are retried in place.
-
 on:
   push:
     tags: [ 'v*' ]
@@ -37,7 +22,7 @@ concurrency:
 
 permissions:
   contents: read
-  packages: read # pull the prebuilt multiarch base images from ghcr.io (built once by base-images.yml)
+  packages: read
 
 jobs:
   release-gate:
@@ -56,46 +41,31 @@ jobs:
             echo "ℹ️ Not a release: packaging is skipped"
           fi
 
-  # ---------------------------------------------------------------------------------------------------------------
-  # Six release targets, one per matrix leg, serialized by max-parallel: 1.
-  # ---------------------------------------------------------------------------------------------------------------
   package:
     name: ${{ matrix.target }}
     needs: [release-gate]
     if: needs.release-gate.outputs.is_release == 'true'
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
     strategy:
-      fail-fast: false # run the remaining targets: their artifacts are kept for a "Re-run failed jobs"
-      max-parallel: 1 # never two builds at once: one emulated build saturates the runner
+      fail-fast: false
+      max-parallel: 1
       matrix:
         include:
-          - target: rpm-x86_64
-            base_path: zalos-fedora:43
-            platform: linux/amd64
-            build: packaging/rpm/build-rpm.sh
-            wrap: 'no'
-          - target: rpm-aarch64
-            base_path: zalos-fedora:43
-            platform: linux/arm64
-            build: packaging/rpm/build-rpm.sh
-            wrap: 'no'
           - target: ubuntu-x86_64
             base_path: zalos-ubuntu:24.04
             platform: linux/amd64
-            build: "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
+            build: "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh && bash packaging/rpm/build-rpm-prebuilt.sh"
             wrap: 'yes'
           - target: ubuntu-aarch64
             base_path: zalos-ubuntu:24.04
             platform: linux/arm64
-            build: "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh"
+            build: "bash packaging/deb/build-deb.sh && bash packaging/appimage/build-appimage.sh && bash packaging/rpm/build-rpm-prebuilt.sh"
             wrap: 'yes'
           - target: nix-x86_64
             base_path: zalos-nix:latest
             platform: linux/amd64
             build: packaging/nix/build-nix.sh
             wrap: 'no'
-          # Only the native x86_64 leg refreshes flake.lock to the newest nixos-unstable; the emulated aarch64 leg
-          # reuses the committed lock (build-nix.sh skips `nix flake update` when ZALOS_EMULATED=1).
           - target: nix-aarch64
             base_path: zalos-nix:latest
             platform: linux/arm64
@@ -107,16 +77,12 @@ jobs:
           clean: true
       - name: Drop artifacts of a previous run on a reused runner
         run: rm -rf dist
-      # Only a successful leg stores its dist/; a failed one has no cache entry and therefore rebuilds from
-      # scratch, while every target that already shipped is restored in seconds.
       - name: Restore a package already built for this commit
         id: cache
         uses: actions/cache@v4
         with:
           path: dist
           key: zalos-pkg-${{ matrix.target }}-${{ github.sha }}
-      # Job-private docker config dir: /root/.docker/config.json is a bind mount on the self-hosted runner, so
-      # login-action's atomic rename over it fails with "device or resource busy". $RUNNER_TEMP is unique per job.
       - name: Use a job-private DOCKER_CONFIG
         if: steps.cache.outputs.cache-hit != 'true'
         run: echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
@@ -126,17 +92,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # No bind mounts in the packaging legs. A runner whose docker daemon is remote or containerized cannot see
-      # the job checkout, so `docker compose run` gets an empty /workspace and dies with
-      # "bash: /workspace/packaging/...: No such file or directory" (exit 127). scripts/ci-package.sh moves the
-      # source and the artifacts through the docker API instead: pull the prebuilt multiarch base (built once by
-      # base-images.yml, never rebuilt here), COPY the source onto it (Dockerfile.app), run the packaging script,
-      # copy /workspace/dist out.
       - name: Prebuilt base image (multiarch, from base-images.yml)
         if: steps.cache.outputs.cache-hit != 'true'
         run: echo "base_image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.base_path }}" >> "$GITHUB_ENV"
-      # GHCR occasionally answers a manifest request with a 5xx or a reset connection: five spaced attempts turn a
-      # registry hiccup into a retry instead of a red job.
       - name: Pull base for ${{ matrix.platform }}
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -160,9 +118,6 @@ jobs:
       - name: Build ${{ matrix.target }}
         if: steps.cache.outputs.cache-hit != 'true'
         run: bash scripts/ci-package.sh "zalos-base-${{ matrix.target }}" "${{ matrix.platform }}" "${{ matrix.build }}"
-      # A container whose docker has no outbound network cannot download appimagetool, and the foreign-arch
-      # container cannot execute it at all. Any AppDir bundle is therefore wrapped here with the arch-matched tool
-      # from the runner, so a container-side failure can never block the release.
       - name: Cross-package AppImages on the host (container fallback)
         if: matrix.wrap == 'yes' && steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -203,14 +158,11 @@ jobs:
               rm -rf "${APPDIR}" "${ARCHIVE}"
             done
           fi
-      # A packaging script that silently falls back (e.g. an AppDir tarball instead of an AppImage) must fail here,
-      # not in `release`. Runs on a cache hit too, so a restored leg is verified as well.
       - name: Verify ${{ matrix.target }} produced its files
         run: |
           ls -lh dist/
           case "${{ matrix.target }}" in
-            rpm-*)    ls dist/zalos-*.rpm ;;
-            ubuntu-*) ls dist/Zalos-*.AppImage dist/zalos_*.deb ;;
+            ubuntu-*) ls dist/Zalos-*.AppImage dist/zalos_*.deb dist/zalos-*.rpm ;;
             nix-*)    ls dist/zalos-*-nixos.tar.gz ;;
           esac
       - uses: actions/upload-artifact@v7
@@ -218,19 +170,13 @@ jobs:
           name: ${{ matrix.target }}
           path: dist/
           if-no-files-found: error
-          overwrite: true # a re-run of the same leg replaces the artifact instead of failing on a 409
+          overwrite: true
       - name: Reclaim disk (unused images + layer/build cache)
         if: always()
         run: |
           docker image prune -f || true
           docker builder prune -af || true
 
-  # ---------------------------------------------------------------------------------------------------------------
-  # GitHub release (tags only): every package (x86_64 + aarch64) + SHA256SUMS.
-  # Release notes are a curated, English changelog built from CHANGELOG.md (scripts/ci-release-notes.sh),
-  # not GitHub's auto-generated commit dump — see the "## [X.Y.Z]" section for this tag.
-  # A leg that failed leaves this job skipped, so a partial release is never published.
-  # ---------------------------------------------------------------------------------------------------------------
   release:
     name: GitHub release
     needs: [package]
@@ -241,7 +187,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # full history + tags, so CHANGELOG.md is present and the compare link resolves
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           path: release

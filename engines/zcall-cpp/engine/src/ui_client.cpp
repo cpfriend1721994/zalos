@@ -124,6 +124,7 @@ void ElectronCallUi::close(const QString& code, const QJsonObject& params) {
     m_state = QJsonObject();
     const QString closeCode = code.isEmpty() ? QStringLiteral("ended") : code;
     send(QJsonObject{{"type", "close"}, {"statusCode", closeCode}, {"statusParams", params}, {"text", statusText(closeCode, params)}});
+    if (!m_fallback && m_sock && m_sock->state() == QAbstractSocket::ConnectedState) m_sock->flush();
     if (m_fallback) m_fallback->close(closeCode, params);
 }
 

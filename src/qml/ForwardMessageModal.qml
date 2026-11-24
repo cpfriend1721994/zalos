@@ -15,6 +15,12 @@ Item {
     property var sentIds: ({})
     property var friends: []
 
+    Timer {
+        id: filterTimer
+        interval: 150
+        onTriggered: root.filterText = filterInput.text.trim().toLowerCase()
+    }
+
     function closeModal(): void {
         ZaloClient.closeForwardModal()
         filterInput.text = ""
@@ -38,10 +44,14 @@ Item {
     Component.onCompleted: visibleChanged()
     onVisibleChanged: {
         if (visible) {
+            filterTimer.stop()
             filterInput.text = ""
+            root.filterText = ""
             root.sentIds = ({})
             root.friends = root.mode === "pickContact" ? ZaloClient.friendsForCard() : []
             filterInput.forceActiveFocus()
+        } else {
+            filterTimer.stop()
         }
     }
 
@@ -121,7 +131,7 @@ Item {
                 Layout.fillWidth: true
                 height: Math.min(68, previewCol.implicitHeight + 16)
                 radius: 6
-                color: ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.05) : Qt.rgba(0, 0, 0, 0.03)
+                color: ThemeManager.cardBackgroundColor
                 border.color: ThemeManager.borderColor
                 border.width: 1
 
@@ -156,6 +166,7 @@ Item {
                         text: ZaloClient.forwardSourcePreview.length > 0
                               ? ZaloClient.forwardSourcePreview
                               : I18n.t("[Tin nhắn / Tệp đính kèm]", "[Message / Attachment]")
+                        textFormat: Text.PlainText
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
                         color: ThemeManager.textColor
@@ -170,7 +181,7 @@ Item {
                 Layout.fillWidth: true
                 height: 36
                 radius: 6
-                color: ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.04)
+                color: ThemeManager.inputFillColor
                 border.color: filterInput.activeFocus ? ThemeManager.accentColor : ThemeManager.borderColor
                 border.width: 1
 
@@ -195,7 +206,14 @@ Item {
                         selectionColor: ThemeManager.accentColor
                         selectByMouse: true
                         clip: true
-                        onTextChanged: root.filterText = text.trim().toLowerCase()
+                        onTextChanged: {
+                            if (text.trim().length === 0) {
+                                filterTimer.stop()
+                                root.filterText = ""
+                            } else {
+                                filterTimer.restart()
+                            }
+                        }
 
                         Text {
                             anchors.fill: parent
@@ -277,6 +295,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: rowItem.rowName
+                            textFormat: Text.PlainText
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
                             font.weight: Font.DemiBold
@@ -287,6 +306,7 @@ Item {
                             visible: rowItem.rowSub.length > 0
                             Layout.fillWidth: true
                             text: rowItem.rowSub
+                            textFormat: Text.PlainText
                             font.family: Theme.fontFamily
                             font.pixelSize: 11
                             color: ThemeManager.secondaryTextColor
@@ -309,57 +329,66 @@ Item {
                 }
             }
 
-            ListView {
-                id: targetList
-                visible: root.mode !== "pickContact"
+            Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                clip: true
-                model: root.mode !== "pickContact" ? ZaloClient.conversationModel : null
-                spacing: 4
-                ScrollBar.vertical: ScrollBar { active: true; width: 6 }
-                delegate: TargetRow {
-                    id: targetRowDelegate
-                    required property string id
-                    required property string name
-                    required property string avatarUrl
-                    required property bool isGroup
-                    required property int memberCount
-                    required property bool isHidden
-                    required property var memberAvatars
-                    required property string lastMessage
 
-                    width: targetList.width
-                    rowId: targetRowDelegate.id
-                    rowName: targetRowDelegate.name || (targetRowDelegate.isGroup ? I18n.t("Nhóm", "Group") : I18n.t("Người dùng Zalo", "Zalo user"))
-                    rowAvatar: targetRowDelegate.avatarUrl || ""
-                    rowIsGroup: targetRowDelegate.isGroup
-                    rowMemberCount: targetRowDelegate.memberCount
-                    rowHidden: targetRowDelegate.isHidden
-                    rowMembers: targetRowDelegate.memberAvatars || []
-                    rowSub: targetRowDelegate.lastMessage || (targetRowDelegate.isGroup ? I18n.t("Nhóm", "Group") : I18n.t("Cá nhân", "Direct"))
+                ListView {
+                    id: targetList
+                    visible: root.mode !== "pickContact"
+                    anchors.fill: parent
+                    clip: true
+                    model: (root.visible && root.mode !== "pickContact") ? ZaloClient.conversationsForForward(root.filterText) : null
+                    spacing: 4
+                    ScrollBar.vertical: ScrollBar { active: true; width: 6 }
+                    delegate: TargetRow {
+                        required property var modelData
+                        width: targetList.width
+                        rowId: modelData.id || ""
+                        rowName: modelData.name || (modelData.isGroup ? I18n.t("Nhóm", "Group") : I18n.t("Người dùng Zalo", "Zalo user"))
+                        rowAvatar: modelData.avatarUrl || ""
+                        rowIsGroup: !!modelData.isGroup
+                        rowMemberCount: modelData.memberCount || 0
+                        rowMembers: modelData.memberAvatars || []
+                        rowSub: modelData.lastMessage || (modelData.isGroup ? I18n.t("Nhóm", "Group") : I18n.t("Cá nhân", "Direct"))
+                    }
                 }
-            }
 
-            ListView {
-                id: friendList
-                visible: root.mode === "pickContact"
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                model: root.friends
-                spacing: 4
-                ScrollBar.vertical: ScrollBar { active: true; width: 6 }
-                delegate: TargetRow {
-                    required property var modelData
-                    width: friendList.width
-                    rowId: modelData.id
-                    rowName: modelData.name
-                    rowAvatar: modelData.avatar || ""
-                }
                 Text {
                     anchors.centerIn: parent
-                    visible: root.friends.length === 0
+                    visible: root.mode !== "pickContact" && targetList.count === 0
+                    width: parent.width - 32
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    text: I18n.t("Không tìm thấy hội thoại phù hợp", "No matching conversations")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    color: ThemeManager.secondaryTextColor
+                }
+
+                ListView {
+                    id: friendList
+                    visible: root.mode === "pickContact"
+                    anchors.fill: parent
+                    clip: true
+                    model: root.friends
+                    spacing: 4
+                    ScrollBar.vertical: ScrollBar { active: true; width: 6 }
+                    delegate: TargetRow {
+                        required property var modelData
+                        width: friendList.width
+                        rowId: modelData.id
+                        rowName: modelData.name
+                        rowAvatar: modelData.avatar || ""
+                    }
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    visible: root.mode === "pickContact" && friendList.count === 0
+                    width: parent.width - 32
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
                     text: I18n.t("Chưa có bạn bè nào", "No friends yet")
                     font.family: Theme.fontFamily
                     font.pixelSize: 12

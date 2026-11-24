@@ -2,13 +2,13 @@
 <component type="desktop-application">
   <id>io.github.cpfriend1721994.zalos</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>MIT AND BSD-3-Clause AND OFL-1.1</project_license>
   <name>Zalos</name>
   <summary>Ultra-lightweight native Qt6 desktop client for Zalo on Linux</summary>
   <description>
     <p>
       Zalos is an open-source, ultra-lightweight native Linux messaging client for Zalo built with Qt6 (C++17 and QML).
-      It delivers a tiny memory footprint (~40-65MB RAM), sub-second cold startup, hardware-accelerated 60 FPS graphics,
+      It delivers a tiny memory footprint (~40-65MB RAM), sub-second cold startup, smooth 60 FPS graphics (software renderer by default, optional GPU acceleration),
       native Wayland and X11 support, adaptive system theming, and local End-to-End Encryption (E2EE) database synchronization.
     </p>
     <ul>
@@ -18,7 +18,7 @@
       <li>StatusNotifierItem system tray integration with dynamic unread message badge count.</li>
       <li>Ultra-low resource consumption: starts instantaneously with minimal CPU and RAM usage (~40–65 MB).</li>
       <li>1-1 and group voice/video calling engine with OpenH264 video encoding.</li>
-      <li>Desktop utilities: screenshot capture (Ctrl+Alt+S), file transfer, Kiki assistant and My Documents browser.</li>
+      <li>Desktop utilities: screenshot capture (Ctrl+Alt+S), file transfer, location map previews, zBusiness tools, Kiki assistant and My Documents browser.</li>
     </ul>
   </description>
   <launchable type="desktop-id">zalos.desktop</launchable>
@@ -39,6 +39,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.3.0" date="2026-11-24">
+      <description>
+        <p>Full zBusiness Tools API integration (live business profile lookup, product catalog &amp; product CRUD, and server-synced auto-reply rules), Zalo-style OpenStreetMap tile preview cards with sender avatar pins for shared locations, full-width horizontal panoramic image rendering, NativeTextRendering COLRv1 emoji fixes, universal bundled Qt 6.8.3 LTS runtime with QML AOT compilation across .deb, .rpm, AppImage, Flatpak, Snap, and Nix, SQLite label caching for instant startup, desktop System Theme color/font synchronization fixes, responsive narrow-window (480x440+) layouts, async call device discovery, 32-frame pre-auth WebSocket queuing, non-blocking local file open, and DPR/memory optimizations. Also fixes the interface font falling back to the emoji font when the desktop font is missing (now Noto Sans), links that did not open in the browser (with a notice when no browser is installed) or could not be clicked, and zBusiness catalog error 113; file choosers now use the desktop's native dialog, packages are about 4 MB smaller, and each architecture is compiled once for .deb, AppImage and .rpm.</p>
+      </description>
+    </release>
     <release version="1.2.10" date="2026-11-23">
       <description>
         <p>Fixed being stuck on "Connecting to server" (WebSocket error 501) on Qt 6.4, a crash with fractional scaling on Wayland, the AppImage falling back to its bundled Qt after a normal exit, the chat jumping back to the bottom while scrolling up, and missing images when opening conversations after reading photo+text sequences on your phone. Also keeps 1-1 call relay servers alive during long ringing, adds seamless P2P-to-relay network handover and audio recovery across Wi-Fi/VPN changes, adds an Auto/Manual microphone gain toggle in the call device menu, improves two-phase Phone History Sync v2 with idle-phone wake-up and quote/mention/TTL metadata, and fixes group_poll host fallback and quote reply normalization. New installs now start in English, and the AppImage uses the system Qt only from 6.4 to 6.12.</p>

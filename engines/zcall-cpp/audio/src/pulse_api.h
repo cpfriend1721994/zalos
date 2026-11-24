@@ -42,4 +42,4 @@ public:
     static bool setSourceVolumeRaw(const std::string& source, uint32_t rawVolume);
 };
 
-} // namespace zcall::audio
+}

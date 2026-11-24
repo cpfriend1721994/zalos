@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# Dependency matrix: installs a package with the fewest system packages the format allows and checks that Zalos
-# still starts and reports every optional dependency honestly.
-#   TARGET=deb       .deb on a clean Ubuntu/Debian, without Recommends
-#   TARGET=rpm       .rpm on a clean Fedora, without weak dependencies
-#   TARGET=appimage  AppImage on a distro without Qt: only a desktop baseline (GL, X11/Wayland, fonts, D-Bus, audio)
 TARGET="${TARGET:?set TARGET=deb|rpm|appimage}"
 . /etc/os-release
 echo "=========================================================="
@@ -13,18 +8,18 @@ echo "🧪 Dependency check: ${TARGET} on ${PRETTY_NAME}"
 echo "=========================================================="
 
 DEBIAN_BASELINE="xvfb xauth libgl1 libegl1 libopengl0 libfontconfig1 libfreetype6 libdbus-1-3 libglib2.0-0 \
-libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libwayland-cursor0 libwayland-egl1 \
+libx11-6 libx11-xcb1 libxcb1 libxkbcommon0 libxkbcommon-x11-0 libxrandr2 libwayland-client0 libwayland-cursor0 libwayland-egl1 \
 libsm6 libice6 libpng16-16 libbrotli1 libzstd1 libgssapi-krb5-2 libudev1 libbz2-1.0 libpulse0 ca-certificates"
 ARCH_BASELINE="xorg-server-xvfb xorg-xauth mesa libglvnd fontconfig freetype2 dbus glib2 libx11 libxcb libxkbcommon \
-libxkbcommon-x11 wayland libsm libice libpng brotli zstd krb5 systemd-libs bzip2 libpulse ca-certificates"
+libxkbcommon-x11 libxrandr wayland libsm libice libpng brotli zstd krb5 systemd-libs bzip2 libpulse ca-certificates"
 SUSE_BASELINE="xorg-x11-server-Xvfb xauth Mesa-libGL1 Mesa-libEGL1 libglvnd fontconfig libfreetype6 libdbus-1-3 \
-libglib-2_0-0 libX11-6 libX11-xcb1 libxcb1 libxkbcommon0 libwayland-client0 libwayland-cursor0 \
+libglib-2_0-0 libX11-6 libX11-xcb1 libxcb1 libxkbcommon0 libxrandr2 libwayland-client0 libwayland-cursor0 \
 libwayland-egl1 libSM6 libICE6 libpng16-16 libbrotlidec1 libzstd1 krb5 libudev1 libbz2-1 libpulse0 ca-certificates"
 
 ZALOS=""
 case "${TARGET}" in
 deb)
-    DEB_FILE=$(ls /workspace/dist/zalos_*~ubuntu24.04_amd64.deb 2>/dev/null | head -n 1)
+    DEB_FILE=$(ls -v /workspace/dist/zalos_*~ubuntu24.04_amd64.deb 2>/dev/null | tail -n 1)
     [ -n "${DEB_FILE}" ] || { echo "❌ No .deb in dist/ (podman compose run --rm package-deb)"; exit 1; }
     cp "${DEB_FILE}" /tmp/zalos.deb
     export DEBIAN_FRONTEND=noninteractive
@@ -34,9 +29,10 @@ deb)
     ZALOS=/usr/bin/zalos
     ;;
 rpm)
-    RPM_FILE=$(ls /workspace/dist/zalos-*.x86_64.rpm 2>/dev/null | head -n 1)
+    RPM_FILE=$(ls -v /workspace/dist/zalos-*.x86_64.rpm 2>/dev/null | tail -n 1)
     [ -n "${RPM_FILE}" ] || { echo "❌ No RPM in dist/ (podman compose run --rm package-rpm)"; exit 1; }
-    dnf install -y -q --setopt=install_weak_deps=False "${RPM_FILE}" xorg-x11-server-Xvfb xorg-x11-xauth >/dev/null
+    dnf install -y -q --setopt=fastestmirror=True --setopt=zchunk=False --setopt=install_weak_deps=False "${RPM_FILE}" xorg-x11-server-Xvfb xorg-x11-xauth >/dev/null \
+        || { dnf clean all -q && dnf install -y -q --setopt=fastestmirror=True --setopt=zchunk=False --setopt=install_weak_deps=False "${RPM_FILE}" xorg-x11-server-Xvfb xorg-x11-xauth >/dev/null; }
     rpm -q --requires zalos | grep -v '^rpmlib' | tr '\n' ' '; echo
     ZALOS=/usr/bin/zalos
     ;;
@@ -81,8 +77,8 @@ set -e
 echo "${REPORT}" | grep -v -E 'XDG_RUNTIME|propertyCache'
 [ ${RC} -eq 0 ] || { echo "❌ a required dependency is missing (exit ${RC})"; exit 1; }
 echo "${REPORT}" | grep -E '^audio\.opus +(system|/)' >/dev/null || { echo "❌ libopus neither on the system nor bundled"; exit 1; }
-if [ "${TARGET}" = "appimage" ]; then
-    echo "${REPORT}" | grep -E '^qt +.*\(bundled\)' >/dev/null || { echo "❌ expected the bundled Qt on a host without Qt"; exit 1; }
+if [ "${TARGET}" = "appimage" ] || [ "${TARGET}" = "deb" ] || [ "${TARGET}" = "rpm" ]; then
+    echo "${REPORT}" | grep -Eq '^qt +6\.8\.3.*\(bundled\)' || { echo "❌ expected bundled Qt 6.8.3"; exit 1; }
 fi
 
 echo "==> zalos --test-gui"

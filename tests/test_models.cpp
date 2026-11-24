@@ -13,7 +13,6 @@ class TestModels : public QObject {
     Q_OBJECT
 
 private slots:
-    // Vietnamese search ignores case and diacritics, including đ.
     void testAccentInsensitiveSearch() {
         QCOMPARE(foldForSearch(QStringLiteral("Nguyễn Đức Thắng")), QStringLiteral("nguyen duc thang"));
 
@@ -34,7 +33,6 @@ private slots:
         QCOMPARE(msgs.searchMessages("khong co").size(), 0);
     }
 
-    // The server copy of a sent message replaces its local echo by cliMsgId, never by text.
     void testLocalEchoBridgedByCliMsgId() {
         MessageModel model;
         model.loadConversation("t");
@@ -48,12 +46,11 @@ private slots:
         server.isMine = true;
         model.mergeMessages("t", {server});
         QCOMPARE(model.rowCount(), 2);
-        QVERIFY(model.contains("t", "local-1-1"));  // same text, different client id: untouched
+        QVERIFY(model.contains("t", "local-1-1"));
         QVERIFY(model.contains("t", "5002"));
         QVERIFY(!model.contains("t", "local-1-2"));
         QCOMPARE(model.data(model.index(1), MessageModel::StatusRole).toString(), QString("sent"));
 
-        // History cursors skip local echoes.
         QCOMPARE(model.oldestMessageId("t"), QString("5002"));
         QCOMPARE(model.latestMessageId("t"), QString("5002"));
     }
@@ -86,6 +83,25 @@ private slots:
         QVERIFY(model.contains("t", "9001"));
     }
 
+    void testLinkDetectionCoversBareDomainsAndStyles() {
+        const auto links = MessageModel::findLinks(QStringLiteral("xem vt.example.com/abc, fb.watch/x1 va https://a.example.vn/p?q=1."));
+        QCOMPARE(links.size(), 3);
+        QCOMPARE(links.at(0).href, QStringLiteral("https://vt.example.com/abc"));
+        QCOMPARE(links.at(1).href, QStringLiteral("https://fb.watch/x1"));
+        QCOMPARE(links.at(2).href, QStringLiteral("https://a.example.vn/p?q=1"));
+        QVERIFY(MessageModel::findLinks(QStringLiteral("fixture@example.com")).isEmpty());
+        QVERIFY(MessageModel::findLinks(QStringLiteral("ver 1.2.3 and file.txt")).isEmpty());
+        QVERIFY(MessageModel::findLinks(QStringLiteral("example.community")).isEmpty());
+        QCOMPARE(MessageModel::linkifyPlain(QStringLiteral("a <b> example.com")),
+                 QStringLiteral("a &lt;b&gt; <a href=\"https://example.com\">example.com</a>"));
+
+        const QString text = QStringLiteral("go https://example.com/long/path now");
+        const QVariantList styles{QVariantMap{{"start", 12}, {"len", 6}, {"st", "b"}}};
+        const QString html = MessageModel::styledHtml(text, {}, styles);
+        QCOMPARE(html.count(QStringLiteral("href=\"https://example.com/long/path\"")), 3);
+        QVERIFY(!html.contains(QStringLiteral("href=\"https://example.com/lo\"")));
+    }
+
     void testEmoticonShortcodes() {
         QVERIFY(MessageModel::linkify(QStringLiteral("hay :v")).contains(QStringLiteral("width=\"18\" height=\"18\"")));
         QVERIFY(MessageModel::linkify(QStringLiteral("hay :V")).contains(QStringLiteral("qrc:/Zalos/assets/icons/pacman.png")));
@@ -99,6 +115,12 @@ private slots:
         QVERIFY(MessageModel::linkify(QStringLiteral("cam on /-thanks /-showlove")).contains(QString::fromUtf8("🙏")));
         QVERIFY(MessageModel::linkify(QStringLiteral("12:30")).contains(QStringLiteral("12:30")));
         QVERIFY(MessageModel::linkify(QStringLiteral("https://a.b:8080/v")).contains(QStringLiteral("8080/v")));
+        QVERIFY(!MessageModel::linkify(QStringLiteral(":))))")).contains(QString::fromUtf8("😆")));
+        QVERIFY(!MessageModel::linkify(QStringLiteral("=))))")).contains(QString::fromUtf8("🤣")));
+        QVERIFY(!MessageModel::linkify(QStringLiteral("(:))")).contains(QString::fromUtf8("🤣")));
+        QVERIFY(!MessageModel::linkify(QStringLiteral(":))!")).contains(QString::fromUtf8("🤣")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hi :))) ok")).contains(QString::fromUtf8("😆")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hi =)) ok")).contains(QString::fromUtf8("🤣")));
     }
 
     void testGroupSeenRecording() {
@@ -117,7 +139,7 @@ private slots:
 
         model.recordGroupSeen("g-1", "msg-101", "user-2");
         model.recordGroupSeen("g-1", "msg-101", "user-3");
-        model.recordGroupSeen("g-1", "msg-101", "user-2"); // duplicate
+        model.recordGroupSeen("g-1", "msg-101", "user-2");
 
         const QStringList seen = model.data(model.index(0), MessageModel::SeenUidsRole).toStringList();
         QCOMPARE(seen.size(), 2);
@@ -173,14 +195,13 @@ private slots:
         QCOMPARE(model.data(model.index(0), MessageModel::ExpireOnRole).toLongLong(), 1800000000000LL);
     }
 
-    // Zalo-style presentation roles: runs by sender (30 min), date pills, status only on the newest own message.
     void testPresentationRoles() {
         MessageModel model;
         model.loadConversation("t");
         const qint64 day = QDateTime(QDate(2026, 11, 2), QTime(9, 0)).toMSecsSinceEpoch();
         MessageItem a; a.id = "1"; a.senderId = "u"; a.ts = day;
-        MessageItem b; b.id = "2"; b.senderId = "u"; b.ts = day + 60000;                 // same run
-        MessageItem c; c.id = "3"; c.senderId = "u"; c.ts = day + 60000 + 31 * 60000;   // > 30 min: new run
+        MessageItem b; b.id = "2"; b.senderId = "u"; b.ts = day + 60000;
+        MessageItem c; c.id = "3"; c.senderId = "u"; c.ts = day + 60000 + 31 * 60000;
         MessageItem d; d.id = "4"; d.isMine = true; d.senderId = "me"; d.ts = day + 86400000; d.status = "sent";
         MessageItem e; e.id = "5"; e.isMine = true; e.senderId = "me"; e.ts = day + 86400000 + 1000; e.status = "seen";
         model.mergeMessages("t", {a, b, c, d, e});
@@ -192,16 +213,16 @@ private slots:
         QVERIFY(role(2, MessageModel::FirstInGroupRole));
         QVERIFY(role(0, MessageModel::DateSeparatorRole));
         QVERIFY(!role(1, MessageModel::DateSeparatorRole));
-        QVERIFY(role(3, MessageModel::DateSeparatorRole));   // next day
-        QVERIFY(!role(3, MessageModel::ShowStatusRole));     // an older own message
-        QVERIFY(role(4, MessageModel::ShowStatusRole));      // the newest own message
-        QVERIFY(!role(0, MessageModel::ShowStatusRole));     // never on incoming
+        QVERIFY(role(3, MessageModel::DateSeparatorRole));
+        QVERIFY(!role(3, MessageModel::ShowStatusRole));
+        QVERIFY(role(4, MessageModel::ShowStatusRole));
+        QVERIFY(!role(0, MessageModel::ShowStatusRole));
     }
 
     void testLinkifyEscapesAndLinks() {
         const QString html = MessageModel::linkify("xem https://example.com/a?b=1, và <b>đậm</b>\nwww.example.org.");
         QVERIFY(html.contains("<a href=\"https://example.com/a?b=1\">https://example.com/a?b=1</a>,"));
-        QVERIFY(html.contains("&lt;b&gt;đậm&lt;/b&gt;"));     // user text is never interpreted as HTML
+        QVERIFY(html.contains("&lt;b&gt;đậm&lt;/b&gt;"));
         QVERIFY(html.contains("<br>"));
         QVERIFY(html.contains("<a href=\"https://www.example.org\">www.example.org</a>."));
     }
@@ -217,7 +238,7 @@ private slots:
         model.mergeMessages("t", {p1, t1, p2, v1, gone});
         const QVariantList items = model.mediaItems();
         QCOMPARE(items.size(), 3);
-        QCOMPARE(items.at(0).toMap().value("url").toString(), QString("file:///full1.png")); // original preferred
+        QCOMPARE(items.at(0).toMap().value("url").toString(), QString("file:///full1.png"));
         QCOMPARE(items.at(0).toMap().value("isVideo").toBool(), false);
         QCOMPARE(items.at(1).toMap().value("url").toString(), QString("file:///only-thumb.png"));
         QCOMPARE(items.at(2).toMap().value("url").toString(), QString("file:///clip.mp4"));
@@ -325,7 +346,6 @@ private slots:
         model.loadConversation("conv-1");
         QCOMPARE(model.rowCount(), 3);
 
-        // Search messages
         QList<int> search1 = model.searchMessages("mọi người");
         QCOMPARE(search1.size(), 2);
         QCOMPARE(search1.at(0), 0);
@@ -338,7 +358,6 @@ private slots:
         QList<int> searchEmpty = model.searchMessages("không tồn tại");
         QCOMPARE(searchEmpty.size(), 0);
 
-        // Get by ID
         QVariantMap item = model.getMessageById("m2");
         QCOMPARE(item.value("id").toString(), "m2");
         QCOMPARE(item.value("senderName").toString(), "Bob");
@@ -359,19 +378,16 @@ private slots:
         QCOMPARE(model.groupCount(), 1);
         QCOMPARE(model.inviteCount(), 1);
 
-        // Default category filter is "friends"
         QCOMPARE(model.rowCount(), 2);
 
         QSignalSpy resetSpy(&model, &QAbstractItemModel::modelReset);
         QSignalSpy dataSpy(&model, &QAbstractItemModel::dataChanged);
 
-        // Filter by search query
         model.setSearchFilter("Đới");
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(model.index(0), ContactModel::NameRole).toString(), "Đới Chàn");
         QCOMPARE(resetSpy.count(), 0);
 
-        // Clear search
         model.setSearchFilter("");
         QCOMPARE(model.rowCount(), 2);
         QCOMPARE(resetSpy.count(), 0);
@@ -383,12 +399,10 @@ private slots:
         const QList<int> contactRoles = dataSpy.last().at(2).value<QList<int>>();
         QVERIFY(contactRoles.contains(ContactModel::IsOnlineRole));
 
-        // Switch to "groups"
         model.setCategoryFilter("groups");
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(model.index(0), ContactModel::NameRole).toString(), "Nhóm Gia Đình");
 
-        // Switch to "invites"
         model.setCategoryFilter("invites");
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(model.index(0), ContactModel::NameRole).toString(), "Người Lạ");
@@ -424,7 +438,6 @@ private slots:
         QCOMPARE(dataBefore.value("poll_id").toLongLong(), 12345LL);
         QCOMPARE(dataBefore.value("num_vote").toInt(), 0);
 
-        // Vote on option 1
         model.updatePollVote("g1", 12345LL, 1, true);
         QVariantMap dataAfter = model.data(model.index(0), MessageModel::PollDataRole).toMap();
         QCOMPARE(dataAfter.value("num_vote").toInt(), 1);
@@ -433,8 +446,6 @@ private slots:
         QCOMPARE(optsAfter.at(0).toMap().value("votes").toInt(), 1);
     }
 
-    // Active conversation lives exclusively in m_items while open (no duplicate QVector in m_store),
-    // and swaps cleanly into/out of m_store across conversation switches.
     void testSingleBufferActiveConversation() {
         MessageModel model;
         MessageItem a1; a1.id = "101"; a1.text = "hello c1"; a1.ts = 10;
@@ -449,7 +460,6 @@ private slots:
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.threadSize("c1"), 1);
 
-        // Mutating the open thread never re-inserts a duplicate copy into m_store.
         MessageItem a2; a2.id = "102"; a2.text = "second c1"; a2.ts = 11;
         model.mergeMessages("c1", {a2});
         model.setReaction("c1", "101", "❤️ 1");
@@ -458,7 +468,6 @@ private slots:
         QCOMPARE(model.rowCount(), 2);
         QCOMPARE(model.threadSize("c1"), 2);
 
-        // Switching to c2 moves c1 into m_store and takes c2 into m_items.
         model.loadConversation("c2");
         QVERIFY(!model.isActiveThreadDuplicatedForTesting());
         QCOMPARE(model.rowCount(), 1);
@@ -466,7 +475,6 @@ private slots:
         QCOMPARE(model.threadSize("c2"), 1);
         QCOMPARE(model.message("c1", "101").reaction, QString("❤️ 1"));
 
-        // Switching back to c1 restores both messages without loss.
         model.loadConversation("c1");
         QVERIFY(!model.isActiveThreadDuplicatedForTesting());
         QCOMPARE(model.rowCount(), 2);
@@ -680,6 +688,155 @@ private slots:
         QCOMPARE(model.rowOfMessage("30"), -1);
         model.loadConversation("g1");
         QCOMPARE(model.rowOfMessage("30"), 0);
+    }
+
+    void testMessageItemPackingAndStringInterning() {
+        const size_t expectedSize = 15 * sizeof(QString) + 4 * sizeof(qint64) + 2 * sizeof(QVariantMap)
+                                  + sizeof(QVector<MessageMention>) + sizeof(QStringList) + 8;
+        QCOMPARE(sizeof(MessageItem), expectedSize);
+        const QString t1 = MessageModel::internMessageType(QStringLiteral("image"));
+        const QString t2 = MessageModel::internMessageType(QStringLiteral("image"));
+        QCOMPARE(t1.constData(), t2.constData());
+        QCOMPARE(MessageModel::internMessageType(QString()), QStringLiteral("text"));
+        QCOMPARE(MessageModel::internMessageType(QStringLiteral("custom.x")), QStringLiteral("custom.x"));
+
+        const QString s1 = MessageModel::internStatus(QStringLiteral("seen"));
+        const QString s2 = MessageModel::internStatus(QStringLiteral("seen"));
+        QCOMPARE(s1.constData(), s2.constData());
+        QVERIFY(MessageModel::internStatus(QString()).isEmpty());
+        QCOMPARE(MessageModel::internStatus(QStringLiteral("queued")), QStringLiteral("queued"));
+    }
+
+    void testMessageModelMediaRunCap16() {
+        MessageModel model;
+        QVector<MessageItem> batch;
+        batch.reserve(20);
+        for (int i = 0; i < 20; ++i) {
+            MessageItem m;
+            m.id = QStringLiteral("img-%1").arg(i);
+            m.senderId = QStringLiteral("u-1");
+            m.messageType = QStringLiteral("image");
+            m.mediaUrl = QStringLiteral("https://cdn.example/%1.jpg").arg(i);
+            m.ts = 1700000000000LL + i * 1000LL;
+            batch.append(m);
+        }
+        model.mergeMessages(QStringLiteral("c-run"), batch);
+        model.loadConversation(QStringLiteral("c-run"));
+        QCOMPARE(model.rowCount(), 20);
+        QCOMPARE(model.data(model.index(0), MessageModel::InMediaRunRole).toBool(), false);
+        QCOMPARE(model.data(model.index(0), MessageModel::MediaRunRole).toList().size(), 16);
+        QCOMPARE(model.data(model.index(15), MessageModel::InMediaRunRole).toBool(), true);
+        QCOMPARE(model.data(model.index(16), MessageModel::InMediaRunRole).toBool(), false);
+        QCOMPARE(model.data(model.index(16), MessageModel::MediaRunRole).toList().size(), 4);
+    }
+
+    void testMediaRunPrependRefreshesWholeRun() {
+        MessageModel model;
+        auto image = [](int i) {
+            MessageItem m;
+            m.id = QStringLiteral("run-%1").arg(i);
+            m.senderId = QStringLiteral("u-1");
+            m.messageType = QStringLiteral("image");
+            m.mediaUrl = QStringLiteral("https://cdn.example/run-%1.jpg").arg(i);
+            m.ts = 1700000000000LL + i * 1000LL;
+            return m;
+        };
+        QVector<MessageItem> newer;
+        for (int i = 10; i < 40; ++i) newer.append(image(i));
+        model.mergeMessages(QStringLiteral("c-run2"), newer);
+        model.loadConversation(QStringLiteral("c-run2"));
+        QCOMPARE(model.rowCount(), 30);
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        QVector<MessageItem> older;
+        for (int i = 0; i < 10; ++i) older.append(image(i));
+        model.mergeMessages(QStringLiteral("c-run2"), older);
+        QCOMPARE(model.rowCount(), 40);
+        int maxRow = -1;
+        for (const QList<QVariant>& args : std::as_const(changed)) {
+            const QVector<int> roles = args.at(2).value<QVector<int>>();
+            if (roles.contains(MessageModel::InMediaRunRole)) maxRow = qMax(maxRow, args.at(1).toModelIndex().row());
+        }
+        QCOMPARE(maxRow, 39);
+        QCOMPARE(model.data(model.index(32), MessageModel::InMediaRunRole).toBool(), false);
+        QCOMPARE(model.data(model.index(32), MessageModel::MediaRunRole).toList().size(), 8);
+    }
+
+    void testMediaItemsIncludesPlayableVideoFiles() {
+        MessageModel model;
+        MessageItem vidFile;
+        vidFile.id = QStringLiteral("f-mp4");
+        vidFile.senderId = QStringLiteral("u-1");
+        vidFile.messageType = QStringLiteral("file");
+        vidFile.text = QStringLiteral("clip.mp4");
+        vidFile.href = QStringLiteral("https://cdn.example/clip.mp4");
+        vidFile.ts = 1700000001000LL;
+
+        MessageItem movFile;
+        movFile.id = QStringLiteral("f-mov");
+        movFile.senderId = QStringLiteral("u-1");
+        movFile.messageType = QStringLiteral("file");
+        movFile.text = QStringLiteral("attachment-1");
+        movFile.href = QStringLiteral("https://cdn.example/video/sample.MOV?token=123");
+        movFile.ts = 1700000002000LL;
+
+        MessageItem docFile;
+        docFile.id = QStringLiteral("f-pdf");
+        docFile.senderId = QStringLiteral("u-1");
+        docFile.messageType = QStringLiteral("file");
+        docFile.text = QStringLiteral("notes.pdf");
+        docFile.href = QStringLiteral("https://cdn.example/notes.pdf");
+        docFile.ts = 1700000003000LL;
+
+        model.mergeMessages(QStringLiteral("c-vid"), {vidFile, movFile, docFile});
+        model.loadConversation(QStringLiteral("c-vid"));
+        const QVariantList items = model.mediaItems();
+        QCOMPARE(items.size(), 2);
+        QCOMPARE(items.at(0).toMap().value(QStringLiteral("msgId")).toString(), QStringLiteral("f-mp4"));
+        QCOMPARE(items.at(0).toMap().value(QStringLiteral("isVideo")).toBool(), true);
+        QCOMPARE(items.at(1).toMap().value(QStringLiteral("msgId")).toString(), QStringLiteral("f-mov"));
+        QCOMPARE(items.at(1).toMap().value(QStringLiteral("isVideo")).toBool(), true);
+    }
+
+    void serverCallLogReplacesNearbyLocalPlaceholder() {
+        MessageModel model;
+        const qint64 t0 = 1795515000000LL;
+        MessageItem oldLocal;
+        oldLocal.id = QStringLiteral("local-call-%1").arg(t0 - 300000);
+        oldLocal.senderId = QStringLiteral("me");
+        oldLocal.isMine = true;
+        oldLocal.messageType = QStringLiteral("call");
+        oldLocal.text = QStringLiteral("Cuộc gọi thoại đi");
+        oldLocal.ts = t0 - 300000;
+
+        MessageItem recentLocal;
+        recentLocal.id = QStringLiteral("local-call-%1").arg(t0);
+        recentLocal.senderId = QStringLiteral("me");
+        recentLocal.isMine = true;
+        recentLocal.messageType = QStringLiteral("call");
+        recentLocal.text = QStringLiteral("Cuộc gọi video đi đã hủy");
+        recentLocal.ts = t0;
+
+        model.mergeMessages(QStringLiteral("c-call"), {oldLocal, recentLocal});
+        model.loadConversation(QStringLiteral("c-call"));
+        QCOMPARE(model.rowCount(), 2);
+
+        MessageItem serverCall;
+        serverCall.id = QStringLiteral("8524449999001");
+        serverCall.cliMsgId = QStringLiteral("1795515002000");
+        serverCall.senderId = QStringLiteral("me");
+        serverCall.isMine = true;
+        serverCall.messageType = QStringLiteral("call");
+        serverCall.text = QStringLiteral("Cuộc gọi video đi");
+        serverCall.ts = t0 + 2000;
+        serverCall.extra = {{QStringLiteral("video"), true}, {QStringLiteral("outgoing"), true}, {QStringLiteral("seconds"), 5}};
+
+        model.mergeMessages(QStringLiteral("c-call"), {serverCall});
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.data(model.index(0), MessageModel::IdRole).toString(), oldLocal.id);
+        QCOMPARE(model.data(model.index(1), MessageModel::IdRole).toString(), serverCall.id);
+        QCOMPARE(model.data(model.index(1), MessageModel::TextRole).toString(), serverCall.text);
+        QVERIFY(model.contains(QStringLiteral("c-call"), serverCall.id));
+        QVERIFY(!model.contains(QStringLiteral("c-call"), recentLocal.id));
     }
 };
 

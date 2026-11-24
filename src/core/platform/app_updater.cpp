@@ -49,7 +49,7 @@ bool probeInstalledRpm() {
     return p.exitCode() == 0;
 }
 
-} // namespace
+}
 
 PackageKind detectPackageKind(const QString& appImageEnv,
                               const QString& exePath,
@@ -212,4 +212,4 @@ bool replaceAppImageFile(const QString& targetPath, const QString& downloadedPat
     return true;
 }
 
-} // namespace Zalos::Core::Platform
+}

@@ -21,7 +21,6 @@ rm -rf "${EXTRACT_DIR}"
 mkdir -p "${EXTRACT_DIR}"
 cd "${EXTRACT_DIR}"
 
-# Extract AppImage (avoids FUSE requirements inside unprivileged container)
 "${APPIMAGE_FILE}" --appimage-extract >/dev/null
 
 echo "==> Verifying AppDir structure..."
@@ -31,8 +30,12 @@ test -f squashfs-root/usr/bin/zalos || { echo "❌ Missing /usr/bin/zalos!"; exi
 ls -la squashfs-root/AppRun
 ls -la squashfs-root/usr/bin/zalos
 
-echo "==> Checking dynamic library linking..."
-ldd squashfs-root/usr/bin/zalos
+echo "==> Checking dynamic library linking & QML AOT symbols..."
+ldd_clean="$(env -u LD_LIBRARY_PATH ldd squashfs-root/usr/bin/zalos)"
+printf '%s\n' "${ldd_clean}" | grep -q "qt6-fallback/lib/libQt6Core.so.6" || { echo "❌ Missing bundled Qt 6.8.3 linking!"; exit 1; }
+printf '%s\n' "${ldd_clean}" | grep -q "not found" && { echo "❌ Missing shared library in AppImage!"; exit 1; } || true
+grep -aEq "Qt_6\.8_PRIVATE_API|AOTCompiledContext" squashfs-root/usr/bin/zalos || { echo "❌ QML AOT compiled symbols missing!"; exit 1; }
+./squashfs-root/AppRun --check-deps | grep -Eq "^qt +6\.8\.3.*\(bundled\)" || { echo "❌ Expected bundled Qt 6.8.3 in --check-deps!"; exit 1; }
 
 echo "==> Running Headless GUI sanity test via virtual display (Xvfb)..."
 Xvfb :99 -screen 0 1024x768x24 -nolisten tcp &

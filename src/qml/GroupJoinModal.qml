@@ -44,13 +44,21 @@ Item {
         color: ThemeManager.surfaceColor
         border.color: ThemeManager.borderColor
         border.width: 1
+        clip: true
         MouseArea { anchors.fill: parent }
 
-        ColumnLayout {
-            id: content
+        Flickable {
             anchors.fill: parent
             anchors.margins: 20
-            spacing: 12
+            contentWidth: width
+            contentHeight: content.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+
+            ColumnLayout {
+                id: content
+                width: parent.width
+                spacing: 12
 
             RowLayout {
                 Layout.fillWidth: true
@@ -132,6 +140,7 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
                     text: root.previewName
+                    textFormat: Text.PlainText
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
                     font.weight: Font.DemiBold
@@ -152,7 +161,12 @@ Item {
                     wrapMode: Text.Wrap
                     maximumLineCount: 4
                     elide: Text.ElideRight
-                    text: root.previewDesc
+                    id: previewDescText
+                    text: ZaloClient.linkifyText(root.previewDesc)
+                    textFormat: Text.StyledText
+                    linkColor: Theme.linkColor
+                    onLinkActivated: function(link) { ZaloClient.openLink(link); }
+                    HoverHandler { cursorShape: previewDescText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                     color: ThemeManager.textColor
@@ -196,6 +210,7 @@ Item {
                           : I18n.t("Tham gia nhóm", "Join group")
                     onClicked: ZaloClient.groupAdmin.join()
                 }
+            }
             }
         }
     }

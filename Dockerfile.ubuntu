@@ -1,20 +1,18 @@
 # syntax=docker/dockerfile:1
 FROM docker.io/library/ubuntu:24.04
 
+ARG TARGETARCH
+
 LABEL maintainer="Zalos Developers"
-LABEL description="Ubuntu 24.04 (Qt 6.4, glibc 2.39) build of Zalos: the oldest supported Qt; builds the .deb and the AppImage"
+LABEL description="Ubuntu 24.04 + Qt 6.8.3 LTS (glibc 2.39) build of Zalos: builds .deb, AppImage, and Qt 6.8 tests"
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV QT_QPA_PLATFORM=offscreen
 
-# Drop docs/man/info from installed packages (smaller image) and keep downloaded .debs so the apt cache mount can
-# reuse them across builds.
 RUN printf 'path-exclude=/usr/share/doc/*\npath-exclude=/usr/share/man/*\npath-exclude=/usr/share/info/*\n' \
       > /etc/dpkg/dpkg.cfg.d/01-nodoc \
     && printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\n' > /etc/apt/apt.conf.d/01-keep-debs
 
-# One install layer. The apt archives and package lists live on BuildKit cache mounts (persist on the builder, not
-# baked into the image), so rebuilds reuse downloads and the image carries no apt cache.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean \
@@ -27,42 +25,102 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ca-certificates \
     pkg-config \
     file \
+    binutils \
     dpkg-dev \
     curl \
     librsvg2-bin \
     patchelf \
-    qt6-base-dev \
-    qt6-base-dev-tools \
-    qt6-declarative-dev \
-    qt6-declarative-dev-tools \
-    qt6-svg-dev \
-    qt6-image-formats-plugins \
-    qt6-wayland \
-    qt6-wayland-dev \
-    qt6-xdgdesktopportal-platformtheme \
-    qt6-websockets-dev \
-    qt6-multimedia-dev \
-    qt6-shadertools-dev \
-    qt6-tools-dev-tools \
+    python3 \
+    python3-pip \
+    p7zip-full \
     libgl-dev \
+    libegl-dev \
+    libvulkan-dev \
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    libwayland-dev \
+    libdbus-1-dev \
+    libfontconfig1-dev \
+    libfreetype-dev \
+    libxcb1-dev \
+    libxcb-cursor0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-randr0 \
+    libxcb-render-util0 \
+    libxcb-shape0 \
+    libxcb-xinerama0 \
+    libxcb-xkb1 \
+    libxrandr2 \
     libopus0 \
-    qml6-module-qtquick \
-    qml6-module-qtquick-controls \
-    qml6-module-qtquick-layouts \
-    qml6-module-qtquick-templates \
-    qml6-module-qtquick-window \
-    qml6-module-qtquick-shapes \
-    qml6-module-qtquick-dialogs \
-    qml6-module-qtqml-workerscript \
-    qml6-module-qtmultimedia \
-    qml6-module-qtcore \
+    libpulse0 \
     libssl-dev \
     liblzma-dev \
     zlib1g-dev \
     libsqlite3-dev \
+    rpm \
+    libzstd-dev \
     libopenh264-dev \
     xvfb \
     xauth
+
+RUN pip3 install --break-system-packages --no-cache-dir aqtinstall \
+    && ARCH_EFF="${TARGETARCH:-$(uname -m)}" \
+    && if [ "${ARCH_EFF}" = "arm64" ] || [ "${ARCH_EFF}" = "aarch64" ]; then \
+         aqt install-qt linux_arm64 desktop 6.8.3 linux_gcc_arm64 -O /opt/qt \
+           -m qtimageformats qtmultimedia qtshadertools qtwebsockets; \
+       else \
+         aqt install-qt linux desktop 6.8.3 linux_gcc_64 -O /opt/qt \
+           -m qtimageformats qtmultimedia qtshadertools qtwebsockets; \
+       fi \
+    && ln -sfn /opt/qt/6.8.3/gcc_* /opt/qt6 \
+    && pip3 uninstall -y --break-system-packages aqtinstall || true
+
+RUN curl -fsSL https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz -o /tmp/ffmpeg.tar.xz \
+    && mkdir -p /tmp/ff-src && tar -xf /tmp/ffmpeg.tar.xz -C /tmp/ff-src --strip-components=1 \
+    && cd /tmp/ff-src \
+    && ./configure --prefix=/tmp/ff-out \
+        --disable-everything --disable-programs --disable-doc \
+        --disable-avdevice --disable-avfilter --disable-postproc \
+        --disable-x86asm --disable-autodetect --enable-zlib \
+        --enable-shared --disable-static --enable-small \
+        --enable-swresample --enable-swscale \
+        --enable-protocol=file,pipe,data \
+        --enable-demuxer=mov,matroska,ogg,wav,mp3,aac,flac,image2 \
+        --enable-muxer=mp4,ipod,ogg,wav,adts \
+        --enable-decoder=aac,opus,vorbis,mp3,mp3float,flac,pcm_s16le,pcm_f32le,pcm_s16be,pcm_u8,h264,vp8,vp9,mjpeg,png,webp \
+        --enable-encoder=aac,opus,pcm_s16le \
+        --enable-parser=aac,opus,vorbis,mpegaudio,h264,vp8,vp9,mjpeg \
+        --enable-bsf=aac_adtstoasc \
+    && make -j"$(nproc)" && make install-libs \
+    && rm -f /opt/qt6/lib/libav*.so* /opt/qt6/lib/libsw*.so* /opt/qt6/lib/libQt6FFmpegStub-*.so* \
+    && cp -a /tmp/ff-out/lib/libav*.so* /tmp/ff-out/lib/libsw*.so* /opt/qt6/lib/ \
+    && LDD_CHK="$(LD_LIBRARY_PATH=/opt/qt6/lib ldd -r /opt/qt6/plugins/multimedia/libffmpegmediaplugin.so 2>&1)" \
+    && if printf '%s\n' "${LDD_CHK}" | grep -qE "not found|undefined symbol"; then printf '%s\n' "${LDD_CHK}" >&2; exit 1; fi \
+    && rm -rf /tmp/ffmpeg.tar.xz /tmp/ff-src /tmp/ff-out
+
+RUN pip3 install --break-system-packages --no-cache-dir aqtinstall \
+    && aqt install-src linux 6.8.3 --archives qtbase -O /tmp/qt-src \
+    && LD_LIBRARY_PATH=/opt/qt6/lib /opt/qt6/bin/qt-cmake -G Ninja \
+        -S /tmp/qt-src/6.8.3/Src/qtbase/src/plugins/sqldrivers -B /tmp/qsql-build \
+        -DCMAKE_BUILD_TYPE=Release -DFEATURE_system_sqlite=ON \
+        -DFEATURE_sql_odbc=OFF -DFEATURE_sql_psql=OFF -DFEATURE_sql_mysql=OFF -DFEATURE_sql_ibase=OFF \
+        -DFEATURE_sql_oci=OFF -DFEATURE_sql_db2=OFF -DFEATURE_sql_mimer=OFF \
+    && LD_LIBRARY_PATH=/opt/qt6/lib cmake --build /tmp/qsql-build --parallel "$(nproc)" \
+    && SQLITE_PLUGIN="$(find /tmp/qsql-build -name libqsqlite.so -type f | head -n 1)" \
+    && test -n "${SQLITE_PLUGIN}" \
+    && LD_LIBRARY_PATH=/opt/qt6/lib ldd "${SQLITE_PLUGIN}" | grep -q 'libsqlite3\.so' \
+    && strip --strip-unneeded "${SQLITE_PLUGIN}" \
+    && install -m 0755 "${SQLITE_PLUGIN}" /opt/qt6/plugins/sqldrivers/libqsqlite.so \
+    && pip3 uninstall -y --break-system-packages aqtinstall \
+    && rm -rf /tmp/qt-src /tmp/qsql-build
+
+ENV QT_ROOT=/opt/qt6
+ENV Qt6_DIR=/opt/qt6/lib/cmake/Qt6
+ENV CMAKE_PREFIX_PATH=/opt/qt6
+ENV PATH="/opt/qt6/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/opt/qt6/lib"
 
 WORKDIR /workspace
 

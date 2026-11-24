@@ -7,7 +7,6 @@
 
 using namespace Zalos::Core::Network;
 
-// Reference test vectors generated with crypto-js 4.2.0 / Node crypto
 class TestProtocol : public QObject {
     Q_OBJECT
 
@@ -25,7 +24,6 @@ private slots:
         QCOMPARE(ZaloCrypto::encodeAES(secret, plain), QString("z3dsYWfIx8uKMXMiewXppO84lv16LDftlqN7eXztGaU="));
 
         bool ok = false;
-        // Server payloads may arrive percent-encoded.
         QCOMPARE(ZaloCrypto::decodeAES(secret, "z3dsYWfIx8uKMXMiewXppO84lv16LDftlqN7eXztGaU%3D", &ok), plain);
         QVERIFY(ok);
     }
@@ -45,7 +43,6 @@ private slots:
         const QJsonObject msg = root.value("data").toObject().value("msgs").toArray().first().toObject();
         QCOMPARE(msg.value("content").toString(), QString("chào"));
 
-        // Tampered ciphertext must be rejected by the GCM tag check.
         QString tampered = data;
         tampered[60] = tampered[60] == 'A' ? 'B' : 'A';
         ZaloCrypto::decodeEventData(tampered, 2, key, &ok);

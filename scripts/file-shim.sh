@@ -1,6 +1,4 @@
 #!/bin/sh
-# Minimal stand-in for file(1) on AppImage build hosts that lack it: recognises PNG, ELF, SVG, desktop entries and shell
-# scripts, like the command it replaces when appimagetool only needs a type check.
 brief=0
 for a in "$@"; do
     case "$a" in -b|--brief) brief=1 ;; esac

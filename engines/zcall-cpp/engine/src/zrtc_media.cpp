@@ -168,7 +168,7 @@ ZrtcMedia::ZrtcMedia(bool sendUdp, QObject* parent) : QObject(parent), m_sendUdp
 
 ZrtcMedia::~ZrtcMedia() {
     clearTimers();
-    stopAudio();
+    stopAudio(true);
 }
 
 void ZrtcMedia::resetCounters() {
@@ -312,11 +312,12 @@ QTimer* ZrtcMedia::timer(int ms, bool repeat, std::function<void()> fn) {
     auto* t = new QTimer(this);
     t->setSingleShot(!repeat);
     t->setInterval(ms);
-    m_timers.append(t);
-    connect(t, &QTimer::timeout, this, [this, t, repeat, fn] {
+    QPointer<QTimer> safeT(t);
+    m_timers.append(safeT);
+    connect(t, &QTimer::timeout, this, [this, safeT, repeat, fn] {
         if (!repeat) {
-            m_timers.removeOne(t);
-            t->deleteLater();
+            m_timers.removeAll(safeT);
+            if (safeT) safeT->deleteLater();
         }
         fn();
     });
@@ -324,16 +325,26 @@ QTimer* ZrtcMedia::timer(int ms, bool repeat, std::function<void()> fn) {
     return t;
 }
 
+void ZrtcMedia::stopTimer(QPointer<QTimer>& slot) {
+    if (!slot) return;
+    QTimer* t = slot.data();
+    slot = nullptr;
+    t->stop();
+    m_timers.removeAll(t);
+    t->deleteLater();
+}
+
 void ZrtcMedia::clearTimers() {
     m_ringPingTimer = nullptr;
-    const QList<QTimer*> list = m_timers;
+    m_initWait = nullptr;
+    m_initRetry = nullptr;
+    const QList<QPointer<QTimer>> list = m_timers;
     m_timers.clear();
-    for (QTimer* t : list) {
+    for (const QPointer<QTimer>& t : list) {
+        if (!t) continue;
         t->stop();
         t->deleteLater();
     }
-    m_initWait = nullptr;
-    m_initRetry = nullptr;
 }
 
 void ZrtcMedia::prepare(const QString& role, std::function<void(std::optional<InitReply>)> done) {
@@ -387,10 +398,7 @@ void ZrtcMedia::initZrtp(const QByteArray& packet, std::function<void(std::optio
     m_initActive = true;
     m_initTries = 0;
     initSendAll();
-    if (m_initRetry) {
-        m_initRetry->stop();
-        m_initRetry->deleteLater();
-    }
+    stopTimer(m_initRetry);
     m_initRetry = timer(kInitRetryMs, false, [this] { initRetry(); });
 }
 
@@ -410,10 +418,7 @@ void ZrtcMedia::initRetry() {
         return;
     }
     initSendAll();
-    if (m_initRetry) {
-        m_initRetry->stop();
-        m_initRetry->deleteLater();
-    }
+    stopTimer(m_initRetry);
     m_initRetry = timer(kInitRetryMs, false, [this] { initRetry(); });
 }
 
@@ -429,17 +434,8 @@ void ZrtcMedia::checkInitProgress() {
 void ZrtcMedia::finishInit() {
     if (!m_initActive) return;
     m_initActive = false;
-    if (m_initRetry) {
-        m_initRetry->stop();
-        m_initRetry->deleteLater();
-        m_initRetry = nullptr;
-    }
-    if (m_initWait) {
-        m_initWait->stop();
-        m_timers.removeOne(m_initWait);
-        m_initWait->deleteLater();
-        m_initWait = nullptr;
-    }
+    stopTimer(m_initRetry);
+    stopTimer(m_initWait);
     auto done = std::move(m_initDone);
     m_initDone = nullptr;
     if (!done) return;
@@ -493,11 +489,7 @@ void ZrtcMedia::sendRingPing() {
 
 void ZrtcMedia::stopRingPing(bool logSummary) {
     if (!m_ringPingTimer) return;
-    QTimer* t = m_ringPingTimer;
-    m_ringPingTimer = nullptr;
-    t->stop();
-    m_timers.removeOne(t);
-    t->deleteLater();
+    stopTimer(m_ringPingTimer);
     if (logSummary) {
         zlog(QStringLiteral("media: ping before answer: %1 sent, %2 replies (MsgType 2) in %3 s of ringing")
                  .arg(m_ringPingSent)
@@ -877,14 +869,23 @@ void ZrtcMedia::startAudio() {
     if (!m_micAutoGain) setMicAutoGain(false);
 }
 
-void ZrtcMedia::stopAudio() {
+void ZrtcMedia::stopAudio(bool wait) {
     if (!m_audio) return;
     QProcess* a = m_audio;
     m_audio = nullptr;
     a->closeWriteChannel();
-    QTimer::singleShot(1000, a, [a] {
-        if (a->state() != QProcess::NotRunning) a->kill();
-    });
+    if (wait) {
+        a->disconnect(this);
+        if (a->state() != QProcess::NotRunning && !a->waitForFinished(500)) {
+            a->kill();
+            a->waitForFinished(300);
+        }
+        delete a;
+    } else {
+        QTimer::singleShot(1000, a, [a] {
+            if (a->state() != QProcess::NotRunning) a->kill();
+        });
+    }
     m_audioOut.clear();
     m_audioErr.clear();
 }

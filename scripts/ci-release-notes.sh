@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# Build the GitHub release body from CHANGELOG.md so every release ships a curated, English changelog
-# (Keep-a-Changelog section for this version + a per-format asset note + a Full Changelog compare link)
-# instead of GitHub's auto-generated commit dump. CHANGELOG.md is the single source of truth: to change
-# what a release says, edit its "## [X.Y.Z]" section. The workflow (ci.yml) calls this in the release job.
-
 TAG="${1:?usage: ci-release-notes.sh <tag> [output-file]}"
 OUT="${2:-release-notes.md}"
 
 CHANGELOG="${CHANGELOG:-CHANGELOG.md}"
-# Repo owner/repo used for links: CI provides GITHUB_REPOSITORY; default to the public project.
 REPO="${GITHUB_REPOSITORY:-cpfriend1721994/zalos}"
 WEBSITE="https://zalos.pages.dev/"
 
@@ -21,8 +15,6 @@ if [ ! -f "${CHANGELOG}" ]; then
     exit 1
 fi
 
-# Extract everything between this version's heading and the next "## [" heading (or EOF), dropping the
-# "## [X.Y.Z] - date" line itself and trimming leading/trailing blank lines.
 SECTION="$(awk -v v="${VERSION}" '
     $0 ~ "^## \\[" v "\\]" { grab = 1; next }
     grab && /^## \[/ { exit }
@@ -35,7 +27,6 @@ if [ -z "${SECTION}" ]; then
     SECTION="_No curated changelog entry for ${VERSION} yet — see the full comparison below._"
 fi
 
-# Previous tag (for the Full Changelog compare link). Best effort: needs history/tags fetched.
 PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
 
 {

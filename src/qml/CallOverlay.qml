@@ -11,6 +11,7 @@ Item {
     property bool minimized: false
     property bool splitView: false
     property bool deviceMenuOpen: false
+    onDeviceMenuOpenChanged: if (deviceMenuOpen && ZaloClient.calls) ZaloClient.calls.refreshDevicesAsync()
     property real pipX: -1
     property real pipY: 56
     readonly property string phase: ZaloClient.calls ? ZaloClient.calls.phase : ""
@@ -339,25 +340,34 @@ Item {
             anchors.bottomMargin: root.minimized ? 44 : 0
             clip: true
 
-            Image {
-                id: bgAvatar
-                anchors.fill: parent
-                anchors.margins: -60
-                fillMode: Image.PreserveAspectCrop
-                source: (!root.minimized && !root.peerVideoShown && root.visible && root.phase !== ""
-                         && root.phase !== "ended" && ZaloClient.calls && ZaloClient.calls.peerAvatar.length > 0)
-                        ? "image://avatar/" + encodeURIComponent(ZaloClient.calls.peerAvatar) : ""
-                sourceSize.width: 256
-                sourceSize.height: 256
-                visible: false
-            }
-            Loader {
-                id: blurLoader
-                anchors.fill: bgAvatar
-                active: !root.minimized && !root.peerVideoShown && GraphicsInfo.api !== GraphicsInfo.Software
+            Item {
+                id: bgBlurContainer
+                width: 256
+                height: 256
+                anchors.centerIn: parent
+                scale: Math.max((stage.width + 120) / 256, (stage.height + 120) / 256, 1)
                 visible: !root.minimized && !root.peerVideoShown && bgAvatar.status === Image.Ready
-                source: "ZBlurEffect.qml"
-                onLoaded: blurLoader.item.source = bgAvatar
+
+                Image {
+                    id: bgAvatar
+                    anchors.fill: parent
+                    fillMode: Image.PreserveAspectCrop
+                    source: (!root.minimized && !root.peerVideoShown && root.visible && root.phase !== ""
+                             && root.phase !== "ended" && ZaloClient.calls && ZaloClient.calls.peerAvatar.length > 0)
+                            ? "image://avatar/" + encodeURIComponent(ZaloClient.calls.peerAvatar) : ""
+                    sourceSize.width: 256
+                    sourceSize.height: 256
+                    visible: !ZaloClient.effectsAvailable || blurLoader.status !== Loader.Ready
+                }
+                Loader {
+                    id: blurLoader
+                    anchors.fill: bgAvatar
+                    active: ZaloClient.effectsAvailable && !root.minimized && !root.peerVideoShown
+                            && bgAvatar.status === Image.Ready && GraphicsInfo.api !== GraphicsInfo.Software
+                    visible: active && status === Loader.Ready
+                    source: "ZBlurEffect.qml"
+                    onLoaded: blurLoader.item.source = bgAvatar
+                }
             }
 
             Loader {
@@ -545,6 +555,8 @@ Item {
 
             Row {
                 Layout.alignment: Qt.AlignHCenter
+                Layout.maximumWidth: parent.width
+                clip: true
                 spacing: 12
                 visible: !!(ZaloClient.calls && ZaloClient.calls.isGroup && ZaloClient.calls.groupMembers && ZaloClient.calls.groupMembers.length > 0)
 
@@ -893,7 +905,7 @@ Item {
         anchors.bottom: bar.top
         anchors.bottomMargin: 8
         width: Math.min(340, parent.width - 32)
-        height: Math.min(380, devCol.implicitHeight + 24)
+        height: Math.min(380, Math.max(120, root.height - bar.height - 28), devCol.implicitHeight + 24)
         radius: 12
         color: "#EB151A22"
         border.color: "#45FFFFFF"
@@ -934,7 +946,7 @@ Item {
                 }
 
                 Repeater {
-                    model: root.deviceMenuOpen && ZaloClient.calls ? ZaloClient.calls.audioInputDevices() : []
+                    model: root.deviceMenuOpen && ZaloClient.calls ? ZaloClient.calls.audioInputDeviceList : []
                     delegate: DeviceOptionRow {
                         id: micOpt
                         required property var modelData
@@ -1096,7 +1108,7 @@ Item {
                 }
 
                 Repeater {
-                    model: root.deviceMenuOpen && ZaloClient.calls ? ZaloClient.calls.audioOutputDevices() : []
+                    model: root.deviceMenuOpen && ZaloClient.calls ? ZaloClient.calls.audioOutputDeviceList : []
                     delegate: DeviceOptionRow {
                         id: spkOpt
                         required property var modelData
@@ -1141,7 +1153,7 @@ Item {
 
                 Repeater {
                     model: (root.deviceMenuOpen && ZaloClient.calls && ZaloClient.calls.isVideo && !ZaloClient.calls.screenShareOn)
-                           ? ZaloClient.calls.cameraDevices() : []
+                           ? ZaloClient.calls.cameraDeviceList : []
                     delegate: DeviceOptionRow {
                         id: camOpt
                         required property var modelData

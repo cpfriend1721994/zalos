@@ -110,6 +110,21 @@ public:
     bool clearReactions(const QString& msgId, const QString& uid);
     QVector<ReactionEvent> reactionEventsOf(const QString& msgId) const;
     QSet<QString> reactedMessageIds() const;
+    struct UnreadReaction {
+        QString msgId;
+        QString eventId;
+        QString uid;
+        QString icon;
+        qint64 ts{0};
+        qint64 msgTs{0};
+    };
+    bool addUnreadReaction(const QString& convId, const QString& msgId, const QString& eventId, const QString& uid,
+                           const QString& icon, qint64 ts);
+    bool removeUnreadReactions(const QString& msgId, const QString& uid = QString());
+    QVector<UnreadReaction> unreadReactionsOf(const QString& convId) const;
+    int isMineMessage(const QString& msgId) const;
+    QString resolveMessageIdByCliId(const QString& convId, const QString& cliMsgId) const;
+    QString messageText(const QString& msgId) const;
     bool setMessageReaction(const QString& msgId, const QString& summary);
     QVector<CachedProfile> loadProfiles();
     bool beginBatch();

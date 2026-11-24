@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QRegularExpression>
 #include <QSet>
+#include <QUrl>
 #include <algorithm>
 
 namespace Zalos::Core::Models {
@@ -124,7 +125,7 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
             if (!isRunTile(row) || joinsPrevious(row) || row + 1 >= m_items.size() || !joinsPrevious(row + 1))
                 return QVariantList{};
             QVariantList tiles;
-            for (int r = row; r < m_items.size() && (r == row || joinsPrevious(r)); ++r) {
+            for (int r = row; r < m_items.size() && tiles.size() < 16 && (r == row || joinsPrevious(r)); ++r) {
                 const auto& t = m_items.at(r);
                 tiles.append(QVariantMap{{"msgId", t.id}, {"messageType", t.messageType}, {"mediaUrl", t.mediaUrl},
                                          {"href", t.href}, {"animatedUrl", t.extra.value("animatedUrl")}, {"sticker", t.extra.value("sticker")},
@@ -182,18 +183,34 @@ bool MessageModel::isRunTile(int row) const {
     return m.messageType == QLatin1String("sticker") || (m.messageType == QLatin1String("image") && m.text.isEmpty());
 }
 
-bool MessageModel::joinsPrevious(int row) const {
-    if (row <= 0 || !isRunTile(row) || !isRunTile(row - 1)) return false;
-    const auto& a = m_items.at(row - 1);
-    const auto& b = m_items.at(row);
+bool MessageModel::runPairsWithPrevious(int idx) const {
+    if (idx <= 0 || idx >= m_items.size() || !isRunTile(idx) || !isRunTile(idx - 1)) return false;
+    const auto& a = m_items.at(idx - 1);
+    const auto& b = m_items.at(idx);
     return a.senderId == b.senderId && a.isMine == b.isMine && b.ts - a.ts <= kMediaRunGapMs && b.ts >= a.ts
            && localDay(a) == localDay(b);
 }
 
+bool MessageModel::joinsPrevious(int row) const {
+    if (!runPairsWithPrevious(row)) return false;
+    int offset = 1;
+    int cur = row - 1;
+    while (cur > 0 && runPairsWithPrevious(cur)) {
+        ++offset;
+        --cur;
+    }
+    return (offset % 16) != 0;
+}
+
 void MessageModel::refreshRunsAround(int row) {
     if (m_items.isEmpty()) return;
-    const int from = qBound(0, row - 12, m_items.size() - 1);
-    const int to = qBound(0, row + 12, m_items.size() - 1);
+    const int last = int(m_items.size()) - 1;
+    int from = qBound(0, row, last);
+    int to = from;
+    while (from > 0 && runPairsWithPrevious(from)) --from;
+    while (to < last && runPairsWithPrevious(to + 1)) ++to;
+    from = qMax(0, qMin(from, row - 1));
+    to = qMin(last, qMax(to, row + 1));
     emit dataChanged(index(from), index(to), {MediaRunRole, InMediaRunRole, LastInGroupRole});
 }
 
@@ -335,8 +352,20 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
             }
             continue;
         }
-        const int existingIdx = (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0") && byCliId.contains(m.cliMsgId))
-                                ? byCliId.value(m.cliMsgId) : -1;
+        int existingIdx = (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0") && byCliId.contains(m.cliMsgId))
+                              ? byCliId.value(m.cliMsgId) : -1;
+        if (existingIdx < 0 && m.messageType == QLatin1String("call") && !m.id.startsWith(QLatin1String("local-"))) {
+            const int total = baseSize + appended.size();
+            for (int i = total - 1; i >= 0; --i) {
+                const MessageItem& cand = at(i);
+                if (cand.messageType == QLatin1String("call")
+                    && cand.id.startsWith(QLatin1String("local-call-"))
+                    && qAbs(cand.ts - m.ts) <= 120000) {
+                    existingIdx = i;
+                    break;
+                }
+            }
+        }
         if (existingIdx >= 0 && (at(existingIdx).id.startsWith(QLatin1String("local-")) || at(existingIdx).senderId == m.senderId)) {
             MessageItem& existing = at(existingIdx);
             const QString oldId = existing.id;
@@ -857,22 +886,9 @@ QVariantMap MessageModel::getMessageById(const QString& msgId) const {
 }
 
 namespace {
-bool isEmoticonStartBoundary(QChar c) {
-    if (c.isSpace()) return true;
-    switch (c.unicode()) {
-    case '(': case '[': case '{': case '"': case '\'': case '`': case '>': return true;
-    default: return false;
-    }
-}
+bool isEmoticonStartBoundary(QChar c) { return c.isSpace(); }
 
-bool isEmoticonEndBoundary(QChar c) {
-    if (c.isSpace()) return true;
-    switch (c.unicode()) {
-    case ')': case ']': case '}': case '"': case '\'': case '`':
-    case '!': case '?': case '.': case ',': case ';': case ':': case '<': return true;
-    default: return false;
-    }
-}
+bool isEmoticonEndBoundary(QChar c) { return c.isSpace(); }
 
 QString convertEmoticons(const QString& text) {
     if (text.isEmpty()) return text;
@@ -980,24 +996,62 @@ QString convertEmoticons(const QString& text) {
 }
 }
 
-QString MessageModel::linkify(const QString& text) {
-    static const QRegularExpression url(QStringLiteral(R"((https?://[^\s<>"']+|www\.[^\s<>"']+))"));
-    QString out;
-    int last = 0;
+QVector<MessageModel::LinkSpan> MessageModel::findLinks(const QString& text) {
+    static const QRegularExpression url(
+        QStringLiteral(R"((?:https?://|www\.)[^\s<>"']+|(?<![@\w./:-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+)"
+                       R"((?:com|net|org|vn|me|io|co|tv|app|ly|gl|gg|link|info|biz|edu|gov|xyz|site|online|shop|store|)"
+                       R"(dev|page|to|asia|top|ai|cc|so|be|us|uk|jp|kr|cn|watch|news|live|video|blog|club|fun|pro|world|tech|ws)(?![\w-])(?::\d{2,5})?(?:[/?#][^\s<>"']*)?)"),
+        QRegularExpression::CaseInsensitiveOption);
+    QVector<LinkSpan> out;
+    if (!text.contains(QLatin1Char('.'))) return out;
     auto it = url.globalMatch(text);
     while (it.hasNext()) {
         const auto m = it.next();
         QString link = m.captured(0);
         while (!link.isEmpty() && QStringLiteral(".,;:!?)]}").contains(link.back())) link.chop(1);
-        out += convertEmoticons(text.mid(last, m.capturedStart() - last)).toHtmlEscaped();
-        const QString href = link.startsWith(QLatin1String("www.")) ? "https://" + link : link;
-        out += QStringLiteral("<a href=\"%1\">%2</a>").arg(href.toHtmlEscaped(), link.toHtmlEscaped());
-        last = m.capturedStart() + link.size();
+        if (link.isEmpty()) continue;
+        const bool hasScheme = link.startsWith(QLatin1String("http://"), Qt::CaseInsensitive)
+                               || link.startsWith(QLatin1String("https://"), Qt::CaseInsensitive);
+        out.append({int(m.capturedStart()), int(link.size()), hasScheme ? link : QStringLiteral("https://") + link});
     }
-    out += convertEmoticons(text.mid(last)).toHtmlEscaped();
+    return out;
+}
+
+namespace {
+QString anchorHtml(const QString& href, const QString& label) {
+    return QStringLiteral("<a href=\"%1\">%2</a>").arg(href.toHtmlEscaped(), label.toHtmlEscaped());
+}
+
+QString emoticonHtml(const QString& text) {
+    QString out = convertEmoticons(text).toHtmlEscaped();
     out.replace(QStringLiteral("ICON_PACMAN_PLACEHOLDER"),
                 QStringLiteral("<img src=\"qrc:/Zalos/assets/icons/pacman.png\" width=\"18\" height=\"18\" style=\"vertical-align:middle;\"/>"));
     return out.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+}
+}
+
+QString MessageModel::linkifyPlain(const QString& text) {
+    QString out;
+    int last = 0;
+    for (const LinkSpan& span : findLinks(text)) {
+        out += text.mid(last, span.start - last).toHtmlEscaped();
+        out += anchorHtml(span.href, text.mid(span.start, span.length));
+        last = span.start + span.length;
+    }
+    out += text.mid(last).toHtmlEscaped();
+    return out.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+}
+
+QString MessageModel::linkify(const QString& text) {
+    QString out;
+    int last = 0;
+    for (const LinkSpan& span : findLinks(text)) {
+        out += emoticonHtml(text.mid(last, span.start - last));
+        out += anchorHtml(span.href, text.mid(span.start, span.length));
+        last = span.start + span.length;
+    }
+    out += emoticonHtml(text.mid(last));
+    return out;
 }
 
 int MessageModel::rowOfMessage(const QString& msgId) const {
@@ -1005,11 +1059,36 @@ int MessageModel::rowOfMessage(const QString& msgId) const {
     return (row >= 0 && row < m_items.size()) ? row : -1;
 }
 
+namespace {
+
+bool isPlayableVideoFile(const MessageItem& m) {
+    if (m.messageType != QLatin1String("file")) return false;
+    auto hasVideoExt = [](const QString& nameOrPath) {
+        static const QStringList kExts{
+            QStringLiteral(".mp4"), QStringLiteral(".mov"), QStringLiteral(".webm"),
+            QStringLiteral(".mkv"), QStringLiteral(".m4v")
+        };
+        const QString clean = nameOrPath.trimmed();
+        for (const QString& ext : kExts) {
+            if (clean.endsWith(ext, Qt::CaseInsensitive)) return true;
+        }
+        return false;
+    };
+    if (hasVideoExt(m.text)) return true;
+    const QString urlPath = QUrl(m.href.isEmpty() ? m.mediaUrl : m.href).path();
+    return hasVideoExt(urlPath);
+}
+
+}
+
 QVariantList MessageModel::mediaItems() const {
     QVariantList out;
     for (const auto& m : m_items) {
-        if ((m.messageType != QLatin1String("image") && m.messageType != QLatin1String("video")) || m.isRecalled)
+        const bool isVideoFile = isPlayableVideoFile(m);
+        if ((m.messageType != QLatin1String("image") && m.messageType != QLatin1String("video") && !isVideoFile)
+            || m.isRecalled) {
             continue;
+        }
         const QString animUrl = m.extra.value(QStringLiteral("animatedUrl")).toString();
         const QString full = !animUrl.isEmpty() ? animUrl : (m.href.isEmpty() ? m.mediaUrl : m.href);
         if (full.isEmpty()) continue;
@@ -1018,9 +1097,9 @@ QVariantList MessageModel::mediaItems() const {
             && m.senderId != QLatin1String("0") && m.senderId != QLatin1String("system")) {
             sName = m_senderResolver(m.senderId).first;
         }
-        out.append(QVariantMap{{"msgId", m.id}, {"url", full}, {"thumb", m.mediaUrl},
+        out.append(QVariantMap{{"msgId", m.id}, {"url", full}, {"thumb", isVideoFile ? QString() : m.mediaUrl},
                                {"senderName", sName}, {"isMine", m.isMine}, {"ts", m.ts},
-                               {"isVideo", m.messageType == QLatin1String("video")},
+                               {"isVideo", m.messageType == QLatin1String("video") || isVideoFile},
                                {"animated", !animUrl.isEmpty()}});
     }
     return out;
@@ -1072,6 +1151,8 @@ QString MessageModel::styledHtml(const QString& text, const QVector<MessageMenti
     for (int i = 0; i < text.size(); ++i) {
         if (text.at(i) == QLatin1Char('\n')) cuts << i + 1;
     }
+    const QVector<LinkSpan> links = findLinks(text);
+    for (const LinkSpan& span : links) cuts << span.start << span.start + span.length;
     QList<int> points(cuts.begin(), cuts.end());
     std::sort(points.begin(), points.end());
 
@@ -1123,7 +1204,11 @@ QString MessageModel::styledHtml(const QString& text, const QVector<MessageMenti
             html = QStringLiteral("<a href=\"zalos-mention:%1\"><b>%2</b></a>")
                        .arg(mention->uid.toHtmlEscaped(), piece.toHtmlEscaped());
         } else {
-            html = linkify(piece);
+            const LinkSpan* link = nullptr;
+            for (const LinkSpan& span : links) {
+                if (from >= span.start && to <= span.start + span.length) { link = &span; break; }
+            }
+            html = link ? anchorHtml(link->href, piece) : emoticonHtml(piece);
         }
         QString open, close;
         QString css;
@@ -1293,6 +1378,53 @@ void MessageModel::updatePollVote(const QString& convId, qint64 pollId, int opti
             updateItem(it);
         }
     }
+}
+
+QString MessageModel::internMessageType(QStringView type) {
+    static const QString kText = QStringLiteral("text");
+    static const QString kImage = QStringLiteral("image");
+    static const QString kFile = QStringLiteral("file");
+    static const QString kSticker = QStringLiteral("sticker");
+    static const QString kVoice = QStringLiteral("voice");
+    static const QString kVideo = QStringLiteral("video");
+    static const QString kLocation = QStringLiteral("location");
+    static const QString kEcard = QStringLiteral("ecard");
+    static const QString kSystem = QStringLiteral("system");
+    static const QString kLink = QStringLiteral("link");
+    static const QString kBankcard = QStringLiteral("bankcard");
+    static const QString kCall = QStringLiteral("call");
+    static const QString kCard = QStringLiteral("card");
+    static const QString kPoll = QStringLiteral("poll");
+    if (type.isEmpty() || type == kText) return kText;
+    if (type == kImage) return kImage;
+    if (type == kFile) return kFile;
+    if (type == kSticker) return kSticker;
+    if (type == kVoice) return kVoice;
+    if (type == kVideo) return kVideo;
+    if (type == kLocation) return kLocation;
+    if (type == kEcard) return kEcard;
+    if (type == kSystem) return kSystem;
+    if (type == kLink) return kLink;
+    if (type == kBankcard) return kBankcard;
+    if (type == kCall) return kCall;
+    if (type == kCard) return kCard;
+    if (type == kPoll) return kPoll;
+    return type.toString();
+}
+
+QString MessageModel::internStatus(QStringView status) {
+    if (status.isEmpty()) return {};
+    static const QString kSent = QStringLiteral("sent");
+    static const QString kDelivered = QStringLiteral("delivered");
+    static const QString kSeen = QStringLiteral("seen");
+    static const QString kSending = QStringLiteral("sending");
+    static const QString kFailed = QStringLiteral("failed");
+    if (status == kSent) return kSent;
+    if (status == kDelivered) return kDelivered;
+    if (status == kSeen) return kSeen;
+    if (status == kSending) return kSending;
+    if (status == kFailed) return kFailed;
+    return status.toString();
 }
 
 }

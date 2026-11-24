@@ -1,21 +1,10 @@
 name: Base images (multiarch → GHCR)
 
-# Build-once, reuse-forever base images for the release matrix. These images hold ONLY the toolchain
-# (Qt6/compilers on Fedora, Qt 6.4 on Ubuntu, Nix on nixos/nix) — never the Zalos source, which is bind-mounted
-# at run time. They are built for linux/amd64 + linux/arm64 as a single manifest list and pushed to GHCR, so the
-# packaging jobs in ci.yml just pull them and never rebuild the toolchain (the emulated arm64 toolchain install
-# was the slow part). This workflow runs ONLY when a Dockerfile changes or it is dispatched by hand — a normal
-# code push to main does not rebuild the bases.
-#
-# To refresh a base (new distro patch, added/updated dependency): edit the Dockerfile and push, or run this
-# workflow manually (Actions → Base images → Run workflow). The floating tag (:43 / :24.04 / :latest) is overwritten.
-
 on:
   workflow_dispatch: {}
   push:
     branches: [ main ]
     paths:
-      - 'Dockerfile'
       - 'Dockerfile.ubuntu'
       - 'Dockerfile.nix'
 
@@ -35,9 +24,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: zalos-fedora
-            file: Dockerfile
-            tag: 43
           - name: zalos-ubuntu
             file: Dockerfile.ubuntu
             tag: 24.04
@@ -48,8 +34,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           clean: true
-      # Keep docker credentials in a job-private dir: /root/.docker/config.json is a bind mount on the self-hosted
-      # runner, so login-action's atomic rename over it fails with "device or resource busy". $RUNNER_TEMP is unique.
       - name: Use a job-private DOCKER_CONFIG
         run: echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
       - name: Lowercase owner (GHCR requires lowercase)

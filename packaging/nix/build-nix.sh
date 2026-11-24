@@ -17,22 +17,14 @@ if [ -f "${WORKSPACE_DIR}/CMakeLists.txt" ]; then
     done < "${WORKSPACE_DIR}/CMakeLists.txt"
 fi
 if [ -z "${VERSION}" ]; then
-    VERSION="1.2.10"
+    VERSION="1.3.0"
 fi
 mkdir -p "${OUTPUT_DIR}"
 
 cd "${WORKSPACE_DIR}"
 
-# Safe directory for git inside container
 git config --global --add safe.directory "*" || true
 
-# Enable flakes and nix-command in nix.conf.
-# The Nix sandbox filters syscalls with seccomp, and a seccomp BPF program is only accepted for the architecture of
-# the *kernel*: in an aarch64 container emulated by QEMU on an x86_64 host, loading it fails with
-# "unable to load seccomp BPF program: Invalid argument" and the build dies while setting up the environment. So an
-# emulated run (ZALOS_EMULATED=1, set by scripts/ci-package.sh and by the package-*-arm64 compose services) turns
-# the sandbox off and caps Ninja parallelism (cores = 5) so QEMU user-mode emulation + GCC compiling large C++/Qt6
-# translation units cannot exhaust the CI runner's RAM and trigger the kernel OOM-killer (exit code 137 / SIGKILL).
 mkdir -p ~/.config/nix
 NIX_SANDBOX=true
 NIX_CORES=0
@@ -57,12 +49,8 @@ EOF
 
 echo "==> Building Zalos package via default.nix..."
 if command -v nix &>/dev/null; then
-    # Newest nixos-unstable (Qt, OpenSSL, OpenH264, ...) pinned in flake.lock, then `nix-build default.nix` with
-    # that nixpkgs: only the filtered source reaches the store (`nix build path:.` would copy the whole directory,
-    # sessions and caches included, and a git flake would miss untracked files).
     if [ "${ZALOS_EMULATED:-0}" != "1" ] && [ "${ZALOS_SKIP_FLAKE_UPDATE:-0}" != "1" ]; then
         echo "==> Updating flake.lock to the newest nixos-unstable..."
-        # GitHub's flake API is another transient-network hop: retry it, the build itself is the expensive part.
         for attempt in 1 2 3; do
             if nix flake update --extra-experimental-features "nix-command flakes"; then
                 break

@@ -1,15 +1,220 @@
 #include "system_tray.h"
 
-#include <QJSEngine>
-#include <QApplication>
-#include <QPainter>
-#include <QPainterPath>
-#include <QFont>
-#include <QStyle>
+#include <QCoreApplication>
 #include <QDBusConnection>
 #include <QDBusMessage>
+#include <QDBusMetaType>
+#include <QDBusReply>
+#include <QDBusServiceWatcher>
+#include <QFont>
+#include <QFontMetrics>
+#include <QIcon>
+#include <QPainter>
+#include <QPainterPath>
+#include <QtEndian>
+#include <atomic>
 
 namespace Zalos::Core::Platform {
+
+namespace {
+std::atomic<quint64> g_sniSeq{0};
+}
+
+QDBusArgument& operator<<(QDBusArgument& arg, const SniPixmap& p) {
+    arg.beginStructure();
+    arg << p.width << p.height << p.data;
+    arg.endStructure();
+    return arg;
+}
+
+const QDBusArgument& operator>>(const QDBusArgument& arg, SniPixmap& p) {
+    arg.beginStructure();
+    arg >> p.width >> p.height >> p.data;
+    arg.endStructure();
+    return arg;
+}
+
+QDBusArgument& operator<<(QDBusArgument& arg, const SniToolTip& t) {
+    arg.beginStructure();
+    arg << t.iconName << t.iconPixmap << t.title << t.subTitle;
+    arg.endStructure();
+    return arg;
+}
+
+const QDBusArgument& operator>>(const QDBusArgument& arg, SniToolTip& t) {
+    arg.beginStructure();
+    arg >> t.iconName >> t.iconPixmap >> t.title >> t.subTitle;
+    arg.endStructure();
+    return arg;
+}
+
+QDBusArgument& operator<<(QDBusArgument& arg, const DbusMenuLayoutItem& item) {
+    arg.beginStructure();
+    arg << item.id << item.properties << item.children;
+    arg.endStructure();
+    return arg;
+}
+
+const QDBusArgument& operator>>(const QDBusArgument& arg, DbusMenuLayoutItem& item) {
+    arg.beginStructure();
+    arg >> item.id >> item.properties >> item.children;
+    arg.endStructure();
+    return arg;
+}
+
+QDBusArgument& operator<<(QDBusArgument& arg, const DbusMenuItemProps& props) {
+    arg.beginStructure();
+    arg << props.id << props.properties;
+    arg.endStructure();
+    return arg;
+}
+
+const QDBusArgument& operator>>(const QDBusArgument& arg, DbusMenuItemProps& props) {
+    arg.beginStructure();
+    arg >> props.id >> props.properties;
+    arg.endStructure();
+    return arg;
+}
+
+QDBusArgument& operator<<(QDBusArgument& arg, const DbusMenuRemovedProps& props) {
+    arg.beginStructure();
+    arg << props.id << props.properties;
+    arg.endStructure();
+    return arg;
+}
+
+const QDBusArgument& operator>>(const QDBusArgument& arg, DbusMenuRemovedProps& props) {
+    arg.beginStructure();
+    arg >> props.id >> props.properties;
+    arg.endStructure();
+    return arg;
+}
+
+QDBusArgument& operator<<(QDBusArgument& arg, const DbusMenuEvent& ev) {
+    arg.beginStructure();
+    arg << ev.id << ev.eventId << ev.data << ev.timestamp;
+    arg.endStructure();
+    return arg;
+}
+
+const QDBusArgument& operator>>(const QDBusArgument& arg, DbusMenuEvent& ev) {
+    arg.beginStructure();
+    arg >> ev.id >> ev.eventId >> ev.data >> ev.timestamp;
+    arg.endStructure();
+    return arg;
+}
+
+namespace Detail {
+
+StatusNotifierAdaptor::StatusNotifierAdaptor(SystemTrayController* owner)
+    : QDBusAbstractAdaptor(owner), m_owner(owner) {}
+
+SniPixmapList StatusNotifierAdaptor::iconPixmap() const { return m_owner ? m_owner->sniPixmaps() : SniPixmapList{}; }
+SniToolTip StatusNotifierAdaptor::toolTip() const { return m_owner ? m_owner->sniToolTip() : SniToolTip{}; }
+void StatusNotifierAdaptor::Activate(int, int) {
+    if (m_owner) m_owner->activateFromHost();
+}
+void StatusNotifierAdaptor::SecondaryActivate(int, int) {
+    if (m_owner) m_owner->activateFromHost();
+}
+void StatusNotifierAdaptor::ContextMenu(int, int) {}
+void StatusNotifierAdaptor::Scroll(int, const QString&) {}
+void StatusNotifierAdaptor::ProvideXdgActivationToken(const QString& token) {
+    if (!token.isEmpty()) qputenv("XDG_ACTIVATION_TOKEN", token.toUtf8());
+}
+
+DbusMenuAdaptor::DbusMenuAdaptor(SystemTrayController* owner)
+    : QDBusAbstractAdaptor(owner), m_owner(owner) {}
+
+uint DbusMenuAdaptor::GetLayout(int parentId, int recursionDepth, const QStringList& propertyNames,
+                                DbusMenuLayoutItem& layout) {
+    if (!m_owner) {
+        layout = {};
+        return 1u;
+    }
+    layout = m_owner->menuLayout(parentId, recursionDepth, propertyNames);
+    return m_owner->menuRevision();
+}
+
+DbusMenuItemPropsList DbusMenuAdaptor::GetGroupProperties(const QList<int>& ids, const QStringList& propertyNames) {
+    return m_owner ? m_owner->menuGroupProperties(ids, propertyNames) : DbusMenuItemPropsList{};
+}
+
+QDBusVariant DbusMenuAdaptor::GetProperty(int id, const QString& name) {
+    return QDBusVariant(m_owner ? m_owner->menuProperty(id, name) : QVariant());
+}
+
+void DbusMenuAdaptor::Event(int id, const QString& eventId, const QDBusVariant&, uint) {
+    if (m_owner && eventId == QLatin1String("clicked")) m_owner->triggerMenuItem(id);
+}
+
+QList<int> DbusMenuAdaptor::EventGroup(const DbusMenuEventList& events) {
+    if (m_owner) {
+        for (const DbusMenuEvent& ev : events) {
+            if (ev.eventId == QLatin1String("clicked")) m_owner->triggerMenuItem(ev.id);
+        }
+    }
+    return {};
+}
+
+bool DbusMenuAdaptor::AboutToShow(int) { return false; }
+
+void DbusMenuAdaptor::AboutToShowGroup(const QList<int>&, QList<int>& updatesNeeded, QList<int>& idErrors) {
+    updatesNeeded.clear();
+    idErrors.clear();
+}
+
+}
+
+void SystemTrayController::registerDbusTypes() {
+    static const bool registered = []() {
+        qDBusRegisterMetaType<SniPixmap>();
+        qDBusRegisterMetaType<SniPixmapList>();
+        qDBusRegisterMetaType<SniToolTip>();
+        qDBusRegisterMetaType<DbusMenuLayoutItem>();
+        qDBusRegisterMetaType<DbusMenuItemProps>();
+        qDBusRegisterMetaType<DbusMenuItemPropsList>();
+        qDBusRegisterMetaType<DbusMenuRemovedProps>();
+        qDBusRegisterMetaType<DbusMenuRemovedPropsList>();
+        qDBusRegisterMetaType<DbusMenuEvent>();
+        qDBusRegisterMetaType<DbusMenuEventList>();
+        return true;
+    }();
+    Q_UNUSED(registered);
+}
+
+bool SystemTrayController::isSystemTrayAvailable() {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) return false;
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        QStringLiteral("org.kde.StatusNotifierWatcher"),
+        QStringLiteral("/StatusNotifierWatcher"),
+        QStringLiteral("org.freedesktop.DBus.Properties"),
+        QStringLiteral("Get"));
+    msg << QStringLiteral("org.kde.StatusNotifierWatcher")
+        << QStringLiteral("IsStatusNotifierHostRegistered");
+    const QDBusReply<QDBusVariant> reply = bus.call(msg, QDBus::Block, 200);
+    return reply.isValid() && reply.value().variant().toBool();
+}
+
+QByteArray SystemTrayController::toSniArgb32(const QImage& image) {
+    if (image.isNull()) return {};
+    const QImage img = image.format() == QImage::Format_ARGB32
+        ? image
+        : image.convertToFormat(QImage::Format_ARGB32);
+    const int w = img.width();
+    const int h = img.height();
+    QByteArray out(w * h * 4, Qt::Uninitialized);
+    auto* dst = reinterpret_cast<uchar*>(out.data());
+    for (int y = 0; y < h; ++y) {
+        const auto* src = reinterpret_cast<const quint32*>(img.constScanLine(y));
+        for (int x = 0; x < w; ++x) {
+            qToBigEndian<quint32>(src[x], dst);
+            dst += 4;
+        }
+    }
+    return out;
+}
 
 SystemTrayController::SystemTrayController(QObject* parent)
     : QObject(parent) {
@@ -17,80 +222,232 @@ SystemTrayController::SystemTrayController(QObject* parent)
     QObject::connect(this, &QObject::destroyed, [](QObject* gone) {
         if (static_cast<QObject*>(s_instance) == gone) s_instance = nullptr;
     });
-    m_trayIcon = new QSystemTrayIcon(this);
-    m_trayIcon->setIcon(createBadgeIcon(0, false));
     setupMenu();
+    m_badgeImage = createBadgeImage(0, false);
     retranslate();
-
-    connect(m_trayIcon, &QSystemTrayIcon::activated, this, &SystemTrayController::onTrayActivated);
-    m_trayIcon->show();
+    setupDbus();
 }
 
 SystemTrayController::~SystemTrayController() {
-    if (m_trayIcon) {
-        m_trayIcon->hide();
+    if (m_busObjectsRegistered) {
+        QDBusConnection bus = QDBusConnection::sessionBus();
+        if (bus.isConnected()) {
+            bus.unregisterObject(QStringLiteral("/StatusNotifierItem"));
+            bus.unregisterObject(QStringLiteral("/MenuBar"));
+            if (!m_serviceName.isEmpty()) bus.unregisterService(m_serviceName);
+        }
+        m_busObjectsRegistered = false;
     }
-    delete m_trayMenu;
-    m_trayMenu = nullptr;
+}
+
+void SystemTrayController::setupDbus() {
+    registerDbusTypes();
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) return;
+
+    m_sniAdaptor = new Detail::StatusNotifierAdaptor(this);
+    m_menuAdaptor = new Detail::DbusMenuAdaptor(this);
+
+    const bool sniOk = bus.registerObject(QStringLiteral("/StatusNotifierItem"), this,
+                                          QDBusConnection::ExportAdaptors);
+    const bool menuOk = bus.registerObject(QStringLiteral("/MenuBar"), this,
+                                           QDBusConnection::ExportAdaptors);
+    m_busObjectsRegistered = sniOk || menuOk;
+    if (!sniOk) return;
+
+    const QString candidate = QStringLiteral("org.kde.StatusNotifierItem-%1-%2")
+                                  .arg(QCoreApplication::applicationPid())
+                                  .arg(++g_sniSeq);
+    if (bus.registerService(candidate)) m_serviceName = candidate;
+
+    m_watcher = new QDBusServiceWatcher(QStringLiteral("org.kde.StatusNotifierWatcher"), bus,
+                                        QDBusServiceWatcher::WatchForRegistration | QDBusServiceWatcher::WatchForOwnerChange,
+                                        this);
+    connect(m_watcher, &QDBusServiceWatcher::serviceRegistered, this, &SystemTrayController::registerWithWatcher);
+    connect(m_watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+            [this](const QString&, const QString&, const QString& newOwner) {
+                m_registered = false;
+                if (!newOwner.isEmpty()) registerWithWatcher();
+            });
+    bus.connect(QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("/StatusNotifierWatcher"),
+                QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("StatusNotifierHostRegistered"),
+                this, SLOT(registerWithWatcher()));
+    registerWithWatcher();
+}
+
+void SystemTrayController::registerWithWatcher() {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected() || !m_busObjectsRegistered) return;
+    m_hostAvailable = isSystemTrayAvailable();
+    const QString arg = m_serviceName.isEmpty() ? QStringLiteral("/StatusNotifierItem") : m_serviceName;
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        QStringLiteral("org.kde.StatusNotifierWatcher"),
+        QStringLiteral("/StatusNotifierWatcher"),
+        QStringLiteral("org.kde.StatusNotifierWatcher"),
+        QStringLiteral("RegisterStatusNotifierItem"));
+    msg << arg;
+    const QDBusMessage reply = bus.call(msg, QDBus::Block, 200);
+    m_registered = reply.type() == QDBusMessage::ReplyMessage;
 }
 
 void SystemTrayController::setupMenu() {
-    m_trayMenu = new QMenu();
+    auto addAct = [this](bool checkable = false) {
+        auto* a = new QAction(this);
+        if (checkable) a->setCheckable(true);
+        m_menuActions.append(a);
+        return a;
+    };
+    auto addSep = [this]() {
+        auto* a = new QAction(this);
+        a->setSeparator(true);
+        m_menuActions.append(a);
+        return a;
+    };
 
-    m_callStatusAction = m_trayMenu->addAction(QString());
+    m_callStatusAction = addAct();
     connect(m_callStatusAction, &QAction::triggered, this, &SystemTrayController::showCallWindowRequested);
 
-    m_callAcceptAction = m_trayMenu->addAction(QString());
+    m_callAcceptAction = addAct();
     connect(m_callAcceptAction, &QAction::triggered, this, [this]() { emit acceptCallRequested(false); });
 
-    m_callAcceptNoCamAction = m_trayMenu->addAction(QString());
+    m_callAcceptNoCamAction = addAct();
     connect(m_callAcceptNoCamAction, &QAction::triggered, this, [this]() { emit acceptCallRequested(true); });
 
-    m_callRejectAction = m_trayMenu->addAction(QString());
+    m_callRejectAction = addAct();
     connect(m_callRejectAction, &QAction::triggered, this, &SystemTrayController::rejectCallRequested);
 
-    m_callMuteAction = m_trayMenu->addAction(QString());
-    m_callMuteAction->setCheckable(true);
+    m_callMuteAction = addAct(true);
     connect(m_callMuteAction, &QAction::triggered, this, &SystemTrayController::toggleCallMuteRequested);
 
-    m_callSpeakerAction = m_trayMenu->addAction(QString());
-    m_callSpeakerAction->setCheckable(true);
+    m_callSpeakerAction = addAct(true);
     connect(m_callSpeakerAction, &QAction::triggered, this, &SystemTrayController::toggleCallSpeakerRequested);
 
-    m_callCameraAction = m_trayMenu->addAction(QString());
-    m_callCameraAction->setCheckable(true);
+    m_callCameraAction = addAct(true);
     connect(m_callCameraAction, &QAction::triggered, this, &SystemTrayController::toggleCallCameraRequested);
 
-    m_callScreenShareAction = m_trayMenu->addAction(QString());
-    m_callScreenShareAction->setCheckable(true);
+    m_callScreenShareAction = addAct(true);
     connect(m_callScreenShareAction, &QAction::triggered, this, &SystemTrayController::toggleCallScreenShareRequested);
 
-    m_callHangupAction = m_trayMenu->addAction(QString());
+    m_callHangupAction = addAct();
     connect(m_callHangupAction, &QAction::triggered, this, &SystemTrayController::hangupCallRequested);
 
-    m_callSeparator = m_trayMenu->addSeparator();
+    m_callSeparator = addSep();
     for (QAction* a : {m_callStatusAction, m_callAcceptAction, m_callAcceptNoCamAction, m_callRejectAction,
                        m_callMuteAction, m_callSpeakerAction, m_callCameraAction, m_callScreenShareAction,
                        m_callHangupAction, m_callSeparator}) {
         a->setVisible(false);
     }
 
-    m_openAction = m_trayMenu->addAction(QString());
+    m_openAction = addAct();
     connect(m_openAction, &QAction::triggered, this, &SystemTrayController::toggleWindowRequested);
 
-    m_themeAction = m_trayMenu->addAction(QString());
+    m_themeAction = addAct();
     connect(m_themeAction, &QAction::triggered, this, &SystemTrayController::toggleDarkModeRequested);
 
-    m_antiPeekAction = m_trayMenu->addAction(QString());
-    m_antiPeekAction->setCheckable(true);
+    m_antiPeekAction = addAct(true);
     connect(m_antiPeekAction, &QAction::triggered, this, &SystemTrayController::antiPeekingToggled);
 
-    m_trayMenu->addSeparator();
+    m_separator2 = addSep();
 
-    m_quitAction = m_trayMenu->addAction(QString());
+    m_quitAction = addAct();
     connect(m_quitAction, &QAction::triggered, this, &SystemTrayController::quitRequested);
+}
 
-    m_trayIcon->setContextMenu(m_trayMenu);
+SniPixmapList SystemTrayController::sniPixmaps() const {
+    if (m_badgeImage.isNull()) return {};
+    return {SniPixmap{m_badgeImage.width(), m_badgeImage.height(), toSniArgb32(m_badgeImage)}};
+}
+
+SniToolTip SystemTrayController::sniToolTip() const {
+    SniToolTip tip;
+    const int nl = m_toolTip.indexOf(QLatin1Char('\n'));
+    if (nl < 0) {
+        tip.title = m_toolTip;
+    } else {
+        tip.title = m_toolTip.left(nl);
+        tip.subTitle = m_toolTip.mid(nl + 1);
+    }
+    return tip;
+}
+
+QVariantMap SystemTrayController::actionProperties(const QAction* action, const QStringList& filter) const {
+    QVariantMap props;
+    auto want = [&filter](const QString& k) { return filter.isEmpty() || filter.contains(k); };
+    if (action->isSeparator()) {
+        if (want(QStringLiteral("type"))) props.insert(QStringLiteral("type"), QStringLiteral("separator"));
+        if (want(QStringLiteral("visible"))) props.insert(QStringLiteral("visible"), action->isVisible());
+        return props;
+    }
+    if (want(QStringLiteral("label"))) props.insert(QStringLiteral("label"), action->text());
+    if (want(QStringLiteral("visible"))) props.insert(QStringLiteral("visible"), action->isVisible());
+    if (want(QStringLiteral("enabled"))) props.insert(QStringLiteral("enabled"), action->isEnabled());
+    if (action->isCheckable()) {
+        if (want(QStringLiteral("toggle-type"))) props.insert(QStringLiteral("toggle-type"), QStringLiteral("checkmark"));
+        if (want(QStringLiteral("toggle-state"))) props.insert(QStringLiteral("toggle-state"), action->isChecked() ? 1 : 0);
+    }
+    return props;
+}
+
+DbusMenuLayoutItem SystemTrayController::menuLayout(int parentId, int recursionDepth,
+                                                    const QStringList& propertyNames) const {
+    DbusMenuLayoutItem root;
+    root.id = parentId;
+    if (parentId != 0) return root;
+    root.properties.insert(QStringLiteral("children-display"), QStringLiteral("submenu"));
+    if (recursionDepth == 0) return root;
+    for (int i = 0; i < m_menuActions.size(); ++i) {
+        DbusMenuLayoutItem child;
+        child.id = i + 1;
+        child.properties = actionProperties(m_menuActions.at(i), propertyNames);
+        root.children.append(QVariant::fromValue(child));
+    }
+    return root;
+}
+
+DbusMenuItemPropsList SystemTrayController::menuGroupProperties(const QList<int>& ids,
+                                                                const QStringList& propertyNames) const {
+    DbusMenuItemPropsList list;
+    for (int id : ids) {
+        if (id == 0) {
+            list.append(DbusMenuItemProps{0, QVariantMap{{QStringLiteral("children-display"), QStringLiteral("submenu")}}});
+        } else if (id > 0 && id <= m_menuActions.size()) {
+            list.append(DbusMenuItemProps{id, actionProperties(m_menuActions.at(id - 1), propertyNames)});
+        }
+    }
+    return list;
+}
+
+QVariant SystemTrayController::menuProperty(int id, const QString& name) const {
+    if (id == 0) {
+        if (name == QLatin1String("children-display")) return QStringLiteral("submenu");
+        return {};
+    }
+    if (id < 1 || id > m_menuActions.size()) return {};
+    return actionProperties(m_menuActions.at(id - 1), {name}).value(name);
+}
+
+QVariantList SystemTrayController::menuSnapshot() const {
+    QVariantList out;
+    for (int i = 0; i < m_menuActions.size(); ++i) {
+        QVariantMap entry = actionProperties(m_menuActions.at(i), {});
+        entry.insert(QStringLiteral("id"), i + 1);
+        out.append(entry);
+    }
+    return out;
+}
+
+bool SystemTrayController::triggerMenuItem(int id) {
+    if (id < 1 || id > m_menuActions.size()) return false;
+    QAction* a = m_menuActions.at(id - 1);
+    if (!a || a->isSeparator() || !a->isEnabled()) return false;
+    a->trigger();
+    notifyMenuChanged();
+    return true;
+}
+
+void SystemTrayController::notifyMenuChanged() {
+    ++m_menuRevision;
+    if (m_menuAdaptor && m_busObjectsRegistered) emit m_menuAdaptor->LayoutUpdated(m_menuRevision, 0);
 }
 
 void SystemTrayController::setLanguage(const QString& lang) {
@@ -178,15 +535,18 @@ void SystemTrayController::retranslate() {
     if (m_themeAction) m_themeAction->setText(L(QStringLiteral("Chuyển chế độ Sáng / Tối"), QStringLiteral("Toggle light / dark mode")));
     if (m_antiPeekAction) m_antiPeekAction->setText(L(QStringLiteral("Chống nhìn lén"), QStringLiteral("Anti-peeking")));
     if (m_quitAction) m_quitAction->setText(L(QStringLiteral("Thoát hoàn toàn"), QStringLiteral("Quit")));
+    notifyMenuChanged();
     refreshIconAndTooltip();
 }
 
 void SystemTrayController::setWindowVisible(bool visible) {
+    if (m_windowVisible == visible) return;
     m_windowVisible = visible;
     if (m_openAction) {
         m_openAction->setText(visible ? L(QStringLiteral("Ẩn Zalos"), QStringLiteral("Hide Zalos"))
                                       : L(QStringLiteral("Mở Zalos"), QStringLiteral("Open Zalos")));
     }
+    notifyMenuChanged();
 }
 
 void SystemTrayController::setUnreadCount(int count, bool hasMentions) {
@@ -217,7 +577,10 @@ void SystemTrayController::setHasMentions(bool hasMentions) {
 }
 
 void SystemTrayController::setAntiPeeking(bool on) {
-    if (m_antiPeekAction) m_antiPeekAction->setChecked(on);
+    if (m_antiPeekAction && m_antiPeekAction->isChecked() != on) {
+        m_antiPeekAction->setChecked(on);
+        notifyMenuChanged();
+    }
     if (m_antiPeeking == on) return;
     m_antiPeeking = on;
     refreshIconAndTooltip();
@@ -233,7 +596,8 @@ void SystemTrayController::refreshIconAndTooltip() {
         m_lastBadgeMentions = m_hasMentions;
         m_lastBadgeAntiPeeking = m_antiPeeking;
         m_lastBadgeCallPhase = callKey;
-        m_trayIcon->setIcon(createBadgeIcon(m_unreadCount, m_hasMentions));
+        m_badgeImage = createBadgeImage(m_unreadCount, m_hasMentions);
+        if (m_sniAdaptor && m_busObjectsRegistered) emit m_sniAdaptor->NewIcon();
     }
     QString tip;
     if (!m_callPhase.isEmpty() && m_callPhase != QLatin1String("ended")) {
@@ -252,35 +616,31 @@ void SystemTrayController::refreshIconAndTooltip() {
         : L(QStringLiteral("Zalos - Ứng dụng chat bảo mật cho Linux"), QStringLiteral("Zalos - private chat for Linux"));
     if (m_hasMentions) tip += L(QStringLiteral("\nCó tin nhắn nhắc tên bạn (@)"), QStringLiteral("\nYou were mentioned (@)"));
     if (m_antiPeeking) tip += L(QStringLiteral("\nĐang bật chống nhìn lén"), QStringLiteral("\nAnti-peeking is on"));
-    m_trayIcon->setToolTip(tip);
-}
-
-QString SystemTrayController::toolTip() const {
-    return m_trayIcon ? m_trayIcon->toolTip() : QString();
-}
-
-bool SystemTrayController::isVisible() const {
-    return m_trayIcon && m_trayIcon->isVisible();
+    if (m_toolTip != tip) {
+        m_toolTip = tip;
+        if (m_sniAdaptor && m_busObjectsRegistered) emit m_sniAdaptor->NewToolTip();
+    }
 }
 
 void SystemTrayController::showMessage(const QString& title, const QString& message) {
-    if (m_trayIcon) {
-        m_trayIcon->showMessage(title, message, QSystemTrayIcon::Information, 3000);
-    }
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) return;
+    QDBusMessage call = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("/org/freedesktop/Notifications"),
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("Notify"));
+    call << QStringLiteral("Zalos") << quint32(0) << QStringLiteral("zalos") << title << message
+         << QStringList{} << QVariantMap{} << qint32(3000);
+    bus.asyncCall(call);
 }
 
-void SystemTrayController::onTrayActivated(QSystemTrayIcon::ActivationReason reason) {
-    if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
-        emit toggleWindowRequested();
-    }
-}
-
-QIcon SystemTrayController::createBadgeIcon(int count, bool hasMentions) {
-    if (m_basePixmap.isNull()) {
-        QIcon baseIcon(":/Zalos/assets/icons/zalos.svg");
-        QPixmap base = baseIcon.pixmap(64, 64);
-        if (base.isNull()) {
-            base = QPixmap(64, 64);
+QImage SystemTrayController::createBadgeImage(int count, bool hasMentions) {
+    if (m_baseImage.isNull()) {
+        QIcon baseIcon(QStringLiteral(":/Zalos/assets/icons/zalos.svg"));
+        QImage base = baseIcon.pixmap(64, 64).toImage().convertToFormat(QImage::Format_ARGB32);
+        if (base.isNull() || base.size().isEmpty()) {
+            base = QImage(64, 64, QImage::Format_ARGB32);
             base.fill(Qt::transparent);
             QPainter p(&base);
             p.setRenderHint(QPainter::Antialiasing);
@@ -292,13 +652,13 @@ QIcon SystemTrayController::createBadgeIcon(int count, bool hasMentions) {
             f.setPixelSize(34);
             f.setBold(true);
             p.setFont(f);
-            p.drawText(QRect(4, 4, 56, 56), Qt::AlignCenter, "Z");
+            p.drawText(QRect(4, 4, 56, 56), Qt::AlignCenter, QStringLiteral("Z"));
         }
-        m_basePixmap = base;
+        m_baseImage = base;
     }
-    QPixmap pixmap = m_basePixmap;
+    QImage image = m_baseImage.copy();
 
-    QPainter painter(&pixmap);
+    QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing);
 
     if (count > 0) {
@@ -363,7 +723,7 @@ QIcon SystemTrayController::createBadgeIcon(int count, bool hasMentions) {
         painter.drawPath(handset);
     }
 
-    return QIcon(pixmap);
+    return image;
 }
 
 }

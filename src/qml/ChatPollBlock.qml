@@ -142,6 +142,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: root.question
+                textFormat: Text.PlainText
                 wrapMode: Text.Wrap
                 maximumLineCount: 4
                 elide: Text.ElideRight

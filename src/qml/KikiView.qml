@@ -85,7 +85,7 @@ Rectangle {
                     width: 36
                     height: 36
                     radius: 18
-                    color: ThemeManager.isDarkMode ? "#403366E6" : Theme.zaloBlueLight
+                    color: ThemeManager.accentTonalColor
 
                     ZIcon {
                         anchors.centerIn: parent
@@ -96,11 +96,14 @@ Rectangle {
                 }
 
                 ColumnLayout {
+                    Layout.fillWidth: true
                     spacing: 2
                     RowLayout {
+                        Layout.fillWidth: true
                         spacing: 8
                         Text {
                             text: I18n.t("Trợ lý Kiki", "Kiki Assistant")
+                            elide: Text.ElideRight
                             font.family: Theme.fontFamily
                             font.pixelSize: 15
                             font.weight: Font.DemiBold
@@ -111,8 +114,7 @@ Rectangle {
                             height: 18
                             radius: 9
                             implicitWidth: statusText.implicitWidth + 12
-                            color: ZaloClient.kikiAvailable ? (ThemeManager.isDarkMode ? "#59267340" : "#2633B24C")
-                                                            : (ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.hoverColor)
+                            color: ZaloClient.kikiAvailable ? ThemeManager.accentTonalColor : ThemeManager.hoverColor
                             Text {
                                 id: statusText
                                 anchors.centerIn: parent
@@ -126,6 +128,8 @@ Rectangle {
                     }
 
                     Text {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
                         text: I18n.t("Soạn thảo văn bản, tóm tắt và hỗ trợ bán hàng", "Text drafting, summaries and sales productivity")
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
@@ -133,7 +137,7 @@ Rectangle {
                     }
                 }
 
-                Item { Layout.fillWidth: true }
+                Item { Layout.preferredWidth: 1 }
 
                 ZButton {
                     variant: "secondary"
@@ -175,7 +179,7 @@ Rectangle {
                             width: 72
                             height: 72
                             radius: 36
-                            color: ThemeManager.isDarkMode ? "#333380FF" : Theme.zaloBlueLight
+                            color: ThemeManager.accentTonalColor
 
                             ZIcon {
                                 anchors.centerIn: parent
@@ -237,7 +241,7 @@ Rectangle {
                                     width: 40
                                     height: 40
                                     radius: 20
-                                    color: ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.hoverColor
+                                    color: ThemeManager.hoverColor
 
                                     ZIcon {
                                         anchors.centerIn: parent
@@ -251,6 +255,8 @@ Rectangle {
                                     Layout.fillWidth: true
                                     spacing: 3
                                     Text {
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
                                         text: cap.title
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
@@ -258,6 +264,7 @@ Rectangle {
                                         color: ThemeManager.textColor
                                     }
                                     Text {
+                                        Layout.fillWidth: true
                                         text: cap.desc
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 11
@@ -342,7 +349,7 @@ Rectangle {
                             implicitWidth: 32
                             implicitHeight: 32
                             radius: 16
-                            color: ThemeManager.isDarkMode ? "#4C3366E6" : Theme.zaloBlueLight
+                            color: ThemeManager.accentTonalColor
 
                             ZIcon {
                                 anchors.centerIn: parent
@@ -370,7 +377,11 @@ Rectangle {
                                 Text {
                                     id: bubbleText
                                     Layout.fillWidth: true
-                                    text: msgDelegate.model.text
+                                    text: ZaloClient.linkifyText(msgDelegate.model.text)
+                                    textFormat: Text.StyledText
+                                    linkColor: msgDelegate.model.isUser ? "#FFFFFF" : Theme.linkColor
+                                    onLinkActivated: function(link) { ZaloClient.openLink(link); }
+                                    HoverHandler { cursorShape: bubbleText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                     wrapMode: Text.WordWrap
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 13
@@ -419,8 +430,7 @@ Rectangle {
                             implicitHeight: 26
                             implicitWidth: sendChatRow.implicitWidth + 18
                             radius: 13
-                            color: sendChatMouse.containsMouse ? (ThemeManager.isDarkMode ? "#592E73BF" : Theme.zaloBlueLight)
-                                                               : ThemeManager.surfaceColor
+                            color: sendChatMouse.containsMouse ? ThemeManager.accentTonalColor : ThemeManager.surfaceColor
                             border.color: Theme.zaloBlue
                             border.width: 1
 
@@ -443,8 +453,16 @@ Rectangle {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    ZaloClient.sendMessage(msgDelegate.model.text);
-                                    ZaloClient.setCurrentNavigationTab("messages");
+                                    const msgText = msgDelegate.model.text || "";
+                                    if (ZaloClient.currentConversationId.length > 0) {
+                                        const existing = ZaloClient.draftFor(ZaloClient.currentConversationId);
+                                        const combined = existing.length > 0 ? existing + "\n" + msgText : msgText;
+                                        ZaloClient.setDraft(ZaloClient.currentConversationId, combined);
+                                        ZaloClient.setCurrentNavigationTab("messages");
+                                    } else {
+                                        ZaloClient.copyText(msgText);
+                                        ZaloClient.showNotice(I18n.t("Đã sao chép nội dung", "Copied text"));
+                                    }
                                 }
                             }
                         }
@@ -469,7 +487,7 @@ Rectangle {
                     Layout.fillWidth: true
                     height: 40
                     radius: 20
-                    color: ThemeManager.isDarkMode ? "#0FFFFFFF" : ThemeManager.backgroundColor
+                    color: ThemeManager.inputFillColor
                     border.color: ThemeManager.borderColor
 
                     RowLayout {

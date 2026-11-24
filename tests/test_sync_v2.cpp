@@ -19,7 +19,7 @@ QByteArray bytesOf(std::initializer_list<unsigned char> values) {
     return out;
 }
 
-}  // namespace
+}
 
 class TestSyncV2 : public QObject {
     Q_OBJECT
@@ -87,8 +87,6 @@ void TestSyncV2::protoRejectsTruncatedAndGroups() {
 }
 
 void TestSyncV2::zstdRawBlockFrame() {
-    // Frame with one raw block holding "hello": magic, single-segment header with content size 5,
-    // block header (last, raw, size 5).
     const QByteArray frame = bytesOf({0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x05, 0x29, 0x00, 0x00, 'h', 'e', 'l', 'l', 'o'});
     QByteArray out;
     QByteArray detail;

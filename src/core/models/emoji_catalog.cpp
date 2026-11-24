@@ -50,7 +50,6 @@ constexpr CategoryDef kCategories[] = {
 };
 
 constexpr EmojiDef kEmojis[] = {
-    // Zalo classic emoticons
     {CatZalo, "😊", ":)",         "cuoi mim smile zalo"},
     {CatZalo, "😄", ":d",         "cuoi tuoi grin haha zalo"},
     {CatZalo, "😂", ":')",        "cuoi ra nuoc mat joy haha zalo"},
@@ -139,7 +138,6 @@ constexpr EmojiDef kEmojis[] = {
     {CatZalo, "🚩", "/-flag",     "co flag zalo"},
     {CatZalo, "🎉", "/-jj",       "chuc mung phao hoa party tada zalo"},
 
-    // Smileys & Emotion
     {CatSmileys, "😀", "", "mat cuoi grinning happy"},
     {CatSmileys, "😃", "", "cuoi tuoi smiley happy"},
     {CatSmileys, "😄", "", "cuoi lon smile happy"},
@@ -289,7 +287,6 @@ constexpr EmojiDef kEmojis[] = {
     {CatSmileys, "💭", "", "suy nghi thought balloon"},
     {CatSmileys, "💤", "", "ngu zzz"},
 
-    // People & Body
     {CatPeople, "👋", "", "vay tay wave hello"},
     {CatPeople, "🤚", "", "gio tay raised back of hand"},
     {CatPeople, "🖐️", "", "xoe ban tay hand"},
@@ -388,7 +385,6 @@ constexpr EmojiDef kEmojis[] = {
     {CatPeople, "🫂", "", "om nhau people hugging"},
     {CatPeople, "👪", "", "gia dinh family"},
 
-    // Animals & Nature
     {CatAnimals, "🐶", "", "cho cun dog puppy"},
     {CatAnimals, "🐱", "", "meo cat"},
     {CatAnimals, "🐭", "", "chuot mouse"},
@@ -484,7 +480,6 @@ constexpr EmojiDef kEmojis[] = {
     {CatAnimals, "🌊", "", "song bien wave"},
     {CatAnimals, "🌈", "", "cau vong rainbow"},
 
-    // Food & Drink
     {CatFood, "🍇", "", "nho grapes"},
     {CatFood, "🍈", "", "dua luoi melon"},
     {CatFood, "🍉", "", "dua hau watermelon"},
@@ -565,7 +560,6 @@ constexpr EmojiDef kEmojis[] = {
     {CatFood, "🍾", "", "sam banh bottle"},
     {CatFood, "🍽️", "", "dia nia dao fork knife plate"},
 
-    // Travel & Places
     {CatTravel, "🚗", "", "o to xe hoi car"},
     {CatTravel, "🚕", "", "xe taxi"},
     {CatTravel, "🚙", "", "xe suv"},
@@ -627,7 +621,6 @@ constexpr EmojiDef kEmojis[] = {
     {CatTravel, "🎆", "", "phao hoa fireworks"},
     {CatTravel, "🎇", "", "phao sang sparkler"},
 
-    // Activities
     {CatActivities, "⚽", "", "bong da soccer football"},
     {CatActivities, "🏀", "", "bong ro basketball"},
     {CatActivities, "🏈", "", "bong bau duc"},
@@ -679,7 +672,6 @@ constexpr EmojiDef kEmojis[] = {
     {CatActivities, "🎃", "", "bi ngo halloween"},
     {CatActivities, "🧧", "", "bao li xi red envelope"},
 
-    // Objects
     {CatObjects, "⌚", "", "dong ho deo tay watch"},
     {CatObjects, "📱", "", "dien thoai smartphone phone"},
     {CatObjects, "💻", "", "may tinh laptop"},
@@ -749,7 +741,6 @@ constexpr EmojiDef kEmojis[] = {
     {CatObjects, "🛒", "", "xe day sieu thi shopping cart"},
     {CatObjects, "🛍️", "", "tui mua sam shopping bags"},
 
-    // Symbols
     {CatSymbols, "❤️", "", "trai tim do red heart love"},
     {CatSymbols, "🧡", "", "trai tim cam orange heart"},
     {CatSymbols, "💛", "", "trai tim vang yellow heart"},
@@ -824,7 +815,6 @@ constexpr EmojiDef kEmojis[] = {
     {CatSymbols, "®️", "", "thuong hieu registered"},
     {CatSymbols, "™️", "", "trademark"},
 
-    // Flags
     {CatFlags, "🇻🇳", "", "viet nam vietnam vn"},
     {CatFlags, "🇺🇸", "", "my hoa ky usa america"},
     {CatFlags, "🇬🇧", "", "anh uk britain"},
@@ -949,7 +939,7 @@ QVariantMap makeSection(const char* id, const char* nameVi, const char* nameEn, 
     };
 }
 
-} // namespace
+}
 
 EmojiCatalog::EmojiCatalog(QObject* parent) : QObject(parent) {}
 
@@ -1034,7 +1024,8 @@ QVariantList EmojiCatalog::sections() const {
     return out;
 }
 
-QVariantList EmojiCatalog::flatRows(int columns) const {
+QVariantList EmojiCatalog::flatRows(int columns, int revision) const {
+    Q_UNUSED(revision);
     const int cols = qMax(1, columns);
     QVariantList out;
     const QVariantList secs = sections();
@@ -1062,12 +1053,14 @@ void EmojiCatalog::selectCategory(const QString& categoryId) {
     if (m_currentCategory == next && m_searchQuery.isEmpty()) return;
     m_currentCategory = next;
     m_searchQuery.clear();
+    ++m_revision;
     emit itemsChanged();
 }
 
 void EmojiCatalog::search(const QString& query) {
     if (m_searchQuery == query) return;
     m_searchQuery = query;
+    ++m_revision;
     emit itemsChanged();
 }
 
@@ -1079,7 +1072,8 @@ void EmojiCatalog::recordRecent(const QString& glyph) {
     m_recent.prepend(g);
     if (m_recent.size() > kMaxRecent) m_recent = m_recent.mid(0, kMaxRecent);
     saveRecent();
+    ++m_revision;
     emit itemsChanged();
 }
 
-} // namespace Zalos::Core::Models
+}

@@ -86,10 +86,19 @@ void LabelManager::setManageOpen(bool open) {
     emit manageOpenChanged();
 }
 
+void LabelManager::applyCached(const QJsonObject& data) {
+    m_data = parseLabelData(data.value("labelData"));
+    m_version = data.value("version").toVariant().toLongLong();
+    publish();
+}
+
 void LabelManager::applyServer(const QJsonObject& data) {
     m_data = parseLabelData(data.value("labelData"));
     m_version = data.value("version").toVariant().toLongLong();
     m_loaded = true;
+    if (m_hooks.persist) {
+        m_hooks.persist(QJsonObject{{"labelData", m_data}, {"version", m_version}});
+    }
     publish();
 }
 

@@ -9,7 +9,9 @@ Popup {
     objectName: "appLinkPopup"
     parent: T.Overlay.overlay
     anchors.centerIn: parent
+    margins: 8
     width: Math.min(360, parent ? parent.width - 32 : 360)
+    height: Math.min(appLinkCol.implicitHeight + 40, parent ? parent.height - 24 : 485)
     modal: true
     padding: 20
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -37,8 +39,16 @@ Popup {
         border.color: ThemeManager.borderColor
     }
 
-    contentItem: ColumnLayout {
-        spacing: 12
+    contentItem: Flickable {
+        clip: true
+        contentWidth: width
+        contentHeight: appLinkCol.implicitHeight
+        boundsBehavior: Flickable.StopAtBounds
+
+        ColumnLayout {
+            id: appLinkCol
+            width: parent.width
+            spacing: 12
 
         Text {
             Layout.fillWidth: true
@@ -144,6 +154,7 @@ Popup {
                 text: I18n.t("Đóng", "Close")
                 onClicked: root.close()
             }
+        }
         }
     }
 }

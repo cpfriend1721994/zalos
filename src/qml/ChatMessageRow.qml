@@ -48,15 +48,15 @@ Item {
     }
 
     function fileColor(ext: string): color {
-        if (["doc", "docx"].indexOf(ext) >= 0) return "#2B579A";
-        if (["xls", "xlsx", "csv"].indexOf(ext) >= 0) return "#217346";
-        if (["ppt", "pptx"].indexOf(ext) >= 0) return "#D24726";
+        if (ext === "doc" || ext === "docx") return "#2B579A";
+        if (ext === "xls" || ext === "xlsx" || ext === "csv") return "#217346";
+        if (ext === "ppt" || ext === "pptx") return "#D24726";
         if (ext === "pdf") return "#E2574C";
-        if (["gif", "jpg", "jpeg", "png", "svg", "webp"].indexOf(ext) >= 0) return "#2E9E6B";
-        if (["zip", "rar", "7z", "tar", "gz"].indexOf(ext) >= 0) return "#8E6E53";
-        if (["m4a", "mp4", "mov", "avi", "mkv"].indexOf(ext) >= 0) return "#7E57C2";
-        if (["mp3", "mpg", "wav", "flac"].indexOf(ext) >= 0) return "#EC407A";
-        if (["txt", "log", "md"].indexOf(ext) >= 0) return "#607D8B";
+        if (ext === "gif" || ext === "jpg" || ext === "jpeg" || ext === "png" || ext === "svg" || ext === "webp") return "#2E9E6B";
+        if (ext === "zip" || ext === "rar" || ext === "7z" || ext === "tar" || ext === "gz") return "#8E6E53";
+        if (ext === "m4a" || ext === "mp4" || ext === "mov" || ext === "avi" || ext === "mkv") return "#7E57C2";
+        if (ext === "mp3" || ext === "mpg" || ext === "wav" || ext === "flac") return "#EC407A";
+        if (ext === "txt" || ext === "log" || ext === "md") return "#607D8B";
         return "#8A94A6";
     }
 
@@ -82,6 +82,18 @@ Item {
     width: msgRow.listWidth
     visible: !msgRow.inMediaRun
     height: msgRow.inMediaRun ? 0 : rowCol.implicitHeight + (msgRow.lastInGroup ? 10 : 2)
+    readonly property bool inViewport: {
+        const lv = msgRow.ListView.view;
+        return !lv || (msgRow.y + msgRow.height >= lv.contentY && msgRow.y <= lv.contentY + lv.height);
+    }
+    readonly property bool unseenReactionShown: msgRow.isMine && msgRow.visible && msgRow.inViewport
+                                               && msgRow.Window.active
+                                               && ZaloClient.currentUnreadReactionIds.indexOf(msgRow.msgId) >= 0
+    onUnseenReactionShownChanged: {
+        if (!unseenReactionShown) return;
+        const seenId = msgRow.msgId;
+        Qt.callLater(function() { ZaloClient.markReactionsSeen(seenId); });
+    }
 
     required property string messageType
     required property bool isMine
@@ -191,13 +203,18 @@ Item {
         }
 
         Text {
+            id: systemNoticeText
             visible: msgRow.isSystem
             Layout.fillWidth: true
             Layout.leftMargin: 40
             Layout.rightMargin: 40
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: msgRow.text
+            text: systemLinkMouse.enabled ? msgRow.text : ZaloClient.linkifyText(msgRow.text)
+            textFormat: systemLinkMouse.enabled ? Text.PlainText : Text.StyledText
+            linkColor: Theme.linkColor
+            onLinkActivated: function(link) { ZaloClient.openLink(link); }
+            HoverHandler { cursorShape: systemNoticeText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
             font.family: Theme.fontFamily
             font.pixelSize: 12
             font.underline: systemLinkMouse.enabled && systemLinkMouse.containsMouse
@@ -237,7 +254,7 @@ Item {
                     else if (ecardCard.stickers.length > 0) ZaloClient.prefetchStickers(ecardCard.stickers);
                 }
                 Component.onCompleted: ecardCard.prefetch()
-                onStickersChanged: ecardCard.prefetch()
+                onStickersChanged: if (!ecardCard.suggest && ecardCard.stickers.length > 0) ZaloClient.prefetchStickers(ecardCard.stickers)
 
                 ColumnLayout {
                     id: ecardCol
@@ -260,6 +277,7 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.Wrap
                         text: msgRow.text
+                        textFormat: Text.PlainText
                         font.family: Theme.fontFamily
                         font.pixelSize: 14
                         font.weight: Font.DemiBold
@@ -267,11 +285,16 @@ Item {
                     }
 
                     Text {
+                        id: ecardDescText
                         visible: ecardCard.desc.length > 0
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.Wrap
-                        text: ecardCard.desc
+                        text: ZaloClient.linkifyText(ecardCard.desc)
+                        textFormat: Text.StyledText
+                        linkColor: Theme.linkColor
+                        onLinkActivated: function(link) { ZaloClient.openLink(link); }
+                        HoverHandler { cursorShape: ecardDescText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                         font.family: Theme.fontFamily
                         font.pixelSize: 12
                         color: ThemeManager.secondaryTextColor
@@ -384,6 +407,7 @@ Item {
                              && (msgRow.senderName.length > 0 || (msgRow.senderId.length > 0 && msgRow.senderId !== "system"))
                     Layout.bottomMargin: 4
                     text: msgRow.senderName.length > 0 ? msgRow.senderName : I18n.t("Người dùng Zalo", "Zalo user")
+                    textFormat: Text.PlainText
                     font.family: Theme.fontFamily
                     font.pixelSize: 12
                     color: senderNameMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor
@@ -406,17 +430,21 @@ Item {
                         id: mediaBox
                         readonly property real srcW: mediaImg.implicitImageWidth > 0 ? mediaImg.implicitImageWidth : 240
                         readonly property real srcH: mediaImg.implicitImageHeight > 0 ? mediaImg.implicitImageHeight : 180
-                        readonly property real fit: Math.min(Math.min(360, msgRow.listWidth - 237) / srcW, 368 / srcH, 1.0)
-                        implicitWidth: Math.max(150, srcW * fit)
-                        implicitHeight: Math.max(110, srcH * fit)
+                        readonly property real maxW: Math.max(150, Math.min(msgRow.maxBubble, msgRow.listWidth - 110))
+                        readonly property real fit: Math.min(maxW / srcW, 380 / srcH, 1.0)
+                        implicitWidth: Math.max(120, Math.round(srcW * fit))
+                        implicitHeight: Math.max(48, Math.round(srcH * fit))
 
                         ZRoundedImage {
                             id: mediaImg
                             anchors.fill: parent
                             cache: false
+                            errorGlyph: false
                             source: msgRow.mediaUrl
                             animatedSource: msgRow.extra.animatedUrl ? msgRow.extra.animatedUrl : ""
-                            sourceSize.width: Math.ceil(360 * (Screen.devicePixelRatio || 1))
+                            fillMode: Image.PreserveAspectFit
+                            sourceSize.width: 640
+                            sourceSize.height: 1280
                             topOnly: !msgRow.bubbleless
                         }
                         ColumnLayout {
@@ -432,8 +460,10 @@ Item {
                             }
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
-                                text: msgRow.messageType === "video" ? I18n.t("Video đã hết hạn", "Video expired")
-                                                                     : I18n.t("Ảnh đã hết hạn", "Photo expired")
+                                text: mediaImg.status === Image.Error && ZaloClient.isMediaTooLarge(msgRow.mediaUrl)
+                                      ? I18n.t("Ảnh quá lớn để hiển thị", "Photo too large to display")
+                                      : (msgRow.messageType === "video" ? I18n.t("Video đã hết hạn", "Video expired")
+                                                                        : I18n.t("Ảnh đã hết hạn", "Photo expired"))
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 12
                                 color: ThemeManager.secondaryTextColor
@@ -489,7 +519,7 @@ Item {
                             anchors.fill: parent
                             info: msgRow.extra.sticker ? msgRow.extra.sticker : ({})
                             fallbackUrl: msgRow.mediaUrl
-                            playing: msgRow.visible
+                            playing: msgRow.visible && msgRow.inViewport
                         }
                         Rectangle {
                             anchors.fill: parent
@@ -578,7 +608,7 @@ Item {
                                     anchors.fill: parent
                                     info: tile.sticker && tile.modelData.sticker ? tile.modelData.sticker : ({})
                                     fallbackUrl: tile.sticker ? tile.modelData.mediaUrl : ""
-                                    playing: visible
+                                    playing: visible && msgRow.inViewport
                                 }
                                 Rectangle {
                                     anchors.fill: parent
@@ -677,6 +707,7 @@ Item {
                                     Text {
                                         Layout.fillWidth: true
                                         text: msgRow.quoteSender
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
@@ -686,6 +717,7 @@ Item {
                                     Text {
                                         Layout.fillWidth: true
                                         text: msgRow.quoteText
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         maximumLineCount: 2
                                         wrapMode: Text.Wrap
@@ -709,8 +741,10 @@ Item {
                             visible: active
                             sourceComponent: Item {
                                 id: fileCardBox
-                                implicitWidth: Math.min(352, msgRow.listWidth - 184)
+                                implicitWidth: Math.min(352, bubbleRect.innerMax)
                                 implicitHeight: fileCard.implicitHeight
+                                readonly property string fileUrl: msgRow.href.length > 0 ? msgRow.href : msgRow.mediaUrl
+                                readonly property bool isVideoFile: fileCard.ext === "mp4" || fileCard.ext === "mov" || fileCard.ext === "webm" || fileCard.ext === "mkv" || fileCard.ext === "m4v"
                             RowLayout {
                                 id: fileCard
                                 anchors.fill: parent
@@ -743,6 +777,8 @@ Item {
                                     Text {
                                         Layout.fillWidth: true
                                         text: msgRow.text
+                                        textFormat: Text.PlainText
+                                        maximumLineCount: 1
                                         elide: Text.ElideMiddle
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 14
@@ -758,11 +794,33 @@ Item {
                                     }
                                 }
                                 Rectangle {
+                                    visible: fileCardBox.isVideoFile
                                     Layout.preferredWidth: 32
                                     Layout.preferredHeight: 32
                                     radius: 4
-                                    color: fileOpenMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                                    color: fileOpenMouse.containsMouse && !fileDownloadMouse.containsMouse
+                                        ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                                    ZIcon { anchors.centerIn: parent; name: "play"; size: 20; color: ThemeManager.accentColor }
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: 32
+                                    Layout.preferredHeight: 32
+                                    radius: 4
+                                    z: 2
+                                    color: (fileCardBox.isVideoFile ? fileDownloadMouse.containsMouse : fileOpenMouse.containsMouse)
+                                        ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
                                     ZIcon { anchors.centerIn: parent; name: "download"; size: 20; color: ThemeManager.secondaryTextColor }
+                                    MouseArea {
+                                        id: fileDownloadMouse
+                                        anchors.fill: parent
+                                        enabled: fileCardBox.isVideoFile
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        ToolTip.visible: containsMouse
+                                        ToolTip.delay: 500
+                                        ToolTip.text: I18n.t("Tải về và mở (lưu trong Tải xuống/Zalos)", "Download and open (saved in Downloads/Zalos)")
+                                        onClicked: ZaloClient.openFileMessage(fileCardBox.fileUrl, msgRow.text)
+                                    }
                                 }
                             }
                                 MouseArea {
@@ -770,10 +828,18 @@ Item {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    ToolTip.visible: containsMouse
+                                    ToolTip.visible: containsMouse && !(fileCardBox.isVideoFile && fileDownloadMouse.containsMouse)
                                     ToolTip.delay: 500
-                                    ToolTip.text: I18n.t("Tải về và mở (lưu trong Tải xuống/Zalos)", "Download and open (saved in Downloads/Zalos)")
-                                    onClicked: ZaloClient.openFileMessage(msgRow.href.length > 0 ? msgRow.href : msgRow.mediaUrl, msgRow.text)
+                                    ToolTip.text: fileCardBox.isVideoFile
+                                        ? I18n.t("Xem video", "Watch video")
+                                        : I18n.t("Tải về và mở (lưu trong Tải xuống/Zalos)", "Download and open (saved in Downloads/Zalos)")
+                                    onClicked: {
+                                        if (fileCardBox.isVideoFile && fileCardBox.fileUrl.length > 0) {
+                                            msgRow.openViewerRequested(msgRow.msgId);
+                                        } else {
+                                            ZaloClient.openFileMessage(fileCardBox.fileUrl, msgRow.text);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -805,6 +871,7 @@ Item {
                                             Text {
                                                 Layout.fillWidth: true
                                                 text: msgRow.text
+                                                textFormat: Text.PlainText
                                                 elide: Text.ElideRight
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 15
@@ -817,6 +884,7 @@ Item {
                                                 text: contactCard.phone.length > 0 ? contactCard.phone
                                                       : (msgRow.extra.official ? I18n.t("Official Account", "Official Account")
                                                                               : I18n.t("Danh thiếp Zalo", "Zalo contact card"))
+                                                textFormat: Text.PlainText
                                                 elide: Text.ElideRight
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 12
@@ -868,12 +936,17 @@ Item {
                                     source: msgRow.isLink ? MediaSource.toSource(msgRow.mediaUrl) : ""
                                     asynchronous: true
                                     fillMode: Image.PreserveAspectCrop
-                                    sourceSize.width: Math.ceil(320 * (Screen.devicePixelRatio || 1))
+                                    sourceSize.width: 320
                                     clip: true
                                 }
                                 Text {
+                                    id: linkCardTitle
                                     Layout.fillWidth: true
-                                    text: msgRow.text
+                                    text: msgRow.href.length > 0 ? msgRow.text : ZaloClient.linkifyText(msgRow.text)
+                                    textFormat: msgRow.href.length > 0 ? Text.PlainText : Text.StyledText
+                                    linkColor: Theme.linkColor
+                                    onLinkActivated: function(link) { ZaloClient.openLink(link); }
+                                    HoverHandler { cursorShape: linkCardTitle.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                     wrapMode: Text.Wrap
                                     maximumLineCount: 2
                                     elide: Text.ElideRight
@@ -883,9 +956,14 @@ Item {
                                     color: ThemeManager.textColor
                                 }
                                 Text {
-                                    visible: text.length > 0
+                                    id: linkCardDesc
+                                    visible: msgRow.isLink && (msgRow.extra.desc || "").length > 0
                                     Layout.fillWidth: true
-                                    text: msgRow.isLink ? (msgRow.extra.desc || "") : ""
+                                    text: !msgRow.isLink ? "" : (msgRow.href.length > 0 ? (msgRow.extra.desc || "") : ZaloClient.linkifyText(msgRow.extra.desc || ""))
+                                    textFormat: msgRow.href.length > 0 ? Text.PlainText : Text.StyledText
+                                    linkColor: Theme.linkColor
+                                    onLinkActivated: function(link) { ZaloClient.openLink(link); }
+                                    HoverHandler { cursorShape: linkCardDesc.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                     wrapMode: Text.Wrap
                                     maximumLineCount: msgRow.href.length > 0 ? 2 : 8
                                     elide: Text.ElideRight
@@ -897,6 +975,7 @@ Item {
                                     visible: msgRow.href.length > 0
                                     Layout.fillWidth: true
                                     text: msgRow.isLink ? (msgRow.extra.domain || msgRow.href) : ""
+                                    textFormat: Text.PlainText
                                     elide: Text.ElideRight
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 12
@@ -1046,49 +1125,192 @@ Item {
                         Loader {
                             active: msgRow.isLocation && !msgRow.isRecalled
                             visible: active
-                            Layout.preferredWidth: Math.min(280, bubbleRect.innerMax)
-                            sourceComponent: RowLayout {
-                                spacing: 10
+                            Layout.preferredWidth: Math.min(300, bubbleRect.innerMax)
+                            sourceComponent: ColumnLayout {
+                                id: locCard
+                                spacing: 8
+                                readonly property bool hasCoords: !!(msgRow.extra && msgRow.extra.hasCoords)
+                                readonly property real lat: locCard.hasCoords ? Number(msgRow.extra.lat || 0) : 0
+                                readonly property real lng: locCard.hasCoords ? Number(msgRow.extra.lng || 0) : 0
+                                readonly property bool hasThumb: msgRow.mediaUrl.length > 0
+                                property bool thumbFailed: false
+                                readonly property string thumbKey: msgRow.mediaUrl
+                                onThumbKeyChanged: locCard.thumbFailed = false
+                                readonly property bool thumbOk: locCard.hasThumb && !(locCard.thumbFailed && locCard.hasCoords)
+                                readonly property bool hasMap: locCard.hasThumb || locCard.hasCoords
+                                readonly property string markerAvatar: (msgRow.senderAvatar && msgRow.senderAvatar.length > 0)
+                                                                       ? msgRow.senderAvatar
+                                                                       : (msgRow.mine ? ZaloClient.currentUserAvatar
+                                                                                      : (ZaloClient.currentConversationIsGroup ? "" : ZaloClient.currentConversationAvatar))
+                                readonly property string markerName: (msgRow.senderName && msgRow.senderName.length > 0)
+                                                                     ? msgRow.senderName
+                                                                     : (msgRow.mine ? ZaloClient.currentUserName
+                                                                                    : (ZaloClient.currentConversationIsGroup ? "" : ZaloClient.currentConversationName))
+                                function osmTileXf(lon: real): real {
+                                    return (lon + 180.0) / 360.0 * 32768.0;
+                                }
+                                function osmTileYf(latitude: real): real {
+                                    const clamped = Math.max(-85.0511, Math.min(85.0511, latitude));
+                                    const rad = clamped * Math.PI / 180.0;
+                                    return (1.0 - Math.log(Math.tan(rad) + 1.0 / Math.cos(rad)) / Math.PI) / 2.0 * 32768.0;
+                                }
+
                                 Rectangle {
-                                    Layout.preferredWidth: 40
-                                    Layout.preferredHeight: 40
-                                    radius: 20
-                                    color: Theme.zaloBlueLight
-                                    ZIcon { anchors.centerIn: parent; name: "location"; size: 20; color: Theme.zaloBlueTonalText }
-                                }
-                                ColumnLayout {
+                                    id: mapBox
+                                    visible: locCard.hasMap
                                     Layout.fillWidth: true
-                                    spacing: 2
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: msgRow.text
-                                        wrapMode: Text.Wrap
-                                        maximumLineCount: 2
-                                        elide: Text.ElideRight
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 14
-                                        font.weight: Font.DemiBold
-                                        color: ThemeManager.textColor
+                                    Layout.preferredHeight: 156
+                                    radius: 8
+                                    clip: true
+                                    color: ThemeManager.cardBackgroundColor
+                                    border.color: ThemeManager.borderColor
+                                    border.width: 1
+
+                                    ZRoundedImage {
+                                        visible: locCard.thumbOk
+                                        anchors.fill: parent
+                                        radius: 8
+                                        source: locCard.thumbOk ? msgRow.mediaUrl : ""
+                                        onStatusChanged: if (status === Image.Error) locCard.thumbFailed = true
                                     }
-                                    Text {
-                                        visible: text.length > 0
-                                        Layout.fillWidth: true
-                                        text: msgRow.isLocation ? (msgRow.extra.desc || msgRow.extra.coords || "") : ""
-                                        wrapMode: Text.Wrap
-                                        maximumLineCount: 2
-                                        elide: Text.ElideRight
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        color: ThemeManager.secondaryTextColor
+
+                                    Item {
+                                        id: osmGrid
+                                        visible: !locCard.thumbOk && locCard.hasCoords
+                                        anchors.fill: parent
+                                        readonly property real xf: locCard.osmTileXf(locCard.lng)
+                                        readonly property real yf: locCard.osmTileYf(locCard.lat)
+                                        readonly property int tx: Math.floor(osmGrid.xf)
+                                        readonly property int ty: Math.floor(osmGrid.yf)
+                                        readonly property real fx: osmGrid.xf - osmGrid.tx
+                                        readonly property real fy: osmGrid.yf - osmGrid.ty
+                                        Repeater {
+                                            model: !locCard.thumbOk && locCard.hasCoords ? 9 : 0
+                                            Image {
+                                                required property int index
+                                                readonly property int dx: (index % 3) - 1
+                                                readonly property int dy: Math.floor(index / 3) - 1
+                                                readonly property int tileX: (osmGrid.tx + dx + 32768) % 32768
+                                                readonly property int tileY: Math.max(0, Math.min(32767, osmGrid.ty + dy))
+                                                x: Math.round(mapBox.width / 2 - osmGrid.fx * 256 + dx * 256)
+                                                y: Math.round(mapBox.height / 2 - osmGrid.fy * 256 + dy * 256)
+                                                width: 256
+                                                height: 256
+                                                asynchronous: true
+                                                cache: true
+                                                source: "image://media/" + encodeURIComponent(
+                                                    "https://tile.openstreetmap.org/15/" + tileX + "/" + tileY + ".png")
+                                            }
+                                        }
                                     }
-                                    Text {
-                                        visible: msgRow.href.length > 0
-                                        text: I18n.t("Mở bản đồ", "Open map")
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        color: Theme.linkColor
+
+                                    Column {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        anchors.bottom: parent.verticalCenter
+                                        anchors.bottomMargin: -4
+                                        spacing: 0
+                                        Rectangle {
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            width: 36
+                                            height: 36
+                                            radius: 18
+                                            color: Theme.zaloBlue
+                                            border.color: "#FFFFFF"
+                                            border.width: 2
+                                            ZAvatar {
+                                                visible: locCard.markerAvatar.length > 0 || locCard.markerName.length > 0
+                                                anchors.centerIn: parent
+                                                size: 30
+                                                avatarUrl: locCard.markerAvatar
+                                                name: locCard.markerName
+                                            }
+                                            ZIcon {
+                                                visible: locCard.markerAvatar.length === 0 && locCard.markerName.length === 0
+                                                anchors.centerIn: parent
+                                                name: "location"
+                                                size: 18
+                                                color: "#FFFFFF"
+                                            }
+                                        }
+                                        Rectangle {
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            width: 8
+                                            height: 8
+                                            radius: 4
+                                            color: Theme.zaloBlue
+                                            border.color: "#FFFFFF"
+                                            border.width: 1.5
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        visible: !locCard.thumbOk && locCard.hasCoords
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        anchors.margins: 4
+                                        width: osmAttrText.implicitWidth + 8
+                                        height: osmAttrText.implicitHeight + 4
+                                        radius: 4
+                                        color: Qt.rgba(0, 0, 0, 0.55)
+                                        Text {
+                                            id: osmAttrText
+                                            anchors.centerIn: parent
+                                            text: "© OSM"
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 9
+                                            color: "#FFFFFF"
+                                        }
                                     }
                                 }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+                                    Rectangle {
+                                        visible: !locCard.hasMap
+                                        Layout.preferredWidth: 40
+                                        Layout.preferredHeight: 40
+                                        radius: 20
+                                        color: Theme.zaloBlueLight
+                                        ZIcon { anchors.centerIn: parent; name: "location"; size: 20; color: Theme.zaloBlueTonalText }
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: msgRow.text
+                                            textFormat: Text.PlainText
+                                            wrapMode: Text.Wrap
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 14
+                                            font.weight: Font.DemiBold
+                                            color: ThemeManager.textColor
+                                        }
+                                        Text {
+                                            visible: text.length > 0
+                                            Layout.fillWidth: true
+                                            text: msgRow.isLocation ? (msgRow.extra.desc || msgRow.extra.coords || "") : ""
+                                            textFormat: Text.PlainText
+                                            wrapMode: Text.Wrap
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            color: ThemeManager.secondaryTextColor
+                                        }
+                                        Text {
+                                            visible: msgRow.href.length > 0
+                                            text: I18n.t("Mở bản đồ", "Open map")
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            color: Theme.linkColor
+                                        }
+                                    }
+                                }
+
                                 TapHandler {
                                     onTapped: if (msgRow.href.length > 0) ZaloClient.openExternalUrl(msgRow.href)
                                 }
@@ -1212,7 +1434,6 @@ Item {
                             text: "<style>a{color:" + Theme.linkColor + ";text-decoration:none}</style>" + msgRow.richText
                             font.family: Theme.fontFamily
                             font.pixelSize: 14
-                            renderType: TextEdit.QtRendering
                             color: ThemeManager.textColor
                             selectionColor: Theme.zaloBlueLight
                             selectedTextColor: ThemeManager.textColor
@@ -1232,7 +1453,6 @@ Item {
                             font.family: Theme.fontFamily
                             font.pixelSize: 14
                             font.italic: true
-                            renderType: Text.QtRendering
                             color: ThemeManager.secondaryTextColor
                         }
                     }
@@ -1347,7 +1567,7 @@ Item {
                         }
                         Row {
                             id: groupSeenRow
-                            readonly property var rawUids: (typeof model !== "undefined" && model && msgRow.seenUids) ? msgRow.seenUids : []
+                            readonly property var rawUids: msgRow.seenUids ? msgRow.seenUids : []
                             readonly property var uids: rawUids.slice().reverse()
                             visible: msgRow.mine && ZaloClient.currentConversationIsGroup && groupSeenRow.uids.length > 0
                             spacing: -6
@@ -1439,8 +1659,9 @@ Item {
     Loader {
         active: rowHover.hovered && !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.isPoll && !msgRow.msgId.startsWith("local-")
         y: bubbleRow.y + (senderNameText.visible ? (senderNameText.height + 4) : 0) + 2
-        x: msgRow.mine ? contentCol.x + Math.min(reactionRow.contentLeft, contentCol.width) - width - 8
-                       : contentCol.x + Math.max(reactionRow.contentEdge, 0) + 8
+        x: Math.max(8, Math.min(msgRow.width - width - 8,
+                                msgRow.mine ? contentCol.x + Math.min(reactionRow.contentLeft, contentCol.width) - width - 8
+                                            : contentCol.x + Math.max(reactionRow.contentEdge, 0) + 8))
         sourceComponent: Rectangle {
             width: actionRow.implicitWidth + 8
             height: 28

@@ -44,6 +44,8 @@ constexpr qint64 kMaxAvatarBytes = 32LL * 1024 * 1024;
 QMutex s_memCacheMutex;
 QCache<QString, QImage> s_avatarMemCache(kMaxAvatarCacheKiB);
 QCache<QString, QImage> s_mediaMemCache(kMaxMediaCacheKiB);
+QMutex s_tooLargeMutex;
+QSet<QString> s_tooLargeUrls;
 
 QNetworkAccessManager* sharedNam() {
     static QPointer<QNetworkAccessManager> s_nam;
@@ -62,6 +64,7 @@ public:
         QImage image;
         QString error;
         int diameter{0};
+        QSize targetSize;
         bool circular{false};
         QString memKey;
         bool cancelled{false};
@@ -71,13 +74,17 @@ public:
         : m_circular(circular),
           m_diameter(requestedSize.isValid() && requestedSize.width() > 0
                          ? requestedSize.width()
-                         : (circular ? kDefaultDiameter : kDefaultCoverWidth)) {
+                         : (circular ? kDefaultDiameter : kDefaultCoverWidth)),
+          m_targetSize(requestedSize.width() > 0 ? requestedSize.width() : (circular ? kDefaultDiameter : kDefaultCoverWidth),
+                       requestedSize.height() > 0 ? requestedSize.height() : 0) {
         const QUrl url(QUrl::fromPercentEncoding(id.toUtf8()));
         const QString hashHex = QString::fromLatin1(QCryptographicHash::hash(url.toEncoded(), QCryptographicHash::Md5).toHex());
-        m_memKey = hashHex + QLatin1Char(circular ? '@' : '#') + QString::number(m_diameter);
+        m_memKey = hashHex + (circular ? QLatin1Char('@') + QString::number(m_diameter)
+                                       : QLatin1Char('#') + QString::number(m_targetSize.width()) + QLatin1Char('x') + QString::number(m_targetSize.height()));
         m_state = std::make_shared<State>();
         m_state->response = this;
         m_state->diameter = m_diameter;
+        m_state->targetSize = m_targetSize;
         m_state->circular = m_circular;
         m_state->memKey = m_memKey;
 
@@ -92,11 +99,12 @@ public:
 
         if (url.isLocalFile() || url.scheme() == "qrc") {
             const QString path = url.isLocalFile() ? url.toLocalFile() : ":" + url.path();
-            const int diameter = m_diameter;
+            const QSize targetSize = m_targetSize;
             const bool circularFlag = m_circular;
             const QString memKey = m_memKey;
+            const QString urlStr = url.toString();
             const std::weak_ptr<State> weak = m_state;
-            decodePool().start([weak, path, diameter, circularFlag, memKey]() {
+            decodePool().start([weak, path, targetSize, circularFlag, memKey, urlStr]() {
                 if (weak.expired()) return;
                 QImage shaped;
                 QString error;
@@ -105,10 +113,14 @@ public:
                     if (!file.open(QIODevice::ReadOnly)) {
                         error = QStringLiteral("cannot read %1").arg(path);
                     } else {
-                        const QImage decoded = AvatarImageProvider::decodeScaled(&file, diameter, circularFlag);
-                        shaped = shape(decoded, diameter, circularFlag);
+                        QString decodeErr;
+                        const QImage decoded = AvatarImageProvider::decodeScaled(&file, targetSize, circularFlag, &decodeErr);
+                        shaped = shape(decoded, targetSize, circularFlag);
                         if (!shaped.isNull()) AvatarImageProvider::insertMemCache(memKey, shaped);
-                        else error = QStringLiteral("not a decodable image");
+                        else {
+                            if (decodeErr == QLatin1String("image too large")) AvatarImageProvider::markTooLarge(urlStr);
+                            error = decodeErr.isEmpty() ? QStringLiteral("not a decodable image") : decodeErr;
+                        }
                     }
                 }
                 if (const auto s = weak.lock()) {
@@ -119,19 +131,20 @@ public:
             return;
         }
         if (QFileInfo::exists(cachePath)) {
-            const int diameter = m_diameter;
+            const QSize targetSize = m_targetSize;
             const bool circularFlag = m_circular;
             const QString memKey = m_memKey;
             const std::weak_ptr<State> weak = m_state;
-            decodePool().start([weak, url, cachePath, diameter, circularFlag, memKey]() {
+            decodePool().start([weak, url, cachePath, targetSize, circularFlag, memKey]() {
                 if (weak.expired()) return;
                 QImage shaped;
+                QString decodeErr;
                 if (!AvatarImageProvider::lookupMemCache(memKey, &shaped)) {
                     QFile cachedFile(cachePath);
                     if (cachedFile.open(QIODevice::ReadOnly)) {
-                        const QImage decoded = AvatarImageProvider::decodeScaled(&cachedFile, diameter, circularFlag);
+                        const QImage decoded = AvatarImageProvider::decodeScaled(&cachedFile, targetSize, circularFlag, &decodeErr);
                         cachedFile.close();
-                        shaped = shape(decoded, diameter, circularFlag);
+                        shaped = shape(decoded, targetSize, circularFlag);
                         if (!shaped.isNull()) {
                             AvatarImageProvider::insertMemCache(memKey, shaped);
                             const QDateTime now = QDateTime::currentDateTime();
@@ -148,6 +161,11 @@ public:
                 if (!s) return;
                 if (!shaped.isNull()) {
                     deliverState(s, shaped);
+                    return;
+                }
+                if (decodeErr == QLatin1String("image too large")) {
+                    AvatarImageProvider::markTooLarge(url.toString());
+                    failState(s, decodeErr);
                     return;
                 }
                 startNetworkFetch(s, url, cachePath);
@@ -177,10 +195,19 @@ public:
         }
 
         QNetworkRequest req(url);
-        req.setHeader(QNetworkRequest::UserAgentHeader,
-                      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
-        req.setRawHeader("Referer", "https://chat.zalo.me/");
-        req.setRawHeader("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+        if (url.host().endsWith(QLatin1String("openstreetmap.org"), Qt::CaseInsensitive)) {
+#ifdef ZALOS_APP_VERSION
+            req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Zalos/") + QLatin1String(ZALOS_APP_VERSION));
+#else
+            req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Zalos/1.0"));
+#endif
+            req.setRawHeader("Accept", "image/png,image/*;q=0.8");
+        } else {
+            req.setHeader(QNetworkRequest::UserAgentHeader,
+                          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
+            req.setRawHeader("Referer", "https://chat.zalo.me/");
+            req.setRawHeader("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+        }
         req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
         req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
@@ -245,8 +272,9 @@ public:
             }
             const auto waiters = inflight().take(key);
             if (*tooLarge) {
+                AvatarImageProvider::markTooLarge(key);
                 for (const auto& w : waiters) {
-                    if (const auto s = w.lock()) failState(s, QStringLiteral("not a decodable image"));
+                    if (const auto s = w.lock()) failState(s, QStringLiteral("image too large"));
                 }
                 return;
             }
@@ -265,18 +293,19 @@ public:
                 if (!s) continue;
                 QMutexLocker locker(&s->mutex);
                 if (!s->cancelled && s->response) {
-                    specs.append(Spec{w, s->diameter, s->circular, s->memKey});
+                    specs.append(Spec{w, s->targetSize, s->circular, s->memKey});
                 }
             }
             if (specs.isEmpty()) return;
             const QByteArray bytes = reply->readAll();
             if (bytes.size() > kMaxAvatarBytes) {
+                AvatarImageProvider::markTooLarge(key);
                 for (const auto& spec : std::as_const(specs)) {
-                    if (const auto s = spec.state.lock()) failState(s, QStringLiteral("not a decodable image"));
+                    if (const auto s = spec.state.lock()) failState(s, QStringLiteral("image too large"));
                 }
                 return;
             }
-            decodePool().start([bytes, cachePath, specs]() {
+            decodePool().start([bytes, cachePath, specs, key]() {
                 bool decodable = false;
                 {
                     QBuffer checkBuf;
@@ -290,6 +319,7 @@ public:
                     }
                 }
                 QVector<QImage> images(specs.size());
+                QVector<QString> errors(specs.size());
                 if (decodable) {
                     QHash<QString, QImage> decodedBySpec;
                     for (int i = 0; i < specs.size(); ++i) {
@@ -301,11 +331,14 @@ public:
                         QBuffer buf;
                         buf.setData(bytes);
                         buf.open(QIODevice::ReadOnly);
-                        const QImage decoded = AvatarImageProvider::decodeScaled(&buf, specs[i].diameter, specs[i].circular);
-                        images[i] = shape(decoded, specs[i].diameter, specs[i].circular);
+                        QString decodeErr;
+                        const QImage decoded = AvatarImageProvider::decodeScaled(&buf, specs[i].targetSize, specs[i].circular, &decodeErr);
+                        images[i] = shape(decoded, specs[i].targetSize, specs[i].circular);
                         if (!images[i].isNull()) {
                             AvatarImageProvider::insertMemCache(specs[i].memKey, images[i]);
                             decodedBySpec.insert(specs[i].memKey, images[i]);
+                        } else {
+                            errors[i] = decodeErr;
                         }
                     }
                 }
@@ -313,7 +346,10 @@ public:
                     const auto s = specs[i].state.lock();
                     if (!s) continue;
                     if (!decodable) failState(s, QStringLiteral("not a decodable image"));
-                    else if (images[i].isNull()) failState(s, QStringLiteral("decode failed"));
+                    else if (images[i].isNull()) {
+                        if (errors[i] == QLatin1String("image too large")) AvatarImageProvider::markTooLarge(key);
+                        failState(s, errors[i].isEmpty() ? QStringLiteral("decode failed") : errors[i]);
+                    }
                     else deliverState(s, images[i]);
                 }
             });
@@ -322,7 +358,7 @@ public:
 
     struct Spec {
         std::weak_ptr<State> state;
-        int diameter;
+        QSize targetSize;
         bool circular;
         QString memKey;
     };
@@ -338,10 +374,15 @@ public:
         return pool;
     }
 
-    static QImage shape(const QImage& source, int diameter, bool circular) {
+    static QImage shape(const QImage& source, const QSize& targetSize, bool circular) {
         if (source.isNull()) return QImage();
-        if (circular) return AvatarImageProvider::makeCircular(source, diameter);
-        return (diameter > 0 && source.width() > diameter) ? source.scaledToWidth(diameter, Qt::SmoothTransformation) : source;
+        if (circular) return AvatarImageProvider::makeCircular(source, targetSize.width());
+        const int maxW = targetSize.width() > 0 ? targetSize.width() : 2048;
+        const int maxH = targetSize.height() > 0 ? targetSize.height() : qMax(maxW * 4, 2048);
+        if (source.width() > maxW || source.height() > maxH) {
+            return source.scaled(maxW, maxH, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        }
+        return source;
     }
 
     QQuickTextureFactory* textureFactory() const override {
@@ -374,6 +415,7 @@ private:
 
     bool m_circular;
     int m_diameter;
+    QSize m_targetSize;
     QString m_memKey;
     std::shared_ptr<State> m_state;
 };
@@ -421,34 +463,72 @@ void AvatarImageProvider::insertMemCache(const QString& key, const QImage& image
 }
 
 void AvatarImageProvider::clearMemCache() {
-    QMutexLocker locker(&s_memCacheMutex);
-    s_avatarMemCache.clear();
-    s_mediaMemCache.clear();
+    {
+        QMutexLocker locker(&s_memCacheMutex);
+        s_avatarMemCache.clear();
+        s_mediaMemCache.clear();
+    }
+    QMutexLocker tl(&s_tooLargeMutex);
+    s_tooLargeUrls.clear();
 }
 
-QImage AvatarImageProvider::decodeScaled(QIODevice* device, int targetWidth, bool circular) {
+void AvatarImageProvider::markTooLarge(const QString& url) {
+    if (url.isEmpty()) return;
+    QMutexLocker locker(&s_tooLargeMutex);
+    if (s_tooLargeUrls.size() >= 256) s_tooLargeUrls.clear();
+    s_tooLargeUrls.insert(url);
+}
+
+bool AvatarImageProvider::isTooLarge(const QString& url) {
+    if (url.isEmpty()) return false;
+    QMutexLocker locker(&s_tooLargeMutex);
+    return s_tooLargeUrls.contains(url);
+}
+
+QImage AvatarImageProvider::decodeScaled(QIODevice* device, const QSize& targetSize, bool circular, QString* errorOut) {
+    if (errorOut) errorOut->clear();
     if (!device) return {};
     QImageReader::setAllocationLimit(64);
     QImageReader reader(device);
     reader.setAutoTransform(true);
+    if (!reader.canRead()) {
+        if (errorOut) *errorOut = QStringLiteral("not a decodable image");
+        return {};
+    }
     const QSize orig = reader.size();
+    if (orig.isValid() && (orig.width() <= 0 || orig.height() <= 0)) {
+        if (errorOut) *errorOut = QStringLiteral("not a decodable image");
+        return {};
+    }
     if (orig.isValid() && (orig.width() > 16384 || orig.height() > 16384
                            || qint64(orig.width()) * qint64(orig.height()) > 64LL * 1024 * 1024)) {
+        if (errorOut) *errorOut = QStringLiteral("image too large");
         return {};
     }
     if (orig.isValid() && orig.width() > 0 && orig.height() > 0) {
         if (circular) {
-            const int d = qMax(8, targetWidth);
+            const int d = qMax(8, targetSize.width());
             const int minSide = qMin(orig.width(), orig.height());
             if (minSide > d) {
                 reader.setScaledSize(orig.scaled(d, d, Qt::KeepAspectRatioByExpanding));
             }
-        } else if (targetWidth > 0 && orig.width() > targetWidth) {
-            const int scaledH = qMax(1, int((qint64(orig.height()) * targetWidth + orig.width() / 2) / orig.width()));
-            reader.setScaledSize(QSize(targetWidth, scaledH));
+        } else {
+            const int maxW = qMin(targetSize.width() > 0 ? targetSize.width() : 2048, 4096);
+            const int maxH = qMin(targetSize.height() > 0 ? targetSize.height() : qMax(maxW * 4, 2048), 4096);
+            if (orig.width() > maxW || orig.height() > maxH) {
+                QSize scaled = orig.scaled(maxW, maxH, Qt::KeepAspectRatio);
+                scaled.setWidth(qMax(1, scaled.width()));
+                scaled.setHeight(qMax(1, scaled.height()));
+                reader.setScaledSize(scaled);
+            }
         }
     }
-    return reader.read();
+    const QImage img = reader.read();
+    if (img.isNull() && errorOut && errorOut->isEmpty()) {
+        *errorOut = reader.error() == QImageReader::InvalidDataError ? QStringLiteral("not a decodable image")
+                                                                    : reader.errorString();
+    }
+    return img;
 }
 
 QImage AvatarImageProvider::makeCircular(const QImage& source, int diameter) {

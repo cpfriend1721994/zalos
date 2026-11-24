@@ -32,7 +32,7 @@ modules:
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DBUILD_TESTING=OFF
-      - -DZALOS_QML_AOT=OFF
+      - -DZALOS_QML_AOT=ON
     post-install:
       - sed -i 's|<launchable type="desktop-id">zalos.desktop</launchable>|<launchable type="desktop-id">io.github.cpfriend1721994.zalos.desktop</launchable>|' /app/share/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
       - |

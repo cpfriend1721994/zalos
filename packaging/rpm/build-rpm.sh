@@ -11,15 +11,9 @@ OUTPUT_DIR="${WORKSPACE_DIR}/dist"
 
 mkdir -p "${RPMBUILD_DIR}/"{BUILD,RPMS,SOURCES,SPECS,SRPMS} "${OUTPUT_DIR}"
 
-# 1. Create source tarball
 VERSION=$(grep -m1 'project(zalos VERSION' "${WORKSPACE_DIR}/CMakeLists.txt" | sed -E 's/.*VERSION ([0-9.]+).*/\1/')
 TARBALL_NAME="zalos-${VERSION}.tar.gz"
 echo "==> Creating source tarball ${TARBALL_NAME}..."
-# Only project sources, from an explicit exclude list (mirrors .gitignore, .dockerignore and the Nix source
-# filter): never sessions (zsess.json), offline caches (.local/, .config/, .cache/), screenshots, build trees,
-# packages or agent files. A file list rather than `git ls-files` because the CI packaging image bakes the source
-# in with COPY (Dockerfile.app), so there is no repository in the container; the same script still works on a
-# bind-mounted checkout locally.
 ( cd "${WORKSPACE_DIR}" &&
   find . -mindepth 1 \
       \( -path './.git' -o -path './.agents' -o -path './build' -o -path './build-*' -o -path './dist' \
@@ -39,14 +33,11 @@ fi
 tar -C "${WORKSPACE_DIR}" --transform "s,^,zalos-${VERSION}/," \
     -czf "${RPMBUILD_DIR}/SOURCES/${TARBALL_NAME}" --null -T /tmp/zalos-src-files
 
-# 2. Copy spec file
 cp "${WORKSPACE_DIR}/packaging/rpm/zalos.spec" "${RPMBUILD_DIR}/SPECS/"
 
-# 3. Build RPM package (binary RPM only; no SRPM needed for release artifacts)
 echo "==> Running rpmbuild..."
 rpmbuild --define "_topdir ${RPMBUILD_DIR}" -bb "${RPMBUILD_DIR}/SPECS/zalos.spec"
 
-# 4. Copy generated RPMs to dist
 cp -v "${RPMBUILD_DIR}/RPMS/"*/*.rpm "${OUTPUT_DIR}/" || true
 cp -v "${RPMBUILD_DIR}/SRPMS/"*.src.rpm "${OUTPUT_DIR}/" || true
 

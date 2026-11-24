@@ -21,6 +21,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <thread>
 #include <unistd.h>
 
@@ -149,6 +152,9 @@ int checkDeps() {
 
 int main(int argc, char** argv) {
     std::signal(SIGPIPE, SIG_IGN);
+#ifdef __linux__
+    ::prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
     if (argc > 1 && std::strcmp(argv[1], "--check-deps") == 0) return checkDeps();
     Options args;
     if (const int code = parseOptions(argc, argv, args); code >= 0) return code;

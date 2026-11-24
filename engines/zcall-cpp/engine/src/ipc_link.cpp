@@ -82,11 +82,13 @@ void IpcLink::emitFrame(const QJsonObject& frame) {
     if (hex.isEmpty() || !m_recv) return;
     if (hex.size() <= 4000) {
         m_recv->write(hex + '$');
+        m_recv->flush();
         return;
     }
     static qint64 nextId = 0;
     const qint64 id = ++nextId;
     for (const QByteArray& part : ipcChunks(hex, id)) m_recv->write(part);
+    m_recv->flush();
 }
 
 }

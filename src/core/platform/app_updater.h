@@ -40,4 +40,4 @@ QString parseSha256ForFile(const QByteArray& sha256SumsContent, const QString& f
 bool verifyFileSha256(const QString& filePath, const QString& expectedHex);
 bool replaceAppImageFile(const QString& targetPath, const QString& downloadedPath, QString* errorOut = nullptr);
 
-} // namespace Zalos::Core::Platform
+}

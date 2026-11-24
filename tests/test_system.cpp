@@ -32,6 +32,10 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVideoSink>
+#include <QPainter>
+#include <QDBusArgument>
+#include <QDBusMetaType>
+#include <QDBusVariant>
 #include "multimedia_support.h"
 #include "platform/app_updater.h"
 
@@ -43,6 +47,7 @@
 #include "core/models/conversation_model.h"
 #include "core/models/message_model.h"
 #include "core/fs/file_utils.h"
+#include "core/platform/file_picker.h"
 #include "core/media/media_utils.h"
 #include "core/call/zcall_engine.h"
 #include "core/offline/offline_store.h"
@@ -84,7 +89,6 @@ using namespace Zalos::Core::Call;
 using namespace Zalos::Core::Offline;
 
 namespace {
-// QQmlApplicationEngine::loadFromModule exists from Qt 6.5; Qt 6.4 (Ubuntu 24.04) loads the module file by URL.
 void loadMainWindow(QQmlApplicationEngine& engine) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     engine.loadFromModule("Zalos", "Main");
@@ -92,7 +96,7 @@ void loadMainWindow(QQmlApplicationEngine& engine) {
     engine.load(QUrl(QStringLiteral("qrc:/Zalos/src/qml/Main.qml")));
 #endif
 }
-} // namespace
+}
 
 class TestSystem : public QObject {
     Q_OBJECT
@@ -108,12 +112,9 @@ private slots:
         settings.remove("settings/closeToTray");
         QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
         QFile::remove(QDir(baseDir).filePath("offline.db"));
-        QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering); // as main.cpp: screenshots match the app
+        QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
     }
 
-    // FTS5 search over the whole cached history, compressed raw payloads and the one-time storage upgrade
-    // (2026-11-04): accent-insensitive incl. đ, per conversation or global, recall/delete drop hits, MATCH input
-    // is sanitised, legacy TEXT raw rows are compressed and indexed on open.
     void testMessageSearchFtsAndRawCodec() {
         using Zalos::Core::Models::MessageItem;
         QCOMPARE(ZaloOfflineStore::ftsQuery("Đường  phố\"x"), QString("\"duong\"* \"pho\"* \"x\"*"));
@@ -122,12 +123,12 @@ private slots:
         const QByteArray packed = ZaloOfflineStore::encodeRaw(rawIn);
         QVERIFY(!packed.isEmpty() && packed.at(0) != '{');
         QCOMPARE(ZaloOfflineStore::decodeRaw(packed), rawIn);
-        QCOMPARE(ZaloOfflineStore::decodeRaw(QString("{\"a\":1}")).value("a").toInt(), 1); // legacy TEXT row
+        QCOMPARE(ZaloOfflineStore::decodeRaw(QString("{\"a\":1}")).value("a").toInt(), 1);
         QVERIFY(ZaloOfflineStore::decodeRaw(QVariant()).isEmpty());
         {
             ZaloOfflineStore store;
             store.clearCache();
-            QVERIFY(store.ftsAvailable()); // every supported distro's SQLite (Fedora 43, Ubuntu 24.04) has FTS5
+            QVERIFY(store.ftsAvailable());
             auto msg = [](const QString& id, const QString& text, qint64 ts) {
                 MessageItem m;
                 m.id = id;
@@ -146,7 +147,7 @@ private slots:
                 for (const auto& h : hits) out << h.msgId;
                 return out;
             };
-            QCOMPARE(ids(store.searchMessages("duong")), (QStringList{"7003", "7001"})); // newest first
+            QCOMPARE(ids(store.searchMessages("duong")), (QStringList{"7003", "7001"}));
             QCOMPARE(ids(store.searchMessages("DUONG fixt", "u-fts-a")), QStringList{"7001"});
             QCOMPARE(ids(store.searchMessages("hen gap")), QStringList{"7001"});
             QVERIFY(store.searchMessages("\"").isEmpty());
@@ -154,7 +155,6 @@ private slots:
             QCOMPARE(ids(store.searchMessages("duong")), QStringList{"7001"});
             QVERIFY(store.deleteMessage("7001"));
             QVERIFY(store.searchMessages("duong").isEmpty());
-            // A text change re-indexes the row.
             QVERIFY(store.saveMessage("u-fts-a", msg("7002", "Giờ thì có đường", 2000)));
             QCOMPARE(ids(store.searchMessages("duong")), QStringList{"7002"});
             QCOMPARE(store.countMessagesBetween("u-fts-a", 0, 5000), 1);
@@ -162,7 +162,6 @@ private slots:
             QCOMPARE(store.messageTs("7002", &conv), 2000);
             QCOMPARE(conv, QString("u-fts-a"));
         }
-        // Legacy database: TEXT raw, no FTS rows, no migration marks → upgraded on open.
         const QString path = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath("offline.db");
         {
             QSqlDatabase legacy = QSqlDatabase::addDatabase("QSQLITE", "fts_legacy");
@@ -180,13 +179,11 @@ private slots:
             ZaloOfflineStore upgraded;
             QCOMPARE(upgraded.searchMessages("duong cu").size(), 1);
             QCOMPARE(upgraded.rawMessage("7100").value("legacy").toBool(), true);
-            QCOMPARE(upgraded.pragmaForTesting("auto_vacuum"), QString("2")); // incremental
+            QCOMPARE(upgraded.pragmaForTesting("auto_vacuum"), QString("2"));
             upgraded.clearCache();
         }
     }
 
-    // Desktop font specs: the size and weight/style words are not part of the family (bug 2026-11-03: GNOME
-    // "Ubuntu Medium 12" became family "Ubuntu Medium" and bold labels were synthesised and smeared).
     void testSystemFontFamilyFromSpec() {
         using Zalos::Core::Platform::ThemeManager;
         QCOMPARE(ThemeManager::familyFromFontSpec("Ubuntu Medium 12"), QString("Ubuntu"));
@@ -194,8 +191,88 @@ private slots:
         QCOMPARE(ThemeManager::familyFromFontSpec("Cantarell 11"), QString("Cantarell"));
         QCOMPARE(ThemeManager::familyFromFontSpec("Noto Sans,10,-1,5,400,0,0,0,0,0"), QString("Noto Sans"));
         QCOMPARE(ThemeManager::familyFromFontSpec("Source Code Pro Semibold 10.5"), QString("Source Code Pro"));
-        QCOMPARE(ThemeManager::familyFromFontSpec("Medium"), QString("Medium")); // never empties a one-word family
+        QCOMPARE(ThemeManager::familyFromFontSpec("Medium"), QString("Medium"));
         QCOMPARE(QQuickWindow::textRenderType(), QQuickWindow::NativeTextRendering);
+    }
+
+    void testFilePickerHelpersWithoutQtQuickDialogs() {
+        using Zalos::Core::Platform::FilePicker;
+        const auto filters = FilePicker::parseNameFilters({QStringLiteral("Hình ảnh (*.jpg *.png *.jpg)"),
+                                                           QStringLiteral("Tất cả các tệp (*.*)"),
+                                                           QStringLiteral("Plain")});
+        QCOMPARE(filters.size(), 3);
+        QCOMPARE(filters.at(0).patterns, QStringList({QStringLiteral("*.jpg"), QStringLiteral("*.png")}));
+        QCOMPARE(filters.at(1).patterns, QStringList({QStringLiteral("*")}));
+        QCOMPARE(filters.at(2).patterns, QStringList({QStringLiteral("Plain")}));
+
+        const QList<QUrl> urls = FilePicker::urlsFromLines("/tmp/fixture a.png\n\n/tmp/fixture-b.jpg\n");
+        QCOMPARE(urls.size(), 2);
+        QCOMPARE(urls.at(0), QUrl::fromLocalFile(QStringLiteral("/tmp/fixture a.png")));
+
+        const QStringList zenity = FilePicker::zenityArguments(FilePicker::OpenFiles, QStringLiteral("Fixture"),
+                                                               filters.mid(0, 1), QString());
+        QVERIFY(zenity.contains(QStringLiteral("--multiple")));
+        QVERIFY(zenity.contains(QStringLiteral("--file-filter=Hình ảnh (*.jpg *.png *.jpg) | *.jpg *.png")));
+        const QStringList save = FilePicker::zenityArguments(FilePicker::SaveFile, QString(), {}, QStringLiteral("/tmp/x.jpg"));
+        QVERIFY(save.contains(QStringLiteral("--save")));
+        QVERIFY(save.contains(QStringLiteral("--filename=/tmp/x.jpg")));
+        const QStringList kde = FilePicker::kdialogArguments(FilePicker::SaveFile, QString(), filters.mid(0, 1),
+                                                             QStringLiteral("/tmp/x.jpg"));
+        QCOMPARE(kde.first(), QStringLiteral("--getsavefilename"));
+        QCOMPARE(kde.at(1), QStringLiteral("/tmp/x.jpg"));
+        QCOMPARE(kde.last(), QStringLiteral("*.jpg *.png|Hình ảnh (*.jpg *.png *.jpg)"));
+
+        FilePicker picker;
+        QCOMPARE(picker.fileMode(), FilePicker::OpenFile);
+        QVERIFY(picker.selectedFile().isEmpty());
+        QVERIFY(!picker.busy());
+    }
+
+    void testUiFontNeverFallsBackToEmojiFamily() {
+        using Zalos::Core::Platform::ThemeManager;
+        const QString emojiFamily = ThemeManager::registerEmojiFallbackFont();
+        const QString fallback = ThemeManager::fallbackUiFamily();
+        QVERIFY(!fallback.isEmpty());
+        QVERIFY(ThemeManager::isUsableUiFamily(fallback));
+        QVERIFY(ThemeManager::isEmojiOrSymbolFamily(QStringLiteral("Noto Color Emoji")));
+        QVERIFY(ThemeManager::isEmojiOrSymbolFamily(QStringLiteral("Symbol")));
+        QVERIFY(!ThemeManager::isEmojiOrSymbolFamily(fallback));
+        if (!emojiFamily.isEmpty()) {
+            QVERIFY(ThemeManager::isEmojiOrSymbolFamily(emojiFamily));
+            QVERIFY(!ThemeManager::isUsableUiFamily(emojiFamily));
+        }
+        QVERIFY(ThemeManager::installedFamilyName(QStringLiteral("Fixture Missing Sans")).isEmpty());
+        QVERIFY(!ThemeManager::isUsableUiFamily(QStringLiteral("Fixture Missing Sans")));
+
+        const auto onlyFixture = [](const QString& f) { return f == QLatin1String("Fixture Sans"); };
+        QCOMPARE(ThemeManager::chooseUiFont({QString(), QStringLiteral("Fixture Sans Medium 12")}, onlyFixture,
+                                            QStringLiteral("Fallback")), QStringLiteral("Fixture Sans"));
+        QCOMPARE(ThemeManager::chooseUiFont({QStringLiteral("Fixture Mono,10,-1"), QStringLiteral("Fixture Sans")},
+                                            onlyFixture, QStringLiteral("Fallback")), QStringLiteral("Fixture Sans"));
+        QCOMPARE(ThemeManager::chooseUiFont({QStringLiteral("Ubuntu,12,-1,5,500,0,0,0,0,0,0,0,0,0,0,1,Medium")},
+                                            onlyFixture, QStringLiteral("Fallback")), QStringLiteral("Fallback"));
+
+        QFont::insertSubstitution(QStringLiteral("Fixture Missing Sans"), emojiFamily.isEmpty() ? fallback : emojiFamily);
+        const QString resolved = ThemeManager::resolveFontSpecForTesting(QStringLiteral("Fixture Missing Sans,12,-1,5,500"));
+        QCOMPARE(resolved, fallback);
+        QVERIFY(!ThemeManager::isEmojiOrSymbolFamily(resolved));
+
+        QSettings settings("Zalos", "ZalosApp");
+        const QVariant savedDesktop = settings.value("appearance/cachedDesktopFont");
+        settings.setValue("appearance/cachedSystemFont", emojiFamily.isEmpty() ? QStringLiteral("Zalos Color Emoji") : emojiFamily);
+        settings.setValue("appearance/cachedDesktopFont", emojiFamily.isEmpty() ? QStringLiteral("Zalos Color Emoji") : emojiFamily);
+        settings.sync();
+        {
+            ThemeManager tm;
+            QVERIFY(!tm.systemFontFamily().isEmpty());
+            QVERIFY(!ThemeManager::isEmojiOrSymbolFamily(tm.systemFontFamily()));
+            QVERIFY(!ThemeManager::isEmojiOrSymbolFamily(QGuiApplication::font().family()));
+        }
+        settings.sync();
+        QVERIFY(!settings.contains("appearance/cachedSystemFont"));
+        QVERIFY(!ThemeManager::isEmojiOrSymbolFamily(settings.value("appearance/cachedDesktopFont").toString()));
+        if (savedDesktop.isValid()) settings.setValue("appearance/cachedDesktopFont", savedDesktop);
+        else settings.remove("appearance/cachedDesktopFont");
     }
 
     void testKdeGlobalsThemeParsing() {
@@ -226,6 +303,69 @@ private slots:
         QVERIFY(!ThemeManager::kdeAccentFromGlobals("").isValid());
     }
 
+    void testPortalAndGtkThemeParsing() {
+        using Zalos::Core::Platform::ThemeManager;
+        bool known = false;
+
+        QVERIFY(ThemeManager::portalColorSchemeFromVariant(QVariant(uint(1)), &known));
+        QVERIFY(known);
+        QVERIFY(!ThemeManager::portalColorSchemeFromVariant(QVariant(uint(2)), &known));
+        QVERIFY(known);
+        QVERIFY(!ThemeManager::portalColorSchemeFromVariant(QVariant(uint(0)), &known));
+        QVERIFY(!known);
+
+        const QVariant nestedDark = QVariant::fromValue(QDBusVariant(QVariant::fromValue(QDBusVariant(QVariant(uint(1))))));
+        QVERIFY(ThemeManager::portalColorSchemeFromVariant(nestedDark, &known));
+        QVERIFY(known);
+
+        QVERIFY(ThemeManager::portalColorSchemeFromVariant(QStringLiteral("prefer-dark"), &known));
+        QVERIFY(known);
+        QVERIFY(!ThemeManager::portalColorSchemeFromVariant(QStringLiteral("default"), &known));
+        QVERIFY(known);
+        QVERIFY(!ThemeManager::portalColorSchemeFromVariant(QStringLiteral("prefer-light"), &known));
+        QVERIFY(known);
+        QVERIFY(!ThemeManager::portalColorSchemeFromVariant(QVariant(), &known));
+        QVERIFY(!known);
+
+        const QColor portalAccent = ThemeManager::portalAccentFromVariant(
+            QVariant::fromValue(QDBusVariant(QVariantList{0.2, 0.4, 0.8})));
+        QVERIFY(portalAccent.isValid());
+        QCOMPARE(portalAccent.red(), qRound(0.2 * 255.0));
+        QCOMPARE(portalAccent.blue(), qRound(0.8 * 255.0));
+        QVERIFY(!ThemeManager::portalAccentFromVariant(QVariantList{1.2, 0.4, 0.8}).isValid());
+        QVERIFY(!ThemeManager::portalAccentFromVariant(QVariantList{-0.1, 0.4, 0.8}).isValid());
+        QVERIFY(!ThemeManager::portalAccentFromVariant(QVariantList{qQNaN(), 0.4, 0.8}).isValid());
+
+        QVERIFY(ThemeManager::gtkDarkFromSettingsIni("[Settings]\ngtk-application-prefer-dark-theme=1\n", &known));
+        QVERIFY(known);
+        QVERIFY(ThemeManager::gtkDarkFromSettingsIni("[Settings]\ngtk-application-prefer-dark-theme=true\n", &known));
+        QVERIFY(known);
+        QVERIFY(ThemeManager::gtkDarkFromSettingsIni("[Settings]\ngtk-theme-name=Adwaita-dark\n", &known));
+        QVERIFY(known);
+        QVERIFY(!ThemeManager::gtkDarkFromSettingsIni(
+            "[Settings]\ngtk-application-prefer-dark-theme=0\ngtk-theme-name=Adwaita\n", &known));
+        QVERIFY(known);
+        QVERIFY(!ThemeManager::gtkDarkFromSettingsIni("", &known));
+        QVERIFY(!known);
+
+        const QPalette original = QGuiApplication::palette();
+        QPalette lightDefault;
+        lightDefault.setColor(QPalette::Window, QColor("#efefef"));
+        lightDefault.setColor(QPalette::Base, QColor("#ffffff"));
+        lightDefault.setColor(QPalette::WindowText, QColor("#111111"));
+        QGuiApplication::setPalette(lightDefault);
+        {
+            ThemeManager theme;
+            theme.setThemeMode(ThemeManager::SystemTheme);
+            theme.setDarkMode(true);
+            QVERIFY(theme.isDarkMode());
+            QCOMPARE(theme.backgroundColor(), QColor("#22262B"));
+            QCOMPARE(theme.chatBackgroundColor(), QColor("#16191D"));
+            QCOMPARE(theme.textColor(), QColor("#DFE2E7"));
+        }
+        QGuiApplication::setPalette(original);
+    }
+
     void init() {
         QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
         QFile::remove(QDir(baseDir).filePath("offline.db"));
@@ -239,7 +379,6 @@ private slots:
         settings.remove("settings/closeToTray");
     }
 
-    // 1. System Integration: QML Engine & Context Properties
     void testQmlEngineStartup() {
         QQmlApplicationEngine engine;
         engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
@@ -261,16 +400,13 @@ private slots:
         auto window = qobject_cast<QQuickWindow*>(rootObjects.first());
         QVERIFY(window != nullptr);
 
-        // Verify native window decorations are preserved (Qt::Window without FramelessWindowHint)
         Qt::WindowFlags flags = window->flags();
         QVERIFY(flags & Qt::Window);
         QVERIFY(!(flags & Qt::FramelessWindowHint));
 
-        // Verify minimum window geometry constraints supporting quarter-screen
         QVERIFY(window->minimumWidth() <= 480);
         QVERIFY(window->minimumHeight() <= 450);
 
-        // Test responsive window geometry changes across quarter-screen, half-screen, and full-screen
         window->resize(480, 540);
         QTest::qWait(100);
         QCOMPARE(window->width(), 480);
@@ -278,14 +414,12 @@ private slots:
         QImage quarterImg = window->grabWindow();
         quarterImg.save("/workspace/build/test_quarter_screen.png");
 
-        // Test Tab 1: Phone Login View
         auto loginView = window->findChild<QQuickItem*>("loginViewRoot");
         if (loginView) {
             loginView->setProperty("activeTab", 1);
             QTest::qWait(100);
             QImage phoneImg = window->grabWindow();
             phoneImg.save("/workspace/build/test_quarter_phone.png");
-            // Reset to Tab 0
             loginView->setProperty("activeTab", 0);
             QTest::qWait(50);
         }
@@ -303,7 +437,6 @@ private slots:
         QCOMPARE(window->height(), 1080);
     }
 
-    // 2. Feature: Advanced Search with Diacritics & Case Insensitivity
     void testConversationSearchFeature() {
         ConversationModel model;
         model.addConversation({
@@ -314,23 +447,18 @@ private slots:
         });
         QVERIFY(model.rowCount() > 0);
 
-        // Search for existing contact "Hỗ trợ"
         model.setSearchFilter("Hỗ trợ");
         QVERIFY(model.rowCount() >= 1);
 
-        // Case-insensitive search "hỗ trợ"
         model.setSearchFilter("hỗ trợ");
         QVERIFY(model.rowCount() >= 1);
 
-        // Search for non-existent contact
         model.setSearchFilter("nonexistent_contact_xyz_123");
         QCOMPARE(model.rowCount(), 0);
 
-        // Reset search filter
         model.setSearchFilter("");
         QCOMPARE(model.rowCount(), 2);
 
-        // Diacritic/case-insensitive, word-order-free matching on names and last messages (đ/Đ fold to d).
         model.addConversation({
             "g-cl", "Fixture Nhóm Cầu Lông Đầm", "Mai đánh cầu nhé", "12:00", 0, true, false, "", "priority", ""
         });
@@ -343,7 +471,6 @@ private slots:
             model.setSearchFilter(QString::fromUtf8(q));
             QVERIFY2(has("g-cl"), q);
         }
-        // A chat without a stored name is found by the fallback label the list shows for it.
         model.addConversation({
             "u-noname", "", "", "12:30", 0, false, false, "", "priority", ""
         });
@@ -352,14 +479,12 @@ private slots:
             QVERIFY2(has("u-noname"), q);
         }
         model.setSearchFilter("");
-        // A search covers every chat: the Unread tab and a label filter must not hide matches.
         model.setCategoryFilter("unread");
         model.setSearchFilter("cau long");
         QVERIFY(has("g-cl"));
         model.setSearchFilter("");
         QVERIFY(!has("g-cl"));
         model.setCategoryFilter("");
-        // Archived ("Hội thoại khác") chats are found by search.
         model.setArchivedThreads({"g-cl"});
         model.setHiddenThreads({"ht-2"});
         model.setSearchFilter("");
@@ -367,8 +492,6 @@ private slots:
         QVERIFY(!has("ht-2"));
         model.setSearchFilter("cau long");
         QVERIFY(has("g-cl"));
-        // Hidden chats (Zalo behaviour): found by their exact name only — never by message text, never in the
-        // plain list, and kept out of normal results while the typed keyword is the hidden-chat PIN.
         model.setSearchFilter("ban than");
         QVERIFY(has("ht-2"));
         QVERIFY(model.data(model.index(0, 0), ConversationModel::IsHiddenRole).toBool());
@@ -383,7 +506,6 @@ private slots:
         model.setHiddenThreads({});
     }
 
-    // Sidebar search: one word finds chats, groups/contacts without a chat, and messages (with or without accents).
     void testGlobalSearchGroupsAndMessages() {
         {
             ZaloOfflineStore owner;
@@ -418,26 +540,22 @@ private slots:
             msgs->runNow();
             QVERIFY2(msgs->count() >= 1, q);
         }
-        // A hidden chat's messages stay out of the sidebar search.
         client.setHiddenThreadsForTesting({"u-search-b"});
         msgs->setQuery("cau long");
         msgs->runNow();
         QCOMPARE(msgs->count(), 1);
         QCOMPARE(msgs->data(msgs->index(0), MessageSearchModel::ConvIdRole).toString(), QString("u-search-a"));
 
-        // Hosts whose SQLite has no FTS5 still find messages (folded substring fallback).
         client.offlineStore()->setFtsAvailableForTesting(false);
         QCOMPARE(client.offlineStore()->searchMessages(QString::fromUtf8("đánh cầu")).size(), 1);
         QCOMPARE(client.offlineStore()->searchMessages("cau long", "u-search-a").size(), 1);
         client.offlineStore()->setFtsAvailableForTesting(true);
 
-        // Opening a directory hit creates the chat and selects it.
         client.openSearchResult("g-search", QString::fromUtf8("Fixture Nhóm Cầu Lông"), "", true);
         QVERIFY(client.conversationModel()->contains("g-search"));
         QCOMPARE(client.currentConversationId(), QString("g-search"));
     }
 
-    // Hidden conversations (Zalo): server-stored MD5 PIN, control-event sync, reveal by PIN in search, no leaks.
     void testHiddenConversationsZaloStyle() {
         QCOMPARE(ZaloClient::hiddenPinDigest("1234"), QString("81dc9bdb52d04dc20036dbd8313ed055"));
         ZaloClient client;
@@ -461,7 +579,6 @@ private slots:
             return false;
         };
 
-        // Another device hides a chat: the "hidden_chat" control event (is_group may arrive as a string).
         client.handleSyncControlForTesting("hidden_chat", "add_remove", QJsonObject{
             {"add_items", QJsonArray{QJsonObject{{"thread_id", "u-hide-a"}, {"is_group", "0"}}}},
             {"del_items", QJsonArray{}}});
@@ -473,12 +590,10 @@ private slots:
         QVERIFY(client.needsHiddenPin("u-hide-a"));
         QVERIFY(!client.needsHiddenPin("u-hide-b"));
 
-        // Name search finds the hidden chat (opening asks for the PIN); its messages' text never matches.
         model->setSearchFilter("hidden friend");
         QVERIFY(has("u-hide-a"));
         model->setSearchFilter("secret words");
         QVERIFY(!has("u-hide-a"));
-        // Typing the exact PIN: hidden chats leave the normal results and get their own section.
         model->setSearchFilter("2468");
         QVERIFY(model->hiddenPinReveal());
         auto* hidden = client.hiddenSearch();
@@ -492,7 +607,6 @@ private slots:
         model->setSearchFilter("");
         QVERIFY(!model->hiddenPinReveal());
 
-        // A new message in a hidden chat: no notification, only the contentless search-icon dot.
         QSignalSpy hiddenUnreadSpy(&client, &ZaloClient::hiddenUnreadChanged);
         emit client.apiClient()->session()->messagesReceived(QJsonArray{QJsonObject{
             {"msgId", "9701"}, {"cliMsgId", "9701"}, {"uidFrom", "u-hide-a"}, {"idTo", "u-me"}, {"msgType", "webchat"},
@@ -511,7 +625,6 @@ private slots:
         client.dismissHiddenUnread();
         QVERIFY(!client.hiddenUnread());
 
-        // Unhidden elsewhere, then the PIN changed and was reset from another device.
         client.handleSyncControlForTesting("hidden_chat", "add_remove", QJsonObject{
             {"add_items", QJsonArray{}}, {"del_items", QJsonArray{QJsonObject{{"thread_id", "u-hide-a"}, {"is_group", 0}}}}});
         QVERIFY(!client.isConversationHidden("u-hide-a"));
@@ -529,7 +642,6 @@ private slots:
         QVERIFY(model->contains("u-hide-a"));
     }
 
-    // Removed from / disbanded group (Zalo): history stays, the thread turns read-only with a notice and a delete action.
     void testGroupRemovalKeepsHistoryReadOnly() {
         ZaloClient client;
         client.setAppLanguage("vi");
@@ -579,7 +691,6 @@ private slots:
         client.selectConversation("g-own", "Fixture Own Group", "");
         QVERIFY(client.composerLockReason().isEmpty());
 
-        // The flag survives a restart; my own voluntary leave still removes the chat.
         ZaloClient restarted;
         restarted.setMyUidForTesting("u-ro-me");
         restarted.reloadReadOnlyForTesting();
@@ -595,7 +706,6 @@ private slots:
         QVERIFY(!client.isThreadReadOnly("g-dis"));
     }
 
-    // Per-message ttl: expired messages never show, are dropped from the cache (+FTS) and live ones expire on time.
     void testMessageTtlExpiry() {
         {
             ZaloOfflineStore owner;
@@ -634,7 +744,6 @@ private slots:
         QCOMPARE(store->nextExpiry(QDateTime::currentMSecsSinceEpoch()), qint64(0));
     }
 
-    // System/OA broadcast types never count as unread and never notify (Zalo's shared-worker exclusion list).
     void testQuietMessageTypesSkipUnreadAndNotifications() {
         ZaloClient client;
         client.setMyUidForTesting("u-quiet-me");
@@ -660,7 +769,6 @@ private slots:
         QCOMPARE(client.notificationsForTesting()->shownForTesting("thread:u-quiet-peer"), 1);
     }
 
-    // Group rows saved before the sender's profile was known resolve name/avatar at display time, never the group's.
     void testGroupSenderNamesResolveAtDisplayTime() {
         ZaloClient client;
         client.setMyUidForTesting("u-gs-me");
@@ -680,7 +788,6 @@ private slots:
         QCOMPARE(m->data(m->index(0), MessageModel::SenderAvatarRole).toString(), QString("https://example.com/a.png"));
     }
 
-    // Group "seen" avatars survive a restart: the uid list is persisted inside the cached raw payload.
     void testGroupSeenSurvivesRestart() {
         const QString owner = QStringLiteral("u-seen-owner");
         {
@@ -706,7 +813,6 @@ private slots:
             QVERIFY(client.offlineStore()->recordGroupSeen("9961", "u-seen-a"));
             QVERIFY(client.offlineStore()->recordGroupSeen("9961", "u-seen-b"));
             QVERIFY(client.offlineStore()->recordGroupSeen("9961", "u-seen-a"));
-            // A later history sync re-saves the same message with a payload that carries no seenUids.
             Zalos::Core::Models::MessageItem resaved;
             resaved.id = "9961";
             resaved.senderId = owner;
@@ -731,7 +837,6 @@ private slots:
         QCOMPARE(m->data(m->index(0), MessageModel::StatusRole).toString(), QString("seen"));
     }
 
-    // Official accounts: detected from oaInfo/oa_status, type >= 1 or bizPkg (never a group id), persisted in the cache.
     void testOfficialAccountDetectionPersists() {
         QVERIFY(ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-1"}, {"type", 1}}));
         QVERIFY(ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-2"}, {"oaInfo", QJsonObject{{"id", 1}}}}));
@@ -759,7 +864,6 @@ private slots:
         QVERIFY(!client.isOfficialOrSystemAccount("g-sys-6", "Zalo Video"));
     }
 
-    // System/OA threads never expose call or group-creation actions; My Documents keeps its single display name.
     void testSystemAccountThreadsHideCallAndGroupActions() {
         ZaloClient client;
         client.setMyUidForTesting("u-sys-me");
@@ -786,7 +890,6 @@ private slots:
         QVERIFY(!client.currentConversationCanCreateGroup());
     }
 
-    // chat.location.new → a location card opening the coordinates in a map; bad coordinates give no link.
     void testUndoEventsAndAccountStates() {
         {
             ZaloOfflineStore owner;
@@ -886,7 +989,6 @@ private slots:
         QVERIFY(ZaloClient::isReparsedOnLoad("chat.location.new"));
     }
 
-    // Stale cached rows are re-parsed once (meta parse_version): text, type, FTS and previews; bank card; href-less cards.
     void testCachedParseMigrationAndSpecialCards() {
         {
             ZaloOfflineStore owner;
@@ -951,29 +1053,20 @@ private slots:
         QCOMPARE(parse("chat.todo", QJsonObject{}).text, QString::fromUtf8("Nhắc nhở"));
     }
 
-    // 3. Feature: Unread Message Calculation & Notification Clearing
     void testUnreadCountAggregation() {
         ConversationModel model;
         int initialUnread = model.totalUnreadCount();
         QVERIFY(initialUnread >= 0);
 
-        // Clearing unread on existing conversation
         model.clearUnread("conv-1");
         int afterClear = model.totalUnreadCount();
         QVERIFY(afterClear <= initialUnread);
 
-        // Verify total unread count signal
         QSignalSpy unreadSpy(&model, &ConversationModel::unreadCountChanged);
         model.clearUnread("conv-2");
-        // Spy may record 0 or 1 depending on whether conv-2 had unread messages
         QVERIFY(unreadSpy.isValid());
     }
 
-    // zbusiness/OA chats are skipped by applyReadPoints (sub-chat cursors carry type=2 + sct), so the server
-    // read-point never re-heals their badge. Reading a chat must write the zeroed unread back to offline.db,
-    // otherwise the stale unread_count resurfaces as a "new message" badge on every launch.
-    // A poll message must render in the real chat (card + info line) without QML component errors on every Qt we
-    // ship (Qt 6.4 rejects inline Loader components under `pragma ComponentBehavior: Bound`).
     void testPollMessageRendersInChat() {
         QTest::failOnWarning(QRegularExpression(QStringLiteral("ChatPollBlock|PollVoteDialog|bound component")));
         ZaloClient client;
@@ -1018,8 +1111,6 @@ private slots:
         QTest::qWait(100);
     }
 
-    // Without a loadable Qt Multimedia backend (no GStreamer/FFmpeg on the host) Qt 6.4 aborts on the first media
-    // object; every media entry point must check MultimediaSupport first and degrade honestly instead.
     void testNoMultimediaBackendDegradesHonestly() {
         qputenv("ZALOS_NO_MULTIMEDIA", "1");
         QVERIFY(!Zalos::Core::Platform::MultimediaSupport::available());
@@ -1039,8 +1130,6 @@ private slots:
         qunsetenv("ZALOS_NO_MULTIMEDIA");
     }
 
-    // Poll parity with Zalo PC: computed view (percent by votes, distinct voters, who can vote/lock/see voters),
-    // draft validation limits, info lines for every group.poll event, and the card only under the latest one.
     void testPollViewAndMessages() {
         using ZC = Zalos::Core::Network::ZaloClient;
         auto person = [](const QString& uid) { return qMakePair(QStringLiteral("Fixture ") + uid, QString()); };
@@ -1142,8 +1231,6 @@ private slots:
         QVERIFY(model.threadOf("g-poll").at(1).pollCard);
     }
 
-    // Read points are kept per thread, only move forward and survive restarts, so a point that arrives before
-    // (or in the same frame as) the messages it covers still keeps them read; groups not loaded yet keep theirs.
     void testReadPointsPersistAndCoverLateMessages() {
         using ZS = Zalos::Core::Network::ZaloSession;
         const QJsonObject rp{{"idTo", "u-rp"}, {"lastMsgId", "1"}};
@@ -1204,8 +1291,6 @@ private slots:
         }
     }
 
-    // Zalo PC checks transfer_error status 2 (phone idle) / 1 (active) before error_code: an idle phone
-    // (Zalo sent to background after confirming) must keep waiting instead of failing with "mã -1".
     void testPhoneSyncTransferErrorOrder() {
         using MHS = Zalos::Core::Sync::MobileHistorySync;
         using K = MHS::TransferErrorKind;
@@ -1239,11 +1324,9 @@ private slots:
         client.openOfflineCacheForTesting(owner);
         QCOMPARE(client.conversationModel()->conversation(peer).unreadCount, 2);
 
-        // Opening the chat clears the badge in memory and persists the zeroed count to the store.
         client.selectConversation(peer, QStringLiteral("Z Business Fixture"), QString());
         QCOMPARE(client.conversationModel()->conversation(peer).unreadCount, 0);
 
-        // Re-reading from disk must not resurrect the stale "new message" badge.
         const auto persisted = client.offlineStore()->loadConversations();
         int reloadedUnread = -1;
         for (const auto& c : persisted) {
@@ -1254,25 +1337,21 @@ private slots:
         client.offlineStore()->clearCache();
     }
 
-    // 4. Feature: Real-time Message Stream & Formatting
     void testMessageStreamFeatures() {
         MessageModel model;
         int countBefore = model.rowCount();
 
-        // 1. Text Message
         model.addMessage("Thử nghiệm tin nhắn hệ thống tiếng Việt", true);
         QCOMPARE(model.rowCount(), countBefore + 1);
         QModelIndex idxText = model.index(countBefore);
         QCOMPARE(model.data(idxText, MessageModel::TextRole).toString(), "Thử nghiệm tin nhắn hệ thống tiếng Việt");
         QCOMPARE(model.data(idxText, MessageModel::IsMineRole).toBool(), true);
 
-        // 2. Incoming Contact Message
         model.addMessage("Tin nhắn phản hồi từ đối tác", false);
         QCOMPARE(model.rowCount(), countBefore + 2);
         QModelIndex idxContact = model.index(countBefore + 1);
         QCOMPARE(model.data(idxContact, MessageModel::IsMineRole).toBool(), false);
 
-        // 3. Attachment Message
         model.addAttachmentMessage("image", "bang_gia_gpu.png", "https://cdn.example.com/gpu.png", true);
         QCOMPARE(model.rowCount(), countBefore + 3);
         QModelIndex idxAtt = model.index(countBefore + 2);
@@ -1281,7 +1360,6 @@ private slots:
         QCOMPARE(model.data(idxAtt, MessageModel::MediaUrlRole).toString(), "https://cdn.example.com/gpu.png");
     }
 
-    // 5. Feature: Audio Preview Timeout and Cancellation
     void testSoundPreviewLifecycle() {
         ZaloClient client;
 
@@ -1291,12 +1369,10 @@ private slots:
         QCOMPARE(client.currentPreviewSound(), QString("pop"));
         QCOMPARE(previewSpy.count(), 1);
 
-        // Rapid switch to another sound
         client.playSoundPreview("ringtone", "classic");
         QCOMPARE(client.isPreviewPlaying(), true);
         QCOMPARE(client.currentPreviewSound(), QString("classic"));
 
-        // Every offered sound renders to a valid WAV file.
         for (const QString& key : Zalos::Core::Platform::SoundEngine::notificationKeys()
                                   + Zalos::Core::Platform::SoundEngine::ringtoneKeys()) {
             const QString path = Zalos::Core::Platform::SoundEngine::renderToFile(key);
@@ -1307,38 +1383,32 @@ private slots:
             QVERIFY(wav.size() > 1000);
         }
 
-        // Manual stop
         client.stopSoundPreview();
         QCOMPARE(client.isPreviewPlaying(), false);
         QCOMPARE(client.currentPreviewSound(), QString(""));
         QVERIFY(previewSpy.count() >= 3);
     }
 
-    // 6. Feature: Complete Authentication Flow & Edge Cases
     void testAuthValidationEdgeCases() {
         ZaloClient client;
         client.logout();
         QCOMPARE(client.isLoggedIn(), false);
 
-        // Empty input is rejected with a message.
         client.loginWithPhone("", "", true);
         QCOMPARE(client.isLoggedIn(), false);
         QVERIFY(client.hasLoginError());
 
-        // Password login is unsupported by Zalo Web: never fake a successful login.
         client.loginWithPhone("0900000011", "ValidPassword123", true);
         QTest::qWait(100);
         QCOMPARE(client.isLoggedIn(), false);
         QVERIFY(client.hasLoginError());
 
-        // QR refresh resets the countdown; the fallback matrix only exists for a real token.
         client.refreshQrCode();
         QVERIFY(client.qrSecondsRemaining() > 0);
         QCOMPARE(client.qrMatrix().size(), client.qrSize() * client.qrSize());
         QCOMPARE(client.qrLoginStep(), 0);
     }
 
-    // 7. Feature: D-Bus Incoming Call Alert Dispatch
     void testIncomingCallWorkflow() {
         ZaloClient client;
         QSignalSpy callSpy(&client, &ZaloClient::incomingCallStateChanged);
@@ -1348,27 +1418,22 @@ private slots:
         QCOMPARE(client.incomingCallerName(), QString("Trần Thị B"));
         QCOMPARE(callSpy.count(), 1);
 
-        // Answer call
         client.answerCall();
         QCOMPARE(client.isIncomingCallActive(), false);
         QCOMPARE(callSpy.count(), 2);
     }
 
-    // 8. Feature: Cryptographic Decryption & LZMA Safety
     void testCryptoEngineSafety() {
         std::string privKey = "A1B2C3D4E5F60718293A4B5C6D7E8F90";
         auto derivedKey = DbCross::deriveAes256Key(privKey);
-        QCOMPARE(static_cast<int>(derivedKey.size()), 32); // Must be 256-bit AES key
+        QCOMPARE(static_cast<int>(derivedKey.size()), 32);
 
-        // Self-test assertion (encrypt -> decrypt roundtrip with AES-256-CBC and PKCS#7)
         QVERIFY(DbCross::verifyCryptoSelfTest());
     }
 
-    // 9. Feature: Navigation Views, Modals & Conversation Info Workflow
     void testInteractiveFeaturesAndNavigation() {
         ZaloClient client;
 
-        // Navigation Tab Switching
         QCOMPARE(client.currentNavigationTab(), QString("messages"));
         client.setCurrentNavigationTab("contacts");
         QCOMPARE(client.currentNavigationTab(), QString("contacts"));
@@ -1377,16 +1442,13 @@ private slots:
         client.setCurrentNavigationTab("messages");
         QCOMPARE(client.currentNavigationTab(), QString("messages"));
 
-        // Honest business and cloud data (zero mock data)
         QCOMPARE(client.hasBusinessPackage(), false);
         QCOMPARE(client.businessPackageName(), QString());
         QCOMPARE(client.cloudSharedItems().isEmpty(), true);
 
-        // Add Friend Modal Flow
         QCOMPARE(client.showAddFriendModal(), false);
         client.openAddFriend();
         QCOMPARE(client.showAddFriendModal(), true);
-        // Without a session, searching must fail cleanly instead of inventing a user.
         QSignalSpy searchSpy(&client, &ZaloClient::userSearchFinished);
         client.findUserByPhone("0900000012");
         QCOMPARE(searchSpy.count(), 1);
@@ -1394,21 +1456,19 @@ private slots:
         client.closeAddFriend();
         QCOMPARE(client.showAddFriendModal(), false);
 
-        // Create Group Modal Flow
         QCOMPARE(client.showCreateGroupModal(), false);
         client.openCreateGroup();
         QCOMPARE(client.showCreateGroupModal(), true);
         QSignalSpy groupSpy(&client, &ZaloClient::groupCreateFinished);
         client.createGroup("Nhom Test", QStringList{"111"});
         QCOMPARE(groupSpy.count(), 1);
-        QCOMPARE(groupSpy.first().at(0).toBool(), false); // needs at least 2 members
+        QCOMPARE(groupSpy.first().at(0).toBool(), false);
         client.createGroup("Nhom Test", QStringList{"111", "222"});
         QCOMPARE(groupSpy.count(), 2);
-        QCOMPARE(groupSpy.last().at(0).toBool(), false); // no live session
+        QCOMPARE(groupSpy.last().at(0).toBool(), false);
         client.closeCreateGroup();
         QCOMPARE(client.showCreateGroupModal(), false);
 
-        // Conversation Info Panel Toggle
         QCOMPARE(client.showConversationInfo(), false);
         client.toggleConversationInfo();
         QCOMPARE(client.showConversationInfo(), true);
@@ -1416,7 +1476,6 @@ private slots:
         QCOMPARE(client.showConversationInfo(), false);
     }
 
-    // 10. Feature: Real-time Message Sending & Interactive Simulated Reply
     void testRealMessageInteraction() {
         ZaloClient client;
         client.selectConversation("vp-8t10", "Võ Thị Sáu", "");
@@ -1425,42 +1484,33 @@ private slots:
         MessageModel* msgModel = client.messageModel();
         int initialCount = msgModel->rowCount();
 
-        // Send a message
         client.sendMessage("Xin chào bạn!");
         QCOMPARE(msgModel->rowCount(), initialCount + 1);
 
-        // Verify outgoing message properties
         QModelIndex lastIdx = msgModel->index(msgModel->rowCount() - 1);
         QCOMPARE(msgModel->data(lastIdx, MessageModel::TextRole).toString(), QString("Xin chào bạn!"));
         QCOMPARE(msgModel->data(lastIdx, MessageModel::IsMineRole).toBool(), true);
 
-        // Zero-mock validation: Real interactive sending adds message directly without fake bot replies
         QCOMPARE(msgModel->rowCount(), initialCount + 1);
         QCOMPARE(msgModel->data(lastIdx, MessageModel::IsMineRole).toBool(), true);
         QCOMPARE(msgModel->data(lastIdx, MessageModel::TextRole).toString(), QString("Xin chào bạn!"));
     }
 
-    // 11. Feature: FileUtils (Linux statvfs & Directory Scanning)
     void testFileUtilsAndDiskUsage() {
-        // Disk usage statvfs
         DiskUsage usage = FileUtils::getDiskUsage("/");
         QVERIFY(usage.total > 0.0);
         QVERIFY(usage.available > 0.0);
         QVERIFY(usage.free <= usage.total);
 
-        // Directory size calculation
         DirectorySizeResult res = FileUtils::getDirectorySize("/tmp", 2);
         QCOMPARE(res.path, QString("/tmp"));
         QVERIFY(res.durationMs >= 0.0);
 
-        // Directory tree traversal
         DirectoryTreeNode tree = FileUtils::getDirectoryTree("/tmp", 1);
         QVERIFY(tree.depth == 0);
     }
 
-    // 12. Feature: MediaUtils (Thumbnail Generation & JXL Check)
     void testMediaUtilsThumbnails() {
-        // Generate test image in memory
         QImage testImg(100, 100, QImage::Format_RGB32);
         testImg.fill(Qt::blue);
         QByteArray buffer;
@@ -1468,11 +1518,9 @@ private slots:
         qbuf.open(QIODevice::WriteOnly);
         testImg.save(&qbuf, "PNG");
 
-        // Test in-memory buffer thumbnail
         QByteArray thumbBytes = MediaUtils::generateThumbnailBuffer(buffer, 48, 48);
         QVERIFY(!thumbBytes.isEmpty());
 
-        // File-based thumbnail
         QString tmpIn = "/tmp/test_thumb_in.png";
         QString tmpOut = "/tmp/test_thumb_out.jpg";
         testImg.save(tmpIn);
@@ -1482,17 +1530,14 @@ private slots:
         QFile::remove(tmpIn);
         QFile::remove(tmpOut);
 
-        // Capability check
         bool jxl = MediaUtils::isJxlSupported();
         Q_UNUSED(jxl);
 
-        // Infrared camera recognition (Zalux / Linux video compatibility)
         QVERIFY(MediaUtils::isIrCamera("Integrated IR Camera"));
         QVERIFY(MediaUtils::isIrCamera("Windows Hello Infrared Sensor"));
         QVERIFY(!MediaUtils::isIrCamera("HD Web Camera 1080p"));
     }
 
-    // 13. Feature: ZCallEngine (ZRTP/SRTP Call Engine & PipeWire/Pulse Devices)
     void testCallEngineLifecycleAndCrypto() {
         ZCallEngine engine;
         QCOMPARE(engine.callState(), CallState::Idle);
@@ -1502,12 +1547,10 @@ private slots:
         QByteArray srtpKey = ZCallEngine::deriveSrtpMasterKey(zrtpSecret, salt);
         QCOMPARE(srtpKey.size(), 16);
 
-        // Test Call State transitions
         engine.startCall("peer-uid-1", "Võ Thị Sáu", false);
         QCOMPARE(engine.callState(), CallState::CallingOutgoing);
         QCOMPARE(engine.currentCaller(), QString("Võ Thị Sáu"));
 
-        // Toggle Mute & Camera
         engine.setMutedMic(true);
         QCOMPARE(engine.isMutedMic(), true);
         engine.setMutedSpeaker(true);
@@ -1517,18 +1560,15 @@ private slots:
         engine.stopScreenShare();
         QCOMPARE(engine.isScreenSharing(), false);
 
-        // End Call
         engine.endCall();
         QCOMPARE(engine.callState(), CallState::Ended);
 
-        // Audio devices
         QVector<AudioDevice> inputs = engine.getAudioDevices(true);
         QVERIFY(!inputs.isEmpty());
         QVector<AudioDevice> outputs = engine.getAudioDevices(false);
         QVERIFY(!outputs.isEmpty());
     }
 
-    // 14. Feature: ZaloOfflineStore (AES-256-GCM Encrypted Session & SQLite)
     void testOfflineStoreEncryptedSessionAndSqlite() {
         ZaloOfflineStore store;
         QString testDir = "/tmp/zalo_offline_test";
@@ -1545,21 +1585,17 @@ private slots:
         info["decryptKey"] = "AES-KEY-SAMPLE";
         sessionRecord["info"] = info;
 
-        // Test write encrypted session
         bool written = ZaloOfflineStore::writeEncryptedSession(testDir, zpwSek, sessionRecord);
         QVERIFY(written);
 
-        // Test read encrypted session
         QJsonObject readBack = ZaloOfflineStore::readEncryptedSession(testDir, zpwSek);
         QCOMPARE(readBack.value("clientId").toString(), QString("linux-client-1"));
         QCOMPARE(readBack.value("info").toObject().value("config").toObject().value("uid").toString(), QString("123456789"));
 
-        // Clear encrypted session
         ZaloOfflineStore::clearEncryptedSession(testDir);
         QJsonObject emptyAfterClear = ZaloOfflineStore::readEncryptedSession(testDir, zpwSek);
         QVERIFY(emptyAfterClear.isEmpty());
 
-        // Test SQLite local database caching
         Zalos::Core::Models::ConversationItem item;
         item.id = "test-conv-sqlite";
         item.name = "Test SQLite Contact";
@@ -1592,7 +1628,6 @@ private slots:
         QVERIFY(!msgs.isEmpty());
         QCOMPARE(msgs.first().text, QString("Tin nhắn offline SQLite"));
 
-        // Test Sync State Machine
         store.setOfflineActive(true);
         QCOMPARE(store.isOfflineActive(), true);
         QCOMPARE(store.syncState(), QString("DISCONNECTED"));
@@ -1601,8 +1636,6 @@ private slots:
         QCOMPARE(store.isOfflineActive(), false);
     }
 
-    // Offline history: everything received is cached per account with its timeline and raw TMessage,
-    // and an offline start renders it (neutral fixtures, nothing generated by the app).
     void testOfflineCacheTimelineAndOwner() {
         {
             ZaloOfflineStore store;
@@ -1616,18 +1649,18 @@ private slots:
             MessageItem earlier; earlier.id = "501"; earlier.text = "first"; earlier.ts = 1000; earlier.isMine = true;
             earlier.status = "seen"; earlier.quoteText = "q"; earlier.quoteSender = "Fixture";
             const QJsonObject raw{{"msgId", "502"}, {"uidFrom", "u-fixture-peer"}, {"idTo", "0"}, {"content", "second"}};
-            QVERIFY(store.saveMessage("u-fixture-peer", later, raw, false));   // arrives first
-            QVERIFY(store.saveMessage("u-fixture-peer", earlier, {}, false));  // older page arrives later
+            QVERIFY(store.saveMessage("u-fixture-peer", later, raw, false));
+            QVERIFY(store.saveMessage("u-fixture-peer", earlier, {}, false));
             MessageItem localEcho; localEcho.id = "local-1-1"; localEcho.text = "x";
-            QVERIFY(!store.saveMessage("u-fixture-peer", localEcho));        // echoes are never cached
+            QVERIFY(!store.saveMessage("u-fixture-peer", localEcho));
             later.reaction = "❤️";
-            QVERIFY(store.saveMessage("u-fixture-peer", later));             // update keeps the raw payload
+            QVERIFY(store.saveMessage("u-fixture-peer", later));
             store.saveProfile({"u-fixture-peer", "Fixture Peer", "", false, 0, true});
 
             QHash<QString, QJsonObject> raws;
             const auto msgs = store.loadMessages("u-fixture-peer", &raws);
             QCOMPARE(msgs.size(), 2);
-            QCOMPARE(msgs.at(0).id, QString("501"));                         // ordered by ts, not insertion
+            QCOMPARE(msgs.at(0).id, QString("501"));
             QCOMPARE(msgs.at(0).status, QString("seen"));
             QCOMPARE(msgs.at(0).quoteText, QString("q"));
             QCOMPARE(msgs.at(1).reaction, QString::fromUtf8("❤️"));
@@ -1635,7 +1668,6 @@ private slots:
             QCOMPARE(store.loadConversations().first().lastTs, qint64(2000));
         }
 
-        // Offline start: the cached account's data is shown, presence is not taken from the cache.
         {
             ZaloClient client;
             QVERIFY(!client.openOfflineCacheForTesting("u-someone-else"));
@@ -1646,10 +1678,9 @@ private slots:
             QCOMPARE(client.messageModel()->rowCount(), 2);
             QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
                      QString("501"));
-            QVERIFY(client.canRecall("501") == false); // no raw for 501 → no server action offered
+            QVERIFY(client.canRecall("501") == false);
         }
 
-        // Another account binding wipes the previous account's cache.
         {
             ZaloOfflineStore store;
             QVERIFY(store.bindOwner("u-other-owner"));
@@ -1660,11 +1691,9 @@ private slots:
     }
 
 
-    // Phone history transfer: synthetic ZDB4.0 backup through the real decrypt -> read -> map path.
     void testMobileHistoryBackupPipeline() {
         using Zalos::Core::Sync::MobileHistorySync;
 
-        // 1. RSA: the phone encrypts the backup key to our SPKI public key (PKCS#1 v1.5).
         const auto keys = MobileHistorySync::generateKeyPair();
         QVERIFY(!keys.publicKeyBase64.isEmpty());
         const QByteArray der = QByteArray::fromBase64(keys.publicKeyBase64.toLatin1());
@@ -1689,7 +1718,6 @@ private slots:
         const QString keyText = MobileHistorySync::backupKeyText(backupKey, 1);
         QCOMPARE(keyText, QString::fromLatin1(backupKey.toHex()));
 
-        // 2. Two conversation databases in Zalo's ChatContent shape (neutral ids and texts).
         QTemporaryDir work;
         QVERIFY(work.isValid());
         auto makeDb = [&](const QString& name, const QList<QVariantList>& rows) {
@@ -1712,10 +1740,9 @@ private slots:
         };
         makeDb("1001.db", {{0, 1000, 1, "c1", "1001", "5001", QString::fromUtf8("chào bạn"), QByteArray(), 0},
                            {0, 2000, 1, "c2", "1111", "5002", QString::fromUtf8("chào"), QByteArray(), 0},
-                           {36, 3000, 1, "c3", "1001", "5003", "", QByteArray(), 0}}); // undo marker: skipped
+                           {36, 3000, 1, "c3", "1001", "5003", "", QByteArray(), 0}});
         makeDb("group_2002.db", {{0, 1500, 1, "c4", "1003", "6001", "hello group", QByteArray(), 0}});
 
-        // 3. ZDB4.0 container: magic, file table, XZ payload, AES-256-CBC (64 KiB chunks, IV 0).
         QByteArray payload;
         QByteArray table;
         QStringList names{"1001.db", "group_2002.db"};
@@ -1760,7 +1787,6 @@ private slots:
         backup.write(enc);
         backup.close();
 
-        // 4. Real decrypt + extraction; a wrong key must fail instead of "succeeding".
         std::string err;
         QVERIFY(!Zalos::Core::Crypto::DbCross::decompressAndDecryptZdb4(work.filePath("backup.zdb").toStdString(),
                                                                        work.filePath("bad").toStdString(),
@@ -1773,7 +1799,6 @@ private slots:
         const auto convs = MobileHistorySync::readBackupDirectory(work.filePath("out"), &readErr);
         QCOMPARE(convs.size(), 2);
 
-        // 5. Plain ids -> noised ids, TMessage shape, then the normal pipeline shows them.
         const QHash<QString, QString> ids{{"1001", "9001"}, {"2002", "9002"}, {"1003", "9003"}};
         int skipped = 0;
         QJsonArray oneToOne;
@@ -1783,13 +1808,12 @@ private slots:
             (c.isGroup ? group : oneToOne) = m;
         }
         QCOMPARE(skipped, 1);
-        // Media rows keep their attachment but never the MsgContent placeholder as a caption.
         {
             MobileHistorySync::BackupConversation media;
             media.plainId = "1001";
             MobileHistorySync::BackupRow photoRow;
             photoRow.globalMsgId = "7001"; photoRow.cliMsgId = "c9"; photoRow.msgType = 3; photoRow.ts = 4000;
-            photoRow.senderId = "1001"; photoRow.text = "[Photo] "; // no BinNet attachment either
+            photoRow.senderId = "1001"; photoRow.text = "[Photo] ";
             media.rows = {photoRow};
             int skippedMedia = 0;
             QVERIFY(MobileHistorySync::toMessages(media, ids, "1111", "u-me-fixture", &skippedMedia).isEmpty());
@@ -1797,11 +1821,10 @@ private slots:
         }
         QCOMPARE(oneToOne.size(), 2);
         QCOMPARE(oneToOne.at(0).toObject().value("uidFrom").toString(), QString("9001"));
-        QCOMPARE(oneToOne.at(1).toObject().value("uidFrom").toString(), QString("0")); // our own message
+        QCOMPARE(oneToOne.at(1).toObject().value("uidFrom").toString(), QString("0"));
         QCOMPARE(oneToOne.at(1).toObject().value("idTo").toString(), QString("9001"));
         QCOMPARE(group.at(0).toObject().value("idTo").toString(), QString("9002"));
         QCOMPARE(group.at(0).toObject().value("uidFrom").toString(), QString("9003"));
-        // Unknown conversation id: nothing is invented.
         QVERIFY(MobileHistorySync::toMessages(convs.at(0), {}, "1111", "u-me-fixture").isEmpty());
 
         ZaloClient client;
@@ -1809,17 +1832,15 @@ private slots:
         emit client.apiClient()->session()->messagesReceived(group, true, true);
         QVERIFY(client.conversationModel()->contains("9001"));
         QVERIFY(client.conversationModel()->contains("9002"));
-        QCOMPARE(client.conversationModel()->totalUnreadCount(), 0); // history, not news
+        QCOMPARE(client.conversationModel()->totalUnreadCount(), 0);
         client.selectConversation("9001", "Fixture", "");
         QCOMPARE(client.messageModel()->rowCount(), 2);
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::TextRole).toString(),
                  QString::fromUtf8("chào bạn"));
 
-        // 6. Sync is refused without a session and never reports success.
         client.requestMobileSync();
         QCOMPARE(client.mobileSyncState(), 5);
 
-        // 7. Sync v2 rows preserve string quote/mentions/ttl metadata directly without znoise.
         MobileHistorySync::BackupConversation v2Conv;
         v2Conv.plainId = "u-v2-peer";
         v2Conv.isGroup = true;
@@ -1856,7 +1877,6 @@ private slots:
     }
 
 
-    // Bulk history (phone transfer, socket pages): one sidebar reset per batch, bounded time.
     void testBulkHistoryImportPerformance() {
         ZaloClient client;
         auto* convs = client.conversationModel();
@@ -1885,7 +1905,6 @@ private slots:
     }
 
 
-    // Memory: history of threads nobody is looking at goes to the offline cache, not RAM.
     void testHistoryImportMemoryFootprint() {
         auto rssKb = []() -> qint64 {
             QFile f("/proc/self/status");
@@ -1921,19 +1940,15 @@ private slots:
         const qint64 after = rssKb();
         qInfo("RSS before %lld kB, after 68000 history messages %lld kB (+%lld kB)", before, after, after - before);
         QCOMPARE(client.conversationModel()->rowCount(), 400);
-        // Opening a thread still shows its full history (from the cache).
         QVERIFY2(after - before < 70000, "history of closed threads must not stay in RAM");
         client.selectConversation("u-mem-7", "Fixture", "");
         QCOMPARE(client.messageModel()->rowCount(), 170);
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
                  QString::number(900000 + 7 * 170));
-        // Opening 40 threads keeps at most 12 in RAM; the evicted ones reload completely.
         for (int t = 0; t < 40; ++t) client.selectConversation(QString("u-mem-%1").arg(t), "Fixture", "");
         QCOMPARE(client.messageModel()->threadSize("u-mem-0"), 0);
         client.selectConversation("u-mem-0", "Fixture", "");
         QCOMPARE(client.messageModel()->rowCount(), 170);
-        // A long thread opens with its newest 200 cached rows; scrolling up pages older ones from offline.db
-        // (also without a session), and actions needing the raw JSON (quote) read it from disk.
         QJsonArray big;
         for (int m = 0; m < 500; ++m) {
             big.append(QJsonObject{{"msgId", QString::number(5000000 + m)}, {"cliMsgId", QString::number(800000 + m)},
@@ -1949,35 +1964,32 @@ private slots:
         QCOMPARE(client.messageModel()->rowCount(), 200);
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
                  QString::number(5000000 + 300));
-        // Search covers the whole stored thread, not only the loaded page; revealing an old hit loads down to it.
         const QStringList found = client.searchConversationMessages("fixture long thread message 12");
         QVERIFY(found.contains(QString::number(5000000 + 12)));
-        QCOMPARE(found.first(), QString::number(5000000 + 12)); // oldest first
+        QCOMPARE(found.first(), QString::number(5000000 + 12));
         QVERIFY(client.revealMessage(QString::number(5000000 + 12)));
-        QCOMPARE(client.messageModel()->rowCount(), 500);       // 12..499 plus 20 older rows of context (0..11)
+        QCOMPARE(client.messageModel()->rowCount(), 500);
         QVERIFY(!client.revealMessage("does-not-exist"));
-        // Sidebar search (all conversations, typed model) and opening a hit.
         client.messageSearch()->setQuery("fixture long thread message 12");
         client.messageSearch()->runNow();
         QVERIFY(client.messageSearch()->count() >= 1);
         const QModelIndex first = client.messageSearch()->index(0);
         QCOMPARE(client.messageSearch()->data(first, Zalos::Core::Models::MessageSearchModel::ConvIdRole).toString(),
                  QString("u-mem-big"));
-        client.messageSearch()->setQuery("x"); // < 2 characters clears
+        client.messageSearch()->setQuery("x");
         QCOMPARE(client.messageSearch()->count(), 0);
         QSignalSpy revealSpy(&client, &ZaloClient::revealRequested);
         client.openMessageFromSearch("u-mem-big", QString::number(5000000 + 12));
         QCOMPARE(revealSpy.count(), 1);
-        // The rest of this test pages from a fresh open of the thread.
         client.selectConversation("u-mem-1", "Fixture", "");
-        for (int t = 2; t < 16; ++t) client.selectConversation(QString("u-mem-%1").arg(t), "Fixture", ""); // evict
+        for (int t = 2; t < 16; ++t) client.selectConversation(QString("u-mem-%1").arg(t), "Fixture", "");
         client.selectConversation("u-mem-big", "Fixture", "");
         QCOMPARE(client.messageModel()->rowCount(), 200);
         client.loadOlderMessages();
         QCOMPARE(client.messageModel()->rowCount(), 400);
         client.loadOlderMessages();
         QCOMPARE(client.messageModel()->rowCount(), 500);
-        client.loadOlderMessages(); // nothing older in the cache, offline: unchanged
+        client.loadOlderMessages();
 #ifdef __GLIBC__
         qInfo("heap for 500 resident cached messages: %zu kB (%zu B each)", (mallinfo2().uordblks - heapBefore) / 1024,
               (mallinfo2().uordblks - heapBefore) / 500);
@@ -1985,7 +1997,7 @@ private slots:
         QCOMPARE(client.messageModel()->rowCount(), 500);
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(),
                  QString::number(5000000));
-        client.setReplyTarget(QString::number(5000000)); // cached row: raw JSON read on demand
+        client.setReplyTarget(QString::number(5000000));
         QCOMPARE(client.replyTarget().value("id").toString(), QString::number(5000000));
         client.clearReplyTarget();
         ZaloOfflineStore cleanup;
@@ -1993,10 +2005,9 @@ private slots:
     }
 
 
-    // Rendering defaults to software; with acceleration on, the backend is chosen from the hardware.
     void testRenderProfileDecisions() {
         using RP = Zalos::Core::Platform::RenderProfile;
-        RP::Inputs fresh;                    // default settings: software even with a capable GPU
+        RP::Inputs fresh;
         fresh.hasRenderNode = true;
         fresh.gpuVendor = "0x1002";
         fresh.mesaVulkanIcd = true;
@@ -2004,21 +2015,21 @@ private slots:
         QCOMPARE(RP::decide(fresh).backend, RP::Backend::Software);
         QVERIFY(!RP::decide(fresh).guarded());
 
-        RP::Inputs vm;                       // VM / remote desktop: no GPU node
+        RP::Inputs vm;
         vm.hardwareAcceleration = true;
         vm.memTotalKb = 8LL * 1024 * 1024;
         vm.cpuCores = 8;
         QCOMPARE(RP::decide(vm).backend, RP::Backend::Software);
         QVERIFY(!RP::decide(vm).basicRenderLoop);
 
-        RP::Inputs amd = vm;                 // AMD + RADV + Qt with Vulkan
+        RP::Inputs amd = vm;
         amd.hasRenderNode = true;
         amd.gpuVendor = "0x1002";
         amd.mesaVulkanIcd = true;
         amd.qtHasVulkan = true;
         QCOMPARE(RP::decide(amd).backend, RP::Backend::Vulkan);
         QVERIFY(RP::decide(amd).guarded());
-        amd.vulkanFailedBefore = true;       // crash guard tripped earlier
+        amd.vulkanFailedBefore = true;
         QCOMPARE(RP::decide(amd).backend, RP::Backend::Default);
 
         RP::Inputs nvidia = vm;
@@ -2026,12 +2037,12 @@ private slots:
         nvidia.gpuVendor = "0x10de";
         QCOMPARE(RP::decide(nvidia).backend, RP::Backend::Default);
 
-        RP::Inputs small = amd;              // 2 GiB RAM: basic render loop
+        RP::Inputs small = amd;
         small.vulkanFailedBefore = false;
         small.memTotalKb = 2LL * 1024 * 1024;
         QVERIFY(RP::decide(small).basicRenderLoop);
 
-        RP::Inputs forced = vm;              // explicit override wins
+        RP::Inputs forced = vm;
         forced.override = "opengl";
         QCOMPARE(RP::decide(forced).backend, RP::Backend::OpenGL);
         QVERIFY(!RP::decide(forced).guarded());
@@ -2047,18 +2058,17 @@ private slots:
     }
 
 
-    // Crash guard: a Vulkan launch that never reached its first frame turns Vulkan off for later launches.
     void testRenderGuardRemembersVulkanFailure() {
         namespace RG = Zalos::Core::Platform::RenderGuard;
         using RP = Zalos::Core::Platform::RenderProfile;
         QSettings s("Zalos", "ZalosApp");
         s.remove("render/vulkanBroken");
         RG::markAttempt(RP::Backend::Vulkan);
-        RG::markFirstFrame();                 // healthy launch
+        RG::markFirstFrame();
         QVERIFY(!RG::vulkanFailedBefore());
-        RG::markAttempt(RP::Backend::Vulkan); // launch dies before the first frame...
-        QVERIFY(RG::vulkanFailedBefore());    // ...the next launch sees it
-        QVERIFY(RG::vulkanFailedBefore());    // and keeps remembering it
+        RG::markAttempt(RP::Backend::Vulkan);
+        QVERIFY(RG::vulkanFailedBefore());
+        QVERIFY(RG::vulkanFailedBefore());
         s.setValue("render/guardVersion", 1);
         s.setValue("render/vulkanBroken", true);
         s.sync();
@@ -2071,8 +2081,6 @@ private slots:
         s.remove("render/hardwareFailed");
     }
 
-    // GPU off by default; any hardware renderer failure (crash before first frame or scene graph error)
-    // turns acceleration off and falls back to software, and turning it back on retries.
     void testRenderGuardFallsBackToSoftware() {
         namespace RG = Zalos::Core::Platform::RenderGuard;
         using RP = Zalos::Core::Platform::RenderProfile;
@@ -2130,18 +2138,16 @@ private slots:
         s.sync();
     }
 
-    // The audio backend is only loaded by the first sound.
     void testSoundEngineIsLazy() {
         SoundEngine engine;
         QVERIFY(engine.findChild<QSoundEffect*>() == nullptr);
         QVERIFY(!engine.isPlaying());
-        engine.stop(); // safe before any sound
+        engine.stop();
         engine.play("notification", "pop");
         QVERIFY(engine.findChild<QSoundEffect*>() != nullptr);
         engine.stop();
     }
 
-    // REST and downloads go over HTTP/1.1 (Qt's HTTP/2 client logged socket warnings with Zalo's edges).
     void testRequestsUseHttp11() {
         ZaloClient client;
         QNetworkReply* reply = client.apiClient()->session()->getWithCookies(QUrl("https://127.0.0.1:9/fixture"));
@@ -2220,6 +2226,44 @@ private slots:
         QVERIFY(!ZaloClient::externalUrl(QStringLiteral("javascript:alert(1)")).isValid());
     }
 
+    void testLinkCardHrefFallbacks() {
+        QCOMPARE(ZaloClient::linkHrefOf(QJsonObject{{"href", "https://example.com/a"}}, {}), QStringLiteral("https://example.com/a"));
+        QCOMPARE(ZaloClient::linkHrefOf(QJsonObject{{"href", ""}}, QJsonObject{{"href", "https://vt.example.com/x"}}),
+                 QStringLiteral("https://vt.example.com/x"));
+        QCOMPARE(ZaloClient::linkHrefOf(QJsonObject{{"title", "Xem https://m.example.com/watch?v=1."}}, {}),
+                 QStringLiteral("https://m.example.com/watch?v=1"));
+        QCOMPARE(ZaloClient::linkHrefOf(QJsonObject{{"description", "www.example.com/p"}}, {}),
+                 QStringLiteral("https://www.example.com/p"));
+        QVERIFY(ZaloClient::linkHrefOf(QJsonObject{{"title", "Fixture"}}, {}).isEmpty());
+    }
+
+    void testExternalLaunchEnvironmentDropsBundledRuntime() {
+        QProcessEnvironment env;
+        env.insert("APPDIR", "/tmp/.mount_fixture");
+        env.insert("APPIMAGE", "/home/fixture/Zalos.AppImage");
+        env.insert("LD_LIBRARY_PATH", "/tmp/.mount_fixture/usr/lib/qt6-fallback/lib:/tmp/.mount_fixture/usr/lib:/usr/local/lib");
+        env.insert("PATH", "/tmp/.mount_fixture/usr/bin:/usr/bin");
+        env.insert("XDG_DATA_DIRS", "/tmp/.mount_fixture/usr/share:/usr/share");
+        env.insert("QT_PLUGIN_PATH", "/usr/lib/zalos/qt6/plugins");
+        env.insert("QML_IMPORT_PATH", "/usr/lib/zalos/qt6/qml");
+        env.insert("GLIBC_TUNABLES", "glibc.malloc.arena_max=2");
+        env.insert("ZALOS_BUNDLED_QT", "1");
+        env.insert("HOME", "/home/fixture");
+        const QProcessEnvironment out = Zalos::Core::Fs::FileUtils::launchEnvironment(env);
+        QCOMPARE(out.value("LD_LIBRARY_PATH"), QStringLiteral("/usr/local/lib"));
+        QCOMPARE(out.value("PATH"), QStringLiteral("/usr/bin"));
+        QCOMPARE(out.value("XDG_DATA_DIRS"), QStringLiteral("/usr/share"));
+        QCOMPARE(out.value("HOME"), QStringLiteral("/home/fixture"));
+        for (const char* key : {"APPDIR", "APPIMAGE", "QT_PLUGIN_PATH", "QML_IMPORT_PATH", "GLIBC_TUNABLES", "ZALOS_BUNDLED_QT"})
+            QVERIFY2(!out.contains(QString::fromLatin1(key)), key);
+
+        QProcessEnvironment deb;
+        deb.insert("LD_LIBRARY_PATH", "/usr/lib/zalos/qt6/lib");
+        const QProcessEnvironment debOut = Zalos::Core::Fs::FileUtils::launchEnvironment(deb);
+        QVERIFY(!debOut.contains("LD_LIBRARY_PATH"));
+        QVERIFY(!debOut.value("PATH").isEmpty());
+    }
+
     void testUniqueDownloadFilePath() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
@@ -2269,7 +2313,6 @@ private slots:
         QCOMPARE(MobileHistorySync::downloadRetryDelayMs(500, none, 1, "20", now), 1000);
     }
 
-    // QML singletons: I18n.t is typed (compiled to C++) and defaults to English, Theme reads ThemeManager directly.
     void testTypedQmlSingletons() {
         ThemeManager themeMgr;
         QQmlEngine engine;
@@ -2282,13 +2325,11 @@ private slots:
                   "  property bool sameTheme: ThemeManager === ThemeManager\n}", QUrl());
         std::unique_ptr<QObject> o(c.create());
         QVERIFY2(o, qPrintable(c.errorString()));
-        QCOMPARE(o->property("label").toString(), QStringLiteral("Messages")); // English until a language is saved
+        QCOMPARE(o->property("label").toString(), QStringLiteral("Messages"));
         QCOMPARE(o->property("blue").value<QColor>(), themeMgr.accentColor());
     }
 
 
-    // UI gallery: renders the main screens with neutral fixtures into build/ui_*.png for visual review
-    // (light and dark). Keep it in sync when screens change; it also fails on QML errors via the loader.
     void testMyDocumentsIsNotTheLastChat() {
         ZaloClient client;
         client.setLoggedInForTesting(true);
@@ -2396,6 +2437,18 @@ private slots:
         QMetaObject::invokeMethod(list, "scrollToEnd");
         QTRY_VERIFY(list->property("atYEnd").toBool());
 
+        QQuickItem* chatArea = window->findChild<QQuickItem*>("chatArea");
+        QVERIFY(chatArea != nullptr);
+        chatArea->setProperty("searchHits", QStringList{QStringLiteral("50000")});
+        chatArea->setProperty("searchCursor", 0);
+        QMetaObject::invokeMethod(chatArea, "showSearchHit");
+        QVERIFY(!chatArea->property("searchFocusId").toString().isEmpty());
+        QVERIFY(!list->property("stickToBottom").toBool());
+        chatArea->setProperty("searchHits", QStringList{});
+        chatArea->setProperty("searchCursor", -1);
+        QMetaObject::invokeMethod(list, "scrollToEnd");
+        QTRY_VERIFY(list->property("atYEnd").toBool());
+
         const QPointF center = list->mapToScene(QPointF(list->width() / 2, list->height() / 2));
         ulong stamp = 5000;
         for (int n = 0; n < 3; ++n) {
@@ -2416,12 +2469,91 @@ private slots:
         QVERIFY2(!list->property("atYEnd").toBool(), "a wheel scroll up was pulled back to the end");
     }
 
+    void testReactionJumpKeepsMessageBelowPinBar() {
+        const QString owner = QStringLiteral("u-reaction-jump-owner");
+        const QString peer = QStringLiteral("u-reaction-jump-peer");
+        {
+            ZaloOfflineStore store;
+            store.bindOwner(owner);
+            store.clearCache();
+        }
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        client.openOfflineCacheForTesting(owner);
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(owner);
+        client.selectConversation(peer, QStringLiteral("Fixture Reaction Peer"), QString());
+
+        const qint64 base = QDateTime::currentMSecsSinceEpoch() - 300000;
+        QVector<MessageItem> items;
+        for (int i = 0; i < 100; ++i) {
+            MessageItem item;
+            item.id = QString::number(62000 + i);
+            item.cliMsgId = item.id;
+            item.isMine = true;
+            item.text = QStringLiteral("Fixture reaction target %1").arg(i);
+            item.ts = base + qint64(i) * 1000;
+            items.append(item);
+        }
+        client.messageModel()->mergeMessages(peer, items);
+        const int targetRow = client.messageModel()->rowOfMessage(QStringLiteral("62050"));
+        QVERIFY(targetRow >= 0);
+
+        const QJsonObject pinParams{{"global_msg_id", "62099"}, {"senderName", "Me"}, {"title", "Fixture pinned note"}};
+        const QJsonObject pin{{"id", 1}, {"type", 2},
+                              {"params", QString::fromUtf8(QJsonDocument(pinParams).toJson(QJsonDocument::Compact))}};
+        client.pins()->applyListForTesting(peer, QJsonObject{{"data", QJsonArray{pin}}}, false);
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
+        engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath("qrc:/");
+        engine.addImportPath("qrc:/qt/qml");
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(1280, 800);
+        QTest::qWait(600);
+        auto* list = window->findChild<QQuickItem*>(QStringLiteral("messageList"));
+        auto* pinBar = window->findChild<QQuickItem*>(QStringLiteral("pinBar"));
+        auto* chatArea = window->findChild<QQuickItem*>(QStringLiteral("chatArea"));
+        QVERIFY(list != nullptr && pinBar != nullptr && chatArea != nullptr);
+        QVERIFY(pinBar->isVisible());
+
+        const QJsonObject content{{"rIcon", "/-heart"}, {"rType", 5},
+                                  {"rMsg", QJsonArray{QJsonObject{{"gMsgID", "62050"}}}}};
+        client.handleReactionsForTesting(QJsonArray{QJsonObject{{"uidFrom", peer}, {"idTo", owner},
+                                                                {"msgId", "reaction-jump-event"},
+                                                                {"content", content}}},
+                                         false, false);
+        QCOMPARE(client.currentUnreadReactionCount(), 1);
+
+        QVERIFY(QMetaObject::invokeMethod(chatArea, "goToNextUnreadReaction"));
+        QTRY_COMPARE(client.currentUnreadReactionCount(), 0);
+        QTest::qWait(150);
+
+        QQuickItem* target = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem*, target), Q_ARG(int, targetRow)));
+        QVERIFY(target != nullptr);
+        QVERIFY2(!list->property("stickToBottom").toBool(), "jumping to a reaction must stop following the end");
+        const qreal targetTop = target->mapToScene(QPointF(0, 0)).y();
+        const qreal targetBottom = target->mapToScene(QPointF(0, target->height())).y();
+        const qreal pinBottom = pinBar->mapToScene(QPointF(0, pinBar->height())).y();
+        const qreal listBottom = list->mapToScene(QPointF(0, list->height())).y();
+        QVERIFY2(targetTop >= pinBottom + 8,
+                 qPrintable(QStringLiteral("target top %1 is under the pin bar ending at %2").arg(targetTop).arg(pinBottom)));
+        QVERIFY2(targetBottom <= listBottom,
+                 qPrintable(QStringLiteral("target bottom %1 is below the list end %2").arg(targetBottom).arg(listBottom)));
+        window->grabWindow().save(QStringLiteral("/workspace/build/test_reaction_jump.png"));
+    }
+
     void testUiGalleryScreenshots() {
         ZaloClient client;
         ThemeManager themeMgr;
         SystemTrayController trayCtrl;
         client.setLoggedInForTesting(true);
-        // A neutral picture for photo messages.
         QImage pic(640, 420, QImage::Format_RGB32);
         for (int y = 0; y < pic.height(); ++y)
             for (int x = 0; x < pic.width(); ++x) pic.setPixel(x, y, qRgb(40 + x / 4, 90 + y / 5, 160));
@@ -2485,7 +2617,7 @@ private slots:
             QTest::qWait(300);
             window->grabWindow().save(QString("/workspace/build/ui_%1.png").arg(name));
         };
-        client.setNotifySound(true); // one switch ON in the notifications tab
+        client.setNotifySound(true);
         for (int mode : {0, 1}) {
             themeMgr.setThemeMode(mode);
             const QString suffix = mode ? "dark" : "light";
@@ -2501,8 +2633,6 @@ private slots:
                 QVERIFY2(pillTop <= 19.0 + 10.0 - 3.0, "the typing pill must fit in the gap under the last row");
             }
             if (mode == 0) {
-                // QML weight of the message list: objects per instantiated message row (memory review 2026-11-04).
-                // ListView delegates are not QObject children of the window: walk the visual item tree.
                 QList<QQuickItem*> rows;
                 std::function<void(QQuickItem*)> findRows = [&](QQuickItem* item) {
                     if (item->objectName() == QLatin1String("messageRow")) { rows.append(item); return; }
@@ -2518,16 +2648,14 @@ private slots:
                 for (QQuickItem* row : rows) objects += weight(row);
                 const int perRow = rows.isEmpty() ? 0 : objects / int(rows.size());
                 qInfo("message rows: %d, QML objects: %d (%d per row)", int(rows.size()), objects, perRow);
-                // Closed popups are not in the visual tree; count the QObject tree of the window too.
                 qInfo("window QML objects: %d visual, %d in the QObject tree", weight(window->contentItem()),
                       int(window->findChildren<QObject*>().size()));
                 QVERIFY2(perRow < 260, "message rows must create only the parts of their type (Loaders)");
                 QVERIFY(!rows.isEmpty());
             }
-            client.setAntiPeeking(true);                  // indicator strip + dimmed messages
+            client.setAntiPeeking(true);
             shot("chat_antipeek_" + suffix);
             client.setAntiPeeking(false);
-            // Pinned topics bar (Zalo PC chat-group-topic) and its expanded list, from neutral fixtures.
             {
                 const QString conv = client.currentConversationId();
                 auto topic = [](const QString& id, int type, const QString& title, int msgType) {
@@ -2535,7 +2663,6 @@ private slots:
                         {"title", title}, {"senderUid", "u-gallery"}, {"senderName", "Fixture Gallery"},
                         {"global_msg_id", "m-" + id}, {"client_msg_id", "c-" + id}, {"msg_type", msgType}}}};
                 };
-                // t2: a photo pin whose thumb is gone (as an expired CDN link) → placeholder glyph.
                 QJsonObject photoPin = topic("t2", 2, "", 32);
                 QJsonObject photoParams = photoPin.value("params").toObject();
                 photoParams.insert("thumb", "file:///nonexistent/fixture-expired-thumb.jpg");
@@ -2544,6 +2671,23 @@ private slots:
                     topic("t1", 2, "Fixture pinned text message\n" + QString("Fixture detail line with enough words to wrap. ").repeated(12), 1), photoPin,
                     topic("t3", 1, "Fixture note", 1), topic("t4", 3, "Fixture poll", 1)}}}, false);
                 shot("pins_" + suffix);
+                {
+                    QJsonObject httpPin = topic("t0", 2, "", 32);
+                    QJsonObject httpParams = httpPin.value("params").toObject();
+                    httpParams.insert("thumb", "http://127.0.0.1:9/fixture-unreachable-thumb.jpg");
+                    httpPin.insert("params", httpParams);
+                    client.pins()->applyListForTesting(conv, QJsonObject{{"version", 2}, {"data", QJsonArray{httpPin}}}, false);
+                    QObject* topBar = window->findChild<QObject*>("pinBar");
+                    QVERIFY(topBar != nullptr);
+                    QTRY_VERIFY(client.isMediaBroken("http://127.0.0.1:9/fixture-unreachable-thumb.jpg"));
+                    auto* glyph = qobject_cast<QQuickItem*>(topBar->findChild<QObject*>("pinTopicThumbGlyph"));
+                    QVERIFY(glyph != nullptr);
+                    QTRY_VERIFY(glyph->isVisible());
+                    shot("pins_photo_top_" + suffix);
+                    client.pins()->applyListForTesting(conv, QJsonObject{{"version", 3}, {"data", QJsonArray{
+                        topic("t1", 2, "Fixture pinned text message\n" + QString("Fixture detail line with enough words to wrap. ").repeated(12), 1), photoPin,
+                        topic("t3", 1, "Fixture note", 1), topic("t4", 3, "Fixture poll", 1)}}}, false);
+                }
                 QObject* bar = window->findChild<QObject*>("pinBar");
                 QVERIFY(bar != nullptr);
                 QVERIFY(bar->property("visible").toBool());
@@ -2579,15 +2723,13 @@ private slots:
             client.viewProfile("u-gallery");
             shot("profile_" + suffix);
             client.closeUserProfile();
-            // Composite avatar of a group without a photo (header + info panel).
             client.selectConversation("g-gallery", "Fixture Team", "");
             client.setShowConversationInfo(true);
             shot("group_composite_" + suffix);
             client.setShowConversationInfo(false);
             client.selectConversation("u-gallery", "Fixture Gallery", "");
-            // Group management dialog (owner view) and the join-by-link preview, from neutral fixtures.
             client.groupAdmin()->openManage("g-gallery");
-            QTest::qWait(100); // offline replies to the reload settle first
+            QTest::qWait(100);
             client.groupAdmin()->applyLinkDetailForTesting(QJsonObject{{"link", "https://zalo.me/g/fixture01"}, {"enabled", 1}});
             client.groupAdmin()->applyPendingForTesting(QJsonObject{{"users", QJsonArray{
                 QJsonObject{{"uid", "u-req1"}, {"dpn", "Fixture Request"}}}}});
@@ -2600,7 +2742,6 @@ private slots:
                 {"currentMems", QJsonArray{QJsonObject{{"id", "u-a"}, {"dName", "A"}}, QJsonObject{{"id", "u-b"}, {"dName", "B"}}}}});
             shot("group_join_" + suffix);
             client.groupAdmin()->closeJoin();
-            // Label manager and the share-card picker, from neutral fixtures.
             client.labels()->applyServer(QJsonObject{{"version", 1}, {"labelData", QJsonArray{
                 QJsonObject{{"id", 1}, {"text", "Fixture A"}, {"color", "#D91B1B"}, {"offset", 0}, {"conversations", QJsonArray{"u-gallery"}}},
                 QJsonObject{{"id", 2}, {"text", "Fixture B"}, {"color", "#4BC377"}, {"offset", 1}, {"conversations", QJsonArray{}}}}}});
@@ -2610,12 +2751,11 @@ private slots:
             client.openShareCard("u-gallery", "Fixture Gallery");
             shot("share_card_" + suffix);
             client.closeForwardModal();
-            client.appLock()->setPasscode("", "9753"); // lock screen
+            client.appLock()->setPasscode("", "9753");
             client.appLock()->lock();
             shot("lock_" + suffix);
             QVERIFY(client.appLock()->unlock("9753"));
             QVERIFY(client.appLock()->removePasscode("9753"));
-            // Photo viewer opened from a photo message (zoom/rotate/copy/save toolbar, thumbnail strip).
             auto* chat = window->findChild<QQuickItem*>("chatArea");
             QVERIFY(chat != nullptr);
             QVERIFY(QMetaObject::invokeMethod(chat, "openReactionDetails", Q_ARG(QString, QStringLiteral("9104")),
@@ -2627,7 +2767,6 @@ private slots:
             QTest::keyClick(window, Qt::Key_Escape);
             QTest::qWait(100);
         }
-        // Responsive sweep: the logged-in messages UI across quarter/half/full windows on common desktop sizes.
         themeMgr.setThemeMode(1);
         client.setCurrentNavigationTab("messages");
         client.selectConversation("u-gallery", "Fixture Gallery", "");
@@ -2637,7 +2776,6 @@ private slots:
             window->resize(s);
             shot(QString("responsive_%1x%2").arg(s.width()).arg(s.height()));
         }
-        // Info panel open (the split that can squeeze the chat + composer at narrow widths).
         client.setShowConversationInfo(true);
         for (const QSize& s : {QSize(1280, 800), QSize(760, 700), QSize(560, 600)}) {
             window->resize(s);
@@ -2646,8 +2784,6 @@ private slots:
         client.setShowConversationInfo(false);
         window->resize(1280, 800);
 
-        // Sidebar: the always-visible tab row (Tất cả · Chưa đọc · Khác · Nhắn tôi + Nhãn) at normal and narrowest
-        // widths, and one query finding chats + groups + messages.
         if (window->findChild<QObject*>("sidebar")) {
             themeMgr.setThemeMode(1);
             window->resize(1100, 760);
@@ -2668,7 +2804,6 @@ private slots:
             client.peopleSearch()->clear();
             client.messageSearch()->clear();
 
-            // Hidden conversations: typing the exact PIN shows the "Trò chuyện ẩn" section; the PIN-entry popup.
             client.setHiddenPinHashForTesting(ZaloClient::hiddenPinDigest("2468"));
             client.openWelcomeScreen();
             client.setHiddenThreadsForTesting({"u-gallery"});
@@ -2690,7 +2825,6 @@ private slots:
             client.selectConversation("u-gallery", "Fixture Gallery", "");
         }
 
-        // Rail tonal legibility check: label folders on, in dark (near-black rail) and light (blue rail).
         client.setShowLabelFolders(true);
         client.setCurrentNavigationTab("messages");
         window->resize(1100, 760);
@@ -2706,8 +2840,6 @@ private slots:
     }
 
 
-    // Zalo system payloads: chat.webcontent birthday (ZInstant template 14030) and other customMsg notices, plus
-    // app-only zalo.me links (zvideo / mini-app) routed to the in-app QR popup instead of the browser.
     void testWebcontentSystemMessagesAndAppOnlyLinks() {
         ZaloClient client;
         client.setAppLanguage("vi");
@@ -2745,8 +2877,6 @@ private slots:
         QCOMPARE(m->data(m->index(1), MessageModel::TextRole).toString(), QString::fromUtf8("Fixture thông báo"));
         QVERIFY(m->data(m->index(1), MessageModel::HrefRole).toString().isEmpty());
 
-        // customMsg placeholders %N$s resolve from highLightsV2 (own uid → "Bạn"); unresolved ones are stripped;
-        // a calendar action keeps the reminder event id. Webcontent without customMsg/href is a system notice.
         client.setMyUidForTesting("u-me");
         auto parse = [&client](const QJsonObject& params, const QString& title) {
             return client.toMessageItemForTesting(QJsonObject{
@@ -2778,7 +2908,6 @@ private slots:
                  QString::fromUtf8("Tin nhắn chưa hỗ trợ hiển thị trên phiên bản hiện tại"));
         QCOMPARE(parse(QJsonObject{{"type", 77}}, "Fixture other").text, QString("Fixture other"));
 
-        // 1-1 OA/system content without href is a card from the OA (left, avatar), never a centred group notice.
         auto parseOne = [&client](const QString& msgType, const QJsonValue& content, qint64 ttl) {
             QJsonObject raw{{"msgId", "7301"}, {"uidFrom", "u-oa-fixture"}, {"idTo", "u-me"}, {"msgType", msgType},
                             {"ts", "1700000000000"}, {"content", content}};
@@ -2818,7 +2947,6 @@ private slots:
             {"params", QString::fromUtf8(QJsonDocument(QJsonObject{{"type", 34}}).toJson(QJsonDocument::Compact))}}, 0).text,
             QString::fromUtf8("Zalo gửi thông báo về an toàn tài khoản của bạn"));
 
-        // Per-message ttl is a self-destruct only for user messages; broadcast/system content never expires.
         QCOMPARE(ZaloOfflineStore::expiryOf(QJsonObject{{"msgType", "chat.webcontent"}, {"ttl", 86400000}}, 1000), qint64(0));
         QCOMPARE(ZaloOfflineStore::expiryOf(QJsonObject{{"msgType", "chat.list.action"}, {"ttl", 17459000}}, 1000), qint64(0));
         QCOMPARE(ZaloOfflineStore::expiryOf(QJsonObject{{"msgType", "chat.ecard"}, {"ttl", 86400000}}, 1000), qint64(0));
@@ -2840,39 +2968,34 @@ private slots:
         QCOMPARE(qr.value("modules").toList().size(), size * size);
     }
 
-    // Anti-peeking: one state shared by settings, the Ctrl+Shift+H shortcut and the tray menu quick switch.
     void testAntiPeekingQuickSwitch() {
         ZaloClient client;
         SystemTrayController tray;
         QObject::connect(&tray, &SystemTrayController::antiPeekingToggled, &client, &ZaloClient::setAntiPeeking);
         QObject::connect(&client, &ZaloClient::settingsChanged, &tray, [&]() { tray.setAntiPeeking(client.antiPeeking()); });
         client.setAntiPeeking(false);
-        emit tray.antiPeekingToggled(true);               // what the checkable tray action emits
+        emit tray.antiPeekingToggled(true);
         QCOMPARE(client.antiPeeking(), true);
-        client.setAntiPeeking(false);                     // from settings / shortcut / "Tắt" link
+        client.setAntiPeeking(false);
         QCOMPARE(client.antiPeeking(), false);
     }
 
 
-    // Changes made on the phone/web reach the UI through socket controls; nothing is written back.
     void testCrossDeviceSyncControls() {
         ZaloClient client;
         client.setLoggedInForTesting(true);
         auto* session = client.apiClient()->session();
         auto* convs = client.conversationModel();
         const QString ts = QString::number(QDateTime::currentMSecsSinceEpoch());
-        // A 1-1 thread and a group thread exist.
         emit session->messagesReceived(QJsonArray{QJsonObject{{"msgId", "8001"}, {"uidFrom", "u-sync"}, {"idTo", "u-me"},
             {"msgType", "webchat"}, {"content", "a"}, {"ts", ts}}}, false, true);
         emit session->messagesReceived(QJsonArray{QJsonObject{{"msgId", "8002"}, {"uidFrom", "u-sync"}, {"idTo", "g-sync"},
             {"msgType", "webchat"}, {"content", "b"}, {"ts", ts}}}, true, true);
         QVERIFY(convs->contains("u-sync") && convs->contains("g-sync"));
 
-        // Nickname set on the phone wins; removed on the phone -> back to the profile name.
         client.applyAliasesForTesting({{"u-sync", QString::fromUtf8("Anh Tư")}});
         QCOMPARE(convs->conversation("u-sync").name, QString::fromUtf8("Anh Tư"));
 
-        // Group renamed on another device: name + a notice line in the chat.
         emit session->controlReceived("group", "update", QJsonObject{{"groupId", "g-sync"}, {"groupName", "Fixture Team"},
                                                                      {"sourceId", "u-sync"}});
         QCOMPARE(convs->conversation("g-sync").name, QString("Fixture Team"));
@@ -2884,7 +3007,6 @@ private slots:
         }
         QVERIFY(notice);
 
-        // Mute / pin / mark-unread from the phone.
         emit session->controlReceived("mute", "set", QJsonObject{{"toId", "u-sync"}, {"duration", -1}, {"muteType", 1}});
         QVERIFY(convs->conversation("u-sync").isMuted);
         emit session->controlReceived("mute", "unset", QJsonObject{{"toId", "u-sync"}});
@@ -2898,7 +3020,6 @@ private slots:
         QVERIFY(!client.isMarkedUnread("u-sync"));
         QCOMPARE(convs->conversation("u-sync").unreadCount, 0);
 
-        // Delete-for-me on another device removes the message; clearing the conversation removes the thread.
         emit session->messagesReceived(QJsonArray{QJsonObject{{"msgId", "8003"}, {"uidFrom", "u-me"}, {"idTo", "u-sync"},
             {"msgType", "chat.delete"}, {"ts", ts},
             {"content", QJsonArray{QJsonObject{{"uidFrom", "u-me"}, {"uidTo", "u-sync"}, {"globalDelMsgId", "8001"}, {"type", 2}}}}}},
@@ -2908,7 +3029,6 @@ private slots:
     }
 
 
-    // Batch 1: server message types (link card, voice, call log, poll), mentions, group roster, receipts.
     void testBatchOneMessageTypesAndRoster() {
         ZaloClient client;
         client.setMyUidForTesting("u-me");
@@ -2921,7 +3041,6 @@ private slots:
                                {"msgType", type}, {"content", content}, {"ts", QString::number(ts)}};
         };
 
-        // Link card: title, description, domain, thumb.
         auto link = client.toMessageItemForTesting(base("chat.recommended", QJsonObject{
             {"action", "recommened.link"}, {"title", "Fixture page"}, {"description", "About the fixture"},
             {"href", "https://example.org/a"}, {"thumb", "https://example.org/t.jpg"}, {"params", "{}"}}), false);
@@ -2932,7 +3051,6 @@ private slots:
         QCOMPARE(link.extra.value("domain").toString(), QString("example.org"));
         QCOMPARE(link.extra.value("desc").toString(), QString("About the fixture"));
 
-        // Call history is not a link: completed outgoing video call with its duration, and a missed voice call.
         auto call = client.toMessageItemForTesting(base("chat.recommended", QJsonObject{
             {"action", "recommened.calltime"}, {"title", "sendBubbleMessage"}, {"description", ""}, {"href", ""},
             {"thumb", ""}, {"params", params({{"calltype", 1}, {"duration", 125}, {"isCaller", 1}})}}), false);
@@ -2949,7 +3067,21 @@ private slots:
         QVERIFY(missed.extra.value("missed").toBool());
         QVERIFY(!missed.extra.value("video").toBool());
 
-        // Voice: AAC link and duration in ms.
+        auto calling = client.toMessageItemForTesting(base("chat.recommended", QJsonObject{
+            {"action", "recommened.calling"}, {"title", "Cuộc gọi đi"}, {"description", "Cuộc gọi đi"}, {"href", ""},
+            {"thumb", ""}, {"duration", 14}, {"params", "{}"}}), false);
+        QCOMPARE(calling.messageType, QString("call"));
+        QVERIFY(calling.extra.value("outgoing").toBool());
+        QVERIFY(!calling.extra.value("missed").toBool());
+        QCOMPARE(calling.extra.value("seconds").toInt(), 14);
+
+        auto receiveCall = client.toMessageItemForTesting(base("chat.recommended", QJsonObject{
+            {"action", "recommened.receivecall"}, {"title", "Cuộc gọi đến"}, {"description", "Cuộc gọi đến"}, {"href", ""},
+            {"thumb", ""}, {"params", "{\"isEnableCallback\":1}"}}), false);
+        QCOMPARE(receiveCall.messageType, QString("call"));
+        QVERIFY(!receiveCall.extra.value("outgoing").toBool());
+        QVERIFY(!receiveCall.extra.value("missed").toBool());
+
         auto voice = client.toMessageItemForTesting(base("chat.voice", QJsonObject{
             {"action", ""}, {"title", ""}, {"description", ""}, {"href", "https://example.org/v.aac"}, {"thumb", ""},
             {"params", params({{"duration", 12672}, {"fileSize", 1000}, {"m4a", ""}})}}), false);
@@ -2957,7 +3089,6 @@ private slots:
         QCOMPARE(voice.href, QString("https://example.org/v.aac"));
         QCOMPARE(voice.extra.value("durationMs").toLongLong(), 12672);
 
-        // group.poll: every action is a poll info row with the poll id from params; non-create ones carry pollEvent.
         QJsonObject pollMsg = base("group.poll", QJsonObject{{"action", "create"}, {"title", "Q"},
                                                               {"params", params({{"pollId", 4242}})}});
         pollMsg["idTo"] = "g-fixture";
@@ -2969,7 +3100,6 @@ private slots:
         QCOMPARE(pollEvent.messageType, QString("poll"));
         QCOMPARE(pollEvent.extra.value("pollEvent").toString(), QString("vote"));
 
-        // Mentions become profile links in the rendered text.
         QJsonObject mentionMsg = base("webchat", QString("@Fixture hi"));
         mentionMsg["idTo"] = "g-fixture";
         mentionMsg["mentions"] = QJsonArray{QJsonObject{{"uid", "u-peer2"}, {"pos", 0}, {"len", 8}, {"type", 0}}};
@@ -2979,11 +3109,9 @@ private slots:
         QVERIFY(html.contains("zalos-mention:u-peer2"));
         QVERIFY(html.contains("@Fixture"));
         QVERIFY(html.endsWith(" hi"));
-        // Out-of-range mention ranges are dropped, never rendered half.
         mentionMsg["mentions"] = QJsonArray{QJsonObject{{"uid", "u-x"}, {"pos", 5}, {"len", 99}}};
         QCOMPARE(client.toMessageItemForTesting(mentionMsg, true).mentions.size(), 0);
 
-        // Roster: owner first, then deputies; my role; names of non-friends are pending (never invented).
         QSignalSpy rosterSpy(&client, &ZaloClient::groupMembersChanged);
         client.applyGroupInfoForTesting(QJsonObject{{"g-fixture", QJsonObject{
             {"name", "Fixture Group"}, {"totalMember", 3}, {"creatorId", "u-owner"},
@@ -2999,7 +3127,6 @@ private slots:
         QCOMPARE(members.at(2).toMap().value("name").toString(), QString());
         QCOMPARE(client.myGroupRole("g-fixture"), QString("admin"));
 
-        // Deputy granted on another device updates the roster.
         emit client.apiClient()->session()->controlReceived("group", "add_admin", QJsonObject{
             {"groupId", "g-fixture"}, {"sourceId", "u-owner"}, {"updateMembers", QJsonArray{QJsonObject{{"id", "u-peer"}}}}});
         bool peerIsAdmin = false;
@@ -3008,7 +3135,6 @@ private slots:
         }
         QVERIFY(peerIsAdmin);
 
-        // Delivered receipts: only other people's fresh messages, grouped by thread.
         QJsonObject own = base("webchat", QString("x"));
         own["uidFrom"] = "0";
         QJsonObject deleted = base("chat.delete", QJsonArray{});
@@ -3034,20 +3160,16 @@ private slots:
         QCOMPARE(model.data(i, MessageModel::TextRole).toString(), QString("Fixture?"));
     }
 
-    // 15. Feature: ZaloApiClient (REST & WebSocket Wrapper)
     void testZaloApiClientEndpoints() {
         ZaloApiClient client;
         QCOMPARE(client.networkStatus(), QString("CONNECTED"));
 
-        // Test connectivity probe
         QSignalSpy netSpy(&client, &ZaloApiClient::networkStatusChanged);
         client.pingConnectivity();
         QCOMPARE(client.networkStatus(), QString("CHECKING"));
 
-        // Test QR token generation call
         client.generateQrToken();
 
-        // Session APIs refuse to run before the login handshake.
         bool called = false;
         client.session()->fetchFriends([&](bool ok, const QJsonValue&, const QString&, int) {
             called = true;
@@ -3056,27 +3178,22 @@ private slots:
         QVERIFY(called);
     }
 
-    // 16. Feature: ZaloClient Native Wrappers Integration
     void testZaloClientWrappersIntegration() {
         ZaloClient client;
         QVERIFY(client.callEngine() != nullptr);
         QVERIFY(client.offlineStore() != nullptr);
         QVERIFY(client.apiClient() != nullptr);
 
-        // Test invokable disk usage wrapper
         QVariantMap disk = client.getDiskUsage("/");
         QVERIFY(disk.contains("available"));
         QVERIFY(disk.contains("total"));
 
-        // Test invokable directory size wrapper
         QVariantMap dir = client.getDirectorySize("/tmp");
         QVERIFY(dir.contains("totalSize"));
 
-        // Test OCR wrapper
         QString ocrResult = client.recognizeImageText("/nonexistent/file.png");
         QVERIFY(ocrResult.isEmpty());
 
-        // Test BinNet TLV parser wrapper
         QByteArray binNetBytes;
         binNetBytes.append(static_cast<char>(0x0b));
         binNetBytes.append(static_cast<char>(0x00));
@@ -3093,21 +3210,17 @@ private slots:
         QVariantMap binNetParsed = client.parseBinNetPayload(binNetBytes);
         QCOMPARE(binNetParsed["text"].toString(), QString("Kiem thu BinNet"));
 
-        // Test SRTP KDF key derivation wrapper
         QVariantMap srtpKeys = client.deriveSrtpKeys("012345678901234567890123456789");
         QVERIFY(srtpKeys.contains("encKey"));
         QVERIFY(srtpKeys.contains("authKey"));
         QVERIFY(srtpKeys.contains("saltKey"));
 
-        // Test sync offline data trigger
         client.syncOfflineData();
     }
 
-    // 17. Feature: Zero Mock Data Mandate & Dynamic Model Operations & Responsive Geometry
-
     void testCallBridgeFraming() {
         using Zalos::Core::Call::CallBridge;
-        const QByteArray key(16, char(0x11)); // dummy key, not Zalo's
+        const QByteArray key(16, char(0x11));
         const QByteArray expected =
             "3acf70e766113e07d5ea0729112dd8b1f8d784fb418d278748b21eea249ada7d8f07b224bc8af36337b7e2710aa78da49a"
             "d9e6546bc743083349e9f8ad291c38$";
@@ -3117,11 +3230,9 @@ private slots:
         const QList<QJsonObject> fromJs = CallBridge::decodeFrames(jsFrame, key, &none);
         QCOMPARE(fromJs.size(), 1);
         QCOMPARE(fromJs.first(), frame);
-        // ...and our frames decode back (key order differs from JS, which JSON parsing ignores).
         QByteArray ours = CallBridge::encodeFrame(frame, key);
         QCOMPARE(CallBridge::decodeFrames(ours, key, &none).value(0), frame);
 
-        // Round trip, including a frame split into chunks and a partial buffer.
         QJsonObject big{{"type", "control"}, {"data", QJsonObject{{"blob", QString(6000, QChar('x'))}}}};
         QByteArray buffer = CallBridge::encodeFrame(big, key) + expected.left(20);
         QHash<QString, QStringList> chunks;
@@ -3134,7 +3245,6 @@ private slots:
         QCOMPARE(frames.first().value("command").toString(), QString("native-ready"));
     }
 
-    // Verified with neutral synthetic fixtures.
     void testSocketQueuesAndFailoverRules() {
         const QJsonObject auth{{"error_code", 0},
             {"data", QJsonObject{
@@ -3154,9 +3264,8 @@ private slots:
         next = ZaloSession::nextPullPage({{"more", 1}, {"queueStatus", status}}, 603, 1);
         QCOMPARE(next.value("lastId").toString(), QString("70"));
         QVERIFY(ZaloSession::nextPullPage({{"more", 0}, {"queueStatus", status}}, 603, 1).isEmpty());
-        QVERIFY(ZaloSession::nextPullPage({{"more", 1}}, 603, 1).isEmpty()); // no cursor: stop, never loop
+        QVERIFY(ZaloSession::nextPullPage({{"more", 1}}, 603, 1).isEmpty());
 
-        // Another host is tried only for transport failures / missing routes, never for API errors.
         QVERIFY(ZaloSession::isFailoverError(QNetworkReply::HostNotFoundError, 0));
         QVERIFY(ZaloSession::isFailoverError(QNetworkReply::ContentNotFoundError, 404));
         QVERIFY(!ZaloSession::isFailoverError(QNetworkReply::NoError, 200));
@@ -3170,7 +3279,6 @@ private slots:
         const QString ts = QString::number(QDateTime::currentMSecsSinceEpoch());
         QJsonObject msg{{"msgId", "7001"}, {"cliMsgId", "11"}, {"uidFrom", "u-fixture"}, {"idTo", "0"},
                         {"msgType", "webchat"}, {"content", "xin chào"}, {"ts", ts}};
-        // Push (501) and the offline queue / 570 can deliver the same message: count it once.
         emit session->messagesReceived(QJsonArray{msg}, false, false);
         emit session->messagesReceived(QJsonArray{msg}, false, false);
         QCOMPARE(client.conversationModel()->totalUnreadCount(), 1);
@@ -3183,10 +3291,8 @@ private slots:
         emit session->messagesReceived(QJsonArray{msg2}, false, false);
         QCOMPARE(client.conversationModel()->totalUnreadCount(), 2);
 
-        // A read point from another device (clearUnreads) recomputes the badge.
         emit session->readPointsReceived(QJsonArray{QJsonObject{{"idTo", "u-fixture"}, {"lastMsgId", "7001"}, {"isGroup", 0}}});
         QCOMPARE(client.conversationModel()->totalUnreadCount(), 1);
-        // Sub-chat cursors are ignored.
         emit session->readPointsReceived(QJsonArray{QJsonObject{{"idTo", "u-fixture"}, {"lastMsgId", "7002"},
                                                                 {"type", 2}, {"sct", 1}}});
         QCOMPARE(client.conversationModel()->totalUnreadCount(), 1);
@@ -3203,7 +3309,6 @@ private slots:
         }
         QVERIFY(quoted);
 
-        // Reply target: only server messages can be quoted.
         client.setReplyTarget("local-unknown");
         QVERIFY(client.replyTarget().isEmpty());
         client.setReplyTarget("7001");
@@ -3211,7 +3316,6 @@ private slots:
         client.clearReplyTarget();
         QVERIFY(client.replyTarget().isEmpty());
 
-        // Scheduled send is local and honest about the time it needs.
         QVERIFY(!client.scheduleMessage("muộn", QDateTime::currentMSecsSinceEpoch() - 1000));
         QVERIFY(client.scheduleMessage("hẹn giờ", QDateTime::currentMSecsSinceEpoch() + 3600000));
         QCOMPARE(client.scheduledMessages().size(), 1);
@@ -3220,7 +3324,7 @@ private slots:
     }
 
     void testCallTransportKeyFile() {
-        const QByteArray key = QByteArray::fromHex("00112233445566778899aabbccddeeff"); // neutral test key
+        const QByteArray key = QByteArray::fromHex("00112233445566778899aabbccddeeff");
         QTemporaryFile file(QDir::tempPath() + "/zalos-test-XXXXXX.key");
         QVERIFY(CallBridge::writeKeyFile(&file, key));
         QCOMPARE(file.permissions() & (QFileDevice::ReadGroup | QFileDevice::ReadOther), QFileDevice::Permissions());
@@ -3230,17 +3334,14 @@ private slots:
         QCOMPARE(QByteArray::fromBase64(readBack.readAll().trimmed()), key);
     }
 
-    // Review regressions: recall parsing, unique local echoes, UI socket binary frames.
     void testMessagingRegressions() {
         ZaloClient client;
         client.selectConversation("u-peer", "Fixture Peer", "");
 
-        // Two sends in the same millisecond must both appear (unique local ids).
         client.sendMessage("one");
         client.sendMessage("two");
         QCOMPARE(client.messageModel()->rowCount(), 2);
 
-        // A live message, then its recall in zca-js shape: content {globalMsgId, cliMsgId, deleteMsg}.
         auto* session = client.apiClient()->session();
         const QString ts = QString::number(QDateTime::currentMSecsSinceEpoch());
         QJsonObject msg{{"msgId", "9001"}, {"cliMsgId", "1"}, {"uidFrom", "u-peer"}, {"idTo", "0"},
@@ -3258,7 +3359,6 @@ private slots:
         }
         QVERIFY(recalled);
 
-        // Binary video frames on the call UI socket must not swallow the next JSON line.
         auto* calls = client.calls();
         QByteArray stream = QByteArray(R"({"type":"video","key":true,"bin":5})") + "\n" + QByteArray("\x00\n{\x01\x02", 5)
                             + QByteArray(R"({"type":"state","phase":"connected","name":"Fixture","since":1})") + "\n";
@@ -3273,12 +3373,10 @@ private slots:
         ZaloClient client;
         client.selectConversation("grp-100", "Nhóm Dự Án", "");
 
-        // 1. Test Create Poll Modal
         QCOMPARE(client.showCreatePollModal(), false);
         client.openCreatePollModal();
         QCOMPARE(client.showCreatePollModal(), true);
 
-        // Invalid drafts are refused with a notice; offline creation is refused honestly (no fake poll card).
         QSignalSpy noticeSpy(&client, &ZaloClient::notice);
         client.createPoll("grp-100", QString::fromUtf8("Ăn gì?"), {QString::fromUtf8("Cơm")}, {});
         QVERIFY(noticeSpy.count() >= 1);
@@ -3290,47 +3388,38 @@ private slots:
         QCOMPARE(client.messageModel()->rowCount(), 0);
         client.closeCreatePollModal();
 
-        // Voting offline changes nothing: the card only follows the server (/api/poll/detail after the vote).
         const int noticesBefore = noticeSpy.count();
         client.submitPollChoices(4242, {2}, {}, {});
         QVERIFY(noticeSpy.count() > noticesBefore);
         QCOMPARE(client.pollView(4242).value("loaded").toBool(), false);
 
-        // 2. Test Group Management APIs
         client.changeGroupName("grp-100", "Nhóm Dự Án 2026");
         QCOMPARE(client.currentConversationName(), QString("Nhóm Dự Án 2026"));
 
         client.addMemberToGroup("grp-100", "u-123");
         client.removeMemberFromGroup("grp-100", "u-123");
 
-        // 3. Test Clipboard image paste helper
-        // When clipboard is empty, returns false cleanly
         bool pasted = client.tryPasteClipboardImage();
         QCOMPARE(pasted, false);
 
-        // 4. Test Pinned Message
         client.sendMessage("Thông báo quan trọng cần ghim");
         QString pinTargetId = client.messageModel()->data(client.messageModel()->index(client.messageModel()->rowCount() - 1), MessageModel::IdRole).toString();
         QCOMPARE(client.hasPinnedMessage(), false);
         const int noticesBeforePin = noticeSpy.count();
-        client.pinMessage(pinTargetId); // offline: refused with a notice, never a fake local pin
+        client.pinMessage(pinTargetId);
         QCOMPARE(client.hasPinnedMessage(), false);
         QVERIFY(noticeSpy.count() > noticesBeforePin);
 
-        // 5. Test Friend Alias
         client.changeFriendAlias("u-123", "Bạn Đồng Nghiệp");
         QVERIFY(noticeSpy.count() >= 2);
 
-        // 6. Test Contact Card
         client.sendContactCard("grp-100", "u-999", "Trần Thị B", "0900000013");
         QModelIndex cardIdx = client.messageModel()->index(client.messageModel()->rowCount() - 1);
         QCOMPARE(client.messageModel()->data(cardIdx, MessageModel::MessageTypeRole).toString(), QString("card"));
         QCOMPARE(client.messageModel()->data(cardIdx, MessageModel::TextRole).toString(), QString("Trần Thị B"));
     }
 
-    // Group link / permissions / join requests / blocked list / join-by-link / invite-to-groups (GroupAdmin).
     void testGroupAdminLinksRequestsAndInvites() {
-        // Link recognition: only zalo.me/g/<code> invites go to the in-app preview.
         QVERIFY(GroupAdmin::isGroupLink("https://zalo.me/g/abcdef123"));
         QVERIFY(GroupAdmin::isGroupLink("zalo.me/g/abcdef123/"));
         QVERIFY(GroupAdmin::isGroupLink("http://www.zalo.me/g/Ab_c-12?src=share"));
@@ -3339,7 +3428,6 @@ private slots:
         QVERIFY(!GroupAdmin::isGroupLink("https://zalo.me/g/"));
         QCOMPARE(GroupAdmin::normalizeGroupLink(" zalo.me/g/abcdef123?x=1 "), QString("https://zalo.me/g/abcdef123"));
 
-        // Hooks without a session: nothing is sent, state comes from server payloads only.
         QString role = "member";
         QStringList notices, reloaded;
         QSet<QString> known{"g-known"};
@@ -3351,7 +3439,6 @@ private slots:
         hooks.groupChanged = [&reloaded](const QString& id) { reloaded << id; };
         GroupAdmin admin(hooks);
 
-        // Settings: unknown until getmg-v2 delivered them; booleans per key.
         admin.openManage("g-1");
         QVERIFY(admin.manageOpen());
         QCOMPARE(reloaded, QStringList{"g-1"});
@@ -3364,13 +3451,12 @@ private slots:
         QCOMPARE(admin.settings().value("lockSendMsg").toBool(), false);
         QCOMPARE(admin.settings().value("blockName").toBool(), true);
         admin.rememberSettings("g-other", QJsonObject{{"joinAppr", 0}});
-        QCOMPARE(settingsSpy.count(), 1); // other groups do not touch the open dialog
-        admin.setSetting("joinAppr", false); // members cannot, and no session: unchanged
+        QCOMPARE(settingsSpy.count(), 1);
+        admin.setSetting("joinAppr", false);
         QCOMPARE(admin.settings().value("joinAppr").toBool(), true);
         role = "admin";
         QVERIFY(admin.canAdminister());
 
-        // Link detail.
         admin.applyLinkDetailForTesting(QJsonObject{{"link", "https://zalo.me/g/xyz789"}, {"enabled", 1},
                                                     {"expiration_date", 1700000000}});
         QCOMPARE(admin.link().value("enabled").toBool(), true);
@@ -3381,7 +3467,6 @@ private slots:
         QVERIFY(admin.link().value("link").toString().isEmpty());
         QCOMPARE(admin.link().value("loaded").toBool(), true);
 
-        // Pending requests and blocked members.
         admin.applyPendingForTesting(QJsonObject{{"time", 1}, {"users", QJsonArray{
             QJsonObject{{"uid", "u-p1"}, {"dpn", "Fixture P1"}, {"avatar", ""}},
             QJsonObject{{"uid", ""}, {"dpn", "no id"}}}}});
@@ -3393,22 +3478,20 @@ private slots:
         QCOMPARE(admin.blocked().size(), 1);
         QCOMPARE(admin.blocked().first().toMap().value("name").toString(), QString("Fixture B1"));
 
-        // Closing forgets the group; reopening starts clean.
         admin.closeManage();
         QVERIFY(!admin.manageOpen());
         QVERIFY(admin.groupId().isEmpty());
         admin.openManage("g-1");
         QVERIFY(admin.pending().isEmpty());
         QVERIFY(!admin.pendingLoaded());
-        QCOMPARE(admin.settings().value("joinAppr").toBool(), true); // settings stay cached per group
+        QCOMPARE(admin.settings().value("joinAppr").toBool(), true);
 
-        // Join by link: bad links are rejected locally, offline says so, a preview marks known groups.
         admin.openJoin("");
         QVERIFY(admin.joinOpen());
         admin.previewLink("https://example.com/x");
         QVERIFY(!admin.preview().value("error").toString().isEmpty());
         admin.previewLink("https://zalo.me/g/abcdef123");
-        QVERIFY(!admin.preview().value("error").toString().isEmpty()); // no session
+        QVERIFY(!admin.preview().value("error").toString().isEmpty());
         admin.applyPreviewForTesting("https://zalo.me/g/abcdef123", QJsonObject{
             {"groupId", "g-known"}, {"name", "Fixture Group"}, {"desc", ""}, {"totalMember", 42},
             {"currentMems", QJsonArray{QJsonObject{{"id", "u-1"}, {"dName", "A"}}}},
@@ -3421,14 +3504,12 @@ private slots:
         QVERIFY(!admin.joinOpen());
         QVERIFY(admin.preview().isEmpty());
 
-        // invite/multi reply: per-group error codes.
         QStringList failed;
         const QStringList done = GroupAdmin::invitedGroupsForTesting(QJsonObject{{"grid_message_map", QJsonObject{
             {"g-a", QJsonObject{{"error_code", 0}}}, {"g-b", QJsonObject{{"error_code", 269}}}}}}, &failed);
         QCOMPARE(done, QStringList{"g-a"});
         QCOMPARE(failed, QStringList{"g-b"});
 
-        // reset (sign-out) closes both dialogs and drops cached settings.
         admin.openJoin("");
         admin.reset();
         QVERIFY(!admin.manageOpen());
@@ -3436,7 +3517,6 @@ private slots:
         admin.openManage("g-1");
         QVERIFY(admin.settings().isEmpty());
 
-        // ZaloClient feeds getmg-v2 settings, routes chat links and lists groups for the invite picker.
         ZaloClient client;
         client.setMyUidForTesting("u-me");
         client.applyGroupInfoForTesting(QJsonObject{
@@ -3458,9 +3538,7 @@ private slots:
         client.groupAdmin()->closeManage();
     }
 
-    // Composer rich text (Zalo text styles), styled rendering, media runs, animated images, composite avatars.
     void testRichComposerMediaRunsAndCompositeAvatars() {
-        // 1. RichComposer: real document formatting exported as Zalo styles.
         QTextDocument doc;
         doc.setPlainText("Hello world foo");
         RichComposer composer;
@@ -3474,13 +3552,13 @@ private slots:
         QCOMPARE(st.first().toMap().value("st").toString(), QString("b"));
         composer.refresh(0, 5);
         QCOMPARE(composer.active().value("b").toBool(), true);
-        QVERIFY(composer.apply("b", 0, 5)); // toggles off
+        QVERIFY(composer.apply("b", 0, 5));
         QVERIFY(composer.styles().isEmpty());
-        QVERIFY(composer.apply("i", 7, 7)); // caret inside "world": the word
+        QVERIFY(composer.apply("i", 7, 7));
         QCOMPARE(composer.styles().first().toMap().value("start").toInt(), 6);
         QCOMPARE(composer.styles().first().toMap().value("len").toInt(), 5);
         QVERIFY(composer.apply("c_db342e", 0, 15));
-        QVERIFY(composer.apply("c_15a85f", 0, 5)); // colours are exclusive
+        QVERIFY(composer.apply("c_15a85f", 0, 5));
         bool red = false, green = false;
         for (const QVariant& v : composer.styles()) {
             const QVariantMap m = v.toMap();
@@ -3489,11 +3567,11 @@ private slots:
         }
         QVERIFY(red && green);
         QVERIFY(composer.apply("f_18", 0, 5));
-        QVERIFY(composer.apply("f_", 0, 5)); // normal size again
+        QVERIFY(composer.apply("f_", 0, 5));
         for (const QVariant& v : composer.styles()) QVERIFY(v.toMap().value("st").toString() != "f_18");
         composer.clearFormatting(0, 0);
         QVERIFY(composer.styles().isEmpty());
-        QVERIFY(!composer.apply("b", 5, 5) || true); // a space: nothing to format is acceptable
+        QVERIFY(!composer.apply("b", 5, 5) || true);
         doc.setPlainText("one\ntwo\n");
         composer.toggleList("lst_2", 0, 6);
         st = composer.styles();
@@ -3504,7 +3582,6 @@ private slots:
         QCOMPARE(composer.active().value("list").toString(), QString("lst_2"));
         composer.toggleList("lst_2", 0, 6);
         QVERIFY(composer.styles().isEmpty());
-        // Round trip through applyStyles.
         doc.setPlainText("abc def");
         RichComposer::applyStyles(&doc, {QVariantMap{{"start", 4}, {"len", 3}, {"st", "u"}}});
         QCOMPARE(RichComposer::exportStyles(&doc).size(), 1);
@@ -3516,7 +3593,6 @@ private slots:
         QCOMPARE(composer.styles().first().toMap().value("start").toInt(), 1);
         QCOMPARE(composer.styles().first().toMap().value("len").toInt(), 4);
 
-        // 2. Wire format and styled rendering.
         const QString props = ZaloSession::textPropertiesJson(QJsonArray{QJsonObject{{"start", 0}, {"len", 5}, {"st", "b"}},
                                                                           QJsonObject{{"start", -1}, {"len", 2}, {"st", "i"}}});
         QCOMPARE(props, QString(R"({"styles":[{"len":5,"st":"b","start":0}],"ver":0})"));
@@ -3533,9 +3609,8 @@ private slots:
         const MessageItem styled = client.toMessageItemForTesting(QJsonObject{
             {"msgId", "s1"}, {"uidFrom", "u-a"}, {"idTo", "u-me"}, {"msgType", "webchat"}, {"content", "Hi there"},
             {"ts", "1700000000000"}, {"params", R"({"styles":[{"start":0,"len":2,"st":"u"},{"start":5,"len":99,"st":"b"}]})"}}, false);
-        QCOMPARE(styled.extra.value("styles").toList().size(), 1); // out-of-range style dropped
+        QCOMPARE(styled.extra.value("styles").toList().size(), 1);
 
-        // 3. GIF: the still thumb stays, the animated href is kept for AnimatedImage.
         const MessageItem gif = client.toMessageItemForTesting(QJsonObject{
             {"msgId", "g1"}, {"uidFrom", "u-a"}, {"idTo", "u-me"}, {"msgType", "chat.gif"}, {"ts", "1700000000000"},
             {"content", QJsonObject{{"thumb", "https://example.com/t.jpg"}, {"href", "https://example.com/a.gif"},
@@ -3547,7 +3622,6 @@ private slots:
             {"content", QJsonObject{{"thumb", "https://example.com/t.jpg"}, {"href", "https://example.com/o.jpg"}}}}, false);
         QVERIFY(!photo.extra.contains("animatedUrl"));
 
-        // 4. Media runs: consecutive caption-less photos/stickers fold into the first row.
         MessageModel model;
         auto tile = [](const QString& id, const QString& type, qint64 ts, const QString& sender = "u-a") {
             MessageItem m;
@@ -3566,16 +3640,15 @@ private slots:
         QCOMPARE(role(0, MessageModel::InMediaRunRole).toBool(), false);
         QCOMPARE(role(1, MessageModel::InMediaRunRole).toBool(), true);
         QCOMPARE(role(2, MessageModel::InMediaRunRole).toBool(), true);
-        QCOMPARE(role(3, MessageModel::InMediaRunRole).toBool(), false); // captioned photo keeps its own bubble
-        QCOMPARE(role(4, MessageModel::MediaRunRole).toList().size(), 0); // single tile: no run
-        QCOMPARE(role(0, MessageModel::LastInGroupRole).toBool(), false); // m4 (same sender) follows the run
+        QCOMPARE(role(3, MessageModel::InMediaRunRole).toBool(), false);
+        QCOMPARE(role(4, MessageModel::MediaRunRole).toList().size(), 0);
+        QCOMPARE(role(0, MessageModel::LastInGroupRole).toBool(), false);
         QCOMPARE(role(0, MessageModel::MediaRunRole).toList().at(2).toMap().value("msgId").toString(), QString("m3"));
-        model.mergeMessages("c1", {tile("m6", "sticker", t0 + 10 * 60000)}); // > 5 min later: new run
+        model.mergeMessages("c1", {tile("m6", "sticker", t0 + 10 * 60000)});
         QCOMPARE(role(5, MessageModel::InMediaRunRole).toBool(), false);
         model.removeMessage("c1", "m2");
         QCOMPARE(role(0, MessageModel::MediaRunRole).toList().size(), 2);
 
-        // 5. Composite avatar of a group without a photo: first 4 members, count cell decided in QML.
         client.setMyUidForTesting("u-me");
         client.applyGroupInfoForTesting(QJsonObject{
             {"g-np", QJsonObject{{"name", "No Photo"}, {"avt", ""}, {"totalMember", 9},
@@ -3607,7 +3680,6 @@ private slots:
         QVERIFY(CallBridge::audioEngineFor(QStringLiteral("/nonexistent/zalos-call")).isEmpty());
     }
 
-    // Labels ("Nhãn", convlabel/get|update semantics of Zalo PC) and contact cards (sendCard / recommened.user).
     void testLabelsAndContactCards() {
         QStringList notices;
         QHash<QString, QVariantMap> applied;
@@ -3620,7 +3692,6 @@ private slots:
         QVERIFY(!labels.loaded());
         QCOMPARE(labels.palette().size(), 8);
 
-        // Server list as a JSON string, out of order, one group conversation ("g" prefix).
         const QJsonArray server{
             QJsonObject{{"id", 2}, {"text", "Công việc"}, {"textKey", "STR_LABEL_WORK"}, {"color", "#0068FF"}, {"offset", 1},
                         {"conversations", QJsonArray{"g9001", "101"}}, {"emoji", ""}, {"createTime", 1}},
@@ -3630,32 +3701,29 @@ private slots:
         QVERIFY(labels.loaded());
         QCOMPARE(labels.versionForTesting(), 7);
         QCOMPARE(labels.labels().size(), 2);
-        QCOMPARE(labels.labels().first().toMap().value("text").toString(), QString("Khách hàng")); // offset order
-        QCOMPARE(labels.labels().first().toMap().value("color").toString(), QString("#D91B1B"));     // "#" added
+        QCOMPARE(labels.labels().first().toMap().value("text").toString(), QString("Khách hàng"));
+        QCOMPARE(labels.labels().first().toMap().value("color").toString(), QString("#D91B1B"));
         QCOMPARE(labels.labels().at(1).toMap().value("count").toInt(), 2);
-        QCOMPARE(applied.value("9001").value("id").toInt(), 2);  // "g" prefix decoded
+        QCOMPARE(applied.value("9001").value("id").toInt(), 2);
         QCOMPARE(applied.value("102").value("text").toString(), QString("Khách hàng"));
         QCOMPARE(labels.labelOf("101"), 2);
         QCOMPARE(LabelManager::decodeConvId("g123"), QString("123"));
-        QCOMPARE(LabelManager::decodeConvId("u-b"), QString("u-b")); // not a prefix
+        QCOMPARE(LabelManager::decodeConvId("u-b"), QString("u-b"));
         QCOMPARE(LabelManager::encodeConvId("123", true), QString("g123"));
 
-        // Assign moves a conversation (one label each); assigning its own label again removes it.
         QJsonArray next = labels.assignedForTesting("101", 1);
         QCOMPARE(next.at(0).toObject().value("conversations").toArray().size(), 2);
         QCOMPARE(next.at(1).toObject().value("conversations").toArray(), QJsonArray{"g9001"});
         next = labels.assignedForTesting("101", 2);
         QCOMPARE(next.at(1).toObject().value("conversations").toArray(), QJsonArray{"g9001"});
         next = labels.assignedForTesting("9002", 1);
-        QVERIFY(next.at(0).toObject().value("conversations").toArray().contains(QJsonValue("g9002"))); // groups get "g"
+        QVERIFY(next.at(0).toObject().value("conversations").toArray().contains(QJsonValue("g9002")));
 
-        // Without a session nothing changes locally, the would-be request is still built, and a notice says why.
         labels.assign("101", 1);
         QCOMPARE(labels.labelOf("101"), 2);
         QCOMPARE(labels.lastSubmittedForTesting().at(0).toObject().value("conversations").toArray().size(), 2);
         QVERIFY(!notices.isEmpty());
 
-        // Create: validation (empty, too long, duplicate), new id = max + 1, palette colour.
         QVERIFY(!labels.create("  ", "#4BC377").isEmpty());
         QVERIFY(!labels.create(QString(31, 'x'), "#4BC377").isEmpty());
         QVERIFY(!labels.create("khách hàng", "#4BC377").isEmpty());
@@ -3663,26 +3731,22 @@ private slots:
         QCOMPARE(labels.lastSubmittedForTesting().size(), 3);
         QCOMPARE(labels.lastSubmittedForTesting().at(2).toObject().value("id").toInt(), 3);
         QCOMPARE(labels.lastSubmittedForTesting().at(2).toObject().value("offset").toInt(), 2);
-        // Edit: renaming a default label drops its textKey; recolour.
         QVERIFY(labels.edit(2, "Việc gấp", "#FF6905").isEmpty());
         const QJsonObject edited = labels.lastSubmittedForTesting().at(1).toObject();
         QCOMPARE(edited.value("text").toString(), QString("Việc gấp"));
         QVERIFY(!edited.contains("textKey"));
         QCOMPARE(edited.value("color").toString(), QString("#FF6905"));
-        // Move and remove re-number offsets.
         labels.move(2, -1);
         QCOMPARE(labels.lastSubmittedForTesting().at(0).toObject().value("id").toInt(), 2);
         QCOMPARE(labels.lastSubmittedForTesting().at(0).toObject().value("offset").toInt(), 0);
         labels.remove(1);
         QCOMPARE(labels.lastSubmittedForTesting().size(), 1);
         QCOMPARE(labels.lastSubmittedForTesting().at(0).toObject().value("offset").toInt(), 0);
-        // Max 15 labels.
         QJsonArray full;
         for (int i = 1; i <= 15; ++i) full.append(QJsonObject{{"id", i}, {"text", QString("L%1").arg(i)}, {"offset", i}});
         labels.applyServer(QJsonObject{{"labelData", full}, {"version", 8}});
         QVERIFY(!labels.create("L16", "#4BC377").isEmpty());
 
-        // ConversationModel: labels replace the old ones (a removed label clears the pill) and filter the list.
         ConversationModel convs;
         ConversationItem a; a.id = "u-a"; a.name = "A"; a.tag = "stale"; a.tagColor = "#000000";
         ConversationItem b; b.id = "u-b"; b.name = "B";
@@ -3704,10 +3768,9 @@ private slots:
         convs.setLabelFilter(0);
         map.insert("u-c", QVariantMap{{"id", 4}, {"text", "VIP"}, {"color", "#D91B1B"}});
         convs.applyLabels(map);
-        convs.addConversation(c); // added later: still gets its label
+        convs.addConversation(c);
         QCOMPARE(convs.data(convs.index(rowOf("u-c")), ConversationModel::LabelIdRole).toInt(), 4);
 
-        // Received contact card (chat.recommended / recommened.user): uid in params, phone + QR in description.
         ZaloClient client;
         const MessageItem card = client.toMessageItemForTesting(QJsonObject{
             {"msgId", "c1"}, {"uidFrom", "u-a"}, {"idTo", "u-me"}, {"msgType", "chat.recommended"}, {"ts", "1700000000000"},
@@ -3723,7 +3786,6 @@ private slots:
             {"content", QJsonObject{{"action", "recommened.link"}, {"title", "Page"}, {"href", "https://example.com"}}}}, false);
         QCOMPARE(link.messageType, QString("link"));
 
-        // Share / pick modes; offline send keeps an honest failed echo.
         client.selectConversation("u-a", "A", "");
         client.openShareCard("u-card", "Fixture Person");
         QCOMPARE(client.forwardMode(), QString("card"));
@@ -3739,11 +3801,9 @@ private slots:
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(last), MessageModel::StatusRole).toString(), QString("failed"));
     }
 
-    // Our camera in a video call: frames → I420 (centre crop) → OpenH264 → Annex-B, rung, throttle, key frames.
     void testCameraSenderEncodesFrames() {
         if (!OpenH264::instance().available())
             QSKIP(qPrintable("OpenH264 unavailable: " + OpenH264::instance().unavailableReason()));
-        // A 4:3 synthetic camera picture (Qt 6.4-compatible construction).
         auto makeFrame = [](int w, int h, int shade) {
             QVideoFrame frame(QVideoFrameFormat(QSize(w, h), QVideoFrameFormat::Format_BGRA8888));
             if (!frame.map(QVideoFrame::WriteOnly)) return QVideoFrame();
@@ -3759,12 +3819,60 @@ private slots:
             frame.unmap();
             return frame;
         };
-        // Centre crop keeps the aspect: a 4:3 frame converted to 16:9 is not stretched.
         const QByteArray i420 = frameToI420(makeFrame(640, 480, 10), QSize(320, 180));
         QCOMPARE(i420.size(), 320 * 180 * 3 / 2);
 
+        auto nonZeroBytes = [](const QByteArray& buf) {
+            for (char ch : buf) {
+                if (ch != 0) return true;
+            }
+            return false;
+        };
+        auto makeYuvFrame = [](int w, int h, QVideoFrameFormat::PixelFormat fmt) {
+            QVideoFrame frame(QVideoFrameFormat(QSize(w, h), fmt));
+            if (!frame.map(QVideoFrame::WriteOnly)) return QVideoFrame();
+            for (int r = 0; r < h; ++r) {
+                uchar* line = frame.bits(0) + r * frame.bytesPerLine(0);
+                if (fmt == QVideoFrameFormat::Format_YUYV) {
+                    for (int c = 0; c < w; c += 2) {
+                        line[c * 2 + 0] = uchar((r + c + 16) & 0xff);
+                        line[c * 2 + 1] = 90;
+                        line[c * 2 + 2] = uchar((r + c + 17) & 0xff);
+                        line[c * 2 + 3] = 160;
+                    }
+                } else {
+                    std::memset(line, uchar(64 + (r & 0x3f)), size_t(w));
+                }
+            }
+            if (fmt == QVideoFrameFormat::Format_YUV420P) {
+                for (int r = 0; r < h / 2; ++r) {
+                    std::memset(frame.bits(1) + r * frame.bytesPerLine(1), 96, size_t(w / 2));
+                    std::memset(frame.bits(2) + r * frame.bytesPerLine(2), 144, size_t(w / 2));
+                }
+            } else if (fmt == QVideoFrameFormat::Format_NV12) {
+                for (int r = 0; r < h / 2; ++r) {
+                    uchar* uv = frame.bits(1) + r * frame.bytesPerLine(1);
+                    for (int c = 0; c < w / 2; ++c) {
+                        uv[c * 2] = 96;
+                        uv[c * 2 + 1] = 144;
+                    }
+                }
+            }
+            frame.unmap();
+            return frame;
+        };
+        for (const auto fmt : {QVideoFrameFormat::Format_YUV420P, QVideoFrameFormat::Format_NV12,
+                                QVideoFrameFormat::Format_YUYV}) {
+            const QByteArray exact = frameToI420(makeYuvFrame(320, 180, fmt), QSize(320, 180));
+            QCOMPARE(exact.size(), 320 * 180 * 3 / 2);
+            QVERIFY(nonZeroBytes(exact));
+            const QByteArray cropped = frameToI420(makeYuvFrame(640, 480, fmt), QSize(320, 180));
+            QCOMPARE(cropped.size(), 320 * 180 * 3 / 2);
+            QVERIFY(nonZeroBytes(cropped));
+        }
+
         CameraSender sender;
-        sender.setProfile(QSize(321, 181), 15, 200000); // odd sizes rounded down
+        sender.setProfile(QSize(321, 181), 15, 200000);
         QCOMPARE(sender.size(), QSize(320, 180));
         QList<bool> keys;
         QList<QByteArray> units;
@@ -3776,26 +3884,25 @@ private slots:
         });
         sender.processFrame(makeFrame(640, 480, 0));
         QCOMPARE(keys.size(), 1);
-        QVERIFY(keys.first());                       // the stream starts with a key frame
+        QVERIFY(keys.first());
         QVERIFY(units.first().startsWith(QByteArray("\x00\x00\x00\x01", 4)) || units.first().startsWith(QByteArray("\x00\x00\x01", 3)));
-        sender.processFrame(makeFrame(640, 480, 5)); // same instant: throttled to 15 fps
+        sender.processFrame(makeFrame(640, 480, 5));
         QCOMPARE(keys.size(), 1);
         QTest::qWait(80);
         sender.processFrame(makeFrame(640, 480, 9));
         QCOMPARE(keys.size(), 2);
-        QVERIFY(!keys.last());                       // delta frame
-        sender.requestKeyFrame();                    // engine asks (PLI / FIR)
+        QVERIFY(!keys.last());
+        sender.requestKeyFrame();
         QTest::qWait(80);
         sender.processFrame(makeFrame(640, 480, 13));
         QVERIFY(keys.last());
-        sender.setProfile(QSize(640, 360), 15, 300000); // new rung: re-open, key frame
+        sender.setProfile(QSize(640, 360), 15, 300000);
         QTest::qWait(80);
         sender.processFrame(makeFrame(640, 480, 17));
         QVERIFY(keys.last());
         QCOMPARE(sizes.first(), QSize(320, 180));
         QCOMPARE(sizes.last(), QSize(640, 360));
 
-        // The decoder of the peer side reads what we produce.
         H264Decoder decoder;
         QVERIFY(decoder.isOpen());
         bool damaged = false;
@@ -3804,8 +3911,6 @@ private slots:
         QVERIFY(decoded.isValid());
         QCOMPARE(decoded.size(), QSize(320, 180));
 
-        // CallBridge: camera availability needs a camera and the encoder; turning it on without a camera is refused
-        // honestly (the container has no camera).
         CallBridge bridge(nullptr);
         if (!CameraSender::cameraAvailable()) {
             QVERIFY(!bridge.cameraAvailable());
@@ -3815,7 +3920,78 @@ private slots:
         }
     }
 
-    // Who reacted with what (pill → details popup): per-user icons, groups by count, me first, removal by others.
+    void testUnreadReactionsOnOwnMessages() {
+        {
+            ZaloOfflineStore owner;
+            owner.bindOwner("u-rx-owner");
+            owner.clearCache();
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-rx-owner");
+        client.setMyUidForTesting("u-rx-owner");
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{
+            QJsonObject{{"msgId", "9901"}, {"cliMsgId", "9901"}, {"uidFrom", "0"}, {"idTo", "u-rx-peer"},
+                        {"msgType", "webchat"}, {"content", "fixture own words"}, {"ts", QString::number(now - 5000)}},
+            QJsonObject{{"msgId", "9902"}, {"cliMsgId", "9902"}, {"uidFrom", "u-rx-peer"}, {"idTo", "u-rx-owner"},
+                        {"msgType", "webchat"}, {"content", "fixture peer words"}, {"ts", QString::number(now - 4000)}}},
+            false, false);
+        auto react = [now](const QString& target, const QString& icon, int rType, const QString& eventId) {
+            return QJsonObject{{"uidFrom", "u-rx-peer"}, {"idTo", "u-rx-owner"}, {"msgId", eventId},
+                               {"ts", QString::number(now)},
+                               {"content", QJsonObject{{"rIcon", icon}, {"rType", rType},
+                                                       {"rMsg", QJsonArray{QJsonObject{{"gMsgID", target}}}}}}};
+        };
+        client.selectConversation("u-rx-peer", QString(), QString());
+        QCOMPARE(client.currentUnreadReactionCount(), 0);
+
+        client.handleReactionsForTesting(QJsonArray{react("9901", "/-heart", 5, "ev-1"),
+                                                    react("9902", "/-heart", 5, "ev-2")}, false, true);
+        QCOMPARE(client.currentUnreadReactionCount(), 1);
+        QCOMPARE(client.nextUnreadReactionMsgId(), QStringLiteral("9901"));
+        QVERIFY(!client.currentUnreadReactionIcon().isEmpty());
+
+        client.handleReactionsForTesting(QJsonArray{react("9901", "/-heart", 5, "ev-1")}, false, false);
+        client.handleReactionsForTesting(QJsonArray{react("9901", "/-strong", 3, "ev-3")}, false, false);
+        QCOMPARE(client.currentUnreadReactionCount(), 1);
+
+        client.handleReactionsForTesting(QJsonArray{react("9901", "", -1, "ev-4")}, false, true);
+        QCOMPARE(client.currentUnreadReactionCount(), 0);
+
+        client.handleReactionsForTesting(QJsonArray{react("9901", "/-heart", 5, "ev-5")}, false, false);
+        QCOMPARE(client.currentUnreadReactionCount(), 1);
+        client.markReactionsSeen("9901");
+        QCOMPARE(client.currentUnreadReactionCount(), 0);
+        QVERIFY(client.offlineStore()->unreadReactionsOf("u-rx-peer").isEmpty());
+
+        client.handleReactionsForTesting(QJsonArray{react("9901", "/-heart", 5, "ev-6")}, false, false);
+        QCOMPARE(client.currentUnreadReactionCount(), 1);
+        QCOMPARE(client.offlineStore()->messageText("9901"), QStringLiteral("fixture own words"));
+        client.markReactionsSeen("9901");
+
+        QJsonObject cliReact{
+            {"uidFrom", "u-rx-peer"}, {"idTo", "u-rx-owner"}, {"msgId", "ev-cli-1"}, {"ts", QString::number(now)},
+            {"content", QJsonObject{{"rIcon", "/-strong"}, {"rType", 3},
+                                    {"rMsg", QJsonArray{QJsonObject{{"gMsgID", "0"}, {"cMsgID", "9901"}}}}}}
+        };
+        client.handleReactionsForTesting(QJsonArray{cliReact}, false, true);
+        QCOMPARE(client.currentUnreadReactionCount(), 1);
+        QCOMPARE(client.nextUnreadReactionMsgId(), QStringLiteral("9901"));
+        QCOMPARE(client.notificationsForTesting()->shownForTesting(QStringLiteral("reaction:u-rx-peer:9901")), 2);
+        client.markReactionsSeen("9901");
+
+        client.handleReactionsForTesting(QJsonArray{react("8456208657318", ":>", 0, "ev-uncached-1")}, false, true);
+        QCOMPARE(client.currentUnreadReactionCount(), 1);
+        QCOMPARE(client.nextUnreadReactionMsgId(), QStringLiteral("8456208657318"));
+        QCOMPARE(client.notificationsForTesting()->shownForTesting(QStringLiteral("reaction:u-rx-peer:8456208657318")), 1);
+        client.markReactionsSeen("8456208657318");
+
+        client.handleReactionsForTesting(QJsonArray{react("9901", "/-heart", 5, "ev-7")}, false, false);
+        client.offlineStore()->deleteMessage("9901");
+        QVERIFY(client.offlineStore()->unreadReactionsOf("u-rx-peer").isEmpty());
+        QVERIFY(client.offlineStore()->messageText("9901").isEmpty());
+    }
+
     void testReactionDetails() {
         ZaloClient client;
         client.setMyUidForTesting("u-me");
@@ -3835,31 +4011,28 @@ private slots:
         QCOMPARE(groups.at(0).toMap().value("count").toInt(), 2);
         const QVariantList people = d.value("people").toList();
         QCOMPARE(people.size(), 4);
-        QVERIFY(people.first().toMap().value("isMe").toBool()); // "0" = this account, listed first
+        QVERIFY(people.first().toMap().value("isMe").toBool());
         QCOMPARE(people.first().toMap().value("emoji").toString(), QString::fromUtf8("❤️"));
-        // Someone takes their reaction back (empty icon / rType -1).
         client.handleReactionsForTesting(QJsonArray{react("u-b", "", -1)}, true);
         d = client.reactionDetails("m-r1");
         QCOMPARE(d.value("total").toInt(), 3);
         QCOMPARE(d.value("groups").toList().size(), 2);
     }
 
-    // Reactions of history (bug 2026-11-03: 0 of 65 568 cached messages had one): per-user table, summary column
-    // updated for messages that are only on disk, an empty re-save never wipes it, details survive a restart.
     void testReactionHistoryPersists() {
         {
             ZaloOfflineStore store;
-            store.bindOwner("u-react-owner"); // returns whether another account was wiped
+            store.bindOwner("u-react-owner");
             store.clearCache();
-            store.bindOwner("u-react-owner"); // returns whether another account was wiped
+            store.bindOwner("u-react-owner");
             ConversationItem conv; conv.id = "u-react-peer"; conv.name = "Fixture"; conv.lastTs = 1000;
             QVERIFY(store.saveConversation(conv));
             MessageItem m; m.id = "7001"; m.text = "old"; m.ts = 1000; m.senderId = "u-react-peer";
             QVERIFY(store.saveMessage("u-react-peer", m));
             QVERIFY(store.addReactionEvent("7001", "u-a", "/-heart", "ev-1", 1000));
-            QVERIFY(!store.addReactionEvent("7001", "u-a", "/-heart", "ev-1", 1000)); // replay ignored
+            QVERIFY(!store.addReactionEvent("7001", "u-a", "/-heart", "ev-1", 1000));
             QVERIFY(store.setMessageReaction("7001", QString::fromUtf8("❤️")));
-            QVERIFY(store.saveMessage("u-react-peer", m)); // re-save without a summary
+            QVERIFY(store.saveMessage("u-react-peer", m));
             QCOMPARE(store.loadMessages("u-react-peer").first().reaction, QString::fromUtf8("❤️"));
             QCOMPARE(store.reactionEventsOf("7001").size(), 1);
             QCOMPARE(store.reactionEventsOf("7001").first().icon, QString("/-heart"));
@@ -3868,7 +4041,6 @@ private slots:
             QVERIFY(store.reactionEventsOf("7001").isEmpty());
         }
         {
-            // A reaction for a message that is not in RAM (thread never opened) still lands on disk.
             ZaloClient client;
             QVERIFY(client.openOfflineCacheForTesting("u-react-owner"));
             client.setMyUidForTesting("u-react-owner");
@@ -3877,9 +4049,9 @@ private slots:
         }
         {
             ZaloOfflineStore store;
-            store.bindOwner("u-react-owner"); // returns whether another account was wiped
+            store.bindOwner("u-react-owner");
             QCOMPARE(store.loadMessages("u-react-peer").first().reaction, QString::fromUtf8("👍"));
-            ZaloClient client; // fresh RAM: who reacted comes from the table
+            ZaloClient client;
             QVERIFY(client.openOfflineCacheForTesting("u-react-owner"));
             const QVariantMap d = client.reactionDetails("7001");
             QVERIFY(d.value("known").toBool());
@@ -3888,9 +4060,7 @@ private slots:
         }
     }
 
-    // Stickers: render info (animated WebP / sprite strip / still), packs, pack contents, recent, disk cache.
     void testStickerStore() {
-        // ext 2: the sprite url is an animated WebP; stickerWebpUrl otherwise; frames > 1 without WebP: sprite strip.
         QVariantMap a = StickerStore::describe(QJsonObject{{"id", 11}, {"cateId", 5}, {"type", 7}, {"ext", 2},
             {"stickerUrl", "https://example.com/s.png"}, {"stickerSpriteUrl", "https://example.com/s.webp"}, {"totalFrames", 1}});
         QCOMPARE(a.value("animatedUrl").toString(), QString("https://example.com/s.webp"));
@@ -3921,25 +4091,24 @@ private slots:
             store.setCacheFile(dir.filePath("info.json"));
             store.applyPersonalForTesting(QJsonObject{{"sticker_cates", QJsonArray{5, 9}}, {"version", 3}});
             store.applyCatalogForTesting(QJsonArray{QJsonObject{{"id", 5}, {"name", "Fixture Pack"}, {"iconUrl", "https://example.com/i.png"}}});
-            QCOMPARE(store.categories().size(), 2);  // no recent yet
+            QCOMPARE(store.categories().size(), 2);
             QCOMPARE(store.categories().first().toMap().value("name").toString(), QString("Fixture Pack"));
             store.applyCategoryForTesting(5, QJsonArray{QJsonObject{{"id", 12}, {"cateId", 5}, {"totalFrames", 16},
                 {"stickerUrl", "https://example.com/t.png"}, {"stickerSpriteUrl", "https://example.com/t-sprite.png"}}});
             store.selectCategory(5);
             QCOMPARE(store.stickers().size(), 1);
-            QCOMPARE(store.info("12").value("frames").toInt(), 16); // remembered for chat messages
+            QCOMPARE(store.info("12").value("frames").toInt(), 16);
             store.send(store.stickers().first().toMap());
             QCOMPARE(sent, QString("12/5/0"));
             QCOMPARE(store.categories().first().toMap().value("id").toInt(), int(StickerStore::kRecentId));
             store.selectCategory(StickerStore::kRecentId);
             QCOMPARE(store.stickers().size(), 1);
-        } // destructor flushes the cache file
+        }
         StickerStore again(hooks);
         again.setCacheFile(dir.filePath("info.json"));
         QCOMPARE(again.info("12").value("spriteUrl").toString(), QString("https://example.com/t-sprite.png"));
         QSettings().remove("stickers/recent/u-sticker-fixture");
 
-        // A chat.sticker message picks the render info up from the cache.
         ZaloClient client;
         client.stickers()->remember(b);
         const MessageItem m = client.toMessageItemForTesting(QJsonObject{{"msgId", "s-1"}, {"uidFrom", "u-a"}, {"idTo", "u-me"},
@@ -3968,13 +4137,12 @@ private slots:
         }
     }
 
-    // Personal To-Do host (bug 2026-11-03: -69 "Stop retry" from the group_board host).
     void testBoardServiceHost() {
-        ZaloClient client; // owns a ZaloSession with its network access manager and cookie jar
+        ZaloClient client;
         ZaloSession& session = *client.apiClient()->session();
         session.setLoginInfoForTesting(QJsonObject{{"zpw_service_map_v3", QJsonObject{
             {"group_board", QJsonArray{"https://groupboard.example"}}}}});
-        QCOMPARE(session.serviceUrls("boards"), QStringList{"https://board-wpa.api.zalo.me"}); // never group_board
+        QCOMPARE(session.serviceUrls("boards"), QStringList{"https://board-wpa.api.zalo.me"});
         session.setLoginInfoForTesting(QJsonObject{{"zpw_service_map_v3", QJsonObject{
             {"board", QJsonArray{"https://board.example"}}}}});
         QCOMPARE(session.serviceUrls("boards"), QStringList{"https://board.example"});
@@ -4002,8 +4170,6 @@ private slots:
         QVERIFY(!bridge.micAutoGain());
     }
 
-    // Reactions by other people reach the store from every socket shape: 612 live / 610-611 old arrays (handled by
-    // ZaloClient), control & offline pulls with reacts arrays, and "chat.reaction" items inside message lists.
     void testReactionEventsFromSocketShapes() {
         ZaloClient client;
         client.setMyUidForTesting("u-me");
@@ -4014,17 +4180,15 @@ private slots:
             QJsonObject{{"msgId", "8002"}, {"uidFrom", "u-peer"}, {"idTo", "0"}, {"msgType", "chat.reaction"},
                         {"content", QString::fromUtf8(QJsonDocument(QJsonObject{{"rType", 3},
                             {"rMsg", QJsonArray{QJsonObject{{"gMsgID", "7999"}}}}}).toJson(QJsonDocument::Compact))}}};
-        const QJsonArray kept = session->splitReactionMessages(mixed, false);
-        QCOMPARE(kept.size(), 1);                     // the reaction is not shown as a message
+        const QJsonArray kept = session->splitReactionMessages(mixed, false, false);
+        QCOMPARE(kept.size(), 1);
         QCOMPARE(kept.first().toObject().value("msgId").toString(), QString("8001"));
-        QCOMPARE(spy.count(), 1);                     // ZaloClient is connected to this signal
+        QCOMPARE(spy.count(), 1);
         const QVariantMap d = client.reactionDetails("7999");
         QVERIFY(d.value("known").toBool());
-        QCOMPARE(d.value("people").toList().first().toMap().value("emoji").toString(), QString::fromUtf8("👍")); // rType 3 only
+        QCOMPARE(d.value("people").toList().first().toMap().value("emoji").toString(), QString::fromUtf8("👍"));
     }
 
-    // One person can react many times and with several icons (Zalo apps: "👍❤️ 9"); replays are not counted twice;
-    // a removal takes back all of that person's reactions; our own tap is shown at once and not doubled by its echo.
     void testReactionMultipleTapsPerPerson() {
         ZaloClient client;
         client.setMyUidForTesting("u-me");
@@ -4037,17 +4201,17 @@ private slots:
         for (int i = 0; i < 6; ++i) taps.append(tap("u-tu", "/-heart", 5, QString("h%1").arg(i)));
         for (int i = 0; i < 3; ++i) taps.append(tap("u-tu", "/-strong", 3, QString("s%1").arg(i)));
         for (int i = 0; i < 4; ++i) taps.append(tap("u-harvey", "/-heart", 5, QString("x%1").arg(i)));
-        taps.append(tap("u-tu", "/-heart", 5, "h0")); // replay from the old queue
+        taps.append(tap("u-tu", "/-heart", 5, "h0"));
         client.handleReactionsForTesting(taps, true);
         QVariantMap d = client.reactionDetails("m-multi");
         QCOMPARE(d.value("total").toInt(), 13);
-        QCOMPARE(d.value("groups").toList().first().toMap().value("count").toInt(), 10); // ❤️ 10
+        QCOMPARE(d.value("groups").toList().first().toMap().value("count").toInt(), 10);
         const QVariantMap tu = d.value("people").toList().first().toMap();
         QCOMPARE(tu.value("uid").toString(), QString("u-tu"));
         QCOMPARE(tu.value("count").toInt(), 9);
         QCOMPARE(tu.value("emojis").toString(), QString::fromUtf8("❤️👍"));
         QCOMPARE(tu.value("perEmoji").toMap().value(QString::fromUtf8("👍")).toInt(), 3);
-        client.handleReactionsForTesting(QJsonArray{tap("u-tu", "", -1, "r1")}, true); // removal
+        client.handleReactionsForTesting(QJsonArray{tap("u-tu", "", -1, "r1")}, true);
         d = client.reactionDetails("m-multi");
         QCOMPARE(d.value("total").toInt(), 4);
         QCOMPARE(d.value("people").toList().size(), 1);
@@ -4057,7 +4221,6 @@ private slots:
         ZaloClient client;
         client.setMyUidForTesting("u-me");
 
-        // 1. Snapshot with object shape: reacts.reactions.<uid>.<rType>
         const QJsonObject msgWithReacts{
             {"msgId", "m-snap1"},
             {"cliMsgId", "c-snap1"},
@@ -4067,15 +4230,14 @@ private slots:
             {"content", "Hello snapshot"},
             {"reacts", QJsonObject{
                 {"reactions", QJsonObject{
-                    {"u-friend", QJsonObject{{"5", 2}}}, // 2 hearts
-                    {"u-other", QJsonObject{{"3", 1}}}   // 1 like
+                    {"u-friend", QJsonObject{{"5", 2}}},
+                    {"u-other", QJsonObject{{"3", 1}}}
                 }}
             }}
         };
         const Zalos::Core::Models::MessageItem item1 = client.toMessageItemForTesting(msgWithReacts, false);
         QCOMPARE(item1.reaction, QString::fromUtf8("❤️👍 3"));
 
-        // 2. Snapshot with array shape: reacts.reactions: [{rIcon: "/-heart", count: 2}]
         const QJsonObject msgWithArrayReacts{
             {"msgId", "m-snap2"},
             {"cliMsgId", "c-snap2"},
@@ -4092,7 +4254,6 @@ private slots:
         const Zalos::Core::Models::MessageItem item2 = client.toMessageItemForTesting(msgWithArrayReacts, false);
         QCOMPARE(item2.reaction, QString::fromUtf8("👍"));
 
-        // 3. Fallback to cMsgID when gMsgID is "0"
         const QJsonObject rMsgWithZeroGMsg{
             {"msgId", "ev-cmsg"},
             {"uidFrom", "u-friend"},
@@ -4111,7 +4272,6 @@ private slots:
         QCOMPARE(d.value("total").toInt(), 1);
         QCOMPARE(d.value("people").toList().first().toMap().value("uid").toString(), QString("u-friend"));
 
-        // 4. Forwarded and E2EE metadata
         const QJsonObject fwdMsg{
             {"msgId", "m-fwd"},
             {"uidFrom", "u-friend"},
@@ -4125,8 +4285,23 @@ private slots:
         QVERIFY(itemFwd.isE2EE);
     }
 
-    // Pinned messages (Zalo PC PinTopic): list parsing for groups (items/boardVersion/pinLimit) and 1-1 (data = JSON
-    // strings/version), topic built from a message, isPinned, controls that trigger a reload, offline refusal.
+    void testPinMediaCandidatesPreferLiveMessageUrls() {
+        const QVariantMap photo{{"msgType", 32}, {"thumb", "https://pin.invalid/stale-thumb.jpg"},
+                                {"href", "https://pin.invalid/stale-href.jpg"}};
+        const QJsonObject raw{{"content", QJsonObject{{"thumb", "https://msg.invalid/thumb.jpg"},
+                                                     {"href", "https://msg.invalid/full.jpg"},
+                                                     {"params", QString::fromUtf8(QJsonDocument(QJsonObject{{"hd", "https://msg.invalid/hd.jpg"}}).toJson(QJsonDocument::Compact))}}}};
+        QCOMPARE(PinBoard::mediaCandidates(photo, raw, false),
+                 QStringList({"https://msg.invalid/thumb.jpg", "https://pin.invalid/stale-thumb.jpg",
+                              "https://msg.invalid/full.jpg", "https://msg.invalid/hd.jpg", "https://pin.invalid/stale-href.jpg"}));
+        QCOMPARE(PinBoard::mediaCandidates(photo, raw, true).first(), QString("https://msg.invalid/full.jpg"));
+        QCOMPARE(PinBoard::mediaCandidates(photo, {}, false),
+                 QStringList({"https://pin.invalid/stale-thumb.jpg", "https://pin.invalid/stale-href.jpg"}));
+        const QVariantMap file{{"msgType", 46}, {"thumb", ""}, {"href", "https://pin.invalid/archive.zip"}};
+        QVERIFY(PinBoard::mediaCandidates(file, QJsonObject{{"content", QJsonObject{{"href", "https://msg.invalid/archive.zip"}}}}, true).isEmpty());
+        QVERIFY(PinBoard::mediaCandidates(QVariantMap{{"msgType", 1}, {"thumb", "not a url"}}, {}, false).isEmpty());
+    }
+
     void testPinBoard() {
         const QString topicJson = QString::fromUtf8(QJsonDocument(QJsonObject{{"id", 501}, {"type", 2},
             {"params", QString::fromUtf8(QJsonDocument(QJsonObject{{"global_msg_id", "9001"}, {"client_msg_id", "1700"},
@@ -4147,7 +4322,6 @@ private slots:
         QCOMPARE(version, 12);
         QCOMPARE(limit, 3);
 
-        // Topic for a message: our own message ("0") names us; photos carry the thumb; msg_type is the client type.
         const QJsonObject photo{{"msgId", "9002"}, {"cliMsgId", "1701"}, {"uidFrom", "0"}, {"msgType", "chat.photo"},
                                 {"content", QJsonObject{{"thumb", "https://example.com/t.jpg"}, {"title", "cap"}}}};
         const QJsonObject topic = PinBoard::topicForMessage(photo, "u-me", "Me");
@@ -4160,7 +4334,6 @@ private slots:
         QCOMPARE(PinBoard::topicForMessage(QJsonObject{{"msgId", "1"}, {"uidFrom", "u-b"}, {"msgType", "webchat"}, {"content", "hello"}},
                                            "u-me", "B").value("params").toObject().value("title").toString(), QString("hello"));
 
-        // ZaloClient: the open conversation's board; offline pin is refused honestly; pin controls are consumed.
         ZaloClient client;
         QSignalSpy noticeSpy(&client, &ZaloClient::notice);
         client.selectConversation("u-a", "Fixture A", "");
@@ -4170,7 +4343,6 @@ private slots:
         QVERIFY(client.hasPinnedMessage());
         QCOMPARE(client.currentPinnedMessageText(), QString("Fixture pinned text"));
         QCOMPARE(client.pins()->versionForTesting("u-a"), 7);
-        // Detail view: a pin whose message is not in the loaded history keeps its whole text from the topic.
         const QString longText = QString("Fixture line\n").repeated(200);
         client.pins()->applyListForTesting("u-a", QJsonObject{{"version", 8}, {"data", QJsonArray{
             QJsonObject{{"id", 502}, {"type", 2}, {"params", QJsonObject{{"global_msg_id", "9100"}, {"title", longText},
@@ -4182,12 +4354,11 @@ private slots:
         QCOMPARE(detail.value("local").toBool(), false);
         QCOMPARE(client.pins()->detail("503").value("image").toString(), QString("https://example.com/t2.jpg"));
         QVERIFY(client.pins()->detail("nope").isEmpty());
-        // Refused media (expired pin thumbs): remembered once, not refetched, retry forgets it.
         QSignalSpy brokenSpy(&client, &ZaloClient::brokenMediaChanged);
         const int rev = client.brokenMediaRevision();
         QVERIFY(!client.isMediaBroken("https://example.com/t2.jpg"));
         client.markMediaBroken("https://example.com/t2.jpg");
-        client.markMediaBroken("https://example.com/t2.jpg"); // no second change
+        client.markMediaBroken("https://example.com/t2.jpg");
         QVERIFY(client.isMediaBroken("https://example.com/t2.jpg"));
         QCOMPARE(brokenSpy.count(), 1);
         QVERIFY(client.brokenMediaRevision() > rev);
@@ -4196,15 +4367,14 @@ private slots:
         QVERIFY(!client.isMediaBroken("https://example.com/t2.jpg"));
         QCOMPARE(brokenSpy.count(), 2);
         client.pins()->applyListForTesting("u-a", QJsonObject{{"data", QJsonArray{topicJson}}, {"version", 7}}, false);
-        client.pins()->pinMessage("9001"); // offline
+        client.pins()->pinMessage("9001");
         QVERIFY(noticeSpy.count() >= 1);
         QVERIFY(client.pins()->handleControl("unpin_topic", QJsonObject{{"conversationId", "u-a"}}));
         QVERIFY(!client.pins()->handleControl("join", QJsonObject{}));
         client.selectConversation("u-b", "Fixture B", "");
-        QVERIFY(!client.hasPinnedMessage()); // boards are per conversation
+        QVERIFY(!client.hasPinnedMessage());
     }
 
-    // Memory/IO review 2026-11-03: no lavapipe/LLVM next to a GPU Vulkan driver; offline.db in WAL with a small cache.
     void testMemoryAndStorageTuning() {
         const QByteArray saved = qgetenv("VK_LOADER_DRIVERS_DISABLE");
         const QByteArray savedRhi = qgetenv("QSG_RHI_BACKEND");
@@ -4225,19 +4395,17 @@ private slots:
 
         ZaloOfflineStore store;
         QCOMPARE(store.pragmaForTesting("journal_mode").toLower(), QString("wal"));
-        QCOMPARE(store.pragmaForTesting("synchronous"), QString("1")); // NORMAL
+        QCOMPARE(store.pragmaForTesting("synchronous"), QString("1"));
     }
 
     void testFullProfileSuite() {
         ZaloClient client;
 
-        // 1. Test Open Self Profile
         QCOMPARE(client.showUserProfileModal(), false);
         client.openUserProfile();
         QCOMPARE(client.showUserProfileModal(), true);
         QCOMPARE(client.profileIsSelf(), true);
 
-        // 2. Test Update My Profile
         client.updateMyProfile("Nguyễn Văn Test", 1, "01/01/1995", "Yêu công nghệ, thích lập trình");
         QCOMPARE(client.profileDisplayName(), QString("Nguyễn Văn Test"));
         QCOMPARE(client.currentUserName(), QString("Nguyễn Văn Test"));
@@ -4245,24 +4413,20 @@ private slots:
         QCOMPARE(client.profileDob(), QString("01/01/1995"));
         QCOMPARE(client.profileBio(), QString("Yêu công nghệ, thích lập trình"));
 
-        // 3. Test View Other User Profile
         client.viewProfile("user-xyz");
         QCOMPARE(client.showUserProfileModal(), true);
         QCOMPARE(client.profileIsSelf(), false);
         QCOMPARE(client.profileUserId(), QString("user-xyz"));
 
-        // 4. Test Block / Unblock User
         QCOMPARE(client.profileIsBlocked(), false);
         client.blockUser("user-xyz");
         QCOMPARE(client.profileIsBlocked(), true);
         client.unblockUser("user-xyz");
         QCOMPARE(client.profileIsBlocked(), false);
 
-        // 5. Test Remove Friend
         client.removeFriend("user-xyz");
         QCOMPARE(client.profileIsFriend(), false);
 
-        // 6. Test Close Profile Modal
         client.closeUserProfile();
         QCOMPARE(client.showUserProfileModal(), false);
     }
@@ -4303,21 +4467,17 @@ private slots:
     }
 
     void testChatBackgroundModes() {
-        // The mode and image path are persisted in QSettings; start from a clean slate so a leaked
-        // value from an earlier run cannot decide what a "new install" reads back.
         {
             QSettings settings("Zalos", "ZalosApp");
             settings.remove("settings/chatBackgroundMode");
             settings.remove("settings/chatBackgroundImage");
             settings.remove("settings/useAvatarAsChatBackground");
-            // The retired profile-background mode must migrate to "none" on load.
             settings.setValue("settings/chatBackgroundMode", "background");
         }
         ZaloClient client;
         QCOMPARE(client.chatBackgroundMode(), QString("none"));
         QCOMPARE(client.currentConversationBackground(), QString());
 
-        // The source chain behind backgroundOf still powers the profile-card cover.
         QCOMPARE(ZaloClient::backgroundOf({{"cover", "https://x/cover.jpg"},
                                            {"bgavatar", "https://x/bg.jpg"}}),
                  QString("https://x/cover.jpg"));
@@ -4329,7 +4489,6 @@ private slots:
                  QString("https://x/full.jpg"));
         QCOMPARE(ZaloClient::backgroundOf({{"avatar", "https://x/av.jpg"}}), QString());
 
-        // Avatar mode dims the current conversation photo behind the messages and updates on every conversation switch.
         QSignalSpy bgSpy(&client, &ZaloClient::currentConversationBackgroundChanged);
         client.setGroupForTesting("grp-1", "Nh\u1ed3m th\u1eed", "https://x/group_av.jpg");
         client.setUserForTesting("u-peer-2", "B\u1ea1n th\u1eed", "https://x/peer2_av.jpg");
@@ -4341,7 +4500,6 @@ private slots:
         QCOMPARE(client.currentConversationBackground(), QString("https://x/group_av.jpg"));
         QCOMPARE(bgSpy.count(), spyBeforeMode + 1);
 
-        // Switching conversations in avatar mode must emit currentConversationBackgroundChanged and resolve fallback avatars.
         client.selectConversation("u-peer-2", QString(), QString());
         QCOMPARE(client.currentConversationBackground(), QString("https://x/peer2_av.jpg"));
         QCOMPARE(bgSpy.count(), spyBeforeMode + 2);
@@ -4354,12 +4512,10 @@ private slots:
         QCOMPARE(client.currentConversationBackground(), QString("https://x/group_av.jpg"));
         QCOMPARE(bgSpy.count(), spyBeforeMode + 4);
 
-        // Unknown values collapse to "none".
         client.setChatBackgroundMode("wallpaper");
         QCOMPARE(client.chatBackgroundMode(), QString("none"));
         QCOMPARE(client.currentConversationBackground(), QString());
 
-        // Custom mode renders a user-selected local image copied into the app data directory.
         QTemporaryFile source;
         source.setFileTemplate(QDir::tempPath() + QStringLiteral("/zalos_bg_XXXXXX.png"));
         QVERIFY(source.open());
@@ -4372,14 +4528,11 @@ private slots:
         QVERIFY(QFileInfo::exists(client.chatBackgroundImage()));
         QVERIFY(client.currentConversationBackground().startsWith(QStringLiteral("file://")));
 
-        // Clearing removes the managed copy and falls back to the plain background.
         client.clearChatBackgroundImage();
         QCOMPARE(client.chatBackgroundMode(), QString("none"));
         QVERIFY(client.chatBackgroundImage().isEmpty());
         QCOMPARE(client.currentConversationBackground(), QString());
 
-        // Regression test: setting chatBackgroundMode to "none" while legacy useAvatarAsChatBackground=true
-        // must preserve "none" and scrub the legacy setting.
         {
             QSettings legacySettings("Zalos", "ZalosApp");
             legacySettings.setValue("settings/useAvatarAsChatBackground", true);
@@ -4392,19 +4545,13 @@ private slots:
             QVERIFY(!legacySettings.contains("settings/useAvatarAsChatBackground"));
         }
 
-        // Leave no residue for the tests that run after this one.
         QSettings settings("Zalos", "ZalosApp");
         settings.remove("settings/chatBackgroundMode");
         settings.remove("settings/chatBackgroundImage");
         settings.remove("settings/useAvatarAsChatBackground");
     }
 
-    // tdesktop-inspired memory optimizations:
-    // 1. AvatarImageProvider::decodeScaled downsamples at decode time via QImageReader::setScaledSize.
-    // 2. When offlineStore is usable, incoming messages persist raw JSON to SQLite without duplicating in m_rawMessages RAM.
-    // 3. trimMemoryForBackground() collapses resident threads to the active conversation and clears avatar RAM cache.
     void testTdesktopMemoryOptimizations() {
-        // 1. Scaled decode from a 1600x900 PNG buffer into 96px circular and 320px cover targets.
         QImage big(1600, 900, QImage::Format_RGB32);
         big.fill(QColor("#0068FF"));
         QByteArray pngBytes;
@@ -4430,7 +4577,6 @@ private slots:
             QCOMPARE(coverDecoded.height(), 180);
         }
 
-        // 2 & 3. Zero m_rawMessages duplication when cacheUsable() is true + trimMemoryForBackground().
         {
             ZaloOfflineStore owner;
             owner.bindOwner("me-opt");
@@ -4458,11 +4604,9 @@ private slots:
         client.selectConversation("u-active", "Active Peer", "");
         emit client.apiClient()->session()->messagesReceived(incoming, false, false);
 
-        // Raw payloads are stored in SQLite, not duplicated in m_rawMessages RAM.
         QCOMPARE(client.rawMessageCountForTesting(), 0);
         QVERIFY(client.residentThreadCountForTesting() >= 5);
 
-        // Insert a dummy avatar into AvatarImageProvider's RAM cache to verify background trim clears it.
         client.storage()->setAvatarMemoryCleaner([]() { AvatarImageProvider::clearMemCache(); });
         AvatarImageProvider::insertMemCache("test-bg-trim-key", QImage(32, 32, QImage::Format_ARGB32));
         QImage dummyOut;
@@ -4477,7 +4621,6 @@ private slots:
         cleanup.clearCache();
     }
 
-    // Comprehensive memory lifecycle, bounded RSS scaling, navigation thrash, and 4K image downsampling gate.
     void testComprehensiveMemoryLifecycle() {
         auto getVmRssKb = []() -> qint64 {
             QFile f("/proc/self/status");
@@ -4492,7 +4635,6 @@ private slots:
 
         const qint64 initialRss = getVmRssKb();
 
-        // Stage 1: Zero-Duplication & Cold-Storage Ingestion
         {
             ZaloOfflineStore owner;
             owner.bindOwner("u-mem-audit");
@@ -4528,10 +4670,8 @@ private slots:
         const qint64 rssAfterIngestion = getVmRssKb();
         qInfo("[MemoryAudit] Ingestion (3,000 msgs): Initial RSS = %lld kB, Post-Ingestion = %lld kB (+%lld kB)",
               initialRss, rssAfterIngestion, rssAfterIngestion - initialRss);
-        // SQLite page cache, schema overhead, and conversation metadata for 3,000 messages must remain under 65MB.
         QVERIFY2(rssAfterIngestion - initialRss < 65000, "Cold message ingestion exceeded bounded RSS limit!");
 
-        // Stage 2: Navigation & LRU Cache Eviction (Leak Prevention)
         for (int round = 0; round < 2; ++round) {
             for (int c = 0; c < 30; ++c) {
                 client.selectConversation(QString("u-audit-conv-%1").arg(c), "Peer", "");
@@ -4543,19 +4683,18 @@ private slots:
                  "Resident thread LRU eviction failed: more than 12 threads held in RAM!");
         QCOMPARE(client.messageModel()->threadSize("u-audit-conv-0"), 0);
 
-        // Stage 3: Large Image Downscaling Spike Suppression
-#ifdef __GLIBC__
-        const size_t heapBeforeImage = mallinfo2().uordblks;
-#endif
-        QImage highRes4K(3840, 2160, QImage::Format_RGB32);
-        highRes4K.fill(QColor("#0068FF"));
         QByteArray encodedJpg;
         {
+            QImage highRes4K(3840, 2160, QImage::Format_RGB32);
+            highRes4K.fill(QColor("#0068FF"));
             QBuffer buffer(&encodedJpg);
             buffer.open(QIODevice::WriteOnly);
             highRes4K.save(&buffer, "JPG", 85);
         }
 
+#ifdef __GLIBC__
+        const size_t heapBeforeImage = mallinfo2().uordblks;
+#endif
         {
             QBuffer inBuf(&encodedJpg);
             inBuf.open(QIODevice::ReadOnly);
@@ -4572,7 +4711,6 @@ private slots:
         QVERIFY2(imageHeapDelta < 16 * 1024 * 1024, "Image decode triggered full-resolution heap spike!");
 #endif
 
-        // Stage 4: Background Trim (Minimize-to-Tray working-set collapse)
         client.storage()->setAvatarMemoryCleaner([]() { AvatarImageProvider::clearMemCache(); });
         AvatarImageProvider::insertMemCache("audit-avatar-1", QImage(64, 64, QImage::Format_ARGB32));
         AvatarImageProvider::insertMemCache("audit-avatar-2", QImage(64, 64, QImage::Format_ARGB32));
@@ -4591,12 +4729,9 @@ private slots:
         cleanup.clearCache();
     }
 
-    // System theme (mode 2) reads surfaces/text/link from the platform palette snapshot, so it works
-    // for every Qt and GTK theme line, while Zalo Light/Dark (modes 0/1) keep their exact literals.
     void testSystemThemePaletteSnapshot() {
         const QPalette original = QGuiApplication::palette();
 
-        // A synthetic desktop palette, as any Qt or GTK platform theme would deliver at startup.
         QPalette system;
         system.setColor(QPalette::Window, QColor("#101010"));
         system.setColor(QPalette::Base, QColor("#0A0A0A"));
@@ -4609,34 +4744,28 @@ private slots:
         {
             ThemeManager theme;
             theme.setThemeMode(ThemeManager::SystemTheme);
-            // Mode 2 derives surfaces and text straight from the platform palette roles.
             QCOMPARE(theme.backgroundColor(), QColor("#101010"));
             QCOMPARE(theme.chatBackgroundColor(), QColor("#0A0A0A"));
             QCOMPARE(theme.cardBackgroundColor(), QColor("#202020"));
             QCOMPARE(theme.textColor(), QColor("#EAEAEA"));
-            // syncApplicationPalette() overwrote the app palette (Window) but did not re-set Link;
-            // the snapshot still returns the system Link, which a direct app-palette read would lose.
             QCOMPARE(QGuiApplication::palette().color(QPalette::Window), QColor("#101010"));
             QVERIFY(QGuiApplication::palette().color(QPalette::Link) != QColor("#FF00FF"));
             QCOMPARE(theme.linkColor(), QColor("#FF00FF"));
-            // New mode-2 tokens follow the system instead of the Zalo literals.
             QCOMPARE(theme.uiLinkColor(), QColor("#FF00FF"));
             QCOMPARE(theme.reactionSurfaceColor(), QColor("#0A0A0A"));
             QCOMPARE(theme.inactiveSubtleColor(), QColor("#7F7F7F"));
 
-            // Zalo Light: literals untouched (parity guard).
             theme.setThemeMode(ThemeManager::ZaloLight);
             QCOMPARE(theme.uiAccentColor(), QColor("#0068FF"));
             QCOMPARE(theme.activenessColor(), QColor("#0068FF"));
             QCOMPARE(theme.uiLinkColor(), QColor("#0068FF"));
-            QCOMPARE(theme.cardBackgroundColor(), QColor("#EBECF0")); // Theme.mediaPlaceholder source
+            QCOMPARE(theme.cardBackgroundColor(), QColor("#EBECF0"));
             QCOMPARE(theme.reactionSurfaceColor(), QColor("#FFFFFF"));
             QCOMPARE(theme.inactiveSubtleColor(), QColor("#B5B5B5"));
             QCOMPARE(theme.inactiveDisabledColor(), QColor("#DBDBDB"));
             QCOMPARE(theme.activeDisabledColor(), QColor("#ADD1FF"));
             QCOMPARE(theme.dropOverlayColor(), QColor("#F0F7FF"));
 
-            // Zalo Dark: literals untouched.
             theme.setThemeMode(ThemeManager::ZaloDark);
             QCOMPARE(theme.activenessColor(), QColor("#66A6FF"));
             QCOMPARE(theme.uiLinkColor(), QColor("#66A6FF"));
@@ -4651,8 +4780,6 @@ private slots:
         QGuiApplication::setPalette(original);
     }
 
-    // Peer video: H.264 access units on the UI socket -> decoder thread -> the QML sink. The stream is
-    // produced by the same OpenH264 (synthetic gradient pictures), so it needs libopenh264 at run time.
     void testPeerVideoDecodeToSink() {
         using namespace Zalos::Core::Call;
         if (!CallBridge::videoSupported())
@@ -4672,10 +4799,9 @@ private slots:
             if (!au.isEmpty()) units.append({key, au});
         }
         QVERIFY(!units.isEmpty());
-        QVERIFY(units.first().first); // the first unit is an IDR with SPS/PPS
+        QVERIFY(units.first().first);
         QVERIFY(units.first().second.startsWith(QByteArray("\x00\x00\x00\x01", 4)));
 
-        // Direct round trip through the decoder.
         {
             H264Decoder decoder;
             QVERIFY(decoder.isOpen());
@@ -4695,7 +4821,6 @@ private slots:
         QSignalSpy activeSpy(calls, &CallBridge::peerVideoChanged);
         calls->injectUiLineForTesting(R"({"type":"state","phase":"connected","video":true,"name":"Fixture","since":1})");
 
-        // Deltas before any key frame are dropped (nothing shown), then the key frame starts the stream.
         QByteArray stream;
         auto appendUnit = [&stream](bool key, const QByteArray& au) {
             stream += QByteArray(R"({"type":"video","key":)") + (key ? "true" : "false")
@@ -4711,15 +4836,11 @@ private slots:
         QVERIFY(calls->peerVideoActive());
         QVERIFY(activeSpy.count() >= 1);
 
-        // The call ends: the picture and the active flag are cleared.
         calls->injectUiLineForTesting(R"({"type":"close"})");
         calls->hangup();
         QVERIFY(!calls->peerVideoActive());
         QVERIFY(!sink.videoFrame().isValid());
     }
-
-    // ---- tdesktop learnings (2026-11-03): single instance, notification actions, unread bar, drafts,
-    //      scheduler split, shortcut table, passcode lock, storage pruning, voice recorder ----
 
     void testSingleInstanceActivatesPrimary() {
         using Zalos::Core::Platform::SingleInstance;
@@ -4732,17 +4853,15 @@ private slots:
 
         qputenv("XDG_ACTIVATION_TOKEN", "fixture-token");
         SingleInstance second(QStringLiteral("fixture-data-dir"), runtime.path());
-        QVERIFY(!second.start()); // the first one runs: it is asked to come forward instead
+        QVERIFY(!second.start());
         qunsetenv("XDG_ACTIVATION_TOKEN");
         QTRY_COMPARE_WITH_TIMEOUT(activated.count(), 1, 5000);
         QCOMPARE(activated.first().first().toString(), QString("fixture-token"));
 
-        // Another data directory is another instance.
         SingleInstance other(QStringLiteral("other-data-dir"), runtime.path());
         QVERIFY(other.start());
         other.release();
 
-        // Released (e.g. the render guard relaunch): the next process becomes primary.
         first.release();
         SingleInstance third(QStringLiteral("fixture-data-dir"), runtime.path());
         QVERIFY(third.start());
@@ -4768,20 +4887,19 @@ private slots:
         QCOMPARE(actions.count(), 1);
         QCOMPARE(actions.first().at(0).toString(), QString("thread:u-a"));
         QCOMPARE(actions.first().at(2).toString(), QString("tok-1"));
-        n.invokeForTesting(999, "default"); // not ours
-        n.invokeForTesting(41, "inline-reply"); // the text comes through NotificationReplied
+        n.invokeForTesting(999, "default");
+        n.invokeForTesting(41, "inline-reply");
         QCOMPARE(actions.count(), 1);
         n.replyForTesting(41, "  ");
         n.replyForTesting(41, "ok nhé");
         QCOMPARE(replies.count(), 1);
         QCOMPARE(replies.first().at(1).toString(), QString::fromUtf8("ok nhé"));
-        n.registerForTesting("thread:u-a", 42); // replaced popup: the old id is forgotten
+        n.registerForTesting("thread:u-a", 42);
         n.invokeForTesting(41, "default");
         QCOMPARE(actions.count(), 1);
         n.closedForTesting(42);
         QCOMPARE(n.idForTesting("thread:u-a"), 0u);
 
-        // ZaloClient: click opens the thread and raises the window; mark-read clears the badge; reply sends.
         ZaloClient client;
         auto* session = client.apiClient()->session();
         const QString ts = QString::number(QDateTime::currentMSecsSinceEpoch());
@@ -4796,7 +4914,7 @@ private slots:
         convs->setUnreadCount("u-notif", 3);
         notifications->invokeForTesting(7, "mark-read");
         QCOMPARE(convs->conversation("u-notif").unreadCount, 0);
-        QCOMPARE(client.currentConversationId(), QString()); // marking read does not open it
+        QCOMPARE(client.currentConversationId(), QString());
         notifications->registerForTesting("thread:u-notif", 8);
         notifications->invokeForTesting(8, "default");
         QCOMPARE(client.currentConversationId(), QString("u-notif"));
@@ -4804,10 +4922,9 @@ private slots:
         notifications->registerForTesting("thread:u-notif", 9);
         const int before = client.messageModel()->threadSize("u-notif");
         notifications->replyForTesting(9, QString::fromUtf8("đã nhận"));
-        QCOMPARE(client.messageModel()->threadSize("u-notif"), before + 1); // local echo (offline: failed)
+        QCOMPARE(client.messageModel()->threadSize("u-notif"), before + 1);
         QVERIFY(convs->conversation("u-notif").lastMessage.contains(QString::fromUtf8("đã nhận")));
 
-        // Locked app: a reply from the popup is refused.
         client.appLock()->setPasscode("", "4321");
         client.appLock()->lock();
         notifications->registerForTesting("thread:u-notif", 10);
@@ -4828,21 +4945,20 @@ private slots:
             m.id = QStringLiteral("m%1").arg(i);
             m.text = QStringLiteral("t%1").arg(i);
             m.ts = base + i * 1000;
-            m.isMine = (i == 2); // one own message in between
+            m.isMine = (i == 2);
             m.senderId = m.isMine ? "me" : "peer";
             items.append(m);
         }
         model.mergeMessages("c-unread", items);
         QCOMPARE(incoming.count(), 1);
-        QCOMPARE(incoming.first().first().toInt(), 5); // own messages are not "new below"
+        QCOMPARE(incoming.first().first().toInt(), 5);
         model.setUnreadMarker("c-unread", 3);
-        QCOMPARE(model.unreadMarkerRow(), 3); // m3, m4, m5 are the 3 newest incoming
+        QCOMPARE(model.unreadMarkerRow(), 3);
         QVERIFY(model.data(model.index(3), MessageModel::UnreadMarkerRole).toBool());
         QVERIFY(!model.data(model.index(4), MessageModel::UnreadMarkerRole).toBool());
         model.clearUnreadMarker();
         QCOMPARE(model.unreadMarkerRow(), -1);
 
-        // More unread than loaded: placed when the history arrives.
         model.loadConversation("c-late");
         model.setUnreadMarker("c-late", 1);
         QCOMPARE(model.unreadMarkerRow(), -1);
@@ -4853,7 +4969,6 @@ private slots:
         model.mergeMessages("c-late", {late});
         QCOMPARE(model.unreadMarkerRow(), 0);
 
-        // Drafts: per thread, shown in the sidebar role, persisted per account, cleared by sending.
         ZaloClient client;
         auto* session = client.apiClient()->session();
         const QString ts = QString::number(QDateTime::currentMSecsSinceEpoch());
@@ -4871,7 +4986,7 @@ private slots:
         QVERIFY(row >= 0);
         QCOMPARE(convs->data(convs->index(row), ConversationModel::DraftRole).toString(), QString::fromUtf8("viết dở"));
         convs->clearDrafts();
-        client.reloadDraftsForTesting(); // from QSettings drafts/<uid>
+        client.reloadDraftsForTesting();
         QCOMPARE(client.draftFor("u-d1"), QString::fromUtf8("viết dở"));
         client.selectConversation("u-d1", "D1", "");
         client.sendMessage("gửi rồi");
@@ -4879,7 +4994,6 @@ private slots:
         client.reloadDraftsForTesting();
         QCOMPARE(client.draftFor("u-d1"), QString());
 
-        // chat.next / chat.previous follow the sidebar order.
         const QString first = convs->data(convs->index(0), ConversationModel::IdRole).toString();
         const QString second = convs->data(convs->index(1), ConversationModel::IdRole).toString();
         client.selectConversation(first, "", "");
@@ -4887,7 +5001,7 @@ private slots:
         QCOMPARE(client.currentConversationId(), second);
         client.selectAdjacentConversation(-1);
         QCOMPARE(client.currentConversationId(), first);
-        client.selectAdjacentConversation(-1); // already at the top: stays
+        client.selectAdjacentConversation(-1);
         QCOMPARE(client.currentConversationId(), first);
     }
 
@@ -4909,10 +5023,10 @@ private slots:
         QVERIFY(scheduler.schedule("c1", false, "hẹn", at));
         QCOMPARE(scheduler.entriesFor("c1").size(), 1);
         scheduler.runDue(at + 1);
-        QVERIFY(sent.isEmpty()); // not signed in
+        QVERIFY(sent.isEmpty());
         ready = true;
         scheduler.runDue(at - 1000);
-        QVERIFY(sent.isEmpty()); // not due yet
+        QVERIFY(sent.isEmpty());
         scheduler.runDue(at + 1);
         QCOMPARE(sent, QStringList({QString::fromUtf8("c1:hẹn")}));
         QSignalSpy failed(&scheduler, &MessageScheduler::sendFailed);
@@ -4929,7 +5043,6 @@ private slots:
         QTemporaryDir config;
         QFile custom(config.path() + "/shortcuts-custom.json");
         QVERIFY(custom.open(QIODevice::WriteOnly));
-        // Built with QJson (moc does not parse raw string literals with braces inside slots).
         const QJsonArray overrides{
             QJsonObject{{"command", "chat.next"}, {"keys", QJsonArray{"Alt+J"}}},
             QJsonObject{{"command", "app.quit"}, {"keys", QJsonArray{}}},
@@ -4940,9 +5053,9 @@ private slots:
         ShortcutMap map;
         map.load(config.path());
         QCOMPARE(map.keys("chat.next"), QStringList({"Alt+J"}));
-        QVERIFY(map.keys("app.quit").isEmpty());          // disabled by the user
-        QVERIFY(map.keys("made.up").isEmpty());           // unknown commands are not invented
-        QCOMPARE(map.keys("composer.voice"), QStringList({"Ctrl+Shift+V"})); // defaults stay
+        QVERIFY(map.keys("app.quit").isEmpty());
+        QVERIFY(map.keys("made.up").isEmpty());
+        QCOMPARE(map.keys("composer.voice"), QStringList({"Ctrl+Shift+V"}));
         QVERIFY(QFile::exists(config.path() + "/shortcuts-default.json"));
         QCOMPARE(map.all().size(), map.commands().size());
 
@@ -4951,21 +5064,21 @@ private slots:
             if (lock.hasPasscode()) QSKIP("a passcode from another run is set in this profile");
             QVERIFY(!lock.isEventFilterInstalledForTesting());
             QVERIFY(!lock.locked());
-            QVERIFY(!lock.setPasscode("", "12")); // too short
+            QVERIFY(!lock.setPasscode("", "12"));
             QVERIFY(lock.setPasscode("", "2468"));
             QVERIFY(!lock.isEventFilterInstalledForTesting());
             lock.setAutoLockMinutes(5);
             QVERIFY(lock.isEventFilterInstalledForTesting());
-            QVERIFY(!lock.setPasscode("0000", "1357")); // wrong current one
+            QVERIFY(!lock.setPasscode("0000", "1357"));
             lock.lock();
             QVERIFY(lock.locked());
             QVERIFY(!lock.isEventFilterInstalledForTesting());
             for (int i = 0; i < AppLock::kFreeAttempts; ++i) QVERIFY(!lock.unlock("0000"));
             QVERIFY(lock.retryAfterSeconds() > 0);
-            QVERIFY(!lock.unlock("2468")); // even the right one waits out the penalty
+            QVERIFY(!lock.unlock("2468"));
         }
         {
-            AppLock lock; // a set passcode locks on start
+            AppLock lock;
             QVERIFY(lock.hasPasscode());
             QVERIFY(lock.locked());
             QVERIFY(lock.unlock("2468"));
@@ -4977,7 +5090,7 @@ private slots:
             lock.setAutoLockMinutes(0);
         }
         QSettings settings;
-        QVERIFY(!settings.contains("lock/hash")); // only salt+hash were ever stored, and they are gone
+        QVERIFY(!settings.contains("lock/hash"));
     }
 
     void testStoragePruneAndVoiceRecorder() {
@@ -4989,13 +5102,12 @@ private slots:
             QVERIFY(f.open(QIODevice::WriteOnly));
             f.write(QByteArray(kb * 1024, 'x'));
             f.flush();
-            QVERIFY(f.setFileTime(now.addDays(-daysOld), QFileDevice::FileModificationTime)); // needs the open file
+            QVERIFY(f.setFileTime(now.addDays(-daysOld), QFileDevice::FileModificationTime));
             f.close();
         };
         make("old", 10, 40);
         make("mid", 10, 5);
         make("new", 10, 0);
-        // Age first (40 days > 31), then the oldest until <= 15 KB.
         const qint64 freed = StorageManager::pruneDirectory(dir.path(), 15 * 1024, 31LL * 24 * 3600 * 1000);
         QCOMPARE(freed, qint64(20 * 1024));
         QVERIFY(!QFile::exists(dir.path() + "/old"));
@@ -5006,11 +5118,10 @@ private slots:
         QCOMPARE(usage.size(), 5);
         for (const QVariant& v : usage) {
             const QVariantMap m = v.toMap();
-            QCOMPARE(m.value("clearable").toBool(), m.value("key").toString() != "downloads"); // user files stay
+            QCOMPARE(m.value("clearable").toBool(), m.value("key").toString() != "downloads");
         }
         QCOMPARE(storage.clear("downloads"), qint64(0));
 
-        // No microphone in the container: the recorder says so instead of pretending to record.
         Zalos::Core::Media::VoiceRecorder recorder;
         if (recorder.available()) QSKIP("a microphone is present");
         QSignalSpy failed(&recorder, &Zalos::Core::Media::VoiceRecorder::failed);
@@ -5018,7 +5129,6 @@ private slots:
         QVERIFY(!recorder.recording());
         QCOMPARE(failed.count(), 1);
 
-        // A finished take is a local voice echo (offline: marked failed, never "sent").
         QTemporaryDir takes;
         const QString take = takes.path() + "/take.aac";
         QFile f(take);
@@ -5036,7 +5146,6 @@ private slots:
     }
 
     void testSyncPromptStickersAndReactionList() {
-        // First sign-in prompt: shown once per account until synced or declined for good.
         ZaloClient client;
         client.setMyUidForTesting("u-prompt-owner");
         if (client.offlineStore()) client.offlineStore()->bindOwner("u-prompt-owner");
@@ -5049,33 +5158,30 @@ private slots:
         settings.remove("mobileSync/done/u-prompt-owner");
         settings.remove("mobileSync/neverAsk/u-prompt-owner");
         client.maybeOfferMobileSync();
-        QVERIFY(!client.showSyncPrompt()); // not signed in: never asks
+        QVERIFY(!client.showSyncPrompt());
         client.setLoggedInForTesting(true);
         client.maybeOfferMobileSync();
         QVERIFY(client.showSyncPrompt());
-        client.dismissSyncPrompt(false); // "Để sau": asks again next time
+        client.dismissSyncPrompt(false);
         QVERIFY(!client.showSyncPrompt());
         client.maybeOfferMobileSync();
         QVERIFY(client.showSyncPrompt());
-        client.dismissSyncPrompt(true); // "Không hỏi lại"
+        client.dismissSyncPrompt(true);
         client.maybeOfferMobileSync();
         QVERIFY(!client.showSyncPrompt());
         settings.remove("mobileSync/neverAsk/u-prompt-owner");
-        settings.setValue("mobileSync/done/u-prompt-owner", true); // already synced: never asks
+        settings.setValue("mobileSync/done/u-prompt-owner", true);
         client.maybeOfferMobileSync();
         QVERIFY(!client.showSyncPrompt());
         settings.remove("mobileSync/done/u-prompt-owner");
         client.setLoggedInForTesting(false);
 
-        // The reaction picker offers every Zalo reaction once (scrolls beyond the first 6).
         const QVariantList reactions = client.reactionList();
         QVERIFY(reactions.size() > 6);
         QSet<QString> emojis;
         for (const QVariant& v : reactions) emojis.insert(v.toMap().value("emoji").toString());
         QCOMPARE(emojis.size(), reactions.size());
 
-        // A sticker seen while offline keeps an empty URL (placeholder in the UI) and waits in the queue instead
-        // of being dropped; it is never invisible data loss.
         auto* session = client.apiClient()->session();
         const QString ts = QString::number(QDateTime::currentMSecsSinceEpoch());
         emit session->messagesReceived(QJsonArray{QJsonObject{{"msgId", "9301"}, {"uidFrom", "u-stk"}, {"idTo", "0"},
@@ -5090,7 +5196,6 @@ private slots:
 
     void testSystemSoundsAutostartAndTray() {
         using Zalos::Core::Platform::SoundEngine;
-        // A fake sound theme on XDG_DATA_DIRS: theme files are listed with the theme's name, speaker tests and
         // licence files are not, and a directory without index.theme (alsa) is skipped.
         QTemporaryDir data;
         QDir root(data.path());
@@ -5122,9 +5227,8 @@ private slots:
         QVERIFY(SoundEngine::isValidKey("notification", key));
         QVERIFY(!SoundEngine::isValidKey("notification", "system:/no/such/file.oga"));
         QVERIFY(SoundEngine::isValidKey("ringtone", "classic"));
-        QVERIFY(!SoundEngine::isValidKey("ringtone", "pop")); // a notification key is not a ringtone
+        QVERIFY(!SoundEngine::isValidKey("ringtone", "pop"));
 
-        // "Khởi động cùng hệ thống": writes / removes ~/.config/autostart/zalos.desktop.
         QTemporaryDir config;
         const QByteArray oldConfig = qgetenv("XDG_CONFIG_HOME");
         qputenv("XDG_CONFIG_HOME", config.path().toUtf8());
@@ -5141,12 +5245,11 @@ private slots:
             QVERIFY(text.contains("--autostart"));
             client.setStartWithSystem(false);
             QVERIFY(!QFile::exists(ZaloClient::autostartFilePath()));
-            QVERIFY(client.closeToTray()); // Zalo PC behaviour by default
+            QVERIFY(client.closeToTray());
         }
         if (oldConfig.isEmpty()) qunsetenv("XDG_CONFIG_HOME"); else qputenv("XDG_CONFIG_HOME", oldConfig);
     }
 
-    // ZIcon glyphs are rendered antialiased at the requested pixel size (no jagged edges on any backend).
     void testIconProviderAntialiases() {
         Zalos::Core::Platform::IconImageProvider provider;
         const QString check = "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z";
@@ -5163,8 +5266,7 @@ private slots:
                 else if (a > 0) ++partial;
             }
         QVERIFY(opaque > 20);
-        QVERIFY(partial > 10); // edge pixels with intermediate coverage = antialiasing
-        // Stroke style and an unknown/empty path are safe.
+        QVERIFY(partial > 10);
         QVERIFY(Zalos::Core::Platform::IconImageProvider::svgFor(false, QColor("#123456"), check).contains("stroke=\"#123456\""));
         QVERIFY(!provider.requestImage("f/x/", &size, QSize(16, 16)).isNull());
     }
@@ -5181,7 +5283,6 @@ private slots:
         QCOMPARE(videoFrameSpy.count(), 1);
         QCOMPARE(calls->isVideo(), true);
 
-        // Test Forward Message
         client.selectConversation("conv-1", "Conv 1", "");
         client.sendMessage("Tin nhắn gốc");
         QString msgId = client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString();
@@ -5194,27 +5295,23 @@ private slots:
         QCOMPARE(client.showForwardModal(), false);
         QCOMPARE(client.messageModel()->threadSize("conv-2"), 1);
 
-        // Test Mobile Sync Control
         auto* session = client.apiClient()->session();
         QCOMPARE(client.mobileSyncState(), 0);
 
-        // Simulate mobile user confirm push event
         QJsonObject confirmCtrl{
             {"act_type", "syncmsgmb"},
             {"act", "user_confirm"},
             {"data", QJsonObject{{"user_action", 1}}}
         };
         emit session->mobileSyncControlReceived(confirmCtrl);
-        QCOMPARE(client.mobileSyncState(), 0); // not ours: no fake progress
+        QCOMPARE(client.mobileSyncState(), 0);
 
-        // Simulate syncmsg_info
         QJsonObject infoCtrl{
             {"act_type", "syncmsgmb"},
             {"act", "syncmsg_info"},
             {"data", QJsonObject{{"sync_session", "session-123"}}}
         };
         emit session->mobileSyncControlReceived(infoCtrl);
-        // Controls for a request this client never made (no matching public key) are ignored.
         QCOMPARE(client.mobileSyncState(), 0);
 
         calls->hangup();
@@ -5223,35 +5320,28 @@ private slots:
     void testPresenceAndStatusFormatting() {
         ZaloClient client;
 
-        // 1. Initial 1-1 conversation offline state
         client.selectConversation("u-peer-test", "Peer Test", "");
         QCOMPARE(client.currentConversationIsOnline(), false);
         QCOMPARE(client.currentConversationStatus(), QString("Truy cập gần đây"));
 
-        // 2. Typing status overrides last active
         auto* session = client.apiClient()->session();
-        // Signal shape: (threadId, userId, isGroup) — see ZaloSession::typingReceived.
         emit session->typingReceived(QStringLiteral("u-peer-test"), QStringLiteral("u-peer-test"), false);
         QCOMPARE(client.currentConversationStatus(), QString("Đang soạn tin..."));
 
-        // 3. Group conversations must NEVER show online status or green dot
         client.selectConversation("grp-test-99", "Nhóm Test", "");
         QCOMPARE(client.currentConversationIsOnline(), false);
-        // Group status should reflect member count, not online text
         QVERIFY(client.currentConversationStatus() != "Đang hoạt động");
 
-        // 4. Session restoration state lifecycle
         QCOMPARE(client.isRestoringSession(), false);
 
-        // 5. Theme palette synchronization verification (prevent inverted control backgrounds)
         ThemeManager theme;
-        theme.setThemeMode(0); // Zalo Light
+        theme.setThemeMode(0);
         QCOMPARE(theme.isDarkMode(), false);
         QCOMPARE(QGuiApplication::palette().color(QPalette::Window), QColor("#FFFFFF"));
         QCOMPARE(QGuiApplication::palette().color(QPalette::Base), QColor("#EBECF0"));
         QCOMPARE(QGuiApplication::palette().color(QPalette::WindowText), QColor("#081B3A"));
 
-        theme.setThemeMode(1); // Zalo Dark
+        theme.setThemeMode(1);
         QCOMPARE(theme.isDarkMode(), true);
         QCOMPARE(QGuiApplication::palette().color(QPalette::Window), QColor("#22262B"));
         QCOMPARE(QGuiApplication::palette().color(QPalette::Base), QColor("#16191D"));
@@ -5261,14 +5351,12 @@ private slots:
     void testAuthenticUserAccountSessionAndResponsiveLayout() {
         ZaloClient client;
 
-        // 1. Clean state when logged out (zero mock data guarantee)
         client.logout();
         QCOMPARE(client.isLoggedIn(), false);
         QCOMPARE(client.currentUserName(), QString(""));
         QCOMPARE(client.conversationModel()->rowCount(), 0);
         QCOMPARE(client.messageModel()->rowCount(), 0);
 
-        // 2. Ordering: pinned first, then newest activity first (synthetic test fixtures only)
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
         auto makeConv = [&](const QString& id, const QString& name, bool pinned, qint64 ts, bool group, int members) {
             ConversationItem item;
@@ -5291,7 +5379,6 @@ private slots:
         QCOMPARE(convModel->data(convModel->index(1), ConversationModel::IdRole).toString(), QString("u-new"));
         QCOMPARE(convModel->data(convModel->index(2), ConversationModel::IdRole).toString(), QString("u-old"));
 
-        // New activity moves a conversation up and counts unread messages.
         convModel->recordMessage("u-old", "hi", "", now, true);
         QCOMPARE(convModel->data(convModel->index(1), ConversationModel::IdRole).toString(), QString("u-old"));
         QCOMPARE(convModel->totalUnreadCount(), 1);
@@ -5299,7 +5386,6 @@ private slots:
         QCOMPARE(convModel->rowCount(), 1);
         convModel->setCategoryFilter("");
 
-        // 3. Message merge deduplicates by id and keeps chronological order.
         MessageItem m1; m1.id = "2"; m1.ts = now; m1.text = "second";
         MessageItem m2; m2.id = "1"; m2.ts = now - 1000; m2.text = "first";
         client.selectConversation("u-new", "Fixture New", "");
@@ -5307,7 +5393,6 @@ private slots:
         QCOMPARE(client.messageModel()->rowCount(), 2);
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::TextRole).toString(), QString("first"));
 
-        // Phase-1 message state: reactions, recall, delivery status.
         auto* msgModel = client.messageModel();
         msgModel->setReaction("u-new", "1", QString::fromUtf8("❤️👍 2"));
         QCOMPARE(msgModel->data(msgModel->index(0), MessageModel::ReactionRole).toString(), QString::fromUtf8("❤️👍 2"));
@@ -5319,13 +5404,11 @@ private slots:
         QCOMPARE(msgModel->data(msgModel->index(1), MessageModel::IsRecalledRole).toBool(), true);
         QCOMPARE(msgModel->data(msgModel->index(1), MessageModel::TextRole).toString(), QString("recalled"));
 
-        // Typing / tags / presence on the conversation list.
         convModel->setTyping("u-old", true);
         convModel->setTag("g-pin", "Fixture Tag", "#2563EB");
         convModel->setOnlineIds({"u-new"});
         QCOMPARE(convModel->data(convModel->index(0), ConversationModel::TagRole).toString(), QString("Fixture Tag"));
 
-        // Friend requests category.
         ContactItem invite; invite.id = "inv-1"; invite.name = "Fixture Request"; invite.category = "invites";
         invite.subtitle = "hello";
         ContactItem friendItem; friendItem.id = "f-1"; friendItem.name = "Fixture Friend";
@@ -5333,11 +5416,10 @@ private slots:
         QCOMPARE(client.contactModel()->inviteCount(), 1);
         QCOMPARE(client.contactModel()->friendCount(), 1);
 
-        // 4. Responsive layout screenshots across 1, 1/2 and 1/4 screen.
         client.setLoggedInForTesting(true);
         ThemeManager themeMgr;
         SystemTrayController trayCtrl;
-        QQmlApplicationEngine engine; // declared last so it is destroyed before its context objects
+        QQmlApplicationEngine engine;
         engine.addImageProvider("avatar", new AvatarImageProvider);
         engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
         engine.addImportPath("qrc:/");
@@ -5349,14 +5431,13 @@ private slots:
         auto window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
         QVERIFY(window != nullptr);
 
-        // Modals exist only while open (Loader in Main.qml): opening settings adds items, closing removes them.
         std::function<int(QQuickItem*)> countItems = [&](QQuickItem* item) {
             int n = 1;
             for (QQuickItem* c : item->childItems()) n += countItems(c);
             return n;
         };
         auto itemCount = [&]() { return countItems(window->contentItem()); };
-        {   // The QML singleton is the C++ instance, never a second ZaloClient created by QML.
+        {
             QQmlComponent probe(&engine);
             probe.setData("import QtQuick\nimport Zalos\nQtObject { property var c: ZaloClient }", QUrl());
             std::unique_ptr<QObject> o(probe.create());
@@ -5372,7 +5453,6 @@ private slots:
         QVERIFY2(openItems > closedItems + 50, "settings must be created on open");
         QVERIFY2(itemCount() < openItems, "settings must be destroyed on close");
 
-        // ConversationInfoPanel is also lazy-loaded via Loader in ChatArea.qml when showConversationInfo is true.
         QCOMPARE(client.showConversationInfo(), false);
         QCOMPARE(window->findChild<QQuickItem*>("conversationInfoPanel"), nullptr);
         client.setShowConversationInfo(true);
@@ -5423,7 +5503,6 @@ private slots:
             window->grabWindow().save("/workspace/build/test_settings_popup.png");
             QMetaObject::invokeMethod(accountMenu, "close");
         }
-        // Label folders in the navigation rail (Telegram-style), off by default.
         QCOMPARE(client.showLabelFolders(), false);
         client.labels()->applyServer(QJsonObject{{"version", 1}, {"labelData", QJsonArray{
             QJsonObject{{"id", 1}, {"text", "Công việc"}, {"color", "#D91B1B"}, {"offset", 0}, {"conversations", QJsonArray{}}},
@@ -5435,7 +5514,6 @@ private slots:
         window->grabWindow().save("/workspace/build/test_rail_label_folders.png");
         client.setShowLabelFolders(false);
 
-        // 5. Language switching
         client.setAppLanguage("en");
         QCOMPARE(client.appLanguage(), QString("en"));
         QTest::qWait(150);
@@ -5443,7 +5521,6 @@ private slots:
         client.setAppLanguage("vi");
         QCOMPARE(client.appLanguage(), QString("vi"));
 
-        // Light and dark palettes (Zalo PC tokens)
         client.setCurrentNavigationTab("messages");
         themeMgr.setThemeMode(0);
         QTest::qWait(200);
@@ -5452,39 +5529,32 @@ private slots:
         QTest::qWait(200);
         window->grabWindow().save("/workspace/build/test_chat_dark.png");
 
-        // Rich Text Formatting & Composer Toolbar Suite
         auto chatArea = window->findChild<QQuickItem*>("chatArea");
         if (chatArea) {
             QCOMPARE(chatArea->property("isFormattingActive").toBool(), false);
             QCOMPARE(chatArea->property("isEditorExpanded").toBool(), false);
 
-            // Toggle RTF formatting toolbar
             chatArea->setProperty("isFormattingActive", true);
             QTest::qWait(200);
             QCOMPARE(chatArea->property("isFormattingActive").toBool(), true);
-            // The toolbar really opens (a `height:` inside the ColumnLayout used to collapse it to 0 px).
             QTest::qWait(150);
             auto formatBar = window->findChild<QQuickItem*>("formatToolbar");
             QVERIFY(formatBar != nullptr);
             QVERIFY2(formatBar->height() >= 30, qPrintable(QString::number(formatBar->height())));
-            // The composer text area shows about three lines (the bottom row used to cover it).
             auto composer = window->findChild<QQuickItem*>("composerBox");
             QVERIFY(composer != nullptr);
             QVERIFY2(composer->height() >= 32 + 1 + 34 + 3 * 18 + 32, qPrintable(QString::number(composer->height())));
             window->grabWindow().save("/workspace/build/test_chat_rtf_toolbar.png");
 
-            // Toggle editor height expansion
             chatArea->setProperty("isEditorExpanded", true);
             QTest::qWait(200);
             QCOMPARE(chatArea->property("isEditorExpanded").toBool(), true);
             window->grabWindow().save("/workspace/build/test_chat_expanded_editor.png");
 
-            // Reset back
             chatArea->setProperty("isEditorExpanded", false);
             chatArea->setProperty("isFormattingActive", false);
             QTest::qWait(100);
 
-            // Quote reply, reply banner, scheduled strip and in-chat search (neutral fixtures).
             themeMgr.setThemeMode(0);
             const QString peer = client.currentConversationId();
             const QString nowTs = QString::number(QDateTime::currentMSecsSinceEpoch());
@@ -5504,7 +5574,6 @@ private slots:
             QTest::qWait(100);
         }
 
-        // Call window states, driven through the engine UI protocol (ui-client.js "state" lines)
         auto* calls = client.calls();
         QSignalSpy incomingSpy(calls, &Zalos::Core::Call::CallBridge::incomingCall);
         calls->injectUiLineForTesting(R"({"type":"state","phase":"incoming","name":"Fixture Caller","avatar":"","text":"","since":0})");
@@ -5522,78 +5591,60 @@ private slots:
         window->grabWindow().save("/workspace/build/test_call_connected.png");
         calls->injectUiLineForTesting(R"({"type":"close","text":""})");
         QCOMPARE(calls->phase(), QString("ended"));
-        calls->hangup(); // no engine: closes the window
+        calls->hangup();
         QCOMPARE(calls->phase(), QString(""));
 
-        // 6. Logged-out QR view
         client.setLoggedInForTesting(false);
         client.logout();
         QTest::qWait(200);
         window->grabWindow().save("/workspace/build/test_qr_view.png");
     }
 
-    // Network chaos, malformed JSON fuzzing, and resilient error recovery gate.
     void testNetworkChaosAndMalformedJsonFuzzing() {
         ZaloClient client;
         auto* session = client.apiClient()->session();
 
-        // 1. Binary frames with corrupted or truncated headers (< 4 bytes)
         session->injectWsBinaryForTesting(QByteArray());
         session->injectWsBinaryForTesting(QByteArray("\x01"));
         session->injectWsBinaryForTesting(QByteArray("\x01\x02\x03"));
 
-        // 2. Malformed JSON payloads after 4-byte header
-        // cmd 501, subCmd 0 (userLive) with completely invalid non-JSON payload
         QByteArray malformedFrame("\x01\xf5\x01\x00{invalid-json-payload-broken", 32);
         session->injectWsBinaryForTesting(malformedFrame);
 
-        // 3. Fuzzed TMessage JSON objects: missing keys, inverted types, null values
         QJsonArray fuzzedBatch;
-        // Null values
         fuzzedBatch.append(QJsonObject{{"msgId", QJsonValue::Null}, {"cliMsgId", QJsonValue::Null}, {"content", QJsonValue::Null}});
-        // Inverted types: int instead of string, array instead of object
         fuzzedBatch.append(QJsonObject{{"msgId", 12345}, {"cliMsgId", 67890}, {"uidFrom", 999}, {"content", QJsonArray{1, 2, 3}}});
-        // Missing essential keys
         fuzzedBatch.append(QJsonObject{{"randomField", "chaos"}});
-        // Truncated timestamps and out-of-range numbers
         fuzzedBatch.append(QJsonObject{{"msgId", "999999"}, {"cliMsgId", "c-chaos"}, {"ts", "invalid-ts-number"}, {"content", "safe text"}});
 
-        // Emit through live session: must be handled gracefully without SIGSEGV or invariant breach
         emit session->messagesReceived(fuzzedBatch, false, false);
         QVERIFY(client.conversationModel() != nullptr);
 
-        // 4. Out-of-order & Duplicate packet arrival test
         QJsonArray outOfOrderBatch;
         const qint64 tNow = 1700000000000LL;
-        // Newer message arrives first
         outOfOrderBatch.append(QJsonObject{{"msgId", "801"}, {"cliMsgId", "c-801"}, {"uidFrom", "u-chaos"}, {"idTo", "u-me"},
                                            {"msgType", "webchat"}, {"content", "Message 2 (newer)"}, {"ts", QString::number(tNow + 2000)}});
-        // Older message arrives second
         outOfOrderBatch.append(QJsonObject{{"msgId", "800"}, {"cliMsgId", "c-800"}, {"uidFrom", "u-chaos"}, {"idTo", "u-me"},
                                            {"msgType", "webchat"}, {"content", "Message 1 (older)"}, {"ts", QString::number(tNow + 1000)}});
         emit session->messagesReceived(outOfOrderBatch, false, false);
 
         client.selectConversation("u-chaos", "Chaos Peer", "");
         QCOMPARE(client.messageModel()->rowCount(), 2);
-        // Model must preserve proper chronological order based on timestamp
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString(), QString("800"));
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(1), MessageModel::IdRole).toString(), QString("801"));
 
-        // Duplicate replay packet must be cleanly deduplicated by cliMsgId
         QJsonArray duplicateBatch;
         duplicateBatch.append(QJsonObject{{"msgId", "801"}, {"cliMsgId", "c-801"}, {"uidFrom", "u-chaos"}, {"idTo", "u-me"},
                                           {"msgType", "webchat"}, {"content", "Message 2 (duplicate replay)"}, {"ts", QString::number(tNow + 2000)}});
         emit session->messagesReceived(duplicateBatch, false, false);
-        QCOMPARE(client.messageModel()->rowCount(), 2); // Count remains 2, no ghost duplicate rows
+        QCOMPARE(client.messageModel()->rowCount(), 2);
     }
 
-    // Corrupted SQLite recovery and graceful degradation test.
     void testCorruptedStorageRecovery() {
         QTemporaryDir tempDir;
         QVERIFY(tempDir.isValid());
         const QString dbPath = tempDir.filePath("corrupted_offline.db");
 
-        // Create a corrupted file with random garbage bytes instead of SQLite header
         {
             QFile f(dbPath);
             QVERIFY(f.open(QIODevice::WriteOnly));
@@ -5601,10 +5652,8 @@ private slots:
             f.close();
         }
 
-        // OfflineStore must not crash; it should catch the initialization failure safely
         ZaloOfflineStore store;
         const bool openResult = store.initializeDatabase(dbPath);
-        // Either recovers/recreates or returns false safely without crashing
         if (!openResult) {
             QVERIFY(!store.isDatabaseOpen());
         }
@@ -5842,10 +5891,8 @@ private slots:
         settings.remove(QStringLiteral("mobileSync/done/u-smart-sync"));
         settings.remove(QStringLiteral("mobileSync/neverAsk/u-smart-sync"));
 
-        // No non-cloud conversations yet -> should not offer
         QCOMPARE(client.shouldOfferMobileSync(), false);
 
-        // Add an empty group conversation without messages -> should offer
         Zalos::Core::Models::ConversationItem emptyGroup;
         emptyGroup.id = QStringLiteral("g-empty");
         emptyGroup.name = QStringLiteral("Fixture Empty Group");
@@ -5853,7 +5900,6 @@ private slots:
         client.conversationModel()->upsertConversation(emptyGroup);
         QCOMPARE(client.shouldOfferMobileSync(), true);
 
-        // Once a conversation has a lastMessage and timestamp -> should not offer
         emptyGroup.lastMessage = QStringLiteral("Hello");
         emptyGroup.lastTs = 1700000000000LL;
         client.conversationModel()->upsertConversation(emptyGroup);
@@ -6066,7 +6112,6 @@ private slots:
 
         QSignalSpy sentSpy(&client, &ZaloClient::messageSent);
 
-        // 1. IME commitString ending with newline (Wayland Fcitx5-Bamboo / Lotus style) submits without inserting '\n'.
         {
             QInputMethodEvent pre(QStringLiteral("tieeng"), {});
             QCoreApplication::sendEvent(msgInput, &pre);
@@ -6081,7 +6126,6 @@ private slots:
         QCOMPARE(msgInput->property("text").toString(), QString());
         QCOMPARE(msgInput->property("preeditText").toString(), QString());
 
-        // 2. Key_Return while preedit is active flushes preedit synchronously and sends.
         {
             QInputMethodEvent pre(QStringLiteral("chao"), {});
             QCoreApplication::sendEvent(msgInput, &pre);
@@ -6091,7 +6135,6 @@ private slots:
         QCOMPARE(sentSpy.at(1).at(0).toString(), QStringLiteral("chao"));
         QCOMPARE(msgInput->property("text").toString(), QString());
 
-        // Late duplicate commit arriving <150ms after flush must be swallowed so no ghost word reappears.
         {
             QInputMethodEvent lateDup;
             lateDup.setCommitString(QStringLiteral("chao"));
@@ -6100,7 +6143,6 @@ private slots:
         QTest::qWait(30);
         QCOMPARE(msgInput->property("text").toString(), QString());
 
-        // 3. Shift+Return while composing inserts newline without sending.
         {
             QInputMethodEvent pre(QStringLiteral("dong1"), {});
             QCoreApplication::sendEvent(msgInput, &pre);
@@ -6110,7 +6152,6 @@ private slots:
         QCOMPARE(sentSpy.count(), 2);
         QCOMPARE(msgInput->property("text").toString(), QStringLiteral("dong1\n"));
 
-        // 4. Composer indent (ind_10 / ind_20) round-trip and rich HTML rendering.
         QTextDocument doc;
         doc.setPlainText(QStringLiteral("Doan thut le"));
         RichComposer composer;
@@ -6145,14 +6186,12 @@ private slots:
         QCOMPARE(client.currentConversationIsTyping(), true);
         QVERIFY(statusSpy.count() >= 1);
 
-        // Old history batches must NOT clear active typing status.
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
         QJsonObject oldMsg{{"msgId", "9001"}, {"uidFrom", "u-bob"}, {"idTo", grp.id},
                            {"msgType", "webchat"}, {"content", "old"}, {"ts", now - 60000}};
         emit session->messagesReceived(QJsonArray{oldMsg}, true, true);
         QCOMPARE(client.currentConversationIsTyping(), true);
 
-        // Live incoming message clears typing and notifies the UI.
         QJsonObject liveMsg{{"msgId", "9002"}, {"uidFrom", "u-bob"}, {"idTo", grp.id},
                             {"msgType", "webchat"}, {"content", "live"}, {"ts", now}};
         emit session->messagesReceived(QJsonArray{liveMsg}, true, false);
@@ -6195,7 +6234,6 @@ private slots:
         QCOMPARE(extra.value("accountNumber").toString(), QStringLiteral("0987654321"));
         QCOMPARE(extra.value("accountHolder").toString(), QStringLiteral("TRAN THI B"));
 
-        // Screen share image -> I420 + aspect-preserving encoding + Xvfb/Wayland grab fallback + CallBridge transitions.
         QImage shot(64, 36, QImage::Format_RGB32);
         shot.fill(Qt::darkBlue);
         const QByteArray i420 = Zalos::Core::Call::imageToI420(shot, QSize(32, 18));
@@ -6304,7 +6342,6 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(overlay->property("minimized").toBool(), 1000);
         QCOMPARE(callCard->width(), 300.0);
 
-        // Chat composer behind minimized floating card remains clickable and functional during the call.
         auto* msgInput = window->findChild<QQuickItem*>(QStringLiteral("msgInput"));
         QVERIFY(msgInput != nullptr);
         const QPoint inputCenter = msgInput->mapToScene(QPointF(msgInput->width() / 2.0, msgInput->height() / 2.0)).toPoint();
@@ -6411,7 +6448,6 @@ private slots:
         calls->selectAudioDevice(QStringLiteral("mic"), QString());
         calls->selectAudioDevice(QStringLiteral("speaker"), QString());
 
-        // Single-host transient blip retry in ZaloSession::sendApi over real loopback TCP.
         QTcpServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost, 0));
         int hits = 0;
@@ -6534,6 +6570,36 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(viewer->isVisible(), 1000);
         QCOMPARE(viewer->property("count").toInt(), 2);
         QCOMPARE(viewer->property("currentUrl").toString(), u2);
+
+        const auto flicks = findItems(QStringLiteral("imageViewerToolsFlick"));
+        QCOMPARE(flicks.size(), 1);
+        QQuickItem* toolsFlick = flicks.first();
+        QTRY_VERIFY_WITH_TIMEOUT(toolsFlick->width() >= 250 && toolsFlick->height() >= 36, 1000);
+
+        const auto strips = findItems(QStringLiteral("imageViewerToolsStrip"));
+        QCOMPARE(strips.size(), 1);
+        QQuickItem* toolsStrip = strips.first();
+        QTRY_VERIFY_WITH_TIMEOUT(toolsStrip->width() >= 250 && toolsStrip->height() >= 36, 1000);
+        for (QQuickItem* child : toolsStrip->childItems()) {
+            if (child->isVisible()) {
+                QVERIFY2(child->width() >= 32 && child->height() >= 36, "Top toolbar button collapsed");
+            }
+        }
+
+        viewer->setProperty("annotating", true);
+        const auto annRows = findItems(QStringLiteral("imageViewerAnnotateRow"));
+        QCOMPARE(annRows.size(), 1);
+        QQuickItem* annRow = annRows.first();
+        QTRY_VERIFY_WITH_TIMEOUT(annRow->isVisible() && annRow->width() > 200 && annRow->height() >= 32, 1000);
+        int visibleButtons = 0;
+        for (QQuickItem* child : annRow->childItems()) {
+            if (child->isVisible() && child->width() > 1) {
+                ++visibleButtons;
+                QVERIFY2(child->width() >= 22 && child->height() >= 22, "Annotate toolbar item collapsed");
+            }
+        }
+        QVERIFY(visibleButtons >= 11);
+        window->grabWindow().save(QStringLiteral("test_image_viewer_annotating.png"));
 
         QTest::keyClick(window, Qt::Key_Escape);
         QTRY_VERIFY_WITH_TIMEOUT(findItems(QStringLiteral("imageViewerRoot")).isEmpty(), 1000);
@@ -6720,9 +6786,6 @@ private slots:
         }
     }
 
-    // Regression test: changing DPI on Wayland calls QQuickWindow::physicalDpiChanged() -> updatePixelRatioHelper(),
-    // which iterates a raw snapshot of ZRoundedImage::childItems(). Reloading the inner async Image must not
-    // synchronously delete any sibling item (e.g. QQuickItemLayer's internal ShaderEffectSource) or disarm the mask.
     void testRoundedImageReloadKeepsMaskChildrenStable() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
@@ -6765,12 +6828,11 @@ private slots:
         rounded->setProperty("sourceSize", QSize(120, 120));
         rounded->setProperty("source", QUrl::fromLocalFile(imgPath));
 
-        QTRY_COMPARE_WITH_TIMEOUT(rounded->property("status").toInt(), 1, 2000); // Image.Ready
+        QTRY_COMPARE_WITH_TIMEOUT(rounded->property("status").toInt(), 1, 2000);
         QCOMPARE(rounded->property("maskArmed").toBool(), true);
         const bool gpu = rounded->property("gpu").toBool();
         if (gpu) {
             QTRY_COMPARE_WITH_TIMEOUT(rounded->property("masked").toBool(), true, 2000);
-            // Verify the static maskLayer actually masks rounded corners on GPU rendering.
             QTRY_VERIFY_WITH_TIMEOUT(([&]() {
                 const QImage frame = window->grabWindow();
                 if (frame.isNull()) return false;
@@ -6782,8 +6844,6 @@ private slots:
             }()), 2000);
         }
 
-        // No direct child may rely on QQuickItem::layer.enabled, which dynamically allocates and synchronously
-        // deletes a sibling QQuickShaderEffectSource under ZRoundedImage.
         const QList<QQuickItem*> initialChildren = rounded->childItems();
         QList<QPointer<QQuickItem>> watchedChildren;
         for (QQuickItem* child : initialChildren) {
@@ -6794,7 +6854,6 @@ private slots:
             }
         }
 
-        // Simulate the async Image.Ready -> Image.Loading reload triggered by a Wayland DPR change.
         rounded->setProperty("sourceSize", QSize(180, 180));
 #if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
         QEvent dprEvent(QEvent::DevicePixelRatioChange);
@@ -6813,7 +6872,6 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(rounded->property("status").toInt(), 1, 2000);
         QCOMPARE(rounded->childItems(), initialChildren);
 
-        // Clearing the source disarms the mask to release GPU resources without removing any sibling item.
         rounded->setProperty("source", QUrl());
         QCOMPARE(rounded->property("maskArmed").toBool(), false);
         QCOMPARE(rounded->property("masked").toBool(), false);
@@ -7090,6 +7148,602 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(client.historyExhausted() && !client.isLoadingHistory(), 3000);
         QCOMPARE(hitPaths, QStringList{QStringLiteral("/api/cm/getrecentv2")});
         QCOMPARE(client.messageModel()->rowCount(), 0);
+    }
+
+    void testPhase1To3Regressions() {
+        {
+            QImage tall(600, 5000, QImage::Format_RGB32);
+            tall.fill(Qt::blue);
+            QByteArray png;
+            {
+                QBuffer out(&png);
+                QVERIFY(out.open(QIODevice::WriteOnly));
+                QVERIFY(tall.save(&out, "PNG"));
+            }
+            {
+                QBuffer in(&png);
+                QVERIFY(in.open(QIODevice::ReadOnly));
+                QString err;
+                const QImage bounded = AvatarImageProvider::decodeScaled(&in, QSize(320, 600), false, &err);
+                QVERIFY(!bounded.isNull());
+                QVERIFY(err.isEmpty());
+                QVERIFY(bounded.width() <= 320);
+                QVERIFY(bounded.height() <= 600);
+            }
+            {
+                QImage huge(17000, 8, QImage::Format_RGB32);
+                huge.fill(Qt::red);
+                QByteArray hugePng;
+                QBuffer out(&hugePng);
+                QVERIFY(out.open(QIODevice::WriteOnly));
+                QVERIFY(huge.save(&out, "PNG"));
+                QBuffer in(&hugePng);
+                QVERIFY(in.open(QIODevice::ReadOnly));
+                QString err;
+                const QImage rejected = AvatarImageProvider::decodeScaled(&in, QSize(320, 320), false, &err);
+                QVERIFY(rejected.isNull());
+                QCOMPARE(err, QStringLiteral("image too large"));
+            }
+            AvatarImageProvider::markTooLarge(QStringLiteral("https://cdn.example/huge.jpg"));
+            QVERIFY(AvatarImageProvider::isTooLarge(QStringLiteral("https://cdn.example/huge.jpg")));
+            AvatarImageProvider::clearMemCache();
+            QVERIFY(!AvatarImageProvider::isTooLarge(QStringLiteral("https://cdn.example/huge.jpg")));
+        }
+
+        {
+            QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+            s.setValue(QStringLiteral("window/x"), -50000);
+            s.setValue(QStringLiteral("window/y"), -50000);
+            s.setValue(QStringLiteral("window/width"), 99999);
+            s.setValue(QStringLiteral("window/height"), 99999);
+
+            ZaloClient client;
+            const QVariantMap geom = client.windowGeometry();
+            if (QScreen* primary = QGuiApplication::primaryScreen()) {
+                const QRect avail = primary->availableGeometry();
+                if (avail.isValid()) {
+                    QVERIFY(geom.value("width").toInt() <= avail.width());
+                    QVERIFY(geom.value("height").toInt() <= avail.height());
+                    QVERIFY(geom.value("x").toInt() >= avail.left());
+                    QVERIFY(geom.value("y").toInt() >= avail.top());
+                }
+            }
+            s.remove(QStringLiteral("window/x"));
+            s.remove(QStringLiteral("window/y"));
+            s.remove(QStringLiteral("window/width"));
+            s.remove(QStringLiteral("window/height"));
+
+            ConversationItem c1;
+            c1.id = QStringLiteral("u-fwd-1");
+            c1.name = QStringLiteral("Alice Read");
+            c1.unreadCount = 0;
+            c1.lastTs = 2000;
+            ConversationItem c2;
+            c2.id = QStringLiteral("u-fwd-2");
+            c2.name = QStringLiteral("Bob Unread");
+            c2.unreadCount = 3;
+            c2.lastTs = 1000;
+            client.conversationModel()->setConversations({c1, c2});
+            client.conversationModel()->setCategoryFilter(QStringLiteral("unread"));
+            QCOMPARE(client.conversationModel()->rowCount(), 1);
+            QCOMPARE(client.conversationsForForward().size(), 2);
+            QCOMPARE(client.conversationsForForward(QStringLiteral("alice")).size(), 1);
+        }
+
+        {
+            QTcpServer server;
+            QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+            int reqCount = 0;
+            connect(&server, &QTcpServer::newConnection, this, [&]() {
+                while (QTcpSocket* sock = server.nextPendingConnection()) {
+                    connect(sock, &QTcpSocket::readyRead, sock, [&, sock]() {
+                        sock->readAll();
+                        ++reqCount;
+                        const QByteArray body = R"({"error_code":0,"data":[]})";
+                        sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                    + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                        sock->disconnectFromHost();
+                    });
+                    connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+                }
+            });
+
+            ZaloClient client;
+            ZaloSession& session = *client.apiClient()->session();
+            const QString baseUrl = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+            const QString keyB64 = QString::fromLatin1(QByteArray(32, 'S').toBase64());
+            session.setLoginInfoForTesting(QJsonObject{
+                {"uid", "u-me"},
+                {"zpw_sek", keyB64},
+                {"zpw_enk", keyB64},
+                {"zpw_service_map_v3", QJsonObject{{"sticker", QJsonArray{baseUrl}},
+                                                   {"profile", QJsonArray{baseUrl}}}}
+            });
+
+            StickerStore::Hooks hooks;
+            hooks.session = [&]() { return &session; };
+            StickerStore store(hooks);
+            store.loadBirthdayStickers();
+            QTRY_COMPARE_WITH_TIMEOUT(reqCount, 4, 3000);
+            QTest::qWait(80);
+            store.loadBirthdayStickers();
+            QTest::qWait(80);
+            QCOMPARE(reqCount, 4);
+
+            store.reset();
+            store.loadBirthdayStickers();
+            QTRY_COMPARE_WITH_TIMEOUT(reqCount, 8, 3000);
+        }
+
+        {
+            QHash<QString, QVariantMap> appliedMap;
+            QJsonObject persistedSnapshot;
+            LabelManager::Hooks hooks;
+            hooks.apply = [&](const QHash<QString, QVariantMap>& map) { appliedMap = map; };
+            hooks.persist = [&](const QJsonObject& snap) { persistedSnapshot = snap; };
+            LabelManager lm(hooks);
+
+            const QJsonObject cachedPayload{
+                {"version", 7},
+                {"labelData", QJsonArray{QJsonObject{
+                    {"id", 10}, {"text", "Khách hàng"}, {"color", "0068FF"},
+                    {"offset", 0}, {"conversations", QJsonArray{"u123"}}
+                }}}
+            };
+            lm.applyCached(cachedPayload);
+            QVERIFY(!lm.loaded());
+            QCOMPARE(lm.labels().size(), 1);
+            QVERIFY(appliedMap.contains("123"));
+            QVERIFY(persistedSnapshot.isEmpty());
+
+            const QJsonObject serverPayload{
+                {"version", 8},
+                {"labelData", QJsonArray{QJsonObject{
+                    {"id", 11}, {"text", "VIP"}, {"color", "#D91B1B"},
+                    {"offset", 0}, {"conversations", QJsonArray{"g456"}}
+                }}}
+            };
+            lm.applyServer(serverPayload);
+            QVERIFY(lm.loaded());
+            QCOMPARE(lm.labels().size(), 1);
+            QVERIFY(appliedMap.contains("456"));
+            QCOMPARE(persistedSnapshot.value("version").toInt(), 8);
+            QCOMPARE(persistedSnapshot.value("labelData").toArray().size(), 1);
+
+            QTemporaryDir dir;
+            QVERIFY(dir.isValid());
+            ZaloOfflineStore offline;
+            QVERIFY(offline.initializeDatabase(dir.filePath("labels_cache.sqlite")));
+            offline.setMetaValue(QStringLiteral("labels_cache"),
+                                 QString::fromUtf8(QJsonDocument(persistedSnapshot).toJson(QJsonDocument::Compact)));
+            QVERIFY(!offline.metaValue(QStringLiteral("labels_cache")).isEmpty());
+            offline.clearCache();
+            QVERIFY(offline.metaValue(QStringLiteral("labels_cache")).isEmpty());
+        }
+
+        {
+            QCOMPARE(ThemeManager::familyFromFontSpec(QStringLiteral("Noto Sans Medium 11")),
+                     QStringLiteral("Noto Sans"));
+            QCOMPARE(ThemeManager::familyFromFontSpec(QStringLiteral("Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1")),
+                     QStringLiteral("Inter"));
+
+            ThemeManager tm;
+            tm.setThemeMode(2);
+            QPalette lightPal;
+            lightPal.setColor(QPalette::Window, QColor("#FFFFFF"));
+            lightPal.setColor(QPalette::WindowText, QColor("#111827"));
+            lightPal.setColor(QPalette::Base, QColor("#FFFFFF"));
+            lightPal.setColor(QPalette::AlternateBase, QColor("#FFFFFF"));
+            tm.setSystemPaletteForTesting(lightPal);
+            QVERIFY(!tm.isDarkMode());
+            QVERIFY(tm.chatBackgroundColor() != tm.chatBubbleTheir());
+            QVERIFY(tm.inputFillColor() != tm.surfaceColor());
+
+            QPalette darkPal;
+            darkPal.setColor(QPalette::Window, QColor("#1E2228"));
+            darkPal.setColor(QPalette::WindowText, QColor("#E5E7EB"));
+            darkPal.setColor(QPalette::Base, QColor("#16191D"));
+            darkPal.setColor(QPalette::PlaceholderText, QColor(0, 0, 0, 128));
+            tm.setSystemPaletteForTesting(darkPal);
+            QVERIFY(tm.isDarkMode());
+            QVERIFY(tm.placeholderColor().lightness() >= 95);
+            QVERIFY(tm.inactiveSubtleColor().lightness() >= 95);
+        }
+
+        {
+            ZaloClient client;
+            const QJsonObject raw{
+                {"msgId", "loc-1"},
+                {"uidFrom", "u-peer"},
+                {"idTo", "u-me"},
+                {"msgType", "chat.location.new"},
+                {"ts", "1700000000000"},
+                {"content", QJsonObject{
+                    {"title", "Hồ Hoàn Kiếm"},
+                    {"description", "Hoàn Kiếm, Hà Nội"},
+                    {"thumb", "https://example.test/map-thumb.png"},
+                    {"params", R"({"latitude":21.028511,"longitude":105.854444})"}
+                }}
+            };
+            const auto item = client.toMessageItemForTesting(raw, false);
+            QCOMPARE(item.messageType, QStringLiteral("location"));
+            QCOMPARE(item.mediaUrl, QStringLiteral("https://example.test/map-thumb.png"));
+            QVERIFY(item.extra.value("hasCoords").toBool());
+            QVERIFY(qAbs(item.extra.value("lat").toDouble() - 21.028511) < 1e-5);
+            QVERIFY(qAbs(item.extra.value("lng").toDouble() - 105.854444) < 1e-5);
+        }
+
+        {
+            QTcpServer server;
+            QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+            QStringList seenPaths;
+            const QByteArray key = QByteArray(32, 'B');
+            connect(&server, &QTcpServer::newConnection, this, [&]() {
+                while (QTcpSocket* sock = server.nextPendingConnection()) {
+                    connect(sock, &QTcpSocket::readyRead, sock, [&, sock]() {
+                        const QByteArray req = sock->readAll();
+                        const int sp1 = req.indexOf(' ');
+                        const int sp2 = req.indexOf(' ', sp1 + 1);
+                        if (sp1 > 0 && sp2 > sp1) seenPaths << QString::fromUtf8(req.mid(sp1 + 1, sp2 - sp1 - 1));
+                        const QByteArray body = R"({"error_code":0,"data":{"version":1,"items":[],"item":[]}})";
+                        sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                    + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                        sock->disconnectFromHost();
+                    });
+                    connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+                }
+            });
+
+            ZaloClient client;
+            ZaloSession& session = *client.apiClient()->session();
+            const QString baseUrl = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+            const QString keyB64 = QString::fromLatin1(key.toBase64());
+            session.setLoginInfoForTesting(QJsonObject{
+                {"uid", "u-me"},
+                {"zpw_sek", keyB64},
+                {"zpw_enk", keyB64},
+                {"zpw_service_map_v3", QJsonObject{
+                    {"profile", QJsonArray{baseUrl}},
+                    {"catalog", QJsonArray{baseUrl}},
+                    {"auto_reply", QJsonArray{baseUrl}}
+                }}
+            });
+
+            int doneCount = 0;
+            auto bump = [&](bool, const QJsonValue&, const QString&, int) { ++doneCount; };
+            session.fetchBizAccount("u-me", bump);
+            session.fetchCatalogList(0, 20, bump);
+            session.createCatalog("Cat", bump);
+            session.fetchProductCatalogList("c1", 0, 50, bump);
+            session.createProductCatalog("c1", "Prod", "1000", "Desc", {}, bump);
+            session.deleteProductCatalog("c1", {"p1"}, bump);
+            session.fetchAutoReplyList("vi", bump);
+            session.createAutoReply("vi", "Hello", true, 0, 0, 0, {}, bump);
+            session.updateAutoReply("vi", 1, "Hi", false, 0, 0, 1, {}, bump);
+            session.deleteAutoReply("vi", 1, bump);
+
+            QTRY_COMPARE_WITH_TIMEOUT(doneCount, 10, 4000);
+            const QString joined = seenPaths.join('\n');
+            for (const char* p : {"/api/social/friend/get-bizacc", "/api/prodcatalog/catalog/list",
+                                  "/api/prodcatalog/catalog/create", "/api/prodcatalog/product/list",
+                                  "/api/prodcatalog/product/create", "/api/prodcatalog/product/mdelete",
+                                  "/api/autoreply/list", "/api/autoreply/create",
+                                  "/api/autoreply/update", "/api/autoreply/delete"}) {
+                QVERIFY2(joined.contains(QLatin1String(p)), p);
+            }
+        }
+    }
+
+    void testUpstreamAdaptations() {
+        {
+            QNetworkAccessManager nam;
+            SessionCookieJar jar;
+            ZaloSession session(&nam, &jar);
+            session.enqueuePendingWsFrameForTesting(2, 1, QJsonObject{{"eventId", 1}}, QString());
+            QCOMPARE(session.pendingWsFrameCountForTesting(), 0);
+            for (int i = 0; i < 35; ++i) {
+                session.enqueuePendingWsFrameForTesting(590, 0, QJsonObject{{"i", i}});
+            }
+            QCOMPARE(session.pendingWsFrameCountForTesting(), 32);
+            session.disconnectRealtime();
+            QCOMPARE(session.pendingWsFrameCountForTesting(), 0);
+        }
+
+        {
+            QByteArray badPng("\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\xff\xff\xff\xff", 20);
+            QBuffer in(&badPng);
+            QVERIFY(in.open(QIODevice::ReadOnly));
+            QString err;
+            const QImage img = AvatarImageProvider::decodeScaled(&in, QSize(128, 128), false, &err);
+            QVERIFY(img.isNull());
+            QCOMPARE(err, QStringLiteral("not a decodable image"));
+        }
+
+        {
+            QTcpServer server;
+            QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+            QStringList seenPaths;
+            QByteArray lastBody;
+            const QByteArray key = QByteArray(32, 'F');
+            connect(&server, &QTcpServer::newConnection, this, [&]() {
+                while (QTcpSocket* sock = server.nextPendingConnection()) {
+                    connect(sock, &QTcpSocket::readyRead, sock, [&, sock]() {
+                        const QByteArray req = sock->readAll();
+                        const int sp1 = req.indexOf(' ');
+                        const int sp2 = req.indexOf(' ', sp1 + 1);
+                        if (sp1 > 0 && sp2 > sp1) seenPaths << QString::fromUtf8(req.mid(sp1 + 1, sp2 - sp1 - 1));
+                        const int hdrEnd = req.indexOf("\r\n\r\n");
+                        if (hdrEnd >= 0) lastBody = req.mid(hdrEnd + 4);
+                        const QByteArray body = R"({"error_code":0,"data":{"msgId":"9090"}})";
+                        sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                    + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                        sock->disconnectFromHost();
+                    });
+                    connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+                }
+            });
+
+            ZaloClient client;
+            client.setLoggedInForTesting(true);
+            client.setMyUidForTesting(QStringLiteral("u-me"));
+            ZaloSession& session = *client.apiClient()->session();
+            const QString baseUrl = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+            const QString keyB64 = QString::fromLatin1(key.toBase64());
+            session.setLoginInfoForTesting(QJsonObject{
+                {"uid", "u-me"},
+                {"zpw_sek", keyB64},
+                {"zpw_enk", keyB64},
+                {"zpw_service_map_v3", QJsonObject{{"chat", QJsonArray{baseUrl}}}}
+            });
+
+            Zalos::Core::Models::MessageItem linkMsg;
+            linkMsg.id = QStringLiteral("m-link-1");
+            linkMsg.messageType = QStringLiteral("link");
+            linkMsg.text = QStringLiteral("Sample article title");
+            linkMsg.href = QStringLiteral("https://example.test/article");
+            linkMsg.ts = 1700000000000LL;
+            client.messageModel()->loadConversation(QStringLiteral("u-src"));
+            client.messageModel()->mergeMessages(QStringLiteral("u-src"), {linkMsg});
+            client.forwardMessage(QStringLiteral("u-target"), QStringLiteral("m-link-1"));
+            QTRY_COMPARE_WITH_TIMEOUT(seenPaths.size(), 1, 3000);
+            QTRY_VERIFY_WITH_TIMEOUT(!lastBody.isEmpty(), 3000);
+            QVERIFY(seenPaths.first().startsWith(QStringLiteral("/api/message/sms")));
+            QCOMPARE(client.messageModel()->threadSize(QStringLiteral("u-target")), 1);
+            const QUrlQuery q(QString::fromUtf8(lastBody));
+            const QString encParams = QUrl::fromPercentEncoding(
+                q.queryItemValue(QStringLiteral("params"), QUrl::FullyEncoded).toUtf8());
+            const QByteArray dec = ZaloCrypto::decodeAES(keyB64, encParams);
+            QVERIFY(dec.contains("https://example.test/article"));
+        }
+
+        {
+            ZaloClient client;
+            client.calls()->refreshDevicesAsync();
+            QTest::qWait(50);
+            QVERIFY(client.calls()->audioInputDevices().size() >= 0);
+        }
+    }
+
+    void testEmojiFallbackRendersColorAndAscii() {
+        const QString emojiFamily = Zalos::Core::Platform::ThemeManager::registerEmojiFallbackFont();
+        QVERIFY(!emojiFamily.isEmpty());
+
+        QImage canvas(320, 72, QImage::Format_ARGB32_Premultiplied);
+        canvas.fill(Qt::white);
+        {
+            QPainter p(&canvas);
+            QFont f(QStringLiteral("Sans Serif"), 24);
+            p.setFont(f);
+            p.setPen(Qt::black);
+            p.drawText(QRect(0, 0, 150, 72), Qt::AlignVCenter | Qt::AlignLeft, QStringLiteral("Hello 123 #*"));
+            p.drawText(QRect(150, 0, 170, 72), Qt::AlignVCenter | Qt::AlignLeft,
+                       QStringLiteral("\U0001F600\u2764\uFE0F\U0001F44D\U0001F389"));
+        }
+
+        int asciiInkPixels = 0;
+        for (int y = 0; y < canvas.height(); ++y) {
+            for (int x = 0; x < 150; ++x) {
+                const QColor c = canvas.pixelColor(x, y);
+                if (c.red() < 200 || c.green() < 200 || c.blue() < 200) ++asciiInkPixels;
+            }
+        }
+        QVERIFY2(asciiInkPixels > 40, "ASCII text/digits should render visibly with emoji fallback active");
+
+        int colorEmojiPixels = 0;
+        for (int y = 0; y < canvas.height(); ++y) {
+            for (int x = 150; x < canvas.width(); ++x) {
+                const QColor c = canvas.pixelColor(x, y);
+                const int spread = std::max({c.red(), c.green(), c.blue()}) - std::min({c.red(), c.green(), c.blue()});
+                if (spread > 40) ++colorEmojiPixels;
+            }
+        }
+        QVERIFY2(colorEmojiPixels > 40, "CBDT emoji fallback should draw colored emoji pixels");
+    }
+
+    void testCallEndAndNotificationRecovery() {
+        {
+            ZaloClient client;
+            ZaloSession* session = client.apiClient()->session();
+            QSignalSpy voipSpy(session, &ZaloSession::voipControlReceived);
+            const QJsonObject inner{
+                {"act_type", "voip"},
+                {"act", "end_call"},
+                {"data", QJsonObject{{"callId", QJsonValue::Null}, {"ts", QDateTime::currentMSecsSinceEpoch() - 180000}}}
+            };
+            session->handleControlsForTesting(QJsonArray{QJsonObject{{"content", QString::fromUtf8(QJsonDocument(inner).toJson(QJsonDocument::Compact))}}});
+            QCOMPARE(voipSpy.count(), 1);
+            QCOMPARE(voipSpy.at(0).at(0).toJsonObject().value(QStringLiteral("act")).toString(), QStringLiteral("end_call"));
+        }
+
+        {
+            CallBridge bridge(nullptr);
+            bridge.handleVoipControl(QJsonObject{
+                {"act", "request"},
+                {"data", QJsonObject{{"callId", "999"}, {"ts", QDateTime::currentMSecsSinceEpoch() - 120000}}}
+            });
+            QVERIFY(bridge.findChild<QProcess*>() == nullptr);
+
+            bridge.startVoiceCall(QStringLiteral("u-call-end"), QStringLiteral("Peer"), QString());
+            QVERIFY(bridge.findChild<QProcess*>() != nullptr);
+            const int before = bridge.pendingEngineFrameCountForTesting();
+            const qint64 staleTs = QDateTime::currentMSecsSinceEpoch() - 180000;
+            bridge.handleVoipControl(QJsonObject{
+                {"act", "end_call"},
+                {"data", QJsonObject{{"callId", "999"}, {"ts", staleTs}}}
+            });
+            QCOMPARE(bridge.pendingEngineFrameCountForTesting(), before + 1);
+            bridge.shutdown();
+        }
+
+        {
+            ZaloClient client;
+            client.setLoggedInForTesting(true);
+            client.setMyUidForTesting(QStringLiteral("u-me"));
+            client.setNotifyNewMessage(true);
+            auto* calls = client.calls();
+            calls->injectUiLineForTesting(R"({"type":"state","phase":"outgoing","name":"Peer","avatar":"","since":0})");
+            calls->injectUiLineForTesting(R"({"type":"close","statusCode":"ended"})");
+            QCOMPARE(calls->phase(), QStringLiteral("ended"));
+
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            const QJsonObject msg{
+                {"msgId", "m-after-call-1"},
+                {"cliMsgId", "m-after-call-1"},
+                {"uidFrom", "u-peer-after"},
+                {"idTo", "u-me"},
+                {"dName", "Peer After"},
+                {"msgType", "webchat"},
+                {"content", "Message after call ended"},
+                {"ts", QString::number(now)}
+            };
+            emit client.apiClient()->session()->messagesReceived(QJsonArray{msg}, false, false);
+            QCOMPARE(client.notificationsForTesting()->shownForTesting(QStringLiteral("thread:u-peer-after")), 1);
+        }
+    }
+
+    void testSystemTraySniAndDbusMenu() {
+        using Zalos::Core::Platform::DbusMenuItemProps;
+        using Zalos::Core::Platform::DbusMenuLayoutItem;
+        using Zalos::Core::Platform::SniPixmap;
+        using Zalos::Core::Platform::SniToolTip;
+        SystemTrayController::registerDbusTypes();
+
+        QCOMPARE(QByteArray(QDBusMetaType::typeToSignature(QMetaType::fromType<SniPixmap>())),
+                 QByteArray("(iiay)"));
+        QCOMPARE(QByteArray(QDBusMetaType::typeToSignature(QMetaType::fromType<DbusMenuLayoutItem>())),
+                 QByteArray("(ia{sv}av)"));
+        QCOMPARE(QByteArray(QDBusMetaType::typeToSignature(QMetaType::fromType<DbusMenuItemProps>())),
+                 QByteArray("(ia{sv})"));
+
+        QImage pxTest(2, 1, QImage::Format_ARGB32);
+        pxTest.setPixelColor(0, 0, QColor(0x11, 0x22, 0x33, 0x80));
+        pxTest.setPixelColor(1, 0, QColor(0xAA, 0xBB, 0xCC, 0xFF));
+        const QByteArray expectedBytes("\x80\x11\x22\x33\xFF\xAA\xBB\xCC", 8);
+        QCOMPARE(SystemTrayController::toSniArgb32(pxTest), expectedBytes);
+
+        SystemTrayController tray;
+        const QImage initialBadge = tray.badgeImage();
+        QCOMPARE(initialBadge.size(), QSize(64, 64));
+        QCOMPARE(initialBadge.format(), QImage::Format_ARGB32);
+        QCOMPARE(tray.sniPixmaps().size(), 1);
+        QCOMPARE(tray.sniPixmaps().at(0).data.size(), 64 * 64 * 4);
+
+        tray.setUnreadCount(5, false);
+        QVERIFY(tray.badgeImage() != initialBadge);
+        QVERIFY(tray.sniToolTip().title.contains(QStringLiteral("5")));
+
+        const QImage fiveBadge = tray.badgeImage();
+        tray.setUnreadCount(120, true);
+        QVERIFY(tray.badgeImage() != fiveBadge);
+        QVERIFY(tray.sniToolTip().subTitle.contains(QStringLiteral("@")));
+
+        const uint revStart = tray.menuRevision();
+        tray.setLanguage(QStringLiteral("en"));
+        QVERIFY(tray.menuRevision() > revStart);
+
+        tray.setWindowVisible(false);
+        auto findByLabel = [&tray](const QString& needle) -> QVariantMap {
+            for (const QVariant& v : tray.menuSnapshot()) {
+                const QVariantMap m = v.toMap();
+                if (m.value(QStringLiteral("label")).toString().contains(needle)) return m;
+            }
+            return {};
+        };
+        QCOMPARE(findByLabel(QStringLiteral("Open Zalos")).value(QStringLiteral("visible")).toBool(), true);
+        tray.setWindowVisible(true);
+        QCOMPARE(findByLabel(QStringLiteral("Hide Zalos")).value(QStringLiteral("visible")).toBool(), true);
+
+        tray.setAntiPeeking(true);
+        QCOMPARE(findByLabel(QStringLiteral("Anti-peeking")).value(QStringLiteral("toggle-state")).toInt(), 1);
+        tray.setAntiPeeking(false);
+        QCOMPARE(findByLabel(QStringLiteral("Anti-peeking")).value(QStringLiteral("toggle-state")).toInt(), 0);
+
+        tray.setCallState(QStringLiteral("incoming"), QStringLiteral("Peer A"), true, false, false, false, false);
+        QVERIFY(findByLabel(QStringLiteral("Incoming call: Peer A")).value(QStringLiteral("visible")).toBool());
+        QVERIFY(findByLabel(QStringLiteral("Answer with video")).value(QStringLiteral("visible")).toBool());
+        QVERIFY(findByLabel(QStringLiteral("Answer without camera")).value(QStringLiteral("visible")).toBool());
+        QVERIFY(findByLabel(QStringLiteral("Decline call")).value(QStringLiteral("visible")).toBool());
+        QVERIFY(!findByLabel(QStringLiteral("Mute microphone")).value(QStringLiteral("visible")).toBool());
+
+        QSignalSpy acceptSpy(&tray, &SystemTrayController::acceptCallRequested);
+        QSignalSpy rejectSpy(&tray, &SystemTrayController::rejectCallRequested);
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Answer with video")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Answer without camera")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Decline call")).value(QStringLiteral("id")).toInt()));
+        QCOMPARE(acceptSpy.count(), 2);
+        QCOMPARE(acceptSpy.at(0).at(0).toBool(), false);
+        QCOMPARE(acceptSpy.at(1).at(0).toBool(), true);
+        QCOMPARE(rejectSpy.count(), 1);
+
+        tray.setCallState(QStringLiteral("connected"), QStringLiteral("Peer A"), true, true, false, true, true);
+        QVERIFY(!findByLabel(QStringLiteral("Answer with video")).value(QStringLiteral("visible")).toBool());
+        QCOMPARE(findByLabel(QStringLiteral("Mute microphone")).value(QStringLiteral("toggle-state")).toInt(), 1);
+        QCOMPARE(findByLabel(QStringLiteral("Mute speaker")).value(QStringLiteral("toggle-state")).toInt(), 0);
+        QCOMPARE(findByLabel(QStringLiteral("Camera on")).value(QStringLiteral("toggle-state")).toInt(), 1);
+        QCOMPARE(findByLabel(QStringLiteral("Share screen")).value(QStringLiteral("toggle-state")).toInt(), 1);
+        QVERIFY(findByLabel(QStringLiteral("End call")).value(QStringLiteral("visible")).toBool());
+
+        QSignalSpy toggleWinSpy(&tray, &SystemTrayController::toggleWindowRequested);
+        QSignalSpy darkSpy(&tray, &SystemTrayController::toggleDarkModeRequested);
+        QSignalSpy quitSpy(&tray, &SystemTrayController::quitRequested);
+        QSignalSpy showCallSpy(&tray, &SystemTrayController::showCallWindowRequested);
+        QSignalSpy muteSpy(&tray, &SystemTrayController::toggleCallMuteRequested);
+        QSignalSpy speakerSpy(&tray, &SystemTrayController::toggleCallSpeakerRequested);
+        QSignalSpy camSpy(&tray, &SystemTrayController::toggleCallCameraRequested);
+        QSignalSpy screenSpy(&tray, &SystemTrayController::toggleCallScreenShareRequested);
+        QSignalSpy hangupSpy(&tray, &SystemTrayController::hangupCallRequested);
+        QSignalSpy peekSpy(&tray, &SystemTrayController::antiPeekingToggled);
+
+        tray.activateFromHost();
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Hide Zalos")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Toggle light / dark mode")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Anti-peeking")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Quit")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("In call: Peer A")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Mute microphone")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Mute speaker")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Camera on")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Share screen")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("End call")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(!tray.triggerMenuItem(99999));
+
+        QCOMPARE(toggleWinSpy.count(), 2);
+        QCOMPARE(darkSpy.count(), 1);
+        QCOMPARE(peekSpy.count(), 1);
+        QCOMPARE(quitSpy.count(), 1);
+        QCOMPARE(showCallSpy.count(), 1);
+        QCOMPARE(muteSpy.count(), 1);
+        QCOMPARE(speakerSpy.count(), 1);
+        QCOMPARE(camSpy.count(), 1);
+        QCOMPARE(screenSpy.count(), 1);
+        QCOMPARE(hangupSpy.count(), 1);
+
+        const DbusMenuLayoutItem layout = tray.menuLayout(0, -1, {});
+        QCOMPARE(layout.properties.value(QStringLiteral("children-display")).toString(), QStringLiteral("submenu"));
+        QCOMPARE(layout.children.size(), tray.menuSnapshot().size());
+        QCOMPARE(tray.menuProperty(0, QStringLiteral("children-display")).toString(), QStringLiteral("submenu"));
+        QCOMPARE(tray.menuGroupProperties({0, 1}, {}).size(), 2);
+        tray.showMessage(QStringLiteral("Zalos"), QStringLiteral("Test"));
     }
 };
 

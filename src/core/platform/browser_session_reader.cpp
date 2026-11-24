@@ -110,7 +110,7 @@ const BrowserDef kBrowsers[] = {
 const char* kDefaultUserAgent =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-} // namespace
+}
 
 QByteArray BrowserSessionReader::deriveAesKey(const QByteArray& password) {
     QByteArray key(16, Qt::Uninitialized);
@@ -378,4 +378,4 @@ BrowserSessionResult BrowserSessionReader::readSession() {
     return result;
 }
 
-} // namespace Zalos::Core::Platform
+}

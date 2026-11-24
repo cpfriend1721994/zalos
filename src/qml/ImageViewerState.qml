@@ -27,12 +27,15 @@ QtObject {
         count = items ? items.length : 0;
         if (count > 0 && index >= 0 && index < count) {
             const cur = items[index] || ({});
-            currentUrl = cur.url ? String(cur.url) : "";
+            const nextUrl = cur.url ? String(cur.url) : "";
+            const nextIsVideo = !!cur.isVideo;
+            if (currentIsVideo !== nextIsVideo) currentUrl = "";
+            currentIsVideo = nextIsVideo;
+            currentIsAnimated = !nextIsVideo && (!!cur.animated || isAnimatedUrl(nextUrl));
             currentSenderName = cur.senderName ? String(cur.senderName) : "";
             currentIsMine = !!cur.isMine;
             currentTs = Number(cur.ts || 0);
-            currentIsVideo = !!cur.isVideo;
-            currentIsAnimated = !currentIsVideo && (!!cur.animated || isAnimatedUrl(currentUrl));
+            currentUrl = nextUrl;
         } else {
             currentUrl = "";
             currentSenderName = "";

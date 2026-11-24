@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.2.10 LANGUAGES CXX)
+project(zalos VERSION 1.3.0 LANGUAGES CXX)
 option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -31,7 +31,6 @@ endif()
 find_package(Qt6 6.4 REQUIRED COMPONENTS
     Core
     Gui
-    Widgets
     Qml
     Quick
     QuickControls2
@@ -57,8 +56,6 @@ else()
     set(ZALOS_ZSTD_TARGET "")
 endif()
 
-# OpenH264 headers only: libopenh264 is dlopen()ed from the user's system at run time and never linked or
-# bundled (see src/core/call/h264_codec.h). Without the headers calls stay audio-only.
 include(CheckIncludeFileCXX)
 check_include_file_cxx(wels/codec_api.h ZALOS_HAVE_OPENH264)
 if(ZALOS_HAVE_OPENH264)
@@ -130,6 +127,9 @@ set(ZALOS_SOURCES
     src/core/network/zalo_session.cpp
     src/core/network/zalo_client.h
     src/core/network/zalo_client.cpp
+    src/core/network/zalo_client_messages.cpp
+    src/core/network/zalo_client_profile.cpp
+    src/core/network/zalo_client_social.cpp
     src/core/network/qrcodegen.hpp
     src/core/network/qrcodegen.cpp
     src/core/models/conversation_model.h
@@ -150,6 +150,8 @@ set(ZALOS_SOURCES
     src/core/platform/dependency_report.cpp
     src/core/platform/multimedia_support.cpp
     src/core/platform/app_updater.cpp
+    src/core/platform/file_picker.h
+    src/core/platform/file_picker.cpp
     src/core/platform/browser_session_reader.h
     src/core/platform/browser_session_reader.cpp
     src/core/platform/qml_singletons.h
@@ -158,6 +160,9 @@ set(ZALOS_SOURCES
 )
 
 qt_add_executable(zalos ${ZALOS_SOURCES})
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(zalos PRIVATE $<$<CONFIG:Release>:-Os>)
+endif()
 
 set_source_files_properties(src/qml/Theme.qml src/qml/I18n.qml src/qml/ImageViewerState.qml
     PROPERTIES
@@ -167,7 +172,6 @@ set_source_files_properties(src/qml/Theme.qml src/qml/I18n.qml src/qml/ImageView
 qt_add_qml_module(zalos
     URI Zalos
     VERSION 1.0
-    # Lets qmlcachegen resolve QColor/QFont/... properties of the C++ singletons (QtQuick value types).
     DEPENDENCIES QtQuick
     QML_FILES
         src/qml/Main.qml
@@ -192,6 +196,7 @@ qt_add_qml_module(zalos
         src/qml/ZMaskEffect.qml
         src/qml/ZBlurEffect.qml
         src/qml/ChatJumpDownButton.qml
+        src/qml/ChatReactionJumpButton.qml
         src/qml/ChatUnreadBar.qml
         src/qml/ChatPollBlock.qml
         src/qml/LockScreen.qml
@@ -230,7 +235,6 @@ qt_add_qml_module(zalos
 )
 
 target_include_directories(zalos PRIVATE
-    # qmltyperegistrar includes QML-registered headers by file name
     src/core/models src/core/call src/core/offline src/core/network src/core/platform src/core/media
     src
     src/core
@@ -243,19 +247,16 @@ if(BUILD_TESTING)
 endif()
 target_precompile_headers(zalos PRIVATE src/core/pch.h)
 
-# QML compiled to C++ (qmlcachegen AOT) calls QQmlPrivate::AOTCompiledContext, private Qt API versioned per minor
-# release (e.g. Qt_6.10_PRIVATE_API): such a binary only runs on the exact Qt minor it was built with. Packages
-# that must run on several Qt versions (RPM, .deb, AppImage, prebuilt Arch) pass -DZALOS_QML_AOT=OFF and ship
-# bytecode only; development/test builds and Nix (pinned Qt) keep it ON (tests gate the AOT share).
 option(ZALOS_QML_AOT "Compile QML bindings to C++ (ties the binary to the build's Qt minor version)" ON)
-if(NOT ZALOS_QML_AOT)
+if(ZALOS_QML_AOT)
+    set_property(TARGET zalos PROPERTY QT_QMLCACHEGEN_ARGUMENTS)
+else()
     set_target_properties(zalos PROPERTIES QT_QMLCACHEGEN_ARGUMENTS "--only-bytecode")
 endif()
 
 target_link_libraries(zalos PRIVATE
     Qt6::Core
     Qt6::Gui
-    Qt6::Widgets
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
@@ -277,17 +278,13 @@ if(UNIX AND NOT APPLE)
     target_link_options(zalos PRIVATE -Wl,--as-needed -Wl,-z,relro,-z,now)
 endif()
 
-# Installation targets for packaging (RPM, Flatpak, AppImage)
 install(TARGETS zalos
     BUNDLE DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-# Call engine (C++, engines/zcall-cpp): zalos-call (signalling and media) and zalos-call-audio (microphone and speaker),
-# installed to libexec/zalos. CallBridge runs them from there; there is no script runtime in the call path.
 set(ZCALL_BUILD_TESTS ${BUILD_TESTING} CACHE BOOL "" FORCE)
 add_subdirectory(engines/zcall-cpp)
-# The engine finds zalos-call-audio next to itself; in a build tree the two live in different directories.
 add_custom_target(zalos_call_audio_beside_engine ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:zalos-call-audio> $<TARGET_FILE_DIR:zalos-call>
     DEPENDS zalos-call zalos-call-audio
@@ -305,7 +302,10 @@ install(FILES assets/icons/zalos.svg
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
 )
 
-# Testing configuration
+install(FILES assets/fonts/ZalosEmoji-CBDT.ttf assets/fonts/NotoSans-VF.ttf assets/fonts/NotoSans-OFL.txt
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/zalos/fonts
+)
+
 if(BUILD_TESTING)
     enable_testing()
     find_package(Qt6 REQUIRED COMPONENTS Test)
@@ -413,6 +413,9 @@ if(BUILD_TESTING)
         src/core/network/zalo_session.cpp
         src/core/network/zalo_api_client.cpp
         src/core/network/zalo_client.cpp
+    src/core/network/zalo_client_messages.cpp
+    src/core/network/zalo_client_profile.cpp
+    src/core/network/zalo_client_social.cpp
         src/core/network/qrcodegen.cpp
         src/core/models/conversation_model.cpp
         src/core/models/message_model.cpp
@@ -424,7 +427,9 @@ if(BUILD_TESTING)
         src/core/platform/render_profile.cpp
         src/core/platform/dependency_report.cpp
         src/core/platform/multimedia_support.cpp
-    src/core/platform/app_updater.cpp
+        src/core/platform/app_updater.cpp
+        src/core/platform/file_picker.cpp
+        src/core/platform/avatar_image_provider.cpp
     )
     target_compile_definitions(zalos_test_core PUBLIC ZALOS_TESTING ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
         ZALOS_APP_VERSION="${PROJECT_VERSION}"
@@ -434,7 +439,6 @@ if(BUILD_TESTING)
     target_link_libraries(zalos_test_core PUBLIC
         Qt6::Core
         Qt6::Gui
-        Qt6::Widgets
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
@@ -460,7 +464,6 @@ if(BUILD_TESTING)
     target_link_libraries(test_e2e PRIVATE zalos_test_core)
     add_test(NAME test_e2e COMMAND test_e2e)
 
-    # qt_add_qml_module's generated resources: .rcc/ up to Qt 6.4 (Ubuntu 24.04), .qt/rcc/ from Qt 6.5.
     if(Qt6_VERSION VERSION_LESS 6.5)
         set(ZALOS_QT_RCC_DIR ${CMAKE_CURRENT_BINARY_DIR}/.rcc)
     else()
@@ -469,21 +472,16 @@ if(BUILD_TESTING)
     add_executable(test_system
         tests/test_system.cpp
         $<TARGET_OBJECTS:zalos_test_core>
-        src/core/platform/avatar_image_provider.cpp
         src/core/platform/icon_image_provider.cpp
         src/core/platform/qml_singletons.h
         ${ZALOS_QT_RCC_DIR}/qrc_zalos_raw_qml_0.cpp
         ${ZALOS_QT_RCC_DIR}/qrc_qmake_Zalos.cpp
-        # C++ QML types of the Zalos module (ZaloClient/ThemeManager/TrayController singletons, ...)
         ${CMAKE_CURRENT_BINARY_DIR}/zalos_qmltyperegistrations.cpp
     )
     set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/zalos_qmltyperegistrations.cpp PROPERTIES GENERATED TRUE)
     add_dependencies(test_system zalos)
     target_link_libraries(test_system PRIVATE zalos_test_core)
     add_test(NAME test_system COMMAND test_system)
-    # QML gates in plain C++ (tests/test_qml_gates.cpp): theme/component lint (skill 03), AOT coverage floor (skill 02,
-    # Qt 6.5+ only, qmlcachegen writes .aotstats) and the UI screenshot sanity check. The visual check reads the
-    # screenshots test_system writes, so it is registered after it.
     add_executable(test_qml_gates "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_qml_gates.cpp")
     set_target_properties(test_qml_gates PROPERTIES AUTOMOC ON)
     target_link_libraries(test_qml_gates PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
@@ -497,6 +495,7 @@ if(BUILD_TESTING)
     add_dependencies(test_qml_gates zalos)
     add_test(NAME qml_style_lint COMMAND test_qml_gates qmlStyle)
     add_test(NAME qml_aot_coverage COMMAND test_qml_gates qmlAotCoverage)
+    add_test(NAME cpp_invariants COMMAND test_qml_gates cppInvariants)
     add_test(NAME ui_visual_diff COMMAND test_qml_gates uiVisualDiff)
 endif()
 

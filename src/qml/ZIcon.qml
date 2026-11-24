@@ -247,8 +247,8 @@ Item {
                 ? "image://icon/" + (root.filled ? "f" : "s") + "/" + encodeURIComponent(root.color.toString())
                   + "/" + encodeURIComponent(root.pathData)
                 : ""
-        sourceSize.width: Math.ceil(root.size * Screen.devicePixelRatio)
-        sourceSize.height: Math.ceil(root.size * Screen.devicePixelRatio)
+        sourceSize.width: Math.max(1, Math.ceil(root.size))
+        sourceSize.height: Math.max(1, Math.ceil(root.size))
         smooth: true
         cache: true
     }

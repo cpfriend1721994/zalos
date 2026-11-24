@@ -15,8 +15,8 @@
   </script>
   <title data-en="Zalos — Lightweight Native Qt6 Client for Zalo on Linux">Zalos — Ứng dụng Zalo Desktop cho Linux (Qt6 Native, siêu nhẹ)</title>
   <meta name="description"
-    data-en="Zalos — a high-performance native C++17 &amp; Qt6 messaging client for Zalo on Linux (~2.5 MB .deb/.rpm, ~22 MB AppImage, ~40–65 MB RAM). Instant startup, 60 FPS graphics, fast Vietnamese search, encrypted phone history sync, 1-1 voice/video calls and group calls (beta), screenshot tool, My Documents storage and zBusiness tools. Free &amp; open-source (AppImage, .deb, RPM, Snap, Nix)."
-    content="Zalos — ứng dụng nhắn tin native viết bằng C++17 &amp; Qt6 cho Zalo trên Linux (~2.5 MB .deb/.rpm, ~22 MB AppImage, chỉ ~40–65 MB RAM). Khởi động tức thì, đồ họa 60 FPS mượt mà, tìm kiếm tiếng Việt siêu tốc, đồng bộ lịch sử mã hóa từ điện thoại, gọi thoại/video 1-1 và gọi nhóm (thử nghiệm), chụp màn hình, kho My Documents và công cụ zBusiness. Mã nguồn mở hoàn toàn (AppImage, .deb, RPM, Snap, Nix).">
+    data-en="Zalos — a high-performance native C++17 &amp; Qt 6.8 QML AOT messaging client for Zalo on Linux (~25–27 MB self-contained packages, ~40–65 MB RAM). Instant startup, 60 FPS graphics, fast Vietnamese search, encrypted phone history sync, 1-1 voice/video calls and group calls (beta), location map previews, screenshot tool, My Documents storage and live zBusiness tools. Free &amp; open-source (AppImage, .deb, RPM, Snap, Flatpak, Nix)."
+    content="Zalos — ứng dụng nhắn tin native viết bằng C++17 &amp; Qt 6.8 QML AOT cho Zalo trên Linux (~25–27 MB đóng gói kèm sẵn Qt 6.8.3 LTS, chỉ ~40–65 MB RAM). Khởi động tức thì, đồ họa 60 FPS mượt mà, tìm kiếm tiếng Việt siêu tốc, đồng bộ lịch sử mã hóa từ điện thoại, gọi thoại/video 1-1 và gọi nhóm (thử nghiệm), xem trước bản đồ vị trí, chụp màn hình, kho My Documents và công cụ zBusiness đầy đủ API. Mã nguồn mở hoàn toàn (AppImage, .deb, RPM, Snap, Flatpak, Nix).">
   <link rel="canonical" href="https://zalos.pages.dev/">
   <link rel="icon" type="image/svg+xml"
     href="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg">
@@ -70,7 +70,6 @@
         --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-        /* Light & Dark raw palettes */
         --bg-canvas-light: #FAFAFA;
         --bg-canvas-dark: #090A0F;
         --bg-surface-light: #FFFFFF;
@@ -104,7 +103,6 @@
         --warn-light: #D97706;
         --warn-dark: #FBBF24;
 
-        /* Fallback assignments */
         --bg-canvas: var(--bg-canvas-light);
         --bg-surface: var(--bg-surface-light);
         --bg-subtle: var(--bg-subtle-light);
@@ -292,7 +290,6 @@
 
     @layer components {
 
-      /* Top Bar */
       .site-header {
         position: sticky;
         inset-block-start: 0;
@@ -400,7 +397,6 @@
         stroke-linejoin: round;
       }
 
-      /* Language segmented switch (VI / EN) */
       .lang-switch {
         display: inline-flex;
         align-items: center;
@@ -433,7 +429,6 @@
         color: var(--brand);
       }
 
-      /* One-click light/dark toggle */
       .theme-toggle-btn .i-sun {
         display: none;
       }
@@ -460,7 +455,6 @@
         }
       }
 
-      /* Hero */
       .hero {
         padding-block: 4rem 3.5rem;
       }
@@ -601,7 +595,6 @@
         white-space: nowrap;
       }
 
-      /* App Window Wireframe Preview */
       .app-preview {
         background: var(--bg-surface);
         border: 1px solid var(--border-strong);
@@ -619,7 +612,6 @@
         background: #FFFFFF;
       }
 
-      /* Light/Dark hero preview crossfade */
       .app-shot-stack {
         position: relative;
       }
@@ -882,7 +874,6 @@
         color: var(--text-muted);
       }
 
-      /* Curated Feature Pillars */
       .pillars-grid {
         display: grid;
         grid-template-columns: 1fr;
@@ -975,7 +966,6 @@
         font-weight: 600;
       }
 
-      /* Engineering & Benchmark Table */
       .table-wrap {
         overflow-x: auto;
         border: 1px solid var(--border-hairline);
@@ -1019,7 +1009,6 @@
         font-size: 0.8125rem;
       }
 
-      /* Install Tabs */
       .install-layout {
         display: grid;
         grid-template-columns: 1fr;
@@ -1132,7 +1121,6 @@
         border: 1px solid var(--border-hairline);
       }
 
-      /* Transparency & Capability Accounting */
       .scope-grid {
         display: grid;
         grid-template-columns: 1fr;
@@ -1141,7 +1129,7 @@
 
       @media (min-width: 768px) {
         .scope-grid {
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(2, 1fr);
         }
       }
 
@@ -1171,7 +1159,6 @@
         gap: 0.375rem;
       }
 
-      /* Footer */
       .site-footer {
         padding-block: 3rem;
         border-block-start: 1px solid var(--border-hairline);
@@ -1216,7 +1203,7 @@
         <img src="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg"
           alt="Biểu tượng Zalos" data-en-alt="Zalos logo" class="brand-logo" width="28" height="28">
         <span>Zalos</span>
-        <span class="version-pill">v1.2.10</span>
+        <span class="version-pill">v1.3.0</span>
       </a>
 
       <nav aria-label="Điều hướng chính" data-en-aria="Main navigation">
@@ -1260,20 +1247,19 @@
   </header>
 
   <main id="main-content">
-    <!-- Hero -->
     <section class="hero">
       <div class="container hero-grid">
         <div>
           <div class="hero-meta">
             <span class="status-dot" aria-hidden="true"></span>
-            <span data-en="High-Performance · Ultra-Lightweight (~2.5 MB .deb/.rpm) · Native Qt 6">Hiệu năng cao · Siêu nhẹ (~2.5 MB .deb/.rpm) · Qt 6 Native</span>
+            <span data-en="High-Performance · Bundled Qt 6.8 LTS · QML AOT">Hiệu năng cao · Qt 6.8 LTS tích hợp · QML AOT</span>
           </div>
           <h1 class="hero-title" tabindex="-1" data-en="A lightweight native Qt6 client for Zalo on Linux.">
             Ứng dụng Zalo Desktop cho Linux — Qt6 Native, siêu nhẹ.
           </h1>
           <p class="hero-lead"
-            data-en="<strong>Zalos</strong> is an open-source desktop client built in <strong>C++17 and Qt 6 QML</strong>, delivering an <strong>ultra-lightweight (~2.5 MB .deb/.rpm · ~22 MB AppImage)</strong> footprint, smooth 60 FPS graphics, instant sub-second launch, and tiny 40–65 MB RAM usage.">
-            <strong>Zalos</strong> là ứng dụng mã nguồn mở xây dựng bằng <strong>C++17 và Qt 6 QML</strong>, đạt <strong>dung lượng siêu nhẹ (~2.5 MB .deb/.rpm · ~22 MB AppImage)</strong> cùng giao diện 60 FPS mượt mà, khởi động tức thì trong chớp mắt và mức tiêu thụ RAM tối giản chỉ 40–65 MB.
+            data-en="<strong>Zalos</strong> is an open-source desktop client built in <strong>C++17 and Qt 6 QML</strong>, with smooth 60 FPS graphics, instant launch, and a tiny 40–65 MB RAM footprint.">
+            <strong>Zalos</strong> là ứng dụng mã nguồn mở xây dựng bằng <strong>C++17 và Qt 6 QML</strong>, với giao diện 60 FPS mượt mà, khởi động tức thì và mức tiêu thụ RAM tối giản chỉ 40–65 MB.
           </p>
 
           <div class="hero-cta-row">
@@ -1281,7 +1267,7 @@
               <svg aria-hidden="true" viewBox="0 0 24 24">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
               </svg>
-              <span data-en="Download release v1.2.10">Tải bản phát hành v1.2.10</span>
+              <span data-en="Download release v1.3.0">Tải bản phát hành v1.3.0</span>
             </a>
             <a href="#install" class="btn-secondary">
               <span data-en="Installation guide">Hướng dẫn cài đặt</span>
@@ -1290,7 +1276,6 @@
 
         </div>
 
-        <!-- Structural Preview of Zalos Interface -->
         <figure class="app-preview" data-shot="light"
           aria-label="Giao diện ứng dụng Zalos trên Linux — chế độ sáng và tối"
           data-en-aria="Zalos app interface on Linux — light and dark themes">
@@ -1321,7 +1306,7 @@
           </div>
           <div class="spec-item">
             <dt data-en="Package size">Dung lượng gói</dt>
-            <dd>~2.5 MB / ~22 MB</dd>
+            <dd>~25–27 MB (Qt 6.8)</dd>
           </div>
           <div class="spec-item">
             <dt data-en="Cold launch &amp; FPS">Khởi động &amp; FPS</dt>
@@ -1329,13 +1314,12 @@
           </div>
           <div class="spec-item">
             <dt data-en="Packaging">Đóng gói</dt>
-            <dd>deb · RPM · Snap · AppImage · Nix</dd>
+            <dd>deb · RPM · Snap · Flatpak · AppImage · Nix</dd>
           </div>
         </dl>
       </div>
     </section>
 
-    <!-- Curated Feature Pillars -->
     <section id="features" class="section">
       <div class="container">
         <div class="section-header">
@@ -1350,15 +1334,14 @@
         </div>
 
         <div class="pillars-grid">
-          <!-- Pillar 1 -->
           <article class="pillar-card">
             <div class="pillar-head">
               <h3 class="pillar-title" data-en="Performance &amp; lightweight">Hiệu năng &amp; Siêu nhẹ</h3>
               <span class="pillar-tag">Engine</span>
             </div>
             <p class="pillar-desc"
-              data-en="Drops the bulky 200+ MB Electron engine in favour of native C++ multitasking, a ~2.5 MB native package (~22 MB self-contained AppImage) and smooth 60 FPS graphics on a stable software renderer, with optional GPU acceleration.">
-              Thoát khỏi bộ máy Electron cồng kềnh hàng trăm MB, Zalos đạt dung lượng siêu nhẹ (~2.5 MB gói cài đặt / ~22 MB AppImage tự chứa) với đa luồng C++ hiệu năng cao, tối ưu RAM vượt trội và đồ họa 60 FPS mượt mà trên bộ kết xuất phần mềm ổn định, có thể bật tăng tốc GPU.
+              data-en="Drops the bulky 200+ MB Electron engine in favour of AOT-compiled native C++ &amp; QML on bundled Qt 6.8.3 LTS (~25 MB .deb, ~27 MB RPM, ~27 MB AppImage) with zero system Qt version mismatch and smooth 60 FPS graphics.">
+              Thoát khỏi bộ máy Electron cồng kềnh hàng trăm MB, Zalos biên dịch sẵn C++/QML AOT trên nền Qt 6.8.3 LTS tích hợp (~25 MB .deb, ~27 MB RPM, ~27 MB AppImage) — chạy đồng nhất mọi distro, không phụ thuộc phiên bản Qt hệ thống và mượt 60 FPS.
             </p>
             <ul class="pillar-list" role="list">
               <li
@@ -1376,7 +1359,6 @@
             </ul>
           </article>
 
-          <!-- Pillar 2 -->
           <article class="pillar-card">
             <div class="pillar-head">
               <h3 class="pillar-title" data-en="Offline &amp; history sync">Ngoại tuyến &amp; Đồng bộ lịch sử</h3>
@@ -1399,13 +1381,12 @@
                 có dấu lẫn không dấu.
               </li>
               <li
-                data-en="<strong>Phone history sync (beta):</strong> streams and decrypts your encrypted mobile backup on background threads without blocking the UI or spiking memory; supports sync v1 (Android) and automatic fallback to v2 (iPhone).">
-                <strong>Đồng bộ lịch sử từ điện thoại (thử nghiệm):</strong> tải và giải mã theo luồng (streaming) bản sao lưu mã hóa ngay trên luồng nền, không gây khựng giao diện hay tốn nhiều RAM; hỗ trợ đồng bộ v1 (Android) và tự động fallback sang v2 (iPhone).
+                data-en="<strong>Phone history sync (beta):</strong> streams and decrypts your encrypted mobile backup on background threads without blocking the UI or spiking memory; supports sync v1 and automatic fallback to v2 when v1 is unavailable.">
+                <strong>Đồng bộ lịch sử từ điện thoại (thử nghiệm):</strong> tải và giải mã theo luồng (streaming) bản sao lưu mã hóa ngay trên luồng nền, không gây khựng giao diện hay tốn nhiều RAM; đồng bộ v1 và tự động chuyển sang v2 khi v1 không dùng được.
               </li>
             </ul>
           </article>
 
-          <!-- Pillar 3 -->
           <article class="pillar-card">
             <div class="pillar-head">
               <h3 class="pillar-title" data-en="Security &amp; privacy">Bảo mật &amp; Quyền riêng tư</h3>
@@ -1440,7 +1421,6 @@
             </ul>
           </article>
 
-          <!-- Pillar 4 -->
           <article class="pillar-card">
             <div class="pillar-head">
               <h3 class="pillar-title" data-en="Messaging &amp; media">Nhắn tin &amp; Đa phương tiện</h3>
@@ -1453,13 +1433,13 @@
             </p>
             <ul class="pillar-list" role="list">
               <li
-                data-en="<strong>Text &amp; interactions:</strong> rich formatting (bold, italic, underline, colour, lists, indent), quoted replies, multi-thread forwarding, custom GIF uploads, <code>@All</code> mentions, poll options/sharing, bank cards and a reaction detail panel.">
+                data-en="<strong>Text &amp; interactions:</strong> rich formatting (bold, italic, underline, colour, lists, indent), quoted replies, multi-thread forwarding, custom GIF uploads, <code>@All</code> mentions, poll options/sharing, bank cards, Zalo-style location map previews, full-width wide photos and a reaction detail panel.">
                 <strong>Văn bản &amp; tương tác:</strong> định dạng chữ (đậm, nghiêng, gạch chân, màu sắc, danh sách, thụt lề),
-                trả lời trích dẫn, chuyển tiếp nhiều hội thoại, gửi tệp GIF động, nhắc tên <code>@All</code>, thêm lựa chọn/chia sẻ bình chọn, thẻ chuyển khoản ngân hàng và bảng chi tiết cảm xúc.
+                trả lời trích dẫn, chuyển tiếp nhiều hội thoại, gửi tệp GIF động, nhắc tên <code>@All</code>, thêm lựa chọn/chia sẻ bình chọn, thẻ chuyển khoản ngân hàng, thẻ xem trước bản đồ vị trí chuẩn Zalo, hiển thị trọn chiều ngang ảnh rộng và bảng chi tiết cảm xúc.
               </li>
               <li
-                data-en="<strong>My Documents &amp; Screenshot:</strong> instant screenshot tool (<code>Ctrl+Alt+S</code>) via the system portal and a built-in My Documents browser for saved photos, videos, files and links.">
-                <strong>My Documents &amp; Chụp màn hình:</strong> công cụ chụp màn hình tiện lợi (<code>Ctrl+Alt+S</code>) qua cổng hệ thống và kho My Documents để xem ảnh, video, tệp và liên kết đã lưu.
+                data-en="<strong>My Documents &amp; Screenshot:</strong> instant screenshot tool (<code>Ctrl+Alt+S</code>) via native desktop tools &amp; the system portal and a built-in My Documents browser for saved photos, videos, files and links.">
+                <strong>My Documents &amp; Chụp màn hình:</strong> công cụ chụp màn hình tiện lợi (<code>Ctrl+Alt+S</code>) qua công cụ gốc của desktop &amp; cổng hệ thống và kho My Documents để xem ảnh, video, tệp và liên kết đã lưu.
               </li>
               <li
                 data-en="<strong>Media, voice &amp; image viewer:</strong> record and play AAC voice notes, animated WebP stickers, reliable large-file transfers and a fast image viewer with 0.25x–8x zoom and annotations.">
@@ -1469,7 +1449,6 @@
             </ul>
           </article>
 
-          <!-- Pillar 5 -->
           <article class="pillar-card">
             <div class="pillar-head">
               <h3 class="pillar-title" data-en="Organization &amp; group admin">Tổ chức &amp; Quản trị nhóm</h3>
@@ -1481,13 +1460,12 @@
             </p>
             <ul class="pillar-list" role="list">
               <li
-                data-en="<strong>Telegram-style label folders &amp; type filter:</strong> labels show as a vertical folder column above the nav rail, plus conversation filters (All / Groups / Direct / Friends / Strangers) and smart mobile history sync.">
-                <strong>Thư mục nhãn &amp; Lọc hội thoại:</strong> hiển thị nhãn thành cột thư mục dọc, bộ lọc phân loại hội thoại (Tất cả / Nhóm / Cá nhân / Bạn bè / Người lạ) và gợi ý đồng bộ lịch sử từ điện thoại thông minh.
+                data-en="<strong>Instant label folders &amp; type filter:</strong> labels load from offline SQLite cache at startup as a vertical folder column above the nav rail, plus conversation filters (All / Groups / Direct / Friends / Strangers) and smart mobile history sync.">
+                <strong>Thư mục nhãn &amp; Lọc hội thoại:</strong> nhãn hội thoại nạp tức thì từ bộ nhớ đệm SQLite thành cột thư mục dọc, bộ lọc phân loại hội thoại (Tất cả / Nhóm / Cá nhân / Bạn bè / Người lạ) và gợi ý đồng bộ lịch sử từ điện thoại thông minh.
               </li>
               <li
-                data-en="<strong>Deep group admin &amp; Kiki:</strong> polls, reminders, pinned announcements, member approvals, co-admin roles, silent group exit and built-in Kiki assistant.">
-                <strong>Quản trị nhóm &amp; Tiện ích Kiki:</strong> tạo bình chọn (Poll), nhắc hẹn (Reminder), bảng tin ghim,
-                duyệt thành viên, phân quyền phó nhóm, rời nhóm im lặng và tích hợp Trợ lý Kiki.
+                data-en="<strong>Deep group admin, zBusiness &amp; Kiki:</strong> polls, reminders, pinned announcements, member approvals, co-admin roles, silent group exit, synced zBusiness catalogs &amp; auto-replies, plus built-in Kiki assistant.">
+                <strong>Quản trị nhóm, zBusiness &amp; Kiki:</strong> tạo bình chọn (Poll), nhắc hẹn (Reminder), bảng tin ghim, duyệt thành viên, phân quyền phó nhóm, rời nhóm im lặng, công cụ zBusiness (danh mục, sản phẩm, trả lời tự động) đồng bộ máy chủ và Trợ lý Kiki.
               </li>
               <li
                 data-en="<strong>Contacts &amp; safety:</strong> 1-click voice/video/chat actions, group invite box, friend recommendations, mutual groups, safe link scan, and E2EE linked devices.">
@@ -1496,15 +1474,14 @@
             </ul>
           </article>
 
-          <!-- Pillar 6 -->
           <article class="pillar-card">
             <div class="pillar-head">
               <h3 class="pillar-title" data-en="Linux integration &amp; calls">Hòa nhập Linux &amp; Gọi thoại/video</h3>
               <span class="pillar-tag">Desktop</span>
             </div>
             <p class="pillar-desc"
-              data-en="Respects Freedesktop standards across GNOME, KDE Plasma, Hyprland and Sway.">
-              Tôn trọng các tiêu chuẩn Freedesktop trên cả GNOME, KDE Plasma, Hyprland và Sway.
+              data-en="Built on Freedesktop standards (portals, notifications, tray), running on Wayland and X11.">
+              Dựa trên các tiêu chuẩn Freedesktop (portal, thông báo, khay hệ thống), chạy trên Wayland và X11.
             </p>
             <ul class="pillar-list" role="list">
               <li
@@ -1514,7 +1491,7 @@
                 Brave, Edge, Vivaldi, Thorium).
               </li>
               <li
-                data-en="<strong>System integration &amp; updates:</strong> flawless <code>Fcitx5</code> / <code>IBus</code> input, bilingual VI/EN switch, optional GPU acceleration with automatic software fallback, and built-in GitHub update check (AppImage SHA-256 self-update + <code>zsync</code>, <code>.deb</code>/<code>.rpm</code> installer).">
+                data-en="<strong>System integration &amp; updates:</strong> <code>Fcitx5</code> / <code>IBus</code> Vietnamese input, bilingual VI/EN switch, optional GPU acceleration with automatic software fallback, and built-in GitHub update check (AppImage SHA-256 self-update + <code>zsync</code>, <code>.deb</code>/<code>.rpm</code> installer).">
                 <strong>Tích hợp hệ thống &amp; Cập nhật:</strong> bộ gõ <code>Fcitx5</code> / <code>IBus</code> mượt mà, chuyển ngôn ngữ Việt/Anh tức thì, tùy chọn tăng tốc phần cứng (GPU) tự quay về phần mềm khi lỗi và kiểm tra/cài đặt cập nhật trực tiếp (AppImage + <code>zsync</code>, <code>.deb</code>/<code>.rpm</code>).
               </li>
               <li
@@ -1527,15 +1504,14 @@
       </div>
     </section>
 
-    <!-- Engineering Architecture & Benchmark Comparison -->
     <section id="architecture" class="section">
       <div class="container">
         <div class="section-header">
           <span class="section-eyebrow" data-en="Performance">Hiệu năng</span>
           <h2 class="section-title" data-en="High performance &amp; lightweight footprint compared">So sánh hiệu năng &amp; độ nhẹ thực tế</h2>
           <p class="section-desc"
-            data-en="Instead of shipping a whole browser engine (&gt; 200 MB) with dozens of heavy helper processes like the Electron-based Zalo PC, Zalos runs lean and native on Linux (~2.5 MB .deb/.rpm, ~22 MB AppImage), sipping only 40–65 MB RAM.">
-            Thay vì đóng gói nguyên một trình duyệt cồng kềnh (&gt; 200 MB) kèm hàng loạt tiến trình phụ như bản Zalo PC, Zalos chạy hoàn toàn native trên Linux (~2.5 MB .deb/.rpm, ~22 MB AppImage tự chứa) và chiếm dụng chỉ 40–65 MB RAM.
+            data-en="Instead of shipping a whole browser engine (&gt; 200 MB) with dozens of heavy helper processes like the Electron-based Zalo PC, Zalos bundles a lean Qt 6.8.3 LTS QML AOT runtime (~25 MB .deb, ~27 MB RPM, ~27 MB AppImage), sipping only 40–65 MB RAM.">
+            Thay vì đóng gói nguyên một trình duyệt cồng kềnh (&gt; 200 MB) kèm hàng loạt tiến trình phụ như bản Zalo PC, Zalos đóng gói gọn nhẹ Qt 6.8.3 LTS biên dịch QML AOT (~25 MB .deb, ~27 MB RPM, ~27 MB AppImage) và chiếm dụng chỉ 40–65 MB RAM.
           </p>
         </div>
 
@@ -1559,7 +1535,7 @@
               </tr>
               <tr>
                 <th scope="row" data-en="Main app size">Kích thước ứng dụng chính</th>
-                <td class="col-highlight mono-val" data-en="~2.5 MB (.deb/.rpm) · ~22 MB (AppImage)">~2.5 MB (.deb/.rpm) · ~22 MB (AppImage)</td>
+                <td class="col-highlight mono-val" data-en="~25 MB (.deb) · ~27 MB (.rpm) · ~27 MB (AppImage, incl. Qt 6.8.3)">~25 MB (.deb) · ~27 MB (.rpm) · ~27 MB (AppImage, gồm sẵn Qt 6.8.3)</td>
                 <td class="mono-val" data-en="&gt; 150 – 250 MB (bundled browser)">&gt; 150 – 250 MB (kèm trình duyệt)</td>
               </tr>
               <tr>
@@ -1597,16 +1573,15 @@
       </div>
     </section>
 
-    <!-- Installation Guide -->
     <section id="install" class="section">
       <div class="container">
         <div class="section-header">
           <span class="section-eyebrow" data-en="Package distribution">Phân phối gói</span>
           <h2 class="section-title" data-en="Download &amp; install">Tải về &amp; Cài đặt</h2>
           <p class="section-desc"
-            data-en="Every release ships ready-to-install packages for <code>x86_64</code> and <code>aarch64</code> (ARM64), plus <code>armhf</code> and <code>riscv64</code> on Snap, with clean installs tested in containers before each release.">
+            data-en="Every release ships ready-to-install packages for <code>x86_64</code> and <code>aarch64</code> (ARM64), plus <code>armhf</code> and <code>riscv64</code> on Snap, with clean-install checks run locally in containers before each release.">
             Mỗi bản phát hành cung cấp sẵn gói cài đặt cho cả hai kiến trúc <code>x86_64</code> và <code>aarch64</code>
-            (ARM64), cùng <code>armhf</code> và <code>riscv64</code> trên Snap, được kiểm thử cài đặt sạch trong container trước mỗi bản phát hành.
+            (ARM64), cùng <code>armhf</code> và <code>riscv64</code> trên Snap, được kiểm tra cài đặt sạch cục bộ trong container trước mỗi bản phát hành.
           </p>
         </div>
 
@@ -1634,7 +1609,6 @@
                 class="tab-btn" data-en="Build from source">Build từ nguồn</button>
             </div>
 
-            <!-- Panel: APT Repo -->
             <div id="panel-apt" role="tabpanel" aria-labelledby="tab-apt" class="tab-panel">
               <p
                 data-en="For <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS and Zorin OS — automatically detects architecture and receives updates via <code class=&quot;inline-code&quot;>apt upgrade</code>:">
@@ -1655,7 +1629,6 @@ sudo apt update &amp;&amp; sudo apt install -y zalos</code></pre>
               </ul>
             </div>
 
-            <!-- Panel: DNF Repo -->
             <div id="panel-dnf" role="tabpanel" aria-labelledby="tab-dnf" class="tab-panel" hidden>
               <p data-en="For <strong>Fedora 43+</strong> — automatically selects architecture and receives updates via <code class=&quot;inline-code&quot;>dnf upgrade</code>:">
                 Dành cho <strong>Fedora 43+</strong> — tự động chọn kiến trúc và cập nhật qua <code class="inline-code">dnf upgrade</code>:
@@ -1675,7 +1648,6 @@ sudo dnf install -y zalos</code></pre>
               </ul>
             </div>
 
-            <!-- Panel: DEB (single file) -->
             <div id="panel-deb" role="tabpanel" aria-labelledby="tab-deb" class="tab-panel" hidden>
               <p
                 data-en="Install a standalone <code class=&quot;inline-code&quot;>.deb</code> file on <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS and Zorin OS (auto-detects architecture):">
@@ -1683,8 +1655,8 @@ sudo dnf install -y zalos</code></pre>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-deb">Sao chép</button>
                 <pre id="code-deb" class="code-pre" tabindex="0"><code>ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"</code></pre>
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.0-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.3.0-1~ubuntu24.04_${ARCH}.deb"</code></pre>
               </div>
               <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
                 <li data-en="<strong>Voice calls:</strong> Ready to use right after installing (audio libraries are installed automatically).">
@@ -1696,7 +1668,6 @@ sudo apt install "./zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"</code></pre>
               </ul>
             </div>
 
-            <!-- Panel: RPM (single file) -->
             <div id="panel-rpm" role="tabpanel" aria-labelledby="tab-rpm" class="tab-panel" hidden>
               <p data-en="Install a standalone <code class=&quot;inline-code&quot;>.rpm</code> file on <strong>Fedora 43+</strong> (auto-detects architecture):">
                 Cài đặt từ file <code class="inline-code">.rpm</code> lẻ trên <strong>Fedora 43+</strong> (tự nhận kiến trúc máy):
@@ -1704,7 +1675,7 @@ sudo apt install "./zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"</code></pre>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-rpm">Sao chép</button>
                 <pre id="code-rpm" class="code-pre"
-                  tabindex="0"><code>sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.10-1.fc43.$(uname -m).rpm"</code></pre>
+                  tabindex="0"><code>sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.0-1.fc43.$(uname -m).rpm"</code></pre>
               </div>
               <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
                 <li data-en="<strong>Voice calls:</strong> Ready to use right after installing, no extra audio setup needed.">
@@ -1716,7 +1687,6 @@ sudo apt install "./zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"</code></pre>
               </ul>
             </div>
 
-            <!-- Panel: Snap -->
             <div id="panel-snap" role="tabpanel" aria-labelledby="tab-snap" class="tab-panel" hidden>
               <p data-en="Install from the <strong><a href=&quot;https://snapcraft.io/zalos&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>Snap Store</a></strong> on Ubuntu and any distro with <code>snapd</code> — supports <code>amd64</code>, <code>arm64</code>, <code>armhf</code>, and <code>riscv64</code> (automatically detects architecture and updates in the background):">
                 Cài đặt từ <strong><a href="https://snapcraft.io/zalos" target="_blank" rel="noopener">Snap Store</a></strong> trên Ubuntu và các bản phân phối có <code>snapd</code> — hỗ trợ <code>amd64</code>, <code>arm64</code>, <code>armhf</code> và <code>riscv64</code> (tự động nhận kiến trúc và cập nhật nền):
@@ -1735,7 +1705,6 @@ sudo apt install "./zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"</code></pre>
               </ul>
             </div>
 
-            <!-- Panel: Flatpak -->
             <div id="panel-flatpak" role="tabpanel" aria-labelledby="tab-flatpak" class="tab-panel" hidden>
               <p data-en="Install the <strong>Flathub (Testing)</strong> build for <code>x86_64</code> and <code>aarch64</code> (<a href=&quot;https://builds.flathub.org/appstream/afeb93f6-0f7e-42bb-a97f-191a935cacd4&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>preview app listing</a>; once published, <code class=&quot;inline-code&quot;>flatpak install flathub io.github.cpfriend1721994.zalos</code>):">
                 Cài đặt bản <strong>Flathub (Testing)</strong> cho cả <code>x86_64</code> và <code>aarch64</code> (<a href="https://builds.flathub.org/appstream/afeb93f6-0f7e-42bb-a97f-191a935cacd4" target="_blank" rel="noopener">xem trước trên Flathub</a>; sau khi duyệt xong có thể cài trực tiếp bằng <code class="inline-code">flatpak install flathub io.github.cpfriend1721994.zalos</code>):
@@ -1752,17 +1721,16 @@ flatpak run io.github.cpfriend1721994.zalos</code></pre>
               </ul>
             </div>
 
-            <!-- Panel: AppImage -->
             <div id="panel-appimage" role="tabpanel" aria-labelledby="tab-appimage" class="tab-panel" hidden>
               <p
-                data-en="A self-contained (~22 MB) portable package for <strong>glibc ≥ 2.35</strong> distros (Ubuntu 22.04+, Debian 12+, openSUSE, Arch) — bundles a Qt 6.4 fallback when host Qt 6 is absent:">
-                Gói di động tự chứa (~22 MB) cho các bản phân phối <strong>glibc ≥ 2.35</strong> (Ubuntu 22.04+, Debian 12+, openSUSE, Arch) — tự dùng Qt 6.4 nhúng sẵn khi máy chưa có Qt 6:</p>
+                data-en="A self-contained (~27 MB) portable package for <strong>glibc ≥ 2.35</strong> distros (Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch) — bundles its own Qt 6.8.3 LTS runtime with QML AOT compilation and slim FFmpeg 7.1.5 LGPL playback (zero system Qt packages required):">
+                Gói di động tự chứa (~27 MB) cho các bản phân phối <strong>glibc ≥ 2.35</strong> (Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch) — tích hợp sẵn Qt 6.8.3 LTS biên dịch QML AOT và FFmpeg 7.1.5 LGPL tối giản (không cần Qt trên máy):</p>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-appimage">Sao chép</button>
                 <pre id="code-appimage" class="code-pre" tabindex="0"><code>ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.10-${ARCH}.AppImage"
-chmod +x "Zalos-1.2.10-${ARCH}.AppImage"
-"./Zalos-1.2.10-${ARCH}.AppImage"</code></pre>
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.0-${ARCH}.AppImage"
+chmod +x "Zalos-1.3.0-${ARCH}.AppImage"
+"./Zalos-1.3.0-${ARCH}.AppImage"</code></pre>
               </div>
               <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
                 <li data-en="<strong>Voice calls:</strong> Ready to use on standard Linux desktops (Ubuntu, Fedora, Mint...). Only stripped-down setups without PulseAudio/PipeWire (e.g. Server/Netinstall builds) need <code class=&quot;inline-code&quot;>libpulse0</code> (Ubuntu/Debian) or <code class=&quot;inline-code&quot;>pulseaudio-libs</code> (Fedora).">
@@ -1771,13 +1739,12 @@ chmod +x "Zalos-1.2.10-${ARCH}.AppImage"
                 <li data-en="<strong>Video calls (camera):</strong> Install OpenH264: <code class=&quot;inline-code&quot;>sudo apt install libopenh264-7</code> (Ubuntu/Debian) or <code class=&quot;inline-code&quot;>sudo dnf install openh264</code> (Fedora).">
                   <strong>Gọi video (bật camera):</strong> Cần cài thêm <code class="inline-code">sudo apt install libopenh264-7</code> (Ubuntu/Debian) hoặc <code class="inline-code">sudo dnf install openh264</code> (Fedora).
                 </li>
-                <li data-en="<strong>Voice messages &amp; videos:</strong> playback uses your distribution's codecs; on a system without Qt 6, install GStreamer with its good plugins and libav (e.g. <code class=&quot;inline-code&quot;>gstreamer1.0-plugins-good gstreamer1.0-libav</code>). Run <code class=&quot;inline-code&quot;>./Zalos-*.AppImage --check-deps</code> to see what is found.">
-                  <strong>Tin nhắn thoại &amp; video:</strong> phát bằng codec của bản phân phối; trên máy chưa có Qt 6, hãy cài GStreamer kèm plugin good và libav (ví dụ <code class="inline-code">gstreamer1.0-plugins-good gstreamer1.0-libav</code>). Chạy <code class="inline-code">./Zalos-*.AppImage --check-deps</code> để xem Zalos tìm thấy gì.
+                <li data-en="<strong>Voice messages &amp; videos:</strong> played via Qt 6.8.3's bundled FFmpeg backend out of the box (no separate GStreamer codecs needed). Run <code class=&quot;inline-code&quot;>./Zalos-*.AppImage --check-deps</code> to see what is found.">
+                  <strong>Tin nhắn thoại &amp; video:</strong> phát trực tiếp qua backend FFmpeg tích hợp sẵn trong Qt 6.8.3 (không cần cài thêm codec rời). Chạy <code class="inline-code">./Zalos-*.AppImage --check-deps</code> để xem Zalos tìm thấy gì.
                 </li>
               </ul>
             </div>
 
-            <!-- Panel: Nix -->
             <div id="panel-nix" role="tabpanel" aria-labelledby="tab-nix" class="tab-panel" hidden>
               <p data-en="Try it instantly, or install it permanently into your user profile via a Nix Flake:">Chạy thử
                 ngay hoặc cài đặt lâu dài vào hồ sơ người dùng thông qua Nix Flake:</p>
@@ -1796,7 +1763,6 @@ nix profile install github:cpfriend1721994/zalos</code></pre>
               </ul>
             </div>
 
-            <!-- Panel: Build from source -->
             <div id="panel-source" role="tabpanel" aria-labelledby="tab-source" class="tab-panel" hidden>
               <p
                 data-en="The entire build and test process is packaged in Docker/Podman to guarantee full reproducibility:">
@@ -1817,7 +1783,6 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
       </div>
     </section>
 
-    <!-- Honest Capability Accounting -->
     <section id="scope" class="section">
       <div class="container">
         <div class="section-header">
@@ -1834,23 +1799,30 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
           <div class="scope-box">
             <h3>
               <span style="color: var(--status-ok);" aria-hidden="true">●</span>
-              <span data-en="Fully working &amp; verified">Hoạt động đầy đủ &amp; Đã kiểm chứng</span>
+              <span data-en="Implemented">Đã triển khai</span>
             </h3>
             <ul>
-              <li
-                data-en="QR sign-in and one-click browser-session import from Chromium-based browsers (Chrome/Brave/Edge/Vivaldi/Thorium).">
-                Đăng nhập QR &amp; tự nhận diện phiên từ trình duyệt Chromium
-                (Chrome/Brave/Edge/Vivaldi/Thorium).</li>
-              <li data-en="1-1, group and My Documents messaging: RTF formatting (with indent), replies, multi-thread forwarding, 54 reactions, recall, custom GIFs, polls (add option/share/close), bank cards, reminders and auto-delete TTL.">
-                Nhắn tin 1-1, Nhóm, My Documents: định dạng RTF (kèm thụt lề), trả lời, chuyển tiếp nhiều luồng, 54 cảm xúc, thu hồi, ảnh GIF động, bình chọn (thêm lựa chọn/chia sẻ/khóa), thẻ ngân hàng, nhắc hẹn và tin nhắn tự xóa (TTL).</li>
-              <li data-en="Instant offline message cache (SQLite + FTS5) + server shared media/files/links store, label folders on the nav rail, unread filters, startup blocklist sync and PIN-hidden conversations.">
-                Bộ nhớ đệm ngoại tuyến tức thì (SQLite + FTS5) + kho ảnh/tệp/link chung trên máy chủ, thư mục nhãn trên thanh điều hướng, lọc chưa đọc, đồng bộ danh sách chặn khi mở ứng dụng và ẩn hội thoại bằng mã PIN.</li>
-              <li data-en="Group management (member approvals, invite box, Community upgrade), safe link scanning (scanURL), E2EE linked devices viewer and abuse reporting.">
-                Quản trị nhóm (duyệt thành viên, hộp thư mời, nâng cấp Cộng đồng), quét liên kết an toàn, xem thiết bị E2EE và báo cáo vi phạm.</li>
-              <li data-en="1-1 voice/video calls with screen sharing, AAC voice notes, screenshot capture (Ctrl+Alt+S), image annotation editor, Fcitx5/IBus input, Kiki assistant &amp; zBusiness tools.">
-                Gọi thoại &amp; video 1-1 kèm chia sẻ màn hình, ghi âm/phát thoại AAC, chụp màn hình (Ctrl+Alt+S), vẽ chú thích ảnh, gõ tiếng Việt Fcitx5/IBus, trợ lý Kiki &amp; công cụ zBusiness.</li>
-              <li data-en="Contacts quick actions (1-click voice call, video call, direct chat) and built-in release update checks.">
-                Thao tác nhanh trong danh bạ (1 cú nhấp gọi thoại, gọi video, nhắn tin) và kiểm tra cập nhật phiên bản mới trực tiếp.</li>
+              <li data-en="<strong>Sign-in:</strong> QR and one-click session import from Chromium-based browsers (Chrome, Brave, Edge, Vivaldi, Thorium).">
+                <strong>Đăng nhập:</strong> QR và tự nhận diện phiên từ trình duyệt Chromium (Chrome, Brave, Edge, Vivaldi, Thorium).
+              </li>
+              <li data-en="<strong>Messaging:</strong> one-to-one, group and My Documents — RTF formatting (with indent), replies, multi-thread forwarding, 54 reactions, recall, animated GIFs, polls (add options, share, lock), bank cards, reminders and auto-deleting messages (TTL).">
+                <strong>Nhắn tin:</strong> 1-1, nhóm và My Documents — định dạng RTF (kèm thụt lề), trả lời, chuyển tiếp nhiều luồng, 54 cảm xúc, thu hồi, GIF động, bình chọn (thêm lựa chọn, chia sẻ, khóa), thẻ ngân hàng, nhắc hẹn và tin nhắn tự xóa (TTL).
+              </li>
+              <li data-en="<strong>Storage &amp; sync:</strong> instant offline cache (SQLite + FTS5), server-side shared media/files/links store, label folders on the nav rail, unread filter, block-list sync at startup, and PIN-hidden conversations.">
+                <strong>Lưu trữ &amp; đồng bộ:</strong> bộ nhớ đệm ngoại tuyến tức thì (SQLite + FTS5), kho ảnh/tệp/liên kết chung trên máy chủ, thư mục nhãn trên thanh điều hướng, lọc chưa đọc, đồng bộ danh sách chặn khi mở ứng dụng và ẩn hội thoại bằng mã PIN.
+              </li>
+              <li data-en="<strong>Groups &amp; safety:</strong> group admin (member approvals, invite box, Community upgrade), safe link scanning, E2EE linked-device viewer and abuse reporting.">
+                <strong>Nhóm &amp; an toàn:</strong> quản trị nhóm (duyệt thành viên, hộp thư mời, nâng cấp Cộng đồng), quét liên kết an toàn, xem thiết bị E2EE và báo cáo vi phạm.
+              </li>
+              <li data-en="<strong>Calls &amp; media:</strong> one-to-one voice/video calls with screen sharing, AAC voice notes, screenshot capture (Ctrl+Alt+S), image annotation, Fcitx5 / IBus Vietnamese input, the Kiki assistant and server-synced zBusiness tools (profile, catalogs, auto-replies).">
+                <strong>Gọi &amp; đa phương tiện:</strong> gọi thoại và video 1-1 kèm chia sẻ màn hình, ghi âm/phát thoại AAC, chụp màn hình (Ctrl+Alt+S), vẽ chú thích ảnh, gõ tiếng Việt Fcitx5 / IBus, trợ lý Kiki và công cụ zBusiness đồng bộ máy chủ (hồ sơ, danh mục, trả lời tự động).
+              </li>
+              <li data-en="<strong>Quick actions:</strong> one-click voice call, video call or chat from the contacts list; built-in release update check.">
+                <strong>Thao tác nhanh:</strong> gọi thoại, gọi video hoặc nhắn tin chỉ với một cú nhấp trong danh bạ; kiểm tra cập nhật phiên bản mới ngay trong ứng dụng.
+              </li>
+              <li data-en="<strong>Native file dialogs:</strong> photos, files, avatars, backgrounds and save locations use your desktop's file chooser via the XDG portal (zenity / kdialog as fallback).">
+                <strong>Hộp thoại gốc của desktop:</strong> ảnh, tệp, ảnh đại diện, ảnh nền và nơi lưu mở bằng hộp thoại của desktop qua XDG portal (dự phòng zenity / kdialog).
+              </li>
             </ul>
           </div>
 
@@ -1860,28 +1832,38 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
               <span data-en="Works locally on your machine">Hoạt động cục bộ trên máy</span>
             </h3>
             <ul>
-              <li
-                data-en="<strong>Scheduled send:</strong> stored per account on your machine and auto-sent while Zalos is open (or running in the system tray).">
-                <strong>Hẹn giờ gửi tin:</strong> lưu theo từng tài khoản trên máy và tự động gửi khi Zalos đang mở
-                (hoặc chạy dưới khay hệ thống).
+              <li data-en="<strong>Scheduled send:</strong> stored per account on your machine and sent automatically while Zalos is open (or running in the tray).">
+                <strong>Hẹn giờ gửi tin:</strong> lưu theo tài khoản trên máy và tự gửi khi Zalos đang mở (hoặc chạy dưới khay hệ thống).
               </li>
-              <li
-                data-en="<strong>Accent-insensitive offline search:</strong> instant Vietnamese search across conversations and messages already cached locally in SQLite.">
-                <strong>Tìm kiếm không dấu ngoại tuyến:</strong> tìm kiếm tiếng Việt tức thì trên toàn bộ hội thoại và tin nhắn đã lưu sẵn trong cơ sở dữ liệu cục bộ.
+              <li data-en="<strong>Accent-insensitive offline search:</strong> instant Vietnamese search across conversations and messages cached locally (SQLite).">
+                <strong>Tìm kiếm không dấu ngoại tuyến:</strong> tìm tiếng Việt tức thì trong hội thoại và tin nhắn đã lưu trên máy (SQLite).
               </li>
-              <li
-                data-en="<strong>App lock &amp; anti-peek:</strong> protects the Linux desktop UI itself and Freedesktop push notifications.">
-                <strong>Khóa ứng dụng &amp; Chống nhìn lén:</strong> bảo vệ trực tiếp trên giao diện máy tính Linux và
-                thông báo đẩy Freedesktop.
+              <li data-en="<strong>App lock &amp; anti-peek:</strong> protects the desktop UI and Freedesktop notifications.">
+                <strong>Khóa ứng dụng &amp; chống nhìn lén:</strong> bảo vệ giao diện desktop và thông báo Freedesktop.
               </li>
-              <li
-                data-en="<strong>Block Sent / Typing:</strong> stops the app from sending status packets to the server when you read or type.">
-                <strong>Chặn Đã xem / Đang nhập:</strong> ngăn ứng dụng gửi gói tin trạng thái lên máy chủ khi bạn đọc
-                hoặc gõ phím.
+              <li data-en="<strong>Block &quot;Seen&quot; / &quot;Typing&quot;:</strong> stops the app sending read or typing status to the server.">
+                <strong>Chặn &quot;Đã xem&quot; / &quot;Đang nhập&quot;:</strong> ngăn ứng dụng gửi trạng thái đã đọc hoặc đang gõ lên máy chủ.
               </li>
-              <li
-                data-en="<strong>Theme &amp; rendering:</strong> instant light/dark mode following your desktop; stable software rendering by default, optional GPU acceleration that falls back to software automatically if the driver fails.">
-                <strong>Giao diện &amp; Kết xuất:</strong> tự đổi Sáng/Tối theo hệ thống; mặc định kết xuất phần mềm ổn định, có thể bật tăng tốc GPU và tự quay về phần mềm nếu driver lỗi.
+              <li data-en="<strong>Theme &amp; rendering:</strong> light/dark follows your desktop; software rendering by default, optional GPU acceleration that falls back to software if the driver fails.">
+                <strong>Giao diện &amp; kết xuất:</strong> sáng/tối theo desktop; mặc định kết xuất bằng phần mềm, có thể bật tăng tốc GPU và tự quay về phần mềm khi driver lỗi.
+              </li>
+            </ul>
+          </div>
+
+          <div class="scope-box">
+            <h3>
+              <span style="color: var(--status-warn);" aria-hidden="true">●</span>
+              <span data-en="Beta">Thử nghiệm (Beta)</span>
+            </h3>
+            <ul>
+              <li data-en="<strong>Phone history sync:</strong> beta (sync v1, with automatic fallback to v2 when v1 is unavailable); needs more real-device testing.">
+                <strong>Đồng bộ lịch sử từ điện thoại:</strong> thử nghiệm (v1, tự động chuyển sang v2 khi v1 không dùng được), cần kiểm chứng thêm trên nhiều thiết bị thật.
+              </li>
+              <li data-en="<strong>Group calls:</strong> group voice/video calls are still beta and need real-call testing (1-1 calls are complete).">
+                <strong>Gọi nhóm:</strong> gọi thoại và video nhóm còn thử nghiệm, cần kiểm chứng trên cuộc gọi thực tế (gọi 1-1 đã hoàn chỉnh).
+              </li>
+              <li data-en="<strong>Reaction notifications &amp; &quot;seen&quot; sync:</strong> implemented but not yet verified on a live account; server sync is best-effort.">
+                <strong>Thông báo cảm xúc &amp; đồng bộ &quot;đã xem&quot;:</strong> đã triển khai nhưng chưa kiểm chứng trên tài khoản thật; đồng bộ lên máy chủ mang tính best-effort.
               </li>
             </ul>
           </div>
@@ -1889,30 +1871,20 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
           <div class="scope-box">
             <h3>
               <span style="color: var(--text-muted);" aria-hidden="true">●</span>
-              <span data-en="Beta / Not supported / Out of scope">Thử nghiệm / Chưa hỗ trợ / Ngoài phạm vi</span>
+              <span data-en="Not supported / Out of scope">Chưa hỗ trợ / Ngoài phạm vi</span>
             </h3>
             <ul>
-              <li
-                data-en="<strong>Phone history sync (including iPhone Sync v2):</strong> supported at a beta level (sync v1 with automatic fallback to v2) and still needs broader real-device testing.">
-                <strong>Đồng bộ lịch sử từ điện thoại (bao gồm Sync v2 trên iPhone):</strong> đang hỗ trợ ở mức thử nghiệm (beta — dùng v1 và tự động fallback sang v2), cần kiểm chứng thêm trên nhiều thiết bị thực tế.
+              <li data-en="<strong>Business profile (zBusiness):</strong> read-only in Zalos; catalogs, products and auto-replies are created, edited and deleted on the server.">
+                <strong>Hồ sơ kinh doanh (zBusiness):</strong> chỉ đọc trong Zalos; danh mục, sản phẩm và trả lời tự động được tạo, sửa, xóa trực tiếp trên máy chủ.
               </li>
-              <li
-                data-en="<strong>Group calls:</strong> group voice/video calls remain in beta and need broader real-call testing (1-1 voice, video and screen sharing are verified on C++ engine/codec suites).">
-                <strong>Gọi nhóm:</strong> gọi thoại/video nhóm đang ở mức thử nghiệm (beta) và cần kiểm chứng thêm trên cuộc gọi thực tế (gọi thoại, video và chia sẻ màn hình 1-1 đã hoàn chỉnh).
+              <li data-en="<strong>Paid zCloud &amp; Personal To-Do:</strong> the paid zCloud vault and PC-only Personal To-Do APIs are not supported (use My Documents and in-chat reminders instead).">
+                <strong>zCloud trả phí &amp; To-Do cá nhân:</strong> kho zCloud trả phí và API To-Do cá nhân chỉ có trên bản PC không được hỗ trợ (dùng My Documents và nhắc hẹn trong hội thoại thay thế).
               </li>
-              <li
-                data-en="<strong>Zalo PC-style polls &amp; read status synced with your phone (new in 1.2.9):</strong> full vote dialog, voters, deadlines and hidden results, plus read points from your other devices — built to match Zalo PC's behaviour and still being tested on more real accounts.">
-                <strong>Bình chọn như Zalo PC &amp; đồng bộ trạng thái đã đọc với điện thoại (mới ở 1.2.9):</strong> cửa sổ bình chọn đầy đủ, xem người chọn, thời hạn, ẩn kết quả, cùng trạng thái đã đọc từ thiết bị khác — làm theo đúng cách Zalo PC hoạt động và đang được kiểm chứng thêm trên nhiều tài khoản thực tế.
+              <li data-en="<strong>Sign-in with phone number &amp; password:</strong> not supported, because the Zalo Web protocol does not offer it (QR and browser session only).">
+                <strong>Đăng nhập bằng số điện thoại &amp; mật khẩu:</strong> không hỗ trợ, vì giao thức Zalo Web không cung cấp (chỉ QR và phiên trình duyệt).
               </li>
-              <li
-                data-en="<strong>Personal To-Do lists:</strong> the server restricts this to genuine Zalo PC sessions, so it was removed to avoid errors.">
-                <strong>Danh sách Việc cần làm (To-Do cá nhân):</strong> bị máy chủ giới hạn riêng cho phiên Zalo PC
-                chính hãng nên đã được lược bỏ để tránh báo lỗi.
-              </li>
-              <li
-                data-en="<strong>Parallel multi-account:</strong> the app is optimized for one signed-in account at a time.">
-                <strong>Đa tài khoản song song:</strong> ứng dụng thiết kế tối ưu cho 1 tài khoản đăng nhập tại một thời
-                điểm.
+              <li data-en="<strong>Parallel multi-account:</strong> the app is optimized for one signed-in account at a time.">
+                <strong>Đa tài khoản song song:</strong> ứng dụng tối ưu cho một tài khoản đăng nhập tại một thời điểm.
               </li>
             </ul>
           </div>
@@ -1945,7 +1917,6 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
   </footer>
 
   <script>
-    // One-click light/dark toggle driven by the <meta name="color-scheme"> override
     (function () {
       const meta = document.querySelector('meta[name="color-scheme"]');
       const btn = document.getElementById('themeToggle');
@@ -1980,8 +1951,6 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
         syncIcon();
       });
 
-      // Opening showcase: start the preview on the opposite theme, then crossfade
-      // to the active one so the light/dark transition is visible on first load.
       if (preview && !reducedMotion.matches) {
         introLock = true;
         const active = renderedScheme();
@@ -1995,7 +1964,6 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
       syncIcon();
     })();
 
-    // EN / VI language switch — Vietnamese is the source, data-en* carry English
     (function () {
       const LANG_KEY = 'lang';
       const html = document.documentElement;
@@ -2063,7 +2031,6 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
       setLang(initial, false);
     })();
 
-    // Accessible Tabs for Installation Guide
     (function () {
       const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
       const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));

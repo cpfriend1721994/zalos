@@ -18,6 +18,7 @@ Item {
     property bool hideVoters: false
     property bool pinToTop: false
     property int deadlineIndex: 0
+    property bool submitting: false
     readonly property list<real> deadlineMs: [0, 3600000, 86400000, 259200000, 604800000]
     readonly property list<string> deadlineVi: ["Không thời hạn", "1 giờ", "1 ngày", "3 ngày", "7 ngày"]
     readonly property list<string> deadlineEn: ["No deadline", "1 hour", "1 day", "3 days", "7 days"]
@@ -71,16 +72,20 @@ Item {
         root.hideVoters = false;
         root.pinToTop = false;
         root.deadlineIndex = 0;
+        root.submitting = false;
     }
     function closeModal(): void {
+        root.submitting = false;
         ZaloClient.closeCreatePollModal();
         root.reset();
     }
     function create(): void {
+        if (root.submitting) return;
         if (root.problem.length > 0) {
             ZaloClient.notice(root.problem);
             return;
         }
+        root.submitting = true;
         const ms = root.deadlineMs[root.deadlineIndex];
         ZaloClient.createPoll(ZaloClient.currentConversationId, questionInput.text.trim(), root.pollOptions, {
             allowMultiChoices: root.multiChoice,
@@ -92,11 +97,20 @@ Item {
         });
     }
 
+    Connections {
+        target: ZaloClient
+        function onNotice(message: string): void {
+            root.submitting = false;
+        }
+    }
+
     Component.onCompleted: visibleChanged()
     onVisibleChanged: {
         if (visible) {
             root.reset();
             questionInput.forceActiveFocus();
+        } else {
+            root.submitting = false;
         }
     }
 
@@ -428,7 +442,7 @@ Item {
                 ZButton {
                     variant: "primary"
                     text: I18n.t("Tạo bình chọn", "Create poll")
-                    enabled: root.problem.length === 0
+                    enabled: root.problem.length === 0 && !root.submitting
                     onClicked: root.create()
                 }
             }

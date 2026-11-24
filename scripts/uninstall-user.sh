@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Uninstall Zalos from ~/.local
 set -eo pipefail
 
 BIN="${HOME}/.local/bin/zalos"

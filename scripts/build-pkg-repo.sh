@@ -66,7 +66,6 @@ cat > "${OUT_DIR}/index.html" <<EOF
 </html>
 EOF
 
-# Build APT repository
 APT_DIR="${OUT_DIR}/apt"
 mkdir -p "${APT_DIR}/pool/main"
 find "${INPUT_DIR}" -maxdepth 2 -type f -name '*.deb' -exec cp -f {} "${APT_DIR}/pool/main/" \;
@@ -94,7 +93,6 @@ if [ "${#DEB_FILES[@]}" -gt 0 ]; then
     gpg_sign --clearsign -u "${KEY_FP}" -o "${APT_DIR}/dists/stable/InRelease" "${APT_DIR}/dists/stable/Release"
 fi
 
-# Build RPM repository
 GPG_WRAPPER="${GNUPGHOME}/gpg-rpm.sh"
 cat > "${GPG_WRAPPER}" <<EOF
 #!/usr/bin/env bash

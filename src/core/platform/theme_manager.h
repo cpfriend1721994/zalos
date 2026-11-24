@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <QtQml/qqmlregistration.h>
 
 class QQmlEngine;
@@ -9,6 +11,8 @@ class QJSEngine;
 #include <QColor>
 #include <QPalette>
 #include <QString>
+#include <QVariant>
+#include <QDBusVariant>
 #include <QFileSystemWatcher>
 #include <QTimer>
 
@@ -87,6 +91,14 @@ public:
     QString systemFontFamily() const { return m_systemFontFamily; }
     Q_INVOKABLE void setSystemFontFamily(const QString& family);
     static QString familyFromFontSpec(const QString& spec);
+    static QString registerEmojiFallbackFont();
+    static QString fallbackUiFamily();
+    static QString installedFamilyName(const QString& family);
+    static bool isEmojiOrSymbolFamily(const QString& family);
+    static bool isUsableUiFamily(const QString& family);
+    static QString chooseUiFont(const QStringList& specs, const std::function<bool(const QString&)>& usable,
+                                const QString& fallback);
+    static void applyEmojiFallbackToFamily(const QString& family);
 
     QColor systemAccentColor() const { return m_systemAccentColor; }
 
@@ -142,6 +154,22 @@ public:
 
     static bool kdeDarkFromGlobals(const QByteArray& content, bool* known);
     static QColor kdeAccentFromGlobals(const QByteArray& content);
+    static bool gtkDarkFromSettingsIni(const QByteArray& content, bool* known);
+    static bool portalColorSchemeFromVariant(const QVariant& raw, bool* known);
+    static QColor portalAccentFromVariant(const QVariant& raw);
+    static bool paletteIsDark(const QPalette& pal);
+#ifdef ZALOS_TESTING
+    static QString resolveFontSpecForTesting(const QString& spec);
+    void setSystemPaletteForTesting(const QPalette& pal) {
+        m_systemPalette = pal;
+        m_systemIsDark = paletteIsDark(pal);
+        if (m_themeMode == 2) {
+            m_isDarkMode = m_systemIsDark;
+            syncApplicationPalette();
+            emit themeColorsChanged();
+        }
+    }
+#endif
 
 signals:
     void darkModeChanged(bool isDark);
@@ -154,16 +182,19 @@ public slots:
     void detectGnomeOrPortalTheme();
     void detectSystemAccentColor();
     void onPortalSettingChanged(const QString& ns, const QString& key);
+    void onPortalSettingChanged(const QString& ns, const QString& key, const QDBusVariant& value);
 
 private:
     void initSystemThemeDetection();
     void detectKdeTheme();
     void watchKdeGlobals();
     void detectSystemFont();
+    void applyDetectedFont(const QString& family);
     void applySystemAccentColor(const QColor& detectedAccent);
     void applyPortalDarkMode(bool dark);
-    void fallbackLocalDarkMode();
+    bool fallbackLocalDarkMode();
     void syncApplicationPalette();
+    QColor systemPaletteColor(QPalette::ColorRole role) const;
     QColor resolveColor(const QString& lightZalo, const QString& darkZalo, const QColor& systemColor = QColor()) const;
 
     int m_themeMode{2};

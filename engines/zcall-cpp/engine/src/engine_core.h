@@ -73,8 +73,8 @@ struct Call {
     QJsonObject config;
     QJsonArray p2p;
     double startedAt{0};
-    QTimer* ringTimer{nullptr};
-    QTimer* pingTimer{nullptr};
+    QPointer<QTimer> ringTimer;
+    QPointer<QTimer> pingTimer;
     bool muted{false};
     bool speakerOff{false};
     bool camReported{false};

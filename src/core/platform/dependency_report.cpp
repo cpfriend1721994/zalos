@@ -17,6 +17,9 @@
 #include <QSslSocket>
 
 #include <cstdio>
+#ifdef __linux__
+#include <dlfcn.h>
+#endif
 
 namespace Zalos::Core::Platform::DependencyReport {
 
@@ -36,7 +39,7 @@ bool pluginPresent(const QStringList& files) {
 QStringList missingQmlModules() {
     QQmlEngine engine;
     const QStringList required{"QtQuick/Controls", "QtQuick/Layouts", "QtQuick/Templates", "QtQuick/Window",
-                               "QtQuick/Shapes", "QtQuick/Dialogs", "QtMultimedia", "QtCore"};
+                               "QtQuick/Shapes", "QtMultimedia", "QtCore"};
     QStringList missing;
     for (const QString& module : required) {
         bool found = false;
@@ -84,12 +87,27 @@ QList<Line> collect() {
     QMediaFormat media;
     const auto audio = media.supportedAudioCodecs(QMediaFormat::Decode);
     const auto video = media.supportedVideoCodecs(QMediaFormat::Decode);
-    out.append({"media-decode", audio.isEmpty() && video.isEmpty()
+    bool hasAac = audio.contains(QMediaFormat::AudioCodec::AAC);
+    bool hasMp3 = audio.contains(QMediaFormat::AudioCodec::MP3);
+    bool hasH264 = video.contains(QMediaFormat::VideoCodec::H264);
+#ifdef __linux__
+    for (const char* libName : {"libavcodec.so.61", "libavcodec.so.60", "libavcodec.so.59", "libavcodec.so.58"}) {
+        void* handle = dlopen(libName, RTLD_LAZY | RTLD_NOLOAD);
+        if (!handle) continue;
+        using FindDecFn = const void* (*)(const char*);
+        if (auto findDec = reinterpret_cast<FindDecFn>(dlsym(handle, "avcodec_find_decoder_by_name"))) {
+            hasAac = hasAac || findDec("aac") != nullptr;
+            hasMp3 = hasMp3 || findDec("mp3") != nullptr || findDec("mp3float") != nullptr;
+            hasH264 = hasH264 || findDec("h264") != nullptr;
+        }
+        dlclose(handle);
+        break;
+    }
+#endif
+    out.append({"media-decode", (!hasAac && !hasMp3 && !hasH264 && audio.isEmpty() && video.isEmpty())
                                     ? QStringLiteral("missing (no Qt Multimedia backend/codecs)")
                                     : QStringLiteral("aac=%1 mp3=%2 h264=%3")
-                                          .arg(yesNo(audio.contains(QMediaFormat::AudioCodec::AAC)),
-                                               yesNo(audio.contains(QMediaFormat::AudioCodec::MP3)),
-                                               yesNo(video.contains(QMediaFormat::VideoCodec::H264)))});
+                                          .arg(yesNo(hasAac), yesNo(hasMp3), yesNo(hasH264))});
     }
 
     auto& h264 = Call::OpenH264::instance();

@@ -70,6 +70,9 @@ class CallBridge : public QObject {
     Q_PROPERTY(QString selectedMicId READ selectedMicId NOTIFY devicesChanged FINAL)
     Q_PROPERTY(QString selectedSpeakerId READ selectedSpeakerId NOTIFY devicesChanged FINAL)
     Q_PROPERTY(QString selectedCameraId READ selectedCameraId NOTIFY devicesChanged FINAL)
+    Q_PROPERTY(QVariantList audioInputDeviceList READ audioInputDevices NOTIFY devicesChanged FINAL)
+    Q_PROPERTY(QVariantList audioOutputDeviceList READ audioOutputDevices NOTIFY devicesChanged FINAL)
+    Q_PROPERTY(QVariantList cameraDeviceList READ cameraDevices NOTIFY devicesChanged FINAL)
 
 public:
     explicit CallBridge(Network::ZaloSession* session, QObject* parent = nullptr);
@@ -114,6 +117,7 @@ public:
     Q_INVOKABLE QVariantList audioInputDevices() const;
     Q_INVOKABLE QVariantList audioOutputDevices() const;
     Q_INVOKABLE QVariantList cameraDevices() const;
+    Q_INVOKABLE void refreshDevicesAsync();
     Q_INVOKABLE void selectAudioDevice(const QString& kind, const QString& id);
     Q_INVOKABLE void selectCameraDevice(const QString& id);
     Q_INVOKABLE void setMicVolume(int pct);
@@ -161,7 +165,7 @@ signals:
     void micStateChanged();
     void devicesChanged();
     void incomingCall(const QString& peerName);
-    void callFinished(const QString& peerId, bool outgoing, int durationSec);
+    void callFinished(const QString& peerId, bool outgoing, int durationSec, bool isVideo);
     void videoFrameReceived(bool isKey, const QString& codec, const QByteArray& data, int src);
     void peerVideoChanged();
     void peerVideoResetRequested();
@@ -221,6 +225,7 @@ private:
     QPointer<QVideoSink> m_peerSink;
     QTimer* m_peerVideoIdle{nullptr};
     QTimer* m_idleShutdownTimer{nullptr};
+    QTimer* m_hangupWatchdog{nullptr};
     bool m_peerVideoActive{false};
     qint64 m_lastKeyRequestMs{0};
     QHash<QString, QStringList> m_chunks;
@@ -231,13 +236,23 @@ private:
 
     QJsonObject m_ui;
     QString m_activePeer;
+    QJsonValue m_activeCallId;
+    int m_activeCallType{0};
     bool m_activeOutgoing{false};
+    bool m_activeConnected{false};
+    bool m_endSignalSent{false};
+    bool m_bubbleEmitted{false};
     int m_micVolume{100};
     bool m_micAutoGain{true};
     int m_micLevel{60};
     QString m_selectedMicId;
     QString m_selectedSpeakerId;
     QString m_selectedCameraId;
+    mutable QVariantList m_cachedAudioInputs;
+    mutable QVariantList m_cachedAudioOutputs;
+    mutable QVariantList m_cachedCameras;
+    mutable std::atomic<bool> m_devicesScanning{false};
+    mutable bool m_devicesCached{false};
 };
 
 }

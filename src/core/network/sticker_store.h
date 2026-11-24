@@ -108,6 +108,7 @@ private:
     quint64 m_resetGen{0};
     QVariantList m_birthday;
     bool m_birthdayLoading{false};
+    bool m_birthdayAttempted{false};
 };
 
 }

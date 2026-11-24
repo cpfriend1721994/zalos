@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QProcessEnvironment>
 #include <QString>
 #include <QVector>
 #include <QDateTime>
@@ -39,6 +40,16 @@ public:
     static DirectoryTreeNode getDirectoryTree(const QString& path, int maxDepth = -1);
 
     static qint64 cleanCacheDirectory(const QString& dirPath, qint64 maxAgeSeconds);
+
+    static bool openLocalPath(const QString& path);
+
+    static bool sandboxed();
+
+    static QProcessEnvironment launchEnvironment(const QProcessEnvironment& env);
+
+    static QString urlLauncher();
+
+    static bool openUrlDetached(const QString& url, const QString& failureFile);
 };
 
 }

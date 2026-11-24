@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import Zalos
 
 Item {
@@ -257,7 +256,7 @@ Item {
             }
         }
 
-        FileDialog {
+        ZFilePicker {
             id: avatarDialog
             title: I18n.t("Chọn ảnh đại diện", "Choose your avatar")
             nameFilters: [I18n.t("Hình ảnh (*.jpg *.jpeg *.png *.webp)", "Images (*.jpg *.jpeg *.png *.webp)")]
@@ -386,13 +385,18 @@ Item {
                             }
 
                             TextEdit {
+                                id: profileBioText
                                 visible: !statusCard.editingStatus
                                 Layout.fillWidth: true
                                 readOnly: true
                                 selectByMouse: statusCard.hasStatus
-                                text: statusCard.hasStatus ? ZaloClient.profileBio
-                                                           : I18n.t("Thêm trạng thái để bạn bè biết bạn đang thế nào…",
-                                                                    "Add a status so friends know how you're doing…")
+                                textFormat: statusCard.hasStatus ? TextEdit.RichText : TextEdit.PlainText
+                                text: statusCard.hasStatus
+                                      ? "<style>a{color:" + Theme.linkColor + ";text-decoration:none}</style>" + ZaloClient.linkifyText(ZaloClient.profileBio)
+                                      : I18n.t("Thêm trạng thái để bạn bè biết bạn đang thế nào…",
+                                               "Add a status so friends know how you're doing…")
+                                onLinkActivated: function(link) { ZaloClient.openLink(link); }
+                                HoverHandler { cursorShape: profileBioText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.IBeamCursor }
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
                                 font.italic: !statusCard.hasStatus

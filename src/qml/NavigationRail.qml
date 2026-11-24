@@ -90,20 +90,24 @@ Rectangle {
         property bool active: false
         signal clicked()
 
+        readonly property bool lightDot: (0.299 * folder.dot.r + 0.587 * folder.dot.g + 0.114 * folder.dot.b) > 0.62
+
         function initials(text: string): string {
-            var t = text.trim();
+            var t = (text || "").trim();
+            if (typeof t.normalize === "function") t = t.normalize("NFC");
             if (t.length === 0) return "#";
-            if (t.indexOf(" ") < 0) return t.substring(0, 2).toUpperCase();
-            var last = t.substring(t.lastIndexOf(" ") + 1);
-            if (last.length === 0) return t.charAt(0).toUpperCase();
-            return (t.charAt(0) + last.charAt(0)).toUpperCase();
+            var words = t.split(/\s+/);
+            if (words.length === 1) {
+                return Array.from(words[0]).slice(0, 2).join("").toUpperCase();
+            }
+            var first = Array.from(words[0])[0] || "";
+            var last = Array.from(words[words.length - 1])[0] || "";
+            return (first + last).toUpperCase();
         }
 
         Layout.alignment: Qt.AlignHCenter
         Layout.preferredWidth: root.compact ? 40 : 44
         Layout.preferredHeight: root.compact ? 40 : 44
-        scale: folderMouse.pressed ? 0.93 : (folderMouse.containsMouse ? 1.05 : 1.0)
-        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
 
         Rectangle {
             id: folderDisc
@@ -116,27 +120,22 @@ Rectangle {
                       : (folderMouse.containsMouse ? Qt.rgba(folder.dot.r, folder.dot.g, folder.dot.b, 0.28)
                                                    : "transparent"))
                    : (folderMouse.containsMouse ? Qt.lighter(folder.dot, 1.12) : folder.dot)
+            border.color: folder.active ? "#FFFFFF" : (!ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.35) : "transparent")
+            border.width: folder.active ? 2 : (!ThemeManager.isDarkMode ? 1 : 0)
             Behavior on color { ColorAnimation { duration: 140 } }
 
             Text {
                 anchors.centerIn: parent
+                width: folderDisc.width - 6
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
                 text: folder.initials(folder.labelName)
-                color: ThemeManager.isDarkMode ? folder.dot : "#FFFFFF"
+                textFormat: Text.PlainText
+                color: ThemeManager.isDarkMode ? folder.dot : (folder.lightDot ? "#1F2937" : "#FFFFFF")
                 font.family: Theme.fontFamily
-                font.pixelSize: Math.max(11, Math.floor(folderDisc.width * 0.36))
-                font.weight: Font.DemiBold
+                font.pixelSize: Math.max(11, Math.floor(folderDisc.width * 0.34))
+                font.weight: Font.Medium
             }
-        }
-
-        Rectangle {
-            anchors.centerIn: parent
-            width: folderDisc.width
-            height: width
-            radius: width / 2
-            color: "transparent"
-            visible: folder.active
-            border.color: "#FFFFFF"
-            border.width: 2
         }
 
         MouseArea {
@@ -297,7 +296,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             contentWidth: width
-            contentHeight: folderColumn.implicitHeight
+            contentHeight: folderColumn.implicitHeight + 8
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             flickDeceleration: 6000
@@ -315,6 +314,7 @@ Rectangle {
 
             ColumnLayout {
                 id: folderColumn
+                y: 4
                 width: parent.width
                 spacing: 4
                 Repeater {

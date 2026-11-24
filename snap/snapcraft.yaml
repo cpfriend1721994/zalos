@@ -51,7 +51,7 @@ parts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DCMAKE_INSTALL_PREFIX=/usr
       - -DBUILD_TESTING=OFF
-      - -DZALOS_QML_AOT=OFF
+      - -DZALOS_QML_AOT=ON
     build-packages:
       - pkg-config
       - qt6-base-dev
@@ -73,7 +73,6 @@ parts:
     stage-packages:
       - libqt6core6t64
       - libqt6gui6t64
-      - libqt6widgets6t64
       - libqt6qml6
       - libqt6quick6
       - libqt6quickcontrols2-6
@@ -94,7 +93,6 @@ parts:
       - qml6-module-qtquick-templates
       - qml6-module-qtquick-window
       - qml6-module-qtquick-shapes
-      - qml6-module-qtquick-dialogs
       - qml6-module-qtqml-workerscript
       - qml6-module-qtmultimedia
       - qml6-module-qtcore

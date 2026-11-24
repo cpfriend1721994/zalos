@@ -23,7 +23,7 @@ Item {
     readonly property bool imagePending: root.avatarUrl.length > 0 && avatarImage.status === Image.Loading
     readonly property bool isMyDocs: !root.isGroup && root.name === "My Documents"
     readonly property bool showVerifiedBadge: (root.isVerified || root.isMyDocs) && !root.isGroup
-    readonly property color placeholderColor: ThemeManager.isDarkMode ? "#3B4048" : "#E4E7EC"
+    readonly property color placeholderColor: ThemeManager.cardBackgroundColor
     readonly property bool composite: root.isGroup && root.avatarUrl.length === 0 && root.memberAvatars.length > 0
     readonly property int shownMembers: root.memberCount > 4 ? 3 : Math.min(4, root.memberAvatars.length)
     readonly property bool countCell: root.memberCount > 4
@@ -76,8 +76,8 @@ Item {
         cache: true
         smooth: true
         fillMode: Image.PreserveAspectFit
-        sourceSize.width: Math.ceil(root.size * (Screen.devicePixelRatio || 1))
-        sourceSize.height: Math.ceil(root.size * (Screen.devicePixelRatio || 1))
+        sourceSize.width: Math.max(1, Math.ceil(root.size))
+        sourceSize.height: Math.max(1, Math.ceil(root.size))
         source: root.avatarUrl.length > 0 ? "image://avatar/" + encodeURIComponent(root.avatarUrl) : ""
         visible: root.hasImage
         opacity: root.hasImage ? 1.0 : 0.0
@@ -182,8 +182,8 @@ Item {
                     asynchronous: true
                     cache: true
                     smooth: true
-                    sourceSize.width: Math.ceil(compositeBox.cell * (Screen.devicePixelRatio || 1))
-                    sourceSize.height: Math.ceil(compositeBox.cell * (Screen.devicePixelRatio || 1))
+                    sourceSize.width: Math.max(1, Math.ceil(compositeBox.cell))
+                    sourceSize.height: Math.max(1, Math.ceil(compositeBox.cell))
                     source: (memberCell.modelData.avatar || "").length > 0
                             ? "image://avatar/" + encodeURIComponent(memberCell.modelData.avatar) : ""
                     visible: status === Image.Ready
@@ -197,7 +197,7 @@ Item {
             width: compositeBox.cell
             height: compositeBox.cell
             radius: width / 2
-            color: ThemeManager.isDarkMode ? "#3B4048" : "#E4E7EC"
+            color: ThemeManager.cardBackgroundColor
             border.color: ThemeManager.surfaceColor
             border.width: 1
             Text {
@@ -205,7 +205,7 @@ Item {
                 text: root.memberCount > 99 ? "99+" : root.memberCount
                 font.family: Theme.fontFamily
                 font.pixelSize: Math.max(7, Math.floor(compositeBox.cell * (root.memberCount > 99 ? 0.32 : 0.42)))
-                color: ThemeManager.isDarkMode ? "#DCE1E8" : "#4A5361"
+                color: ThemeManager.secondaryTextColor
             }
         }
     }

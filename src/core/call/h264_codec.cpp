@@ -1,6 +1,7 @@
 #include "h264_codec.h"
 
 #include <QImage>
+#include <QVarLengthArray>
 #include <QVector>
 #include <cstring>
 #include <dlfcn.h>
@@ -360,19 +361,44 @@ bool imageToI420Into(const QImage& source, QSize size, QByteArray& out) {
     auto* y = reinterpret_cast<uchar*>(out.data());
     uchar* u = y + w * h;
     uchar* v = u + (w / 2) * (h / 2);
-    for (int row = 0; row < h; ++row) {
-        const int sy = cropY + (row * cropH) / h;
-        const auto* line = reinterpret_cast<const QRgb*>(image.constScanLine(sy));
-        for (int col = 0; col < w; ++col) {
-            const int sx = cropX + (col * cropW) / w;
-            const QRgb px = line[sx];
-            const int r = qRed(px), g = qGreen(px), b = qBlue(px);
-            y[row * w + col] = uchar(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16);
-            if (!(row & 1) && !(col & 1)) {
-                const int ci = (row / 2) * (w / 2) + col / 2;
-                u[ci] = uchar(((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128);
-                v[ci] = uchar(((112 * r - 94 * g - 18 * b + 128) >> 8) + 128);
-            }
+    QVarLengthArray<int, 1280> sxTable(w);
+    for (int col = 0; col < w; ++col) {
+        sxTable[col] = cropX + int((qint64(col) * cropW) / w);
+    }
+    const int cw = w >> 1;
+    for (int row = 0; row < h; row += 2) {
+        const int sy0 = cropY + int((qint64(row) * cropH) / h);
+        const int sy1 = qMin(srcH - 1, cropY + int((qint64(row + 1) * cropH) / h));
+        const auto* line0 = reinterpret_cast<const QRgb*>(image.constScanLine(sy0));
+        const auto* line1 = reinterpret_cast<const QRgb*>(image.constScanLine(sy1));
+        uchar* yRow0 = y + row * w;
+        uchar* yRow1 = yRow0 + w;
+        uchar* uRow = u + (row >> 1) * cw;
+        uchar* vRow = v + (row >> 1) * cw;
+        for (int col = 0; col < w; col += 2) {
+            const int sx0 = sxTable[col];
+            const int sx1 = sxTable[col + 1];
+            const QRgb p00 = line0[sx0];
+            const QRgb p01 = line0[sx1];
+            const QRgb p10 = line1[sx0];
+            const QRgb p11 = line1[sx1];
+
+            const int r00 = qRed(p00), g00 = qGreen(p00), b00 = qBlue(p00);
+            const int r01 = qRed(p01), g01 = qGreen(p01), b01 = qBlue(p01);
+            const int r10 = qRed(p10), g10 = qGreen(p10), b10 = qBlue(p10);
+            const int r11 = qRed(p11), g11 = qGreen(p11), b11 = qBlue(p11);
+
+            yRow0[col] = uchar(((66 * r00 + 129 * g00 + 25 * b00 + 128) >> 8) + 16);
+            yRow0[col + 1] = uchar(((66 * r01 + 129 * g01 + 25 * b01 + 128) >> 8) + 16);
+            yRow1[col] = uchar(((66 * r10 + 129 * g10 + 25 * b10 + 128) >> 8) + 16);
+            yRow1[col + 1] = uchar(((66 * r11 + 129 * g11 + 25 * b11 + 128) >> 8) + 16);
+
+            const int rAvg = (r00 + r01 + r10 + r11 + 2) >> 2;
+            const int gAvg = (g00 + g01 + g10 + g11 + 2) >> 2;
+            const int bAvg = (b00 + b01 + b10 + b11 + 2) >> 2;
+            const int ci = col >> 1;
+            uRow[ci] = uchar(((-38 * rAvg - 74 * gAvg + 112 * bAvg + 128) >> 8) + 128);
+            vRow[ci] = uchar(((112 * rAvg - 94 * gAvg - 18 * bAvg + 128) >> 8) + 128);
         }
     }
     return true;
@@ -421,45 +447,61 @@ bool frameToI420Into(const QVideoFrame& source, QSize size, QByteArray& out) {
                 auto* dstY = reinterpret_cast<uchar*>(out.data());
                 uchar* dstU = dstY + w * h;
                 uchar* dstV = dstU + (w / 2) * (h / 2);
+                const int cw = w / 2, ch = h / 2;
 
-                if (cropX == 0 && cropY == 0 && cropW == w && cropH == h && fmt == QVideoFrameFormat::Format_YUV420P) {
+                if (cropW == w && cropH == h) {
                     for (int row = 0; row < h; ++row) {
-                        std::memcpy(dstY + row * w, srcY + row * strideY, size_t(w));
+                        std::memcpy(dstY + row * w, srcY + (cropY + row) * strideY + cropX, size_t(w));
                     }
-                    const int cw = w / 2, ch = h / 2;
-                    for (int row = 0; row < ch; ++row) {
-                        std::memcpy(dstU + row * cw, srcU + row * strideU, size_t(cw));
-                        std::memcpy(dstV + row * cw, srcV + row * strideV, size_t(cw));
+                    const int cx = cropX / 2, cy = cropY / 2;
+                    if (fmt == QVideoFrameFormat::Format_YUV420P) {
+                        for (int row = 0; row < ch; ++row) {
+                            std::memcpy(dstU + row * cw, srcU + (cy + row) * strideU + cx, size_t(cw));
+                            std::memcpy(dstV + row * cw, srcV + (cy + row) * strideV + cx, size_t(cw));
+                        }
+                    } else {
+                        for (int row = 0; row < ch; ++row) {
+                            const uchar* uvLine = srcU + (cy + row) * strideU + cx * 2;
+                            uchar* outU = dstU + row * cw;
+                            uchar* outV = dstV + row * cw;
+                            for (int col = 0; col < cw; ++col) {
+                                outU[col] = uvLine[col * 2];
+                                outV[col] = uvLine[col * 2 + 1];
+                            }
+                        }
                     }
                 } else {
+                    QVarLengthArray<int, 1280> sxY(w);
+                    for (int col = 0; col < w; ++col) sxY[col] = cropX + int((qint64(col) * cropW) / w);
                     for (int row = 0; row < h; ++row) {
-                        const int sy = cropY + (row * cropH) / h;
+                        const int sy = cropY + int((qint64(row) * cropH) / h);
                         const uchar* yLine = srcY + sy * strideY;
                         uchar* outRow = dstY + row * w;
                         for (int col = 0; col < w; ++col) {
-                            const int sx = cropX + (col * cropW) / w;
-                            outRow[col] = yLine[sx];
+                            outRow[col] = yLine[sxY[col]];
                         }
                     }
-                    const int cw = w / 2, ch = h / 2;
+                    QVarLengthArray<int, 640> sxC(cw);
+                    const int cropCx = cropX / 2, cropCy = cropY / 2, cropCw = cropW / 2, cropCh = cropH / 2;
+                    for (int col = 0; col < cw; ++col) sxC[col] = cropCx + int((qint64(col) * cropCw) / cw);
                     for (int row = 0; row < ch; ++row) {
-                        const int sy = (cropY / 2) + (row * (cropH / 2)) / ch;
+                        const int sy = cropCy + int((qint64(row) * cropCh) / ch);
                         uchar* outU = dstU + row * cw;
                         uchar* outV = dstV + row * cw;
                         if (fmt == QVideoFrameFormat::Format_YUV420P) {
                             const uchar* uLine = srcU + sy * strideU;
                             const uchar* vLine = srcV + sy * strideV;
                             for (int col = 0; col < cw; ++col) {
-                                const int sx = (cropX / 2) + (col * (cropW / 2)) / cw;
+                                const int sx = sxC[col];
                                 outU[col] = uLine[sx];
                                 outV[col] = vLine[sx];
                             }
                         } else {
                             const uchar* uvLine = srcU + sy * strideU;
                             for (int col = 0; col < cw; ++col) {
-                                const int sx = (cropX / 2) + (col * (cropW / 2)) / cw;
-                                outU[col] = uvLine[sx * 2];
-                                outV[col] = uvLine[sx * 2 + 1];
+                                const int sx2 = sxC[col] * 2;
+                                outU[col] = uvLine[sx2];
+                                outV[col] = uvLine[sx2 + 1];
                             }
                         }
                     }
@@ -483,26 +525,33 @@ bool frameToI420Into(const QVideoFrame& source, QSize size, QByteArray& out) {
                 const int yShift = (fmt == QVideoFrameFormat::Format_YUYV) ? 0 : 1;
                 const int uOff = (fmt == QVideoFrameFormat::Format_YUYV) ? 1 : 0;
                 const int vOff = (fmt == QVideoFrameFormat::Format_YUYV) ? 3 : 2;
+                QVarLengthArray<int, 1280> sxYByte(w);
+                for (int col = 0; col < w; ++col) {
+                    sxYByte[col] = (cropX + int((qint64(col) * cropW) / w)) * 2 + yShift;
+                }
                 for (int row = 0; row < h; ++row) {
-                    const int sy = cropY + (row * cropH) / h;
+                    const int sy = cropY + int((qint64(row) * cropH) / h);
                     const uchar* line = src + sy * stride;
                     uchar* outRow = dstY + row * w;
                     for (int col = 0; col < w; ++col) {
-                        const int sx = cropX + (col * cropW) / w;
-                        outRow[col] = line[sx * 2 + yShift];
+                        outRow[col] = line[sxYByte[col]];
                     }
                 }
                 const int cw = w / 2, ch = h / 2;
+                QVarLengthArray<int, 640> sxCByte(cw);
+                for (int col = 0; col < cw; ++col) {
+                    const int sx = cropX + int((qint64(col * 2) * cropW) / w);
+                    sxCByte[col] = (sx & ~1) * 2;
+                }
                 for (int row = 0; row < ch; ++row) {
-                    const int sy0 = cropY + ((row * 2) * cropH) / h;
-                    const int sy1 = qMin(srcH - 1, cropY + ((row * 2 + 1) * cropH) / h);
+                    const int sy0 = cropY + int((qint64(row * 2) * cropH) / h);
+                    const int sy1 = qMin(srcH - 1, cropY + int((qint64(row * 2 + 1) * cropH) / h));
                     const uchar* line0 = src + sy0 * stride;
                     const uchar* line1 = src + sy1 * stride;
                     uchar* outU = dstU + row * cw;
                     uchar* outV = dstV + row * cw;
                     for (int col = 0; col < cw; ++col) {
-                        const int sx = cropX + ((col * 2) * cropW) / w;
-                        const int pairBase = (sx & ~1) * 2;
+                        const int pairBase = sxCByte[col];
                         outU[col] = static_cast<uchar>((int(line0[pairBase + uOff]) + int(line1[pairBase + uOff]) + 1) >> 1);
                         outV[col] = static_cast<uchar>((int(line0[pairBase + vOff]) + int(line1[pairBase + vOff]) + 1) >> 1);
                     }

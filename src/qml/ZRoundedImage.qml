@@ -20,11 +20,10 @@ Item {
     property real radius: 8
     property bool topOnly: false
     property bool cache: true
+    property bool errorGlyph: true
     readonly property bool gpu: GraphicsInfo.api !== GraphicsInfo.Software
-    readonly property bool ready: img.status === Image.Ready || root.animReady
+    readonly property bool ready: (img.status === Image.Ready && img.source.toString().length > 0) || root.animReady
     readonly property real screenDpr: Screen.devicePixelRatio || 1
-    // Keep maskLoader armed across transient Image.Loading reloads (e.g. DPR changes)
-    // so Qt's updatePixelRatioHelper never sees a synchronous mask teardown mid-traversal.
     property bool maskArmed: false
     readonly property bool masked: gpu && maskLoader.status === Loader.Ready
 
@@ -51,6 +50,14 @@ Item {
         radius: root.radius
         color: Theme.mediaPlaceholder
         visible: !root.ready
+        ZIcon {
+            objectName: "roundedImageErrorGlyph"
+            anchors.centerIn: parent
+            visible: root.errorGlyph && img.status === Image.Error && !root.animReady && root.width >= 24 && root.height >= 24
+            name: "image"
+            size: Math.min(24, Math.round(Math.min(root.width, root.height) * 0.45))
+            color: ThemeManager.secondaryTextColor
+        }
     }
     Item {
         id: content
@@ -63,6 +70,8 @@ Item {
             cache: root.cache
             smooth: true
             fillMode: Image.PreserveAspectCrop
+            sourceSize.width: 1024
+            sourceSize.height: 2048
             visible: !root.animReady
             onStatusChanged: {
                 if (status === Image.Ready && root.masked) {
@@ -122,7 +131,7 @@ Item {
     Loader {
         id: maskLoader
         anchors.fill: content
-        active: root.gpu && root.radius > 0 && (root.ready || root.maskArmed)
+        active: ZaloClient.effectsAvailable && root.gpu && root.radius > 0 && (root.ready || root.maskArmed)
         visible: root.ready
         source: "ZMaskEffect.qml"
         onLoaded: {

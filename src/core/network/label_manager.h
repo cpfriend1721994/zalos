@@ -35,6 +35,7 @@ public:
         std::function<QString(const QString&, int)> friendlyError;
         std::function<QString(const QString&, const QString&)> tr;
         std::function<void(const QHash<QString, QVariantMap>&)> apply;
+        std::function<void(const QJsonObject&)> persist;
     };
 
     static constexpr int kMaxLabels = 15;
@@ -53,6 +54,7 @@ public:
     bool manageOpen() const { return m_manageOpen; }
     void setManageOpen(bool open);
 
+    void applyCached(const QJsonObject& data);
     void applyServer(const QJsonObject& data);
     void reset();
 

@@ -7,6 +7,7 @@
 #include <QPair>
 #include <functional>
 #include <QString>
+#include <QStringView>
 #include <QVector>
 #include <QHash>
 
@@ -23,20 +24,15 @@ struct MessageItem {
     QString senderName;
     QString text;
     QString timeStr;
-    bool isMine{false};
-    bool isE2EE{false};
-    bool isForwarded{false};
     qint64 expireOn{0};
     QString reaction;
-    QString messageType{"text"};
+    QString messageType{QStringLiteral("text")};
     QString mediaUrl;
     qint64 ts{0};
     QString senderId;
     QString senderAvatar;
     QString status;
-    bool isRecalled{false};
     QVariantMap pollData;
-    bool pollCard{true};
     QString cliMsgId;
     QString quoteMsgId;
     QString quoteSender;
@@ -47,6 +43,11 @@ struct MessageItem {
     QVariantMap extra;
     QStringList seenUids;
     mutable qint64 dayCache{-1};
+    bool isMine{false};
+    bool isE2EE{false};
+    bool isForwarded{false};
+    bool isRecalled{false};
+    bool pollCard{true};
 };
 
 class MessageModel : public QAbstractListModel {
@@ -146,9 +147,18 @@ public:
     Q_INVOKABLE QVariantMap getMessageById(const QString& msgId) const;
     Q_INVOKABLE int rowOfMessage(const QString& msgId) const;
     Q_INVOKABLE QVariantList mediaItems() const;
+    struct LinkSpan {
+        int start = 0;
+        int length = 0;
+        QString href;
+    };
+    static QVector<LinkSpan> findLinks(const QString& text);
+    static QString linkifyPlain(const QString& text);
     static QString linkify(const QString& text);
     static QString linkify(const QString& text, const QVector<MessageMention>& mentions);
     static QString styledHtml(const QString& text, const QVector<MessageMention>& mentions, const QVariantList& styles);
+    static QString internMessageType(QStringView type);
+    static QString internStatus(QStringView status);
     void setPollData(qint64 pollId, const QVariantMap& data, const QString& convId = QString());
     void refreshPollCards(const QString& convId);
     Q_INVOKABLE QVariantList sharedItems(const QString& kind, int limit = 60) const;
@@ -168,6 +178,7 @@ private:
     void markOwnUpTo(const QString& convId, const QString& msgId, const QString& status);
     void placeUnreadMarker();
     bool isRunTile(int row) const;
+    bool runPairsWithPrevious(int row) const;
     bool joinsPrevious(int row) const;
 
     QVector<MessageItem> m_items;

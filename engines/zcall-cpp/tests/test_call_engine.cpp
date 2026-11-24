@@ -531,8 +531,257 @@ private Q_SLOTS:
         sendUi(QJsonObject{{"action", "hangup"}});
         QTRY_VERIFY_WITH_TIMEOUT(hasSignal(12438) && hasSignal(12446) && hasUiClose(), 5000);
 
+        // Idle UI hangup when no active call still closes UI and resets callState to free
+        frames.clear();
+        uiMsgs.clear();
+        sendUi(QJsonObject{{"action", "hangup"}});
+        QTRY_VERIFY_WITH_TIMEOUT(hasUiClose() && hasUpdate(QStringLiteral("callState"), QStringLiteral("free")), 5000);
+
+        // Incoming request ended by end_call with null callId closes UI
+        frames.clear();
+        uiMsgs.clear();
+        sendFrame(QJsonObject{
+            {"type", "control"},
+            {"data", QJsonObject{
+                {"act", "request"},
+                {"data", QJsonObject{
+                    {"callId", 1357924680},
+                    {"uidN", "999004"},
+                    {"uidFrom", "999004"},
+                    {"uidTo", "111111"},
+                    {"session", "S" + QString(40, QLatin1Char('d'))},
+                    {"rtpAddress", "10.0.0.1:4200"},
+                    {"rtcpAddress", "10.0.0.1:4201"},
+                    {"params", QJsonObject{
+                        {"Dname", "Caller Four"},
+                        {"extendData", QJsonObject{{"callType", 0}}}
+                    }}
+                }}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasUiPhase(QStringLiteral("incoming")), 5000);
+        uiMsgs.clear();
+        sendFrame(QJsonObject{
+            {"type", "control"},
+            {"data", QJsonObject{
+                {"act", "end_call"},
+                {"data", QJsonObject{{"callId", QJsonValue::Null}}}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasUiClose() && hasUpdate(QStringLiteral("callState"), QStringLiteral("free")), 5000);
+
+        // Connected call ended by peer via "endcall" variant closes UI
+        frames.clear();
+        uiMsgs.clear();
+        sendFrame(QJsonObject{
+            {"type", "request"},
+            {"command", "makeCall"},
+            {"data", QJsonObject{{"type", 1}, {"partner", QJsonArray{QJsonObject{{"id", "999005"}, {"name", "Callee Five"}}}}}}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(401), 5000);
+        sendFrame(QJsonObject{
+            {"type", "recvSignal"},
+            {"command", 401},
+            {"data", QJsonObject{
+                {"status", 0},
+                {"sessId", "S" + QString(40, QLatin1Char('e'))},
+                {"fromId", "111111"},
+                {"toId", "999005"},
+                {"servers", QJsonArray{QJsonObject{{"rtpaddr", "10.0.0.1:4200"}, {"rtcpaddr", "10.0.0.1:4201"}}}}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(416), 5000);
+        uiMsgs.clear();
+        sendFrame(QJsonObject{
+            {"type", "control"},
+            {"data", QJsonObject{
+                {"act", "endcall"},
+                {"data", QJsonObject{{"callId", QJsonValue::Null}}}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasUiClose() && hasUpdate(QStringLiteral("callState"), QStringLiteral("free")), 5000);
+
         proc.terminate();
         if (!proc.waitForFinished(3000)) proc.kill();
+    }
+
+    void zrtcHangupAfterInitDoesNotCrash() {
+        QUdpSocket relay;
+        QVERIFY(relay.bind(QHostAddress::LocalHost, 0));
+        connect(&relay, &QUdpSocket::readyRead, this, [&] {
+            while (relay.hasPendingDatagrams()) {
+                QByteArray buf(int(relay.pendingDatagramSize()), Qt::Uninitialized);
+                QHostAddress addr;
+                quint16 port = 0;
+                relay.readDatagram(buf.data(), buf.size(), &addr, &port);
+                if (buf.size() < kControlHeaderLen || u8at(buf, 0) != MsgType::Control) continue;
+                const int cmd = rd16le(buf, 18);
+                if (cmd == Cmd::InitCallCaller || cmd == Cmd::InitCallCallee) {
+                    ControlHeader h;
+                    h.msgType = MsgType::ServerReply;
+                    h.magic = u8at(buf, 1);
+                    h.cmd = cmd;
+                    h.subCmd = u8at(buf, 20);
+                    QByteArray reply = buildControlHeader(h) + le32(0) + le32(rd32le(buf, kControlHeaderLen + 0)) +
+                                       le32(0x44556677u) + u16String(QByteArray("203.0.113.9|5"));
+                    relay.writeDatagram(reply, addr, port);
+                }
+            }
+        });
+
+        EngineRun run;
+        QTcpServer uiSrv;
+        QVERIFY(run.recv.listen(QHostAddress::LocalHost, 0));
+        QVERIFY(run.send.listen(QHostAddress::LocalHost, 0));
+        QVERIFY(uiSrv.listen(QHostAddress::LocalHost, 0));
+        run.key = m_key;
+        run.parser = std::make_unique<FrameParser>(run.key, true, [&run](const IpcFrame& f) {
+            if (!f.isToken && !f.isError && f.json.isObject()) run.frames.append(f.json.toObject());
+        });
+        connect(&run.recv, &QTcpServer::newConnection, this, [&run] {
+            QTcpSocket* s = run.recv.nextPendingConnection();
+            connect(s, &QTcpSocket::readyRead, s, [&run, s] { run.parser->push(s->readAll()); });
+        });
+        connect(&run.send, &QTcpServer::newConnection, this, [&run] { run.out = run.send.nextPendingConnection(); });
+
+        QTcpSocket* uiSock = nullptr;
+        QByteArray uiBuf;
+        QList<QJsonObject> uiMsgs;
+        bool uiAuthed = false;
+        connect(&uiSrv, &QTcpServer::newConnection, this, [&] {
+            uiSock = uiSrv.nextPendingConnection();
+            uiSock->setParent(&uiSrv);
+            connect(uiSock, &QTcpSocket::readyRead, this, [&] {
+                uiBuf += uiSock->readAll();
+                if (!uiAuthed) {
+                    const int nl = uiBuf.indexOf('\n');
+                    if (nl < 0) return;
+                    uiBuf.remove(0, nl + 1);
+                    uiAuthed = true;
+                }
+                for (int nl = uiBuf.indexOf('\n'); nl >= 0; nl = uiBuf.indexOf('\n')) {
+                    const QByteArray line = uiBuf.left(nl).trimmed();
+                    uiBuf.remove(0, nl + 1);
+                    if (!line.isEmpty()) uiMsgs.append(QJsonDocument::fromJson(line).object());
+                }
+            });
+        });
+
+        run.proc.start(QStringLiteral(ZCALL_ENGINE_BIN),
+                       {QStringLiteral("--token"), QLatin1String(kToken),
+                        QStringLiteral("--key-file"), m_dir.filePath(QStringLiteral("transport.key")),
+                        QStringLiteral("--recv"), QString::number(run.recv.serverPort()),
+                        QStringLiteral("--send"), QString::number(run.send.serverPort()),
+                        QStringLiteral("--ui-port"), QString::number(uiSrv.serverPort()),
+                        QStringLiteral("--ui-token"), QStringLiteral("UI-zrtc"),
+                        QStringLiteral("--media"), QStringLiteral("zrtc"),
+                        QStringLiteral("--send-udp"),
+                        QStringLiteral("--group")});
+        QVERIFY(run.proc.waitForStarted(5000));
+        QTRY_VERIFY_WITH_TIMEOUT(run.out != nullptr && uiSock != nullptr && uiAuthed, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(run.hasUpdate(QStringLiteral("native-ready")), 10000);
+
+        run.write(QJsonObject{
+            {"type", "request"},
+            {"command", "makeCall"},
+            {"data", QJsonObject{{"type", 1}, {"partner", QJsonArray{QJsonObject{{"id", "999777"}, {"name", "Peer ZRTC"}}}}}}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(run.hasSignal(401), 5000);
+        double callId = 0;
+        for (const QJsonObject& f : run.frames)
+            if (f.value("type") == QLatin1String("sendSignal") && f.value("command").toInt() == 401)
+                callId = f.value("data").toObject().value("callId").toDouble();
+        QVERIFY(callId > 0);
+
+        const QString relayEp = QStringLiteral("127.0.0.1:%1").arg(relay.localPort());
+        run.write(QJsonObject{
+            {"type", "recvSignal"},
+            {"command", 401},
+            {"data", QJsonObject{
+                {"status", 0},
+                {"sessId", "S" + QString(40, QLatin1Char('z'))},
+                {"fromId", "111111"},
+                {"toId", "999777"},
+                {"servers", QJsonArray{QJsonObject{{"rtpaddr", relayEp}, {"rtcpaddr", relayEp}}}}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(run.hasSignal(416), 8000);
+        QTest::qWait(150);
+
+        run.write(QJsonObject{
+            {"type", "control"},
+            {"data", QJsonObject{
+                {"act", "answer"},
+                {"data", QJsonObject{
+                    {"callId", callId},
+                    {"status", 0},
+                    {"params", QJsonObject{{"status", 0}, {"rtpSerIp", relayEp}}}
+                }}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(run.hasSignal(408), 5000);
+        auto hasUiType = [&](const QString& type, const QString& phase = QString()) {
+            for (const QJsonObject& m : uiMsgs)
+                if (m.value("type").toString() == type && (phase.isEmpty() || m.value("phase").toString() == phase))
+                    return true;
+            return false;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(hasUiType(QStringLiteral("state"), QStringLiteral("connected")), 5000);
+
+        run.frames.clear();
+        uiMsgs.clear();
+        uiSock->write(QJsonDocument(QJsonObject{{"action", "hangup"}}).toJson(QJsonDocument::Compact) + '\n');
+        uiSock->flush();
+
+        QTRY_VERIFY_WITH_TIMEOUT(run.hasSignal(409) && run.hasSignal(406) && run.hasUpdate(QStringLiteral("bubble"))
+                                     && run.hasUpdate(QStringLiteral("callState")) && hasUiType(QStringLiteral("close")),
+                                 5000);
+        QCOMPARE(run.proc.state(), QProcess::Running);
+
+        run.proc.terminate();
+        if (!run.proc.waitForFinished(3000)) run.proc.kill();
+    }
+
+    void sigtermExitsCleanlyWithoutDeadlock() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QByteArray key = QByteArray::fromBase64(QByteArray(kKeyB64));
+        QFile keyFile(dir.filePath(QStringLiteral("transport.key")));
+        QVERIFY(keyFile.open(QIODevice::WriteOnly));
+        keyFile.write(kKeyB64);
+        keyFile.close();
+
+        EngineRun run;
+        run.key = key;
+        run.parser = std::make_unique<FrameParser>(key, true, [&run](const IpcFrame& f) {
+            if (!f.isToken && !f.isError && f.json.isObject()) run.frames.append(f.json.toObject());
+        });
+        QVERIFY(run.recv.listen(QHostAddress::LocalHost, 0));
+        QVERIFY(run.send.listen(QHostAddress::LocalHost, 0));
+        QObject::connect(&run.recv, &QTcpServer::newConnection, &run.recv, [&run] {
+            QTcpSocket* s = run.recv.nextPendingConnection();
+            QObject::connect(s, &QTcpSocket::readyRead, s, [&run, s] { run.parser->push(s->readAll()); });
+        });
+        QObject::connect(&run.send, &QTcpServer::newConnection, &run.send, [&run] {
+            run.out = run.send.nextPendingConnection();
+            run.out->setParent(&run.send);
+        });
+
+        run.proc.setProcessChannelMode(QProcess::ForwardedErrorChannel);
+        run.proc.start(QStringLiteral(ZCALL_ENGINE_BIN),
+                       {QStringLiteral("--token"), QLatin1String(kToken),
+                        QStringLiteral("--key-file"), dir.filePath(QStringLiteral("transport.key")),
+                        QStringLiteral("--recv"), QString::number(run.recv.serverPort()),
+                        QStringLiteral("--send"), QString::number(run.send.serverPort()),
+                        QStringLiteral("--media"), QStringLiteral("stub"),
+                        QStringLiteral("--no-window")});
+        QVERIFY(run.proc.waitForStarted(5000));
+        QTRY_VERIFY_WITH_TIMEOUT(run.out != nullptr && run.hasUpdate(QStringLiteral("native-ready")), 10000);
+
+        run.proc.terminate();
+        QVERIFY(run.proc.waitForFinished(1200));
+        QCOMPARE(run.proc.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(run.proc.exitCode(), 0);
     }
 
     void cleanupTestCase() {

@@ -480,13 +480,27 @@ void MobileHistorySync::start(const QString& myNoisedUid, const QString& pcName)
 
 V2::KeyPair MobileHistorySync::loadOrCreateV2IdentityKey() const {
     QSettings settings;
-    const QByteArray pub = QByteArray::fromHex(settings.value("sync_v2/ik_pub").toByteArray());
-    const QByteArray priv = QByteArray::fromHex(settings.value("sync_v2/ik_priv").toByteArray());
+    const QString scopedPrefix = m_myNoisedUid.isEmpty()
+                                     ? QStringLiteral("sync_v2/")
+                                     : QStringLiteral("sync_v2/%1/").arg(m_myNoisedUid);
+    QByteArray pub = QByteArray::fromHex(settings.value(scopedPrefix + QLatin1String("ik_pub")).toByteArray());
+    QByteArray priv = QByteArray::fromHex(settings.value(scopedPrefix + QLatin1String("ik_priv")).toByteArray());
     if (pub.size() == 33 && priv.size() == 32) return {pub, priv};
+    if (!m_myNoisedUid.isEmpty()) {
+        pub = QByteArray::fromHex(settings.value("sync_v2/ik_pub").toByteArray());
+        priv = QByteArray::fromHex(settings.value("sync_v2/ik_priv").toByteArray());
+        if (pub.size() == 33 && priv.size() == 32) {
+            settings.setValue(scopedPrefix + QLatin1String("ik_pub"), pub.toHex());
+            settings.setValue(scopedPrefix + QLatin1String("ik_priv"), priv.toHex());
+            settings.remove("sync_v2/ik_pub");
+            settings.remove("sync_v2/ik_priv");
+            return {pub, priv};
+        }
+    }
     const V2::KeyPair kp = V2::generateKeyPair();
     if (kp.pub.size() == 33 && kp.priv.size() == 32) {
-        settings.setValue("sync_v2/ik_pub", kp.pub.toHex());
-        settings.setValue("sync_v2/ik_priv", kp.priv.toHex());
+        settings.setValue(scopedPrefix + QLatin1String("ik_pub"), kp.pub.toHex());
+        settings.setValue(scopedPrefix + QLatin1String("ik_priv"), kp.priv.toHex());
     }
     return kp;
 }

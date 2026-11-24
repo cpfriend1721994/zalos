@@ -16,7 +16,11 @@
 
 #include <csignal>
 #include <cstdio>
+#include <fcntl.h>
 #include <memory>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <unistd.h>
 
 using namespace zcall;
@@ -35,6 +39,9 @@ void handleExitSignal(int) {
 }
 
 int main(int argc, char** argv) {
+#ifdef __linux__
+    ::prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
     QCoreApplication app(argc, argv);
     const QStringList args = app.arguments().mid(1);
     auto has = [&args](const QString& name) { return args.contains(QStringLiteral("--") + name); };
@@ -116,7 +123,16 @@ int main(int argc, char** argv) {
     ipc.connectAll();
 
     QSocketNotifier* sigNotifier = nullptr;
-    if (::pipe(g_sigFd) == 0) {
+#ifdef __linux__
+    const bool pipeOk = ::pipe2(g_sigFd, O_NONBLOCK | O_CLOEXEC) == 0;
+#else
+    const bool pipeOk = ::pipe(g_sigFd) == 0;
+    if (pipeOk) {
+        ::fcntl(g_sigFd[0], F_SETFL, O_NONBLOCK);
+        ::fcntl(g_sigFd[1], F_SETFL, O_NONBLOCK);
+    }
+#endif
+    if (pipeOk) {
         std::signal(SIGINT, handleExitSignal);
         std::signal(SIGTERM, handleExitSignal);
         sigNotifier = new QSocketNotifier(g_sigFd[0], QSocketNotifier::Read, &app);
@@ -125,7 +141,7 @@ int main(int argc, char** argv) {
             char buf[32];
             while (::read(g_sigFd[0], buf, sizeof(buf)) > 0) {}
             core.hangup(QStringLiteral("engine-exit"));
-            QTimer::singleShot(300, &app, [] { QCoreApplication::exit(0); });
+            QTimer::singleShot(250, &app, [] { QCoreApplication::exit(0); });
         });
     }
 

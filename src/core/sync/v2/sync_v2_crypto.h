@@ -36,4 +36,4 @@ CryptoStatus openMetadata(const QByteArray& envelope, const QByteArray& receiver
 
 QString cryptoStatusName(CryptoStatus status);
 
-}  // namespace Zalos::Core::Sync::V2
+}

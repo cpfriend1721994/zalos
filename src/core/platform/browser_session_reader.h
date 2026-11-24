@@ -27,5 +27,5 @@ private:
     static QString extractImeiFromBytes(const QByteArray& data);
 };
 
-} // namespace Zalos::Core::Platform
+}
 

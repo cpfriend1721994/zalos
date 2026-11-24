@@ -180,7 +180,7 @@ struct PaSession {
     }
 };
 
-} // namespace
+}
 
 std::shared_ptr<PulseSimpleApi> PulseSimpleApi::load(std::string* error) {
     static std::mutex s_mutex;
@@ -342,4 +342,4 @@ bool PulseApi::setSourceVolumeRaw(const std::string& source, uint32_t rawVolume)
     return s.waitOp(op2, setState.done) && setState.ok;
 }
 
-} // namespace zcall::audio
+}

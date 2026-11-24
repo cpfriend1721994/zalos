@@ -51,6 +51,7 @@ class TestQmlGates : public QObject {
 private slots:
     void qmlStyle();
     void qmlAotCoverage();
+    void cppInvariants();
     void uiVisualDiff();
 };
 
@@ -134,7 +135,6 @@ void TestQmlGates::qmlStyle() {
         }
     }
 
-    // R8: every Q_PROPERTY in src/core/**/*.h must declare FINAL or CONSTANT for Qt 6.11 AOT.
     QDirIterator hdrIt(QStringLiteral(ZALOS_SOURCE_DIR) + QStringLiteral("/src/core"), {QStringLiteral("*.h")},
                        QDir::Files, QDirIterator::Subdirectories);
     while (hdrIt.hasNext()) {
@@ -150,14 +150,12 @@ void TestQmlGates::qmlStyle() {
         }
     }
 
-    // R9: every *.qml in src/qml must be listed in CMakeLists.txt.
     const QString cmakeText = readLines(QStringLiteral(ZALOS_SOURCE_DIR) + QStringLiteral("/CMakeLists.txt")).join(QLatin1Char('\n'));
     for (const QString& name : qmlFiles(qmlDir)) {
         if (!cmakeText.contains(QStringLiteral("src/qml/") + name))
             errors << QStringLiteral("CMakeLists.txt: R9 missing src/qml/%1 in qt_add_qml_module").arg(name);
     }
 
-    // R10: SettingsModal.qml tabKeys, rail model, and activeTabHeight() must stay in sync.
     const QString settingsText = readLines(qmlDir + QStringLiteral("/SettingsModal.qml")).join(QLatin1Char('\n'));
     const QRegularExpression tabKeysRe(QStringLiteral(R"re(tabKeys:\s*\[([^\]]+)\])re"));
     const QRegularExpressionMatch tkMatch = tabKeysRe.match(settingsText);
@@ -194,7 +192,6 @@ void TestQmlGates::qmlAotCoverage() {
         QFile file(path);
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        // Qt <= 6.10: a list of modules with codegenSuccessfull; Qt 6.11+: {"formatRevision", "modules"} with codegenResult (0 = compiled).
         const QJsonArray modules = doc.isObject() ? doc.object().value(QStringLiteral("modules")).toArray() : doc.array();
         for (const QJsonValue& module : modules) {
             for (const QJsonValue& moduleFile : module.toObject().value(QStringLiteral("moduleFiles")).toArray()) {
@@ -227,6 +224,72 @@ void TestQmlGates::qmlAotCoverage() {
     for (int i = 0; i < qMin(5, int(top.size())); ++i) qInfo("  %5d  %s", top[i].first, qPrintable(top[i].second));
     QVERIFY2(share >= ZALOS_AOT_MIN, qPrintable(QStringLiteral("AOT coverage %1% is below %2%").arg(share, 0, 'f', 1).arg(ZALOS_AOT_MIN)));
 #endif
+}
+
+void TestQmlGates::cppInvariants() {
+    const QString srcRoot = QStringLiteral(ZALOS_SOURCE_DIR) + QStringLiteral("/src");
+    const QString coreDir = srcRoot + QStringLiteral("/core");
+    const QString qmlDir = srcRoot + QStringLiteral("/qml");
+
+    const QRegularExpression sleepRe(QStringLiteral(R"re(\b(QThread::(m|u)?sleep|std::this_thread::sleep_for)\b)re"));
+    const QRegularExpression hackCommentRe(QStringLiteral(R"re(//\s*(HACK|WORKAROUND)\b)re"),
+                                           QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpression anonTypedClosureRe(QStringLiteral(R"re(\bfunction\s*\([^)]*:\s*[A-Za-z])re"));
+    const QRegularExpression leakedCookieRe(QStringLiteral(R"re(\b(zpw_sek|zpsid)=[A-Za-z0-9._+/=-]{8,})re"));
+    const QRegularExpression absHomeRe(QStringLiteral("/home/nnmt"));
+
+    QStringList errors;
+
+    QDirIterator coreIt(coreDir, {QStringLiteral("*.h"), QStringLiteral("*.cpp")},
+                        QDir::Files, QDirIterator::Subdirectories);
+    while (coreIt.hasNext()) {
+        const QString path = coreIt.next();
+        const QString rel = path.mid(QStringLiteral(ZALOS_SOURCE_DIR).size() + 1);
+        const bool allowDesktopOpen = (rel == QLatin1String("src/core/fs/file_utils.cpp")
+                                       || rel == QLatin1String("src/core/network/zalo_client.cpp"));
+        const QStringList lines = readLines(path);
+        for (int i = 0; i < lines.size(); ++i) {
+            const QString& line = lines[i];
+            const QString where = QStringLiteral("%1:%2").arg(rel).arg(i + 1);
+            if (sleepRe.match(line).hasMatch())
+                errors << QStringLiteral("%1: C1 blocking sleep on core thread").arg(where);
+            if (hackCommentRe.match(line).hasMatch())
+                errors << QStringLiteral("%1: C2 HACK/WORKAROUND comment").arg(where);
+            if (!allowDesktopOpen && line.contains(QStringLiteral("QDesktopServices::openUrl")))
+                errors << QStringLiteral("%1: C3 direct QDesktopServices::openUrl (use Fs::FileUtils::openLocalPath)").arg(where);
+            if (absHomeRe.match(line).hasMatch() || leakedCookieRe.match(line).hasMatch())
+                errors << QStringLiteral("%1: C5 hardcoded home path or raw session cookie").arg(where);
+        }
+    }
+
+    QDirIterator srcOtherIt(srcRoot, {QStringLiteral("*.h"), QStringLiteral("*.cpp"), QStringLiteral("*.qml"), QStringLiteral("*.js")},
+                            QDir::Files, QDirIterator::Subdirectories);
+    while (srcOtherIt.hasNext()) {
+        const QString path = srcOtherIt.next();
+        if (path.startsWith(coreDir + QLatin1Char('/'))) continue;
+        const QString rel = path.mid(QStringLiteral(ZALOS_SOURCE_DIR).size() + 1);
+        const QStringList lines = readLines(path);
+        for (int i = 0; i < lines.size(); ++i) {
+            const QString& line = lines[i];
+            const QString where = QStringLiteral("%1:%2").arg(rel).arg(i + 1);
+            if (hackCommentRe.match(line).hasMatch())
+                errors << QStringLiteral("%1: C2 HACK/WORKAROUND comment").arg(where);
+            if (absHomeRe.match(line).hasMatch() || leakedCookieRe.match(line).hasMatch())
+                errors << QStringLiteral("%1: C5 hardcoded home path or raw session cookie").arg(where);
+        }
+    }
+
+    for (const QString& name : qmlFiles(qmlDir)) {
+        const QStringList lines = readLines(qmlDir + QLatin1Char('/') + name);
+        for (int i = 0; i < lines.size(); ++i) {
+            if (anonTypedClosureRe.match(lines[i]).hasMatch())
+                errors << QStringLiteral("src/qml/%1:%2: C4 typed anonymous inline JS closure (breaks Qt 6.4 qmlcachegen)")
+                              .arg(name).arg(i + 1);
+        }
+    }
+
+    for (const QString& e : errors) qInfo("%s", qPrintable(e));
+    QVERIFY2(errors.isEmpty(), qPrintable(QStringLiteral("C++/QML invariants: %1 problem(s)").arg(errors.size())));
 }
 
 void TestQmlGates::uiVisualDiff() {

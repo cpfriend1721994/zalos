@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# Installs the Ubuntu 24.04-built .deb on a clean Ubuntu/Debian image (the service picks the image) and runs the
-# headless GUI check of the installed binary.
 . /etc/os-release
 echo "=========================================================="
 echo "🧪 Testing Zalos .deb on clean ${PRETTY_NAME}"
 echo "=========================================================="
 
-DEB_FILE=$(ls /workspace/dist/zalos_*~ubuntu24.04_amd64.deb 2>/dev/null | head -n 1)
+DEB_FILE=$(ls -v /workspace/dist/zalos_*~ubuntu24.04_amd64.deb 2>/dev/null | tail -n 1)
 if [ -z "${DEB_FILE}" ]; then
     echo "❌ No .deb found in dist/. Build it first: podman compose run --rm package-deb"
     exit 1
@@ -20,6 +18,8 @@ apt-get update -qq
 apt-get install -y -qq /tmp/zalos.deb xvfb xauth >/dev/null
 dpkg -s zalos | grep -E '^(Version|Depends)'
 ldd /usr/bin/zalos | grep -i "not found" && { echo "❌ missing libraries"; exit 1; } || true
+grep -aEq "Qt_6\.8_PRIVATE_API|AOTCompiledContext" /usr/bin/zalos || { echo "❌ QML AOT symbols missing!"; exit 1; }
+/usr/bin/zalos --check-deps | grep -Eq "^qt +6\.8\.3.*\(bundled\)" || { echo "❌ Expected bundled Qt 6.8.3 in --check-deps!"; exit 1; }
 
 echo "==> Headless GUI check of /usr/bin/zalos..."
 set +e

@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-features)
 [![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64%20%7C%20armhf%20%7C%20riscv64-teal.svg)](#-installation)
-[![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-installation)
+[![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20Snap%20%7C%20Flatpak%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-installation)
 [![zalos](https://snapcraft.io/zalos/badge.svg)](https://snapcraft.io/zalos)
 
 [English](README.md) | [Tiếng Việt](README.vi.md) | [Website](https://zalos.pages.dev/)
@@ -25,16 +25,16 @@
 **Zalos** is an open-source native Linux client for Zalo, built with C++17 and Qt 6 QML
 with a lean, purpose-built architecture:
 
-- **Ultra-lightweight:** Compact native `.deb`/`.rpm` (~2.5 MB) or self-contained AppImage (~22 MB with Qt 6.4 fallback) and minimal memory footprint (~40–65 MB RAM, saving over 90% compared to 450–1,800+ MB on Electron wrappers).
-- **High performance:** Instant startup (<0.5s), smooth Qt Quick rendering (a stable software renderer by default, optional GPU acceleration with automatic fallback), multi-threaded C++ cryptographic decoding, and smooth responsiveness even on low-spec hardware.
-- **Linux native:** Wayland & X11 support with system theme synchronization (light/dark), native desktop notifications, and seamless Vietnamese input.
+- **Self-contained & lightweight:** Compact packages (`~25 MB` `.deb`, `~27 MB` `.rpm`, `~27 MB` `AppImage`) bundling their own Qt 6.8.3 LTS runtime with QML AOT compilation, so no system Qt is needed on any distribution, plus minimal memory footprint (~40–65 MB RAM, saving over 90% compared to 450–1,800+ MB on Electron wrappers).
+- **High performance:** Instant startup (<0.5s), C++ AOT-compiled Qt Quick UI (`-DZALOS_QML_AOT=ON`), full color emojis (bundled CBDT fallback) & `MultiEffect` rounded masks/blur, software renderer by default with optional GPU acceleration, multi-threaded C++ cryptographic decoding, and built-in slim FFmpeg 7.1.5 LGPL playback (H.264/AAC/MP3).
+- **Linux native:** Wayland & X11 support with system theme synchronization (light/dark), native desktop notifications, and Fcitx5 / IBus Vietnamese input.
 
 ### ⚡ Performance & Resource Benchmark
 
 | Metric | Zalos (C++17 / Qt 6 QML) | Zalo PC / Electron Wrapper |
 |---|---|---|
 | **Runtime Memory (RAM)** | **~40 – 65 MB** (self-managed, >90% lighter) | 450 – 1,800+ MB (multiple Chromium processes) |
-| **Package / Binary Size** | **~2.5 MB (`.deb`/`.rpm`) · ~22 MB (AppImage)** | > 150 – 250 MB (bundled browser runtime) |
+| **Package / Binary Size** | **~25 MB (`.deb`) · ~27 MB (`.rpm`) · ~27 MB (AppImage, incl. Qt 6.8.3)** | > 150 – 250 MB (bundled browser runtime) |
 | **Cold Startup Time** | **< 0.5s** (instantaneous launch) | 3 – 8s (V8 engine & browser init) |
 | **UI Rendering** | **Native Qt Quick (software by default, optional GPU)** | Web DOM / Chromium compositor |
 | **Architecture** | **Pure Native C++17 & QML** | Electron / Node.js + Web wrapper |
@@ -43,20 +43,22 @@ with a lean, purpose-built architecture:
 
 ## ✨ Features
 
-- **High performance & ultra-lightweight** — sub-second startup (<0.5s), smooth 60 FPS Qt Quick rendering, ~2.5 MB native `.deb`/`.rpm` (~22 MB self-contained AppImage), and minimal RAM usage (~40–65 MB).
+- **High performance & QML AOT** — sub-second startup (<0.5s), 60 FPS QML AOT-compiled UI on bundled Qt 6.8.3 LTS, built-in `MultiEffect` + color emoji fallback, and minimal RAM usage (~40–65 MB).
 - **Wayland & X11** — runs on both, with native window controls on GNOME and KDE. Rendering uses software by default for stability; GPU acceleration can be turned on in Settings and falls back to software automatically if the graphics driver fails.
-- **Automatic light/dark theme** — follows your system colour scheme in real time.
+- **Automatic light/dark theme** — follows your system colour scheme and desktop font in real time across GNOME and KDE; falls back to Noto Sans when the desktop font is missing or unsuitable.
 - **Messaging** — one-to-one and group chats, animated Stickers & GIFs, emoji, 54 Zalo reactions, rich formatting (with indent), replies,
-  forwards, bank cards, pinned messages, labels, conversation filters (All / Groups / Direct / Friends / Strangers), and full-history search;
+  forwards, bank cards, Zalo-style location map previews (with avatar pins), full-width wide images, pinned messages, instant cached labels, conversation filters (All / Groups / Direct / Friends / Strangers), and full-history search;
   read status stays in sync with your phone and other devices.
 - **Polls like Zalo PC** — poll cards and activity lines in chat, a full vote dialog (single/multiple choice, change or remove votes,
   add options, see who voted), every creation setting (pin, deadline, hide results, hide voters) and closing polls for creators/admins.
 - **Smart mobile history sync** — detects empty group histories on sign-in and offers encrypted phone sync.
 - **Voice & video calls** — 1-1 voice/video calls with OpenH264 video encoding, in-call screen sharing (X11 & Wayland), floating PiP minimize mode, and in-call device picker with mic volume slider & Auto/Manual gain toggle, ring-ping keepalive, and automatic P2P/relay network handover; group calls are in beta.
 - **My Documents** — the personal storage thread with instant filters for photos, videos, files and links.
-- **Desktop utilities** — screenshot capture (`Ctrl+Alt+S`), configurable Kiki assistant and zBusiness tools (profile, product catalog, auto reply).
+- **Desktop utilities** — screenshot capture (`Ctrl+Alt+S`), configurable Kiki assistant and live zBusiness tools (read-only profile lookup, server-synced product catalogs, auto-reply rules, and quick messages).
 - **Contacts & groups** — 1-click voice call, video call, and chat on every contact row, pending group invite box, friend recommendations, mutual groups in profiles, and Community upgrade for group owners.
-- **Safety & devices** — Zalo safe link scanning (`scanURL`) before opening external links, message/profile abuse reporting, and E2EE linked devices viewer in Settings.
+- **Safety & devices** — Zalo safe link scanning (`scanURL`) warns before opening flagged external links (a slow check never blocks opening for more than 2.5 s), message/profile abuse reporting, and E2EE linked devices viewer in Settings.
+- **Reactions** — a desktop notification when someone reacts to your message (can be turned off in Settings), and a reaction button above the chat that jumps through messages with unseen reactions, oldest first.
+- **Native file dialogs** — photos, files, avatars, backgrounds and save locations open your desktop's own file chooser through the XDG portal (`zenity`/`kdialog` as fallback).
 - **System tray** — unread-count badge, live call badge/tooltip, and in-call tray controls (mute, speaker, camera, screen share, hang up) with automatic minimize fallback on tray-less desktops.
 - **Offline history** — your conversations stay available without a connection.
 - **In-app update support** — GitHub Releases check with SHA-256 verification (atomic self-update + `gh-releases-zsync` for AppImage; `pkexec`/system installer for `.deb`/`.rpm`).
@@ -69,9 +71,9 @@ with a lean, purpose-built architecture:
 
 ## 📥 Installation
 
-Pick the package for your distribution. Every release is built on the **oldest** release it supports, and its
-clean install is tested in containers on the oldest and newest supported release, including minimal installs
-without optional packages, before it is published.
+Pick the package for your distribution. Every release is built on the **oldest** release it supports. Before a
+release, clean-install checks run locally in containers on the oldest and newest supported release, including
+minimal installs without optional packages; CI builds and publishes the packages.
 
 ### Install Matrix
 
@@ -84,7 +86,7 @@ without optional packages, before it is published.
 | [**Snap**](#snap) | Ubuntu & distros with `snapd` | `amd64` / `arm64` / `armhf` / `riscv64` | ✅ Snap Store | ✅ Ready | ⚠️ Grant camera permission |
 | [**Flatpak (Testing)**](#flatpak-testing) | Any distro with Flatpak | `x86_64` / `aarch64` | ✅ Flatpak | ✅ Ready | ✅ Bundled (`OpenH264`) |
 | [**Nix Flake**](#nixos--nix) | NixOS / Nix | `x86_64` / `aarch64` | 🔄 `nix profile upgrade` | ✅ Ready | ✅ Bundled |
-| [**AppImage**](#appimage-portable-glibc--235) | Ubuntu 22.04+, Debian 12+, Arch, openSUSE (`glibc ≥ 2.35`) | `x86_64` / `aarch64` | ✅ `zsync` / in-app | ✅ Ready *(desktop)* | ➕ `libopenh264-7` / `openh264` |
+| [**AppImage**](#appimage-portable-glibc--235) | Any modern distro (`glibc ≥ 2.35`: Ubuntu 22.04+, Debian 12+, Fedora, Arch, openSUSE) | `x86_64` / `aarch64` | ✅ `zsync` / in-app | ✅ Ready *(desktop)* | ➕ `libopenh264-7` / `openh264` |
 
 ### Ubuntu / Debian — APT Repository (recommended)
 ```bash
@@ -102,13 +104,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (`.deb` single file)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.2.10-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.0-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.3.0-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (`.rpm` single file)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.10-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.0-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -136,11 +138,11 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.10-${ARCH}.AppImage"
-chmod +x "Zalos-1.2.10-${ARCH}.AppImage"
-"./Zalos-1.2.10-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.0-${ARCH}.AppImage"
+chmod +x "Zalos-1.3.0-${ARCH}.AppImage"
+"./Zalos-1.3.0-${ARCH}.AppImage"
 ```
-The AppImage (~22 MB) uses your host Qt 6 when available and automatically falls back to its bundled Qt 6.4 runtime on systems without Qt 6 (requiring only standard desktop libraries and `glibc ≥ 2.35`, e.g. Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
+The AppImage (~27 MB) bundles its own Qt 6.8.3 LTS runtime with QML AOT compilation, color emoji fallback, and slim FFmpeg 7.1.5 LGPL playback — zero system Qt packages required (works cleanly across Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, and Arch; requires `glibc ≥ 2.35`).
 
 ### Arch Linux & other distributions
 No prebuilt native package is published for Arch Linux. Use **Flatpak**, **Snap**, the portable **AppImage** above, or build from source — clone this repository and
@@ -153,7 +155,7 @@ Zalos has no Python or Node.js dependency at all:
 
 - **Voice calls work out of the box** on `.deb`, `.rpm`, `Nix`, and the **AppImage**: Zalos uses your system's `libopus` and falls back to its own private copy when the system has none, and talks to PulseAudio / PipeWire through `libpulse-simple.so.0`, which every standard desktop already has (only minimal systems need `libpulse0` on Ubuntu/Debian or `pulseaudio-libs` on Fedora).
 - **Video calls** (seeing the other person's camera) additionally need **OpenH264** from your distribution (never bundled, for patent-licensing reasons): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`. The `.deb`/`.rpm` recommend it, so `apt`/`dnf` install it by default.
-- **Playing voice messages and videos** uses Qt Multimedia with your distribution's codecs. The `.deb` recommends `gstreamer1.0-plugins-good` and `gstreamer1.0-libav`; for the AppImage on a system without Qt 6, install GStreamer with its good plugins and libav from your distribution. Without them Zalos keeps working and tells you what is missing.
+- **Playing voice messages and videos** runs on Qt Multimedia with Qt 6.8.3's bundled FFmpeg backend (works out of the box across `.deb`, `.rpm`, and AppImage; if system codecs/devices are unavailable, Zalos keeps working and reports the status).
 - **Check what Zalos found:** `zalos --check-deps` (or `./Zalos-*.AppImage --check-deps`) prints which Qt, codecs, OpenH264 and audio libraries are in use — handy for bug reports.
 
 ---
@@ -172,11 +174,11 @@ docker compose run --rm gui-check        # headless GUI sanity check
 
 docker compose run --rm package-appimage # dist/Zalos-*.AppImage
 docker compose run --rm package-deb      # dist/zalos_*_amd64.deb
-docker compose run --rm package-rpm      # dist/*.x86_64.rpm
+docker compose run --rm package-rpm      # dist/*.deb + dist/*.x86_64.rpm (.rpm repackaged from the .deb build)
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.2.10 && git push origin v1.2.10`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.3.0 && git push origin v1.3.0`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.

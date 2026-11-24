@@ -94,6 +94,7 @@ private:
     void onDatagram();
     void onUdp(const QByteArray& msg, const QHostAddress& addr, quint16 port);
     QTimer* timer(int ms, bool repeat, std::function<void()> fn);
+    void stopTimer(QPointer<QTimer>& slot);
     void clearTimers();
 
     void initZrtp(const QByteArray& packet, std::function<void(std::optional<InitReply>)> done);
@@ -120,7 +121,7 @@ private:
     void sendChangeAddress(const QString& why = QStringLiteral("network-change"));
     QString localIpSig() const;
     void startAudio();
-    void stopAudio();
+    void stopAudio(bool wait = false);
     void onAudioStdout();
     void onAudioStderr();
     void sendAudioFrame(const QByteArray& opus, int level);
@@ -164,7 +165,7 @@ private:
     std::unique_ptr<SendRate> m_sendRate;
 
     QUdpSocket* m_socket{nullptr};
-    QList<QTimer*> m_timers;
+    QList<QPointer<QTimer>> m_timers;
 
     QVector<Reply> m_replies;
     QVector<Server> m_refused;
@@ -173,7 +174,7 @@ private:
     bool m_initActive{false};
     int m_initTries{0};
     QByteArray m_initPacket;
-    QTimer* m_initWait{nullptr};
+    QPointer<QTimer> m_initWait;
     std::function<void(std::optional<InitReply>)> m_initDone;
 
     uint32_t m_seq{0};
@@ -205,7 +206,7 @@ private:
     QVector<Queued> m_vOut;
     bool m_vDraining{false};
 
-    QTimer* m_ringPingTimer{nullptr};
+    QPointer<QTimer> m_ringPingTimer;
     double m_ringPingSince{0};
     int m_ringPingSent{0};
     int m_ringPingReplies{0};

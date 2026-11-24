@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import Zalos
 
 Item {
@@ -10,7 +9,7 @@ Item {
     visible: ZaloClient.showSettingsModal
     z: 998
 
-    readonly property var systemSounds: ZaloClient.systemSounds()
+    readonly property var systemSounds: ZaloClient.cachedSystemSounds
     readonly property list<string> tabKeys: ["general", "language", "appearance", "notifications", "privacy", "security", "storage", "sync", "about"]
     property string currentTab: normalizeTab(ZaloClient.settingsInitialTab)
 
@@ -22,8 +21,10 @@ Item {
 
     Component.onCompleted: visibleChanged()
     onVisibleChanged: {
-        if (visible)
+        if (visible) {
             currentTab = normalizeTab(ZaloClient.settingsInitialTab);
+            ZaloClient.loadSystemSoundsAsync();
+        }
     }
 
     Connections {
@@ -1096,7 +1097,7 @@ Item {
 
                                     Item { Layout.fillWidth: true }
 
-                                    FileDialog {
+                                    ZFilePicker {
                                         id: chatBackgroundDialog
                                         title: I18n.t("Chọn ảnh nền trò chuyện", "Choose chat background image")
                                         nameFilters: [I18n.t("Hình ảnh (*.jpg *.jpeg *.png *.webp)", "Images (*.jpg *.jpeg *.png *.webp)")]
@@ -1254,6 +1255,13 @@ Item {
                                     Item { Layout.fillWidth: true }
                                 }
 
+                                ToggleRow {
+                                    title: I18n.t("Thông báo khi có người bày tỏ cảm xúc với tin nhắn của bạn",
+                                                  "Notify me when someone reacts to my messages")
+                                    checked: ZaloClient.notifyReactions
+                                    onToggled: function(value) { ZaloClient.setNotifyReactions(value); }
+                                }
+
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 1
@@ -1351,8 +1359,9 @@ Item {
 
                                 ToggleRow {
                                     title: I18n.t("Chống nhìn lén", "Anti-peeking")
-                                    subtitle: I18n.t("Làm mờ tin nhắn cho tới khi rê chuột vào, ẩn nội dung trong thông báo. Bật/tắt nhanh: Ctrl+Shift+H hoặc menu biểu tượng ở khay hệ thống",
-                                                     "Dims messages until hovered and hides notification content. Quick switch: Ctrl+Shift+H or the tray icon menu")
+                                    readonly property string hideShortcut: ZaloClient.shortcuts.keys("privacy.antiPeeking")[0] || "Ctrl+Shift+H"
+                                    subtitle: I18n.t("Làm mờ tin nhắn cho tới khi rê chuột vào, ẩn nội dung trong thông báo. Bật/tắt nhanh: %1 hoặc menu biểu tượng ở khay hệ thống",
+                                                     "Dims messages until hovered and hides notification content. Quick switch: %1 or the tray icon menu").arg(hideShortcut)
                                     checked: ZaloClient.antiPeeking
                                     onToggled: (value) => ZaloClient.setAntiPeeking(value)
                                 }
@@ -1423,8 +1432,9 @@ Item {
 
                                 SectionTitle { text: I18n.t("Khóa ứng dụng bằng mã", "App passcode lock") }
                                 SectionHint {
-                                    text: I18n.t("Khi đã đặt mã, Zalos tự khóa lúc mở, khi bạn nhấn Ctrl+L và sau thời gian không dùng; thông báo sẽ ẩn nội dung khi đang khóa. Mã chỉ khóa giao diện: tin nhắn lưu trên máy không được mã hóa thêm.",
-                                                 "With a passcode, Zalos locks on start, on Ctrl+L and after a period of inactivity; notifications hide their content while locked. It only locks the window: messages stored on this computer are not additionally encrypted.")
+                                    readonly property string lockShortcut: ZaloClient.shortcuts.keys("app.lock")[0] || "Ctrl+L"
+                                    text: I18n.t("Khi đã đặt mã, Zalos tự khóa lúc mở, khi bạn nhấn %1 và sau thời gian không dùng; thông báo sẽ ẩn nội dung khi đang khóa. Mã chỉ khóa giao diện: tin nhắn lưu trên máy không được mã hóa thêm.",
+                                                 "With a passcode, Zalos locks on start, on %1 and after a period of inactivity; notifications hide their content while locked. It only locks the window: messages stored on this computer are not additionally encrypted.").arg(lockShortcut)
                                 }
                                 Rectangle {
                                     Layout.fillWidth: true
@@ -1612,15 +1622,20 @@ Item {
                                             anchors.rightMargin: 10
                                             spacing: 10
                                             ColumnLayout {
+                                                Layout.fillWidth: true
                                                 Layout.alignment: Qt.AlignVCenter
                                                 spacing: 0
                                                 Text {
+                                                    Layout.fillWidth: true
+                                                    elide: Text.ElideRight
                                                     text: storageTab.labelFor(usageRow.itemKey)
                                                     color: ThemeManager.textColor
                                                     font.family: Theme.fontFamily
                                                     font.pixelSize: 13
                                                 }
                                                 Text {
+                                                    Layout.fillWidth: true
+                                                    elide: Text.ElideRight
                                                     text: storageTab.sizeText(usageRow.itemBytes) + " · " + usageRow.itemFiles
                                                           + I18n.t(" tệp", " files")
                                                     color: ThemeManager.secondaryTextColor
@@ -1628,7 +1643,6 @@ Item {
                                                     font.pixelSize: 11
                                                 }
                                             }
-                                            Item { Layout.fillWidth: true }
                                             ZButton {
                                                 Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                                                 variant: "secondary"
@@ -2000,7 +2014,7 @@ Item {
                                     Layout.fillWidth: true
                                     spacing: 10
 
-                                    RowLayout {
+                                    Flow {
                                         Layout.fillWidth: true
                                         spacing: 10
 
@@ -2092,7 +2106,7 @@ Item {
                                     color: ThemeManager.borderColor
                                 }
 
-                                RowLayout {
+                                Flow {
                                     Layout.fillWidth: true
                                     spacing: 10
 

@@ -83,6 +83,7 @@ public:
     void sendFriendRequest(const QString& userId, const QString& message, Callback cb);
     void createGroup(const QString& name, const QStringList& members, Callback cb);
 
+    void sendReactSeen(const QString& threadId, bool isGroup, const QStringList& reactionIds, Callback cb);
     void addReaction(const QString& threadId, bool isGroup, const QJsonObject& msg, const QString& rIcon, int rType,
                      Callback cb);
     void undoMessage(const QString& threadId, bool isGroup, const QJsonObject& msg, Callback cb);
@@ -188,6 +189,25 @@ public:
     void createQuickMessage(const QString& keyword, const QString& title, Callback cb);
     void updateQuickMessage(qint64 itemId, const QString& keyword, const QString& title, Callback cb);
     void deleteQuickMessage(qint64 itemId, Callback cb);
+    void fetchBizAccount(const QString& fid, Callback cb);
+    void registerCatalog(bool enable, Callback cb);
+    void fetchCatalogList(int page, int limit, Callback cb);
+    void createCatalog(const QString& name, Callback cb);
+    void updateCatalog(const QString& catalogId, const QString& name, Callback cb);
+    void deleteCatalog(const QString& catalogId, Callback cb);
+    void fetchProductCatalogList(const QString& catalogId, int page, int limit, Callback cb);
+    void createProductCatalog(const QString& catalogId, const QString& name, const QString& price,
+                              const QString& description, const QStringList& photos, Callback cb);
+    void updateProductCatalog(const QString& catalogId, const QString& productId, const QString& name,
+                              const QString& price, const QString& description, const QStringList& photos,
+                              qint64 createTime, Callback cb);
+    void deleteProductCatalog(const QString& catalogId, const QStringList& productIds, Callback cb);
+    void fetchAutoReplyList(const QString& lang, Callback cb);
+    void createAutoReply(const QString& lang, const QString& content, bool enable, qint64 startTime,
+                         qint64 endTime, int scope, const QStringList& uids, Callback cb);
+    void updateAutoReply(const QString& lang, qint64 id, const QString& content, bool enable,
+                         qint64 startTime, qint64 endTime, int scope, const QStringList& uids, Callback cb);
+    void deleteAutoReply(const QString& lang, qint64 id, Callback cb);
     void getSettings(Callback cb);
     void updateSetting(const QString& type, int value, Callback cb);
     void fetchHiddenConversations(Callback cb);
@@ -252,7 +272,7 @@ signals:
     void realtimeStateChanged(bool connected);
     void realtimeReplaced();
     void messagesReceived(const QJsonArray& messages, bool isGroup, bool isOld);
-    void reactionsReceived(const QJsonArray& reactions, bool isGroup);
+    void reactionsReceived(const QJsonArray& reactions, bool isGroup, bool live);
     void typingReceived(const QString& threadId, const QString& userId, bool isGroup);
     void seenReceived(const QString& threadId, const QString& msgId, const QString& userId, bool isGroup);
     void deliveredReceived(const QString& threadId, const QString& msgId, bool isGroup);
@@ -272,7 +292,7 @@ public:
         if (info.contains(QStringLiteral("zpw_enk"))) m_secretKey = info.value(QStringLiteral("zpw_enk")).toString();
         if (info.contains(QStringLiteral("uid"))) m_uid = info.value(QStringLiteral("uid")).toVariant().toString();
     }
-    QJsonArray splitReactionMessages(const QJsonArray& msgs, bool isGroup);
+    QJsonArray splitReactionMessages(const QJsonArray& msgs, bool isGroup, bool live);
 
 private:
     QString serviceUrl(const QString& service) const;
@@ -281,7 +301,7 @@ private:
     void pullServerQueues();
     void logRealtime(const QString& line) const;
     void handleControls(const QJsonArray& controls);
-    void emitReactionArrays(const QJsonObject& data, bool users, bool groups);
+    void emitReactionArrays(const QJsonObject& data, bool users, bool groups, bool live);
     void emitMessageBuckets(const QJsonObject& data, bool isOld);
     QUrl makeUrl(const QString& base, const QList<QPair<QString, QString>>& query, bool withVersion = true) const;
     void applyHeaders(QNetworkRequest& req, bool isPost = false) const;
@@ -289,14 +309,27 @@ private:
     void postMultipartFile(const QString& url, const QJsonObject& params, const QByteArray& content, Callback cb);
     void requestServerInfo(int retryCount = 0);
     void sendWs(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey = QStringLiteral("req_id"));
+    void enqueuePendingWsFrame(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey);
     void scheduleWsReconnect();
     void onWsBinary(const QByteArray& frame);
 #ifdef ZALOS_TESTING
 public:
     void injectWsBinaryForTesting(const QByteArray& frame) { onWsBinary(frame); }
+    void handleControlsForTesting(const QJsonArray& controls) { handleControls(controls); }
     void applyHeadersForTesting(QNetworkRequest& req, bool isPost = false) const { applyHeaders(req, isPost); }
+    int pendingWsFrameCountForTesting() const { return m_pendingWsFrames.size(); }
+    void enqueuePendingWsFrameForTesting(int cmd, int subCmd, QJsonObject data,
+                                         const QString& reqIdKey = QStringLiteral("req_id")) {
+        enqueuePendingWsFrame(cmd, subCmd, std::move(data), reqIdKey);
+    }
 private:
 #endif
+    struct PendingWsFrame {
+        int cmd{0};
+        int subCmd{0};
+        QJsonObject data;
+        QString reqIdKey;
+    };
     enum class UploadKind { Photo, File, Voice, Video };
     void uploadChunks(const QString& threadId, bool isGroup, const QString& filePath, const QString& fileName,
                       UploadKind kind, int width, int height, const QString& caption, Callback cb,
@@ -326,6 +359,7 @@ private:
     int m_wsReconnectAttempts{0};
     int m_wsRequestId{0};
     QList<QPair<int, int>> m_serverQueues;
+    QList<PendingWsFrame> m_pendingWsFrames;
     QHash<int, int> m_pullPages;
     QSet<int> m_unhandledCmdsLogged;
     QString m_wsAttempt;

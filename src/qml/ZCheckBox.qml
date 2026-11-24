@@ -10,6 +10,17 @@ Item {
 
     implicitWidth: 24 + (text.length > 0 ? 8 + label.implicitWidth : 0)
     implicitHeight: 24
+    activeFocusOnTab: enabled
+    Keys.onSpacePressed: function(event) {
+        if (!root.enabled) return;
+        root.toggled(!root.checked);
+        event.accepted = true;
+    }
+    Keys.onReturnPressed: function(event) {
+        if (!root.enabled) return;
+        root.toggled(!root.checked);
+        event.accepted = true;
+    }
 
     Rectangle {
         id: box
@@ -19,8 +30,9 @@ Item {
         height: 16
         radius: root.round ? 8 : (root.checked ? 3 : 2.5)
         color: root.checked ? (root.enabled ? Theme.accent : Theme.activeDisabled) : ThemeManager.surfaceColor
-        border.width: root.checked ? 0 : 1.5
-        border.color: hover.containsMouse && root.enabled ? Theme.activeness : Theme.inactiveSubtle
+        border.width: root.activeFocus ? 2 : (root.checked ? 0 : 1.5)
+        border.color: root.activeFocus ? Theme.zaloBlue
+                    : (hover.containsMouse && root.enabled ? Theme.activeness : Theme.inactiveSubtle)
         ZIcon {
             anchors.centerIn: parent
             visible: root.checked

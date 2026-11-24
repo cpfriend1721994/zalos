@@ -2,13 +2,13 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import QtQuick.Templates as T
 import Zalos
 import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
+    readonly property bool windowShowing: Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true
     objectName: "chatArea"
     color: ThemeManager.chatBackgroundColor
 
@@ -28,7 +28,6 @@ Rectangle {
     function followEnd(): void {
         if (messageList && typeof messageList.scrollToEnd === "function") messageList.scrollToEnd();
     }
-    // Deferred follow: re-checks at run time, so a scroll up between the queueing and the call wins.
     function followEndIfSticky(): void {
         if (messageList && messageList.stickToBottom) root.followEnd();
     }
@@ -47,7 +46,7 @@ Rectangle {
         const id = root.searchFocusId;
         if (id.length === 0 || !ZaloClient.revealMessage(id)) return;
         messageList.stickToBottom = false;
-        messageList.positionViewAtIndex(ZaloClient.messageModel.rowOfMessage(id), ListView.Center);
+        root.revealMessageAtRow(ZaloClient.messageModel.rowOfMessage(id));
     }
     property var menuMessage: ({})
 
@@ -157,12 +156,58 @@ Rectangle {
             return false;
         }
         messageList.stickToBottom = false;
-        messageList.positionViewAtIndex(row, ListView.Center);
+        root.revealMessageAtRow(row);
         root.flashMsgId = ZaloClient.messageModel.data(ZaloClient.messageModel.index(row, 0), 257) || msgId;
         flashTimer.restart();
         return true;
     }
     Timer { id: flashTimer; interval: 1600; onTriggered: root.flashMsgId = "" }
+
+    function revealMessageAtRow(row: int): void {
+        root.revealMessageAttempt(row, 0);
+    }
+    function revealMessageAttempt(row: int, attempt: int): void {
+        if (row < 0 || row >= messageList.count) return;
+        const item = messageList.itemAtIndex(row);
+        if (!item) {
+            if (attempt >= 5) return;
+            messageList.positionViewAtIndex(row, ListView.Center);
+            Qt.callLater(() => root.revealMessageAttempt(row, attempt + 1));
+            return;
+        }
+        const overlayTop = (pinBar.visible ? pinBar.height : 0) + (root.showInChatSearch ? 42 + 12 : 0) + 12;
+        const visibleHeight = Math.max(0, messageList.height - overlayTop - messageList.bottomMargin);
+        const offset = Math.min(Math.max(0, (visibleHeight - item.height) / 2), visibleHeight / 3);
+        const minY = messageList.originY - messageList.topMargin;
+        const maxY = Math.max(minY, messageList.originY + messageList.contentHeight + messageList.bottomMargin
+                                    - messageList.height);
+        messageList.contentY = Math.max(minY, Math.min(item.y - overlayTop - offset, maxY));
+        if (attempt < 2) Qt.callLater(() => root.revealMessageAttempt(row, attempt + 1));
+    }
+
+    function revealReactionTarget(msgId: string): bool {
+        ZaloClient.revealMessage(msgId);
+        const row = ZaloClient.messageModel.rowOfMessage(msgId);
+        ZaloClient.markReactionsSeen(msgId);
+        if (row < 0) return false;
+        messageList.stickToBottom = false;
+        root.revealMessageAtRow(row);
+        root.flashMsgId = msgId;
+        flashTimer.restart();
+        return true;
+    }
+    function goToNextUnreadReaction(): void {
+        for (let attempt = 0; attempt < 20; ++attempt) {
+            const id = ZaloClient.nextUnreadReactionMsgId();
+            if (id.length === 0 || root.revealReactionTarget(id)) return;
+        }
+    }
+    Connections {
+        target: ZaloClient
+        function onReactionJumpRequested(msgId: string): void {
+            root.revealReactionTarget(msgId);
+        }
+    }
 
     function jumpToBottom(): void {
         messageList.stickToBottom = true;
@@ -470,12 +515,26 @@ Rectangle {
             messageList.endReached = false;
             if (markerRow >= 0) Qt.callLater(() => messageList.positionViewAtIndex(markerRow, ListView.Beginning));
         }
+        function onNavigationTabChanged(): void {
+            if (ZaloClient.currentNavigationTab !== "messages" || root.draftConvId.length === 0) return;
+            const d = ZaloClient.draftFor(root.draftConvId);
+            if (d !== msgInput.text) {
+                root.loadingDraft = true;
+                msgInput.text = d;
+                msgInput.cursorPosition = msgInput.text.length;
+                root.loadingDraft = false;
+            }
+        }
         function onGroupMembersChanged(groupId: string) {
             if (root.suggestMode === "mention" && groupId === ZaloClient.currentConversationId) {
                 root.lastSuggestText = "";
                 root.lastSuggestCursor = -1;
                 root.updateSuggestions();
             }
+        }
+        function onClipboardAttachmentsReady(items: var): void {
+            if (!items) return;
+            for (let i = 0; i < items.length; ++i) root.addDraftAttachment(items[i]);
         }
     }
 
@@ -587,6 +646,7 @@ Rectangle {
                             text: ZaloClient.currentConversationName.length > 0
                                   ? ZaloClient.currentConversationName
                                   : I18n.t("Người dùng Zalo", "Zalo user")
+                            textFormat: Text.PlainText
                             font.family: Theme.fontFamily
                             font.weight: Font.DemiBold
                             font.pixelSize: 15
@@ -606,6 +666,7 @@ Rectangle {
                         }
 
                         RowLayout {
+                            Layout.fillWidth: true
                             spacing: 5
                             visible: !ZaloClient.currentConversationIsCloud && (ZaloClient.currentConversationIsGroup || ZaloClient.currentConversationIsOnline
                                      || ZaloClient.currentConversationStatus.length > 0 || ZaloClient.currentConversationHasPresence)
@@ -619,6 +680,9 @@ Rectangle {
                             }
 
                             Text {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                textFormat: Text.PlainText
                                 text: {
                                     if (ZaloClient.currentConversationIsCloud) return "";
                                     if (ZaloClient.currentConversationIsGroup) {
@@ -931,8 +995,9 @@ Rectangle {
                 ZIcon { name: "eye_off"; size: 16; color: Theme.zaloBlueTonalText }
                 Text {
                     Layout.fillWidth: true
-                    text: I18n.t("Đang bật chống nhìn lén · rê chuột vào tin nhắn để xem (Ctrl+Shift+H để tắt)",
-                                 "Anti-peeking is on · hover a message to read it (Ctrl+Shift+H to turn off)")
+                    readonly property string shortcutKey: ZaloClient.shortcuts.keys("privacy.antiPeeking")[0] || "Ctrl+Shift+H"
+                    text: I18n.t("Đang bật chống nhìn lén · rê chuột vào tin nhắn để xem (%1 để tắt)",
+                                 "Anti-peeking is on · hover a message to read it (%1 to turn off)").arg(shortcutKey)
                     elide: Text.ElideRight
                     font.family: Theme.fontFamily
                     font.pixelSize: 12
@@ -1092,6 +1157,7 @@ Rectangle {
             }
 
             ChatJumpDownButton {
+                id: jumpDownButton
                 parent: messageList.parent
                 z: 10
                 anchors.right: messageList.right
@@ -1101,6 +1167,19 @@ Rectangle {
                 newCount: root.newBelow
                 shown: messageList.count > 0 && messageList.distanceToEnd > Math.max(160, messageList.height * 0.35)
                 onClicked: root.jumpToBottom()
+            }
+
+            ChatReactionJumpButton {
+                parent: messageList.parent
+                z: 10
+                anchors.right: messageList.right
+                anchors.bottom: messageList.bottom
+                anchors.rightMargin: 16
+                anchors.bottomMargin: jumpDownButton.shown ? 14 + jumpDownButton.height + 18 : 14
+                count: ZaloClient.currentUnreadReactionCount
+                emoji: ZaloClient.currentUnreadReactionIcon
+                shown: messageList.count > 0 && ZaloClient.currentUnreadReactionCount > 0
+                onClicked: root.goToNextUnreadReaction()
             }
 
             Rectangle {
@@ -1314,8 +1393,6 @@ Rectangle {
                 }
 
                 property bool stickToBottom: true
-                // False until the list has been at the end since the conversation opened: until then a contentY
-                // drop is the first layout settling, not the user scrolling up.
                 property bool endReached: false
                 property int countBeforeReset: 0
                 readonly property real distanceToEnd: Math.max(0, originY + contentHeight + bottomMargin - height - contentY)
@@ -1326,8 +1403,6 @@ Rectangle {
                     lastContentY = contentY;
                     if (autoScrolling || resetting || count === 0) return;
                     const distance = Math.max(0, originY + contentHeight + bottomMargin - height - contentY);
-                    // Re-follow only at the end or on a move down near it: contentYChanged also fires with an
-                    // unchanged contentY while the layout settles, which must not undo a scroll up.
                     if (distance <= 2) endReached = true;
                     if (contentY < previous - 0.5 && distance > 2 && endReached) stickToBottom = false;
                     else if (distance <= 2 || (contentY > previous + 0.5 && distance < 48)) stickToBottom = true;
@@ -1381,7 +1456,7 @@ Rectangle {
                         width: 24
                         height: 24
                         visible: ZaloClient.isLoadingHistory
-                        running: visible && root.visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
+                        running: visible && root.visible && root.windowShowing
                     }
                 }
 
@@ -1442,7 +1517,7 @@ Rectangle {
                                 color: Theme.zaloBlue
 
                                 SequentialAnimation on y {
-                                    running: typingIndicatorPill.isPartnerTyping && (typingIndicatorPill.Window.window ? (typingIndicatorPill.Window.window.visible && typingIndicatorPill.Window.window.visibility !== Window.Minimized) : true)
+                                    running: typingIndicatorPill.isPartnerTyping && root.windowShowing
                                     loops: Animation.Infinite
                                     PauseAnimation { duration: dot.dotIndex * 140 }
                                     NumberAnimation { from: 0; to: -3; duration: 240; easing.type: Easing.OutQuad }
@@ -1762,7 +1837,8 @@ Rectangle {
             objectName: "composerBox"
             visible: ZaloClient.composerLockReason.length === 0
             Layout.fillWidth: true
-            readonly property real textAreaHeight: root.isEditorExpanded ? 230
+            readonly property real textAreaHeight: root.isEditorExpanded
+                ? Math.min(230, Math.max(110, Math.floor(root.height * 0.38)))
                 : Math.max(root.composerMinTextHeight, Math.min(root.composerMaxTextHeight, msgInput.implicitHeight + 16))
             readonly property real calculatedHeight: 32 + 1 + (root.isFormattingActive ? 34 : 0) + textAreaHeight + 32
             height: calculatedHeight
@@ -1800,7 +1876,7 @@ Rectangle {
                         radius: 6
                         color: Theme.badgeRed
                         SequentialAnimation on opacity {
-                            running: ZaloClient.voiceRecorder.recording && root.visible && (root.Window.window ? (root.Window.window.visible && root.Window.window.visibility !== Window.Minimized) : true)
+                            running: ZaloClient.voiceRecorder.recording && root.visible && root.windowShowing
                             loops: Animation.Infinite
                             NumberAnimation { to: 0.25; duration: 600 }
                             NumberAnimation { to: 1.0; duration: 600 }
@@ -1960,7 +2036,8 @@ Rectangle {
                                 cursorShape: Qt.PointingHandCursor
                                 ToolTip.visible: containsMouse
                                 ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Chụp ảnh màn hình (Ctrl+Alt+S)", "Capture screenshot (Ctrl+Alt+S)")
+                                readonly property string snipShortcut: ZaloClient.shortcuts.keys("app.screenshot")[0] || "Ctrl+Alt+S"
+                                ToolTip.text: I18n.t("Chụp ảnh màn hình (%1)", "Capture screenshot (%1)").arg(snipShortcut)
                                 onClicked: ZaloClient.requestScreenshot()
                             }
                         }
@@ -2335,11 +2412,7 @@ Rectangle {
 
                             Keys.onPressed: function(event) {
                                 if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
-                                    const clipItems = ZaloClient.getClipboardAttachments();
-                                    if (clipItems.length > 0) {
-                                        for (var ci = 0; ci < clipItems.length; ci++) {
-                                            root.addDraftAttachment(clipItems[ci]);
-                                        }
+                                    if (ZaloClient.pasteClipboardToDraft()) {
                                         event.accepted = true;
                                         return;
                                     }
@@ -2419,11 +2492,12 @@ Rectangle {
 
                     Popup {
                         id: suggestPopup
+                        margins: 8
                         visible: root.suggestItems.length > 0 && msgInput.activeFocus
                         x: 12
-                        y: -height - 8
+                        y: Math.max(-composerBox.y + 8, -height - 8)
                         width: Math.min(360, parent.width - 24)
-                        height: Math.min(suggestList.contentHeight, 8 * 44) + 8
+                        height: Math.min(suggestList.contentHeight, Math.max(120, root.height - 96), 8 * 44) + 8
                         padding: 4
                         focus: false
                         closePolicy: Popup.NoAutoClose
@@ -2467,6 +2541,7 @@ Rectangle {
                                         Text {
                                             Layout.fillWidth: true
                                             text: root.suggestMode === "mention" ? "@" + sugRow.modelData.name : "/" + sugRow.modelData.keyword
+                                            textFormat: Text.PlainText
                                             font.family: Theme.fontFamily
                                             font.pixelSize: 13
                                             font.weight: (root.suggestMode === "quick") ? Font.DemiBold : Font.Normal
@@ -2477,6 +2552,7 @@ Rectangle {
                                             visible: text.length > 0
                                             Layout.fillWidth: true
                                             text: root.suggestMode === "mention" ? ((sugRow.modelData && sugRow.modelData.hint) || "") : ((sugRow.modelData && sugRow.modelData.text) || "")
+                                            textFormat: Text.PlainText
                                             font.family: Theme.fontFamily
                                             font.pixelSize: 11
                                             color: ThemeManager.secondaryTextColor
@@ -2514,11 +2590,13 @@ Rectangle {
                         spacing: 8
 
                         Text {
+                            Layout.fillWidth: true
                             text: I18n.t("Nhấn Enter để gửi, Shift + Enter để xuống dòng", "Press Enter to send, Shift + Enter for new line")
+                            elide: Text.ElideRight
                             font.family: Theme.fontFamily
                             font.pixelSize: 11
                             color: ThemeManager.secondaryTextColor
-                            visible: msgInput.activeFocus || msgInput.text.length > 0 || msgInput.preeditText.length > 0
+                            visible: root.width >= 420 && (msgInput.activeFocus || msgInput.text.length > 0 || msgInput.preeditText.length > 0)
                         }
 
                         Item { Layout.fillWidth: true }
@@ -2667,7 +2745,15 @@ Rectangle {
                 }
                 readonly property var detail: pinDetailHost.detail
                 readonly property string fullText: pinDetailPopup.detail.text || ""
-                readonly property string image: pinDetailPopup.detail.image || ""
+                readonly property var images: pinDetailPopup.detail.images || []
+                readonly property string image: ZaloClient.brokenMediaRevision >= 0 ? pinDetailPopup.firstUsable(pinDetailPopup.images) : ""
+                readonly property bool imageShown: pinDetailImage.status === Image.Ready && pinDetailImage.source.toString().length > 0
+                function firstUsable(urls: var): string {
+                    for (let i = 0; i < urls.length; ++i) {
+                        if (!ZaloClient.isMediaBroken(urls[i])) return urls[i];
+                    }
+                    return "";
+                }
                 readonly property string href: pinDetailPopup.detail.href || ""
                 focus: true
                 anchors.centerIn: parent
@@ -2734,14 +2820,14 @@ Rectangle {
                         color: ThemeManager.secondaryTextColor
                     }
                     Item {
-                        visible: pinDetailPopup.image.length > 0
+                        visible: pinDetailPopup.images.length > 0
                         Layout.preferredWidth: Math.min(pinDetailColumn.width, 360)
-                        Layout.preferredHeight: pinDetailImage.status === Image.Ready
+                        Layout.preferredHeight: pinDetailPopup.imageShown
                                                 ? Math.min(240, pinDetailImage.implicitHeight * width / Math.max(1, pinDetailImage.implicitWidth))
                                                 : 96
                         Rectangle {
                             anchors.fill: parent
-                            visible: pinDetailImage.status !== Image.Ready
+                            visible: !pinDetailPopup.imageShown
                             radius: 8
                             color: Theme.mediaPlaceholder
                             Column {
@@ -2766,23 +2852,26 @@ Rectangle {
                         Image {
                             id: pinDetailImage
                             anchors.fill: parent
-                            readonly property bool usable: ZaloClient.brokenMediaRevision >= 0 && !ZaloClient.isMediaBroken(pinDetailPopup.image)
-                            visible: status === Image.Ready
-                            source: usable ? MediaSource.toSource(pinDetailPopup.image) : ""
+                            visible: pinDetailPopup.imageShown
+                            source: pinDetailPopup.image.length > 0 ? MediaSource.toSource(pinDetailPopup.image) : ""
                             sourceSize.width: 720
                             fillMode: Image.PreserveAspectFit
                             horizontalAlignment: Image.AlignLeft
                             asynchronous: true
-                            onStatusChanged: if (status === Image.Error) ZaloClient.markMediaBroken(pinDetailPopup.image)
+                            onStatusChanged: {
+                                if (status !== Image.Error) return;
+                                const failed = pinDetailPopup.image;
+                                Qt.callLater(() => ZaloClient.markMediaBroken(failed));
+                            }
                         }
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: pinDetailImage.status === Image.Loading ? Qt.BusyCursor : Qt.PointingHandCursor
                             onClicked: {
-                                if (pinDetailImage.status === Image.Ready)
+                                if (pinDetailPopup.imageShown)
                                     ZaloClient.openExternalUrl(pinDetailPopup.href.length > 0 ? pinDetailPopup.href : pinDetailPopup.image);
                                 else if (pinDetailImage.status !== Image.Loading)
-                                    ZaloClient.retryMedia(pinDetailPopup.image);
+                                    for (let i = 0; i < pinDetailPopup.images.length; ++i) ZaloClient.retryMedia(pinDetailPopup.images[i]);
                             }
                         }
                     }
@@ -2800,8 +2889,10 @@ Rectangle {
                         TextEdit {
                             id: pinDetailText
                             width: pinDetailFlick.width - 8
-                            text: pinDetailPopup.fullText
-                            textFormat: TextEdit.PlainText
+                            text: "<style>a{color:" + Theme.linkColor + ";text-decoration:none}</style>" + ZaloClient.linkifyText(pinDetailPopup.fullText)
+                            textFormat: TextEdit.RichText
+                            onLinkActivated: function(link) { ZaloClient.openLink(link); }
+                            HoverHandler { cursorShape: pinDetailText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.IBeamCursor }
                             readOnly: true
                             selectByMouse: true
                             persistentSelection: true
@@ -3180,9 +3271,16 @@ Rectangle {
         signal moreClicked(Item anchorItem)
 
         readonly property int topicType: topicRow.topic.type || 2
-        readonly property string thumb: topicRow.topic.thumb || ""
-        readonly property bool thumbUsable: ZaloClient.brokenMediaRevision >= 0 && !ZaloClient.isMediaBroken(topicRow.thumb)
+        readonly property var thumbUrls: ZaloClient.pins.pins.length >= 0 ? ZaloClient.pins.previewUrls(topicRow.topic.id || "") : []
+        readonly property string thumb: ZaloClient.brokenMediaRevision >= 0 ? topicRow.firstUsable(topicRow.thumbUrls) : ""
+        readonly property bool thumbShown: topicThumb.status === Image.Ready && topicThumb.source.toString().length > 0
 
+        function firstUsable(urls: var): string {
+            for (let i = 0; i < urls.length; ++i) {
+                if (!ZaloClient.isMediaBroken(urls[i])) return urls[i];
+            }
+            return "";
+        }
         function typeTitle(): string {
             if (topicRow.topicType === 1) return I18n.t("Ghi chú", "Note");
             if (topicRow.topicType === 3) return I18n.t("Bình chọn", "Poll");
@@ -3247,21 +3345,24 @@ Rectangle {
                         visible: text.length > 0
                         Layout.maximumWidth: 160
                         text: topicRow.topic.senderName ? topicRow.topic.senderName + ":" : ""
+                        textFormat: Text.PlainText
                         elide: Text.ElideRight
                         font.family: Theme.fontFamily
                         font.pixelSize: 12
                         color: ThemeManager.secondaryTextColor
                     }
                     Rectangle {
-                        visible: topicRow.thumb.length > 0
+                        objectName: "pinTopicThumb"
+                        visible: topicRow.thumbUrls.length > 0
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
                         radius: 4
                         clip: true
                         color: Theme.mediaPlaceholder
                         ZIcon {
+                            objectName: "pinTopicThumbGlyph"
                             anchors.centerIn: parent
-                            visible: topicThumb.status !== Image.Ready
+                            visible: !topicRow.thumbShown
                             name: "image"
                             size: 12
                             color: ThemeManager.secondaryTextColor
@@ -3269,13 +3370,17 @@ Rectangle {
                         Image {
                             id: topicThumb
                             anchors.fill: parent
-                            source: topicRow.thumbUsable ? MediaSource.toSource(topicRow.thumb) : ""
+                            source: topicRow.thumb.length > 0 ? MediaSource.toSource(topicRow.thumb) : ""
                             sourceSize.width: 36
                             sourceSize.height: 36
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
-                            visible: status === Image.Ready
-                            onStatusChanged: if (status === Image.Error) ZaloClient.markMediaBroken(topicRow.thumb)
+                            visible: topicRow.thumbShown
+                            onStatusChanged: {
+                                if (status !== Image.Error) return;
+                                const failed = topicRow.thumb;
+                                Qt.callLater(() => ZaloClient.markMediaBroken(failed));
+                            }
                         }
                     }
                     Text {
@@ -3299,6 +3404,7 @@ Rectangle {
     }
 
     component FormatPopup: Popup {
+        margins: 8
         padding: 6
         modal: false
         focus: false
@@ -3374,7 +3480,9 @@ Rectangle {
                 property string editKeyword: ""
                 property string editText: ""
                 onClosed: quickMsgPopup.formOpen = false
-                width: 320
+                margins: 8
+                width: Math.min(320, root.width - 24)
+                height: Math.min(quickMsgCol.implicitHeight + 16, Math.max(160, root.height - 40))
                 padding: 8
                 modal: true
                 focus: true
@@ -3387,9 +3495,16 @@ Rectangle {
                     radius: 8
                 }
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 6
+                contentItem: Flickable {
+                    clip: true
+                    contentWidth: width
+                    contentHeight: quickMsgCol.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    ColumnLayout {
+                        id: quickMsgCol
+                        width: parent.width
+                        spacing: 6
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -3520,6 +3635,7 @@ Rectangle {
                                     Text {
                                         Layout.fillWidth: true
                                         text: "/" + qmRow.modelData.keyword
+                                        textFormat: Text.PlainText
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
                                         font.weight: Font.DemiBold
@@ -3529,6 +3645,7 @@ Rectangle {
                                     Text {
                                         Layout.fillWidth: true
                                         text: qmRow.modelData.text + (qmRow.modelData.hasMedia ? I18n.t("  (kèm ảnh: chưa hỗ trợ gửi)", "  (with photo: not sent yet)") : "")
+                                        textFormat: Text.PlainText
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
                                         color: ThemeManager.textColor
@@ -3571,13 +3688,16 @@ Rectangle {
                             }
                         }
                     }
+                    }
                 }
             }
 
             Popup {
                 id: reminderPopup
                 onAboutToShow: scheduleContentInput.text = msgInput.text
-                width: 320
+                margins: 8
+                width: Math.min(320, root.width - 24)
+                height: Math.min(reminderCol.implicitHeight + 24, Math.max(180, root.height - 40))
                 padding: 12
                 modal: true
                 focus: true
@@ -3605,9 +3725,16 @@ Rectangle {
                     }
                 }
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 8
+                contentItem: Flickable {
+                    clip: true
+                    contentWidth: width
+                    contentHeight: reminderCol.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    ColumnLayout {
+                        id: reminderCol
+                        width: parent.width
+                        spacing: 8
 
                     Text {
                         text: I18n.t("Hẹn giờ gửi tin nhắn", "Schedule message")
@@ -3692,6 +3819,7 @@ Rectangle {
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
                         color: ThemeManager.secondaryTextColor
+                    }
                     }
                 }
             }
@@ -3800,6 +3928,15 @@ Rectangle {
                         onTriggered: { root.openViewer(messageMenu.msgId); messageMenu.close(); }
                     }
                     ZMenuRow {
+                        visible: (root.menuMessage.messageType === "video"
+                                  || (root.menuMessage.messageType === "file"
+                                      && ZaloClient.isVideoFileName(root.menuMessage.text || root.menuMessage.url || "")))
+                                 && (root.menuMessage.url || "").length > 0
+                        icon: "play"
+                        label: I18n.t("Xem video", "Watch video")
+                        onTriggered: { root.openViewer(messageMenu.msgId); messageMenu.close(); }
+                    }
+                    ZMenuRow {
                         visible: root.menuMessage.messageType === "image" && (root.menuMessage.url || "").length > 0
                         icon: "copy"
                         label: I18n.t("Sao chép ảnh", "Copy picture")
@@ -3877,18 +4014,18 @@ Rectangle {
                 }
             }
 
-    FileDialog {
+    ZFilePicker {
         id: saveImageDialog
         title: I18n.t("Lưu ảnh", "Save picture")
-        fileMode: FileDialog.SaveFile
+        fileMode: ZFilePicker.SaveFile
         currentFile: ZaloClient.suggestedMediaSaveUrl(root.menuMessage.url || "")
         onAccepted: ZaloClient.saveMediaTo(root.menuMessage.url, selectedFile.toString())
     }
 
-    FileDialog {
+    ZFilePicker {
         id: imageFileDialog
         title: I18n.t("Chọn hình ảnh để gửi", "Select photo to send")
-        fileMode: FileDialog.OpenFiles
+        fileMode: ZFilePicker.OpenFiles
         nameFilters: ["Hình ảnh (*.png *.jpg *.jpeg *.gif *.webp *.bmp)", "Tất cả các tệp (*.*)"]
         onAccepted: {
             for (var i = 0; i < selectedFiles.length; i++) {
@@ -3897,10 +4034,10 @@ Rectangle {
         }
     }
 
-    FileDialog {
+    ZFilePicker {
         id: documentFileDialog
         title: I18n.t("Chọn tệp tin đính kèm", "Select document to attach")
-        fileMode: FileDialog.OpenFiles
+        fileMode: ZFilePicker.OpenFiles
         nameFilters: ["Tất cả các tệp (*.*)"]
         onAccepted: {
             for (var j = 0; j < selectedFiles.length; j++) {

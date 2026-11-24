@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Zalos
+import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
@@ -78,7 +79,7 @@ Rectangle {
                     width: 36
                     height: 36
                     radius: 18
-                    color: ThemeManager.isDarkMode ? "#403366E6" : Theme.zaloBlueLight
+                    color: ThemeManager.accentTonalColor
 
                     ZIcon {
                         anchors.centerIn: parent
@@ -89,24 +90,31 @@ Rectangle {
                 }
 
                 ColumnLayout {
+                    Layout.fillWidth: true
                     spacing: 2
                     Text {
+                        Layout.fillWidth: true
                         text: I18n.t("My Documents", "My Documents")
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
                         font.family: Theme.fontFamily
                         font.pixelSize: 15
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
                     Text {
-                        text: I18n.t("Lưu trữ đám mây, tự động đồng bộ tài liệu, ảnh và liên kết của bạn trên mọi thiết bị",
-                                     "Cloud storage, sync documents, photos, and links across all your devices")
+                        Layout.fillWidth: true
+                        text: I18n.t("Hiển thị tài liệu, ảnh và liên kết đã tải từ Cloud của tôi",
+                                     "Displays documents, photos, and links loaded from My Documents")
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
                         color: ThemeManager.secondaryTextColor
                     }
                 }
 
-                Item { Layout.fillWidth: true }
+                Item { Layout.preferredWidth: 1 }
 
                 Rectangle {
                     height: 34
@@ -167,7 +175,7 @@ Rectangle {
                         width: tabChipText.implicitWidth + 18
                         radius: 14
                         color: root.activeTab === index
-                               ? (ThemeManager.isDarkMode ? "#4C3366E6" : Theme.zaloBlueLight)
+                               ? ThemeManager.accentTonalColor
                                : (tabMouse.containsMouse ? (ThemeManager.hoverColor) : ThemeManager.hoverClearColor)
 
                         Text {
@@ -178,7 +186,7 @@ Rectangle {
                             font.pixelSize: 11
                             font.weight: (root.activeTab === tabChip.index) ? Font.DemiBold : Font.Normal
                             color: root.activeTab === tabChip.index
-                                   ? (ThemeManager.isDarkMode ? "#FFFFFF" : Theme.zaloBlueTonalText)
+                                   ? ThemeManager.accentTonalTextColor
                                    : ThemeManager.secondaryTextColor
                         }
 
@@ -215,7 +223,7 @@ Rectangle {
                     width: 38
                     height: 38
                     radius: 19
-                    color: ThemeManager.isDarkMode ? "#333380FF" : Theme.zaloBlueLight
+                    color: ThemeManager.accentTonalColor
 
                     ZIcon {
                         anchors.centerIn: parent
@@ -230,31 +238,24 @@ Rectangle {
                     spacing: 3
 
                     RowLayout {
+                        Layout.fillWidth: true
                         spacing: 8
                         Text {
+                            Layout.fillWidth: true
                             text: I18n.t("Kho lưu trữ My Documents", "My Documents Storage")
+                            elide: Text.ElideRight
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
-                        Rectangle {
-                            width: 6
-                            height: 6
-                            radius: 3
-                            color: "#34C759"
-                        }
-                        Text {
-                            text: I18n.t("Đã đồng bộ tự động với tài khoản Zalo", "Auto-synced with Zalo account")
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 11
-                            color: ThemeManager.secondaryTextColor
-                        }
                     }
 
                     Text {
-                        text: I18n.t("Mọi tập tin, ảnh và ghi chú gửi vào Cloud sẽ được bảo mật và đồng bộ tức thì.",
-                                     "All files, photos, and notes sent to Cloud are secured and instantly synced.")
+                        Layout.fillWidth: true
+                        text: I18n.t("Hiển thị tệp, ảnh và liên kết từ các tin nhắn Cloud đã tải về máy.",
+                                     "Shows files, photos, and links from loaded Cloud messages.")
+                        elide: Text.ElideRight
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
                         color: ThemeManager.secondaryTextColor
@@ -265,7 +266,7 @@ Rectangle {
                     height: 28
                     width: countBadgeText.implicitWidth + 18
                     radius: 14
-                    color: ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.hoverColor
+                    color: ThemeManager.hoverColor
 
                     Text {
                         id: countBadgeText
@@ -319,19 +320,25 @@ Rectangle {
                             width: 42
                             height: 42
                             radius: 8
-                            color: ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.hoverColor
+                            color: ThemeManager.hoverColor
                             clip: true
 
                             Image {
+                                id: cloudThumb
                                 anchors.fill: parent
-                                visible: itemCard.modelData.itemType === "media" && !!itemCard.modelData.thumb
-                                source: visible ? itemCard.modelData.thumb : ""
+                                readonly property bool shown: status === Image.Ready && source.toString().length > 0
+                                visible: shown
+                                source: itemCard.modelData.itemType === "media" && !!itemCard.modelData.thumb
+                                        ? MediaSource.toSource(itemCard.modelData.thumb) : ""
+                                sourceSize.width: 84
+                                sourceSize.height: 84
+                                asynchronous: true
                                 fillMode: Image.PreserveAspectCrop
                             }
 
                             ZIcon {
                                 anchors.centerIn: parent
-                                visible: itemCard.modelData.itemType !== "media" || !itemCard.modelData.thumb
+                                visible: !cloudThumb.shown
                                 name: itemCard.modelData.itemType === "file" ? "file"
                                       : (itemCard.modelData.itemType === "link" ? "link" : "image")
                                 size: 20
@@ -362,6 +369,7 @@ Rectangle {
                             Text {
                                 Layout.fillWidth: true
                                 text: itemCard.modelData.title || itemCard.modelData.url || ""
+                                textFormat: Text.PlainText
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
                                 font.weight: Font.DemiBold
@@ -447,7 +455,7 @@ Rectangle {
                         width: 56
                         height: 56
                         radius: 28
-                        color: ThemeManager.isDarkMode ? "#0FFFFFFF" : ThemeManager.hoverColor
+                        color: ThemeManager.hoverColor
 
                         ZIcon {
                             anchors.centerIn: parent

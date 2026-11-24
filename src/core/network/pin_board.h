@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 
 #include <functional>
@@ -55,8 +56,10 @@ public:
     Q_INVOKABLE void unpinMessage(const QString& msgId);
     Q_INVOKABLE void moveToTop(const QString& topicId);
     Q_INVOKABLE QVariantMap detail(const QString& topicId) const;
+    Q_INVOKABLE QStringList previewUrls(const QString& topicId) const;
 
     static QVariantMap normalizeTopic(const QJsonValue& raw);
+    static QStringList mediaCandidates(const QVariantMap& topic, const QJsonObject& rawMessage, bool preferLarge);
     static QVariantList parseList(const QJsonObject& data, bool isGroup, qint64* version, int* limit);
     static QJsonObject topicForMessage(const QJsonObject& msg, const QString& myUid, const QString& senderName);
     void applyListForTesting(const QString& convId, const QJsonObject& data, bool isGroup) { applyList(convId, data, isGroup); }

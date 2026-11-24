@@ -87,4 +87,4 @@ enum class ZstdStatus { Ok, Unavailable, Error, UnknownSize };
 
 ZstdStatus zstdDecompress(const QByteArray& compressed, QByteArray* out, QByteArray* detail);
 
-}  // namespace Zalos::Core::Sync::V2
+}

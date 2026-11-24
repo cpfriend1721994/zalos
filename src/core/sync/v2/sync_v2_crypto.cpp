@@ -150,7 +150,7 @@ void deriveRecordIdMask(quint64 recordId, QByteArray* u64First, QByteArray* u64S
     *u64Second = QByteArray(reinterpret_cast<const char*>(block + 8), 8);
 }
 
-}  // namespace
+}
 
 KeyPair generateKeyPair() {
     KeyPair out;
@@ -353,4 +353,4 @@ QString cryptoStatusName(CryptoStatus status) {
     return QStringLiteral("unknown");
 }
 
-}  // namespace Zalos::Core::Sync::V2
+}

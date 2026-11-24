@@ -259,6 +259,9 @@ bool ZaloOfflineStore::initializeDatabase(const QString& customPath) {
     q.exec("DELETE FROM reactions;");
 
     q.exec("CREATE TABLE IF NOT EXISTS read_points (conv_id TEXT PRIMARY KEY, msg_id TEXT NOT NULL);");
+    q.exec("CREATE TABLE IF NOT EXISTS unread_reactions (conv_id TEXT, msg_id TEXT, event_id TEXT, uid TEXT, "
+           "icon TEXT, ts INTEGER DEFAULT 0, PRIMARY KEY (msg_id, event_id));");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_unread_reactions_conv ON unread_reactions(conv_id);");
 
     q.exec("CREATE TABLE IF NOT EXISTS profiles ("
            "id TEXT PRIMARY KEY, name TEXT, avatar TEXT, is_group INTEGER DEFAULT 0, "
@@ -583,6 +586,84 @@ QVector<ZaloOfflineStore::ReactionEvent> ZaloOfflineStore::reactionEventsOf(cons
     return out;
 }
 
+bool ZaloOfflineStore::addUnreadReaction(const QString& convId, const QString& msgId, const QString& eventId,
+                                         const QString& uid, const QString& icon, qint64 ts) {
+    if (!m_db.isOpen() || convId.isEmpty() || msgId.isEmpty() || eventId.isEmpty()) return false;
+    QSqlQuery q(m_db);
+    q.prepare("INSERT OR IGNORE INTO unread_reactions (conv_id, msg_id, event_id, uid, icon, ts) "
+              "VALUES (:c, :m, :e, :u, :i, :t);");
+    q.bindValue(":c", convId);
+    q.bindValue(":m", msgId);
+    q.bindValue(":e", eventId);
+    q.bindValue(":u", uid);
+    q.bindValue(":i", icon);
+    q.bindValue(":t", ts);
+    return q.exec() && q.numRowsAffected() > 0;
+}
+
+bool ZaloOfflineStore::removeUnreadReactions(const QString& msgId, const QString& uid) {
+    if (!m_db.isOpen() || msgId.isEmpty()) return false;
+    QSqlQuery q(m_db);
+    if (uid.isEmpty()) {
+        q.prepare("DELETE FROM unread_reactions WHERE msg_id = :m;");
+    } else {
+        q.prepare("DELETE FROM unread_reactions WHERE msg_id = :m AND uid = :u;");
+        q.bindValue(":u", uid);
+    }
+    q.bindValue(":m", msgId);
+    return q.exec() && q.numRowsAffected() > 0;
+}
+
+QVector<ZaloOfflineStore::UnreadReaction> ZaloOfflineStore::unreadReactionsOf(const QString& convId) const {
+    QVector<UnreadReaction> out;
+    if (!m_db.isOpen() || convId.isEmpty()) return out;
+    QSqlQuery q(m_db);
+    q.setForwardOnly(true);
+    q.prepare("SELECT u.msg_id, u.event_id, u.uid, u.icon, u.ts, COALESCE(m.ts, u.ts) AS msg_ts "
+              "FROM unread_reactions u LEFT JOIN messages m ON m.id = u.msg_id "
+              "WHERE u.conv_id = :c ORDER BY msg_ts ASC, u.ts ASC;");
+    q.bindValue(":c", convId);
+    if (q.exec()) {
+        while (q.next()) {
+            out.append({q.value(0).toString(), q.value(1).toString(), q.value(2).toString(), q.value(3).toString(),
+                        q.value(4).toLongLong(), q.value(5).toLongLong()});
+        }
+    }
+    return out;
+}
+
+int ZaloOfflineStore::isMineMessage(const QString& msgId) const {
+    if (!m_db.isOpen() || msgId.isEmpty()) return -1;
+    QSqlQuery q(m_db);
+    q.prepare("SELECT is_mine FROM messages WHERE id = :id;");
+    q.bindValue(":id", msgId);
+    if (!q.exec() || !q.next()) return -1;
+    return q.value(0).toInt() != 0 ? 1 : 0;
+}
+
+QString ZaloOfflineStore::resolveMessageIdByCliId(const QString& convId, const QString& cliMsgId) const {
+    if (!m_db.isOpen() || cliMsgId.isEmpty() || cliMsgId == QLatin1String("0")) return {};
+    QSqlQuery q(m_db);
+    if (convId.isEmpty()) {
+        q.prepare("SELECT id FROM messages WHERE cli_msg_id = :cli LIMIT 1;");
+    } else {
+        q.prepare("SELECT id FROM messages WHERE conv_id = :c AND cli_msg_id = :cli LIMIT 1;");
+        q.bindValue(":c", convId);
+    }
+    q.bindValue(":cli", cliMsgId);
+    if (!q.exec() || !q.next()) return {};
+    return q.value(0).toString();
+}
+
+QString ZaloOfflineStore::messageText(const QString& msgId) const {
+    if (!m_db.isOpen() || msgId.isEmpty()) return {};
+    QSqlQuery q(m_db);
+    q.prepare("SELECT text FROM messages WHERE id = :id;");
+    q.bindValue(":id", msgId);
+    if (!q.exec() || !q.next()) return {};
+    return q.value(0).toString();
+}
+
 QSet<QString> ZaloOfflineStore::reactedMessageIds() const {
     QSet<QString> out;
     if (!m_db.isOpen()) return out;
@@ -642,7 +723,8 @@ void ZaloOfflineStore::clearCache() {
     m_ownerUid.clear();
     m_ownerUidLoaded = true;
     QSqlQuery q(m_db);
-    for (const char* table : {"messages", "reactions", "reaction_events", "conversations", "profiles", "read_points"}) {
+    for (const char* table : {"messages", "reactions", "reaction_events", "unread_reactions", "conversations", "profiles",
+                              "read_points"}) {
         q.exec(QStringLiteral("DELETE FROM %1;").arg(QLatin1String(table)));
     }
     q.exec("DELETE FROM meta WHERE key NOT IN "
@@ -820,6 +902,9 @@ bool ZaloOfflineStore::deleteConversation(const QString& convId) {
     q.prepare("DELETE FROM reaction_events WHERE msg_id IN (SELECT id FROM messages WHERE conv_id = :conv_id);");
     q.bindValue(":conv_id", convId);
     q.exec();
+    q.prepare("DELETE FROM unread_reactions WHERE conv_id = :conv_id;");
+    q.bindValue(":conv_id", convId);
+    q.exec();
     q.prepare("DELETE FROM messages WHERE conv_id = :conv_id;");
     q.bindValue(":conv_id", convId);
     bool ok = q.exec();
@@ -888,26 +973,34 @@ QVector<Models::MessageItem> ZaloOfflineStore::loadMessages(const QString& convI
     q.bindValue(":limit", limit);
     q.bindValue(":now", QDateTime::currentMSecsSinceEpoch());
     if (q.exec()) {
+        QSet<QString> stringPool;
+        auto internShared = [&stringPool](QString s) -> QString {
+            if (s.isEmpty()) return s;
+            auto it = stringPool.constFind(s);
+            if (it != stringPool.cend()) return *it;
+            if (stringPool.size() < 512) stringPool.insert(s);
+            return s;
+        };
         while (q.next()) {
             Models::MessageItem item;
             item.id = q.value(0).toString();
-            item.senderName = q.value(1).toString();
+            item.senderName = internShared(q.value(1).toString());
             item.text = q.value(2).toString();
             item.timeStr = q.value(3).toString();
             item.isMine = q.value(4).toInt() == 1;
             item.isE2EE = q.value(5).toInt() == 1;
             item.reaction = q.value(6).toString();
-            item.messageType = q.value(7).toString();
+            item.messageType = Models::MessageModel::internMessageType(q.value(7).toString());
             item.mediaUrl = q.value(8).toString();
             item.ts = q.value(9).toLongLong();
             if (item.ts < 946684800000LL) item.timeStr.clear();
-            item.senderId = q.value(10).toString();
-            item.senderAvatar = q.value(11).toString();
-            item.status = q.value(12).toString();
+            item.senderId = internShared(q.value(10).toString());
+            item.senderAvatar = internShared(q.value(11).toString());
+            item.status = Models::MessageModel::internStatus(q.value(12).toString());
             item.isRecalled = q.value(13).toInt() == 1;
             item.cliMsgId = q.value(14).toString();
             item.quoteMsgId = q.value(15).toString();
-            item.quoteSender = q.value(16).toString();
+            item.quoteSender = internShared(q.value(16).toString());
             item.quoteText = q.value(17).toString();
             item.href = q.value(19).toString();
             item.fileSize = q.value(20).toLongLong();
@@ -1011,6 +1104,9 @@ QVector<QPair<QString, QString>> ZaloOfflineStore::purgeExpired(qint64 now) {
     q.prepare("DELETE FROM reaction_events WHERE msg_id IN (SELECT id FROM messages WHERE expire_on > 0 AND expire_on <= :now);");
     q.bindValue(":now", now);
     q.exec();
+    q.prepare("DELETE FROM unread_reactions WHERE msg_id IN (SELECT id FROM messages WHERE expire_on > 0 AND expire_on <= :now);");
+    q.bindValue(":now", now);
+    q.exec();
     q.prepare("DELETE FROM messages WHERE expire_on > 0 AND expire_on <= :now;");
     q.bindValue(":now", now);
     q.exec();
@@ -1034,6 +1130,7 @@ bool ZaloOfflineStore::markRecalled(const QString& msgId, const QString& placeho
     q.bindValue(":id", msgId);
     if (!q.exec()) return false;
     const bool touched = q.numRowsAffected() > 0;
+    removeUnreadReactions(msgId);
     Models::MessageItem gone;
     gone.isRecalled = true;
     if (touched) indexMessage(msgId, gone);
@@ -1046,6 +1143,7 @@ bool ZaloOfflineStore::deleteMessage(const QString& msgId) {
     q.prepare("DELETE FROM reaction_events WHERE msg_id = :id;");
     q.bindValue(":id", msgId);
     q.exec();
+    removeUnreadReactions(msgId);
     q.prepare("DELETE FROM messages WHERE id = :id;");
     q.bindValue(":id", msgId);
     return q.exec();
@@ -1058,6 +1156,12 @@ bool ZaloOfflineStore::deleteMessagesUpTo(const QString& convId, const QString& 
     if (!numeric) return false;
     QSqlQuery q(m_db);
     q.prepare("DELETE FROM reaction_events WHERE msg_id IN "
+              "(SELECT id FROM messages WHERE conv_id = :conv AND id GLOB '[0-9]*' AND length(id) > 0 "
+              "AND CAST(id AS INTEGER) <= CAST(:last AS INTEGER));");
+    q.bindValue(":conv", convId);
+    q.bindValue(":last", lastMsgId);
+    q.exec();
+    q.prepare("DELETE FROM unread_reactions WHERE conv_id = :conv AND msg_id IN "
               "(SELECT id FROM messages WHERE conv_id = :conv AND id GLOB '[0-9]*' AND length(id) > 0 "
               "AND CAST(id AS INTEGER) <= CAST(:last AS INTEGER));");
     q.bindValue(":conv", convId);

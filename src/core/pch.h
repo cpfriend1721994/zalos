@@ -2,8 +2,11 @@
 
 #ifdef __cplusplus
 #include <QtCore/QByteArray>
+#include <QtCore/QCoreApplication>
 #include <QtCore/QDateTime>
+#include <QtCore/QDebug>
 #include <QtCore/QDir>
+#include <QtCore/QFile>
 #include <QtCore/QFileInfo>
 #include <QtCore/QHash>
 #include <QtCore/QJsonArray>
@@ -14,17 +17,25 @@
 #include <QtCore/QMap>
 #include <QtCore/QObject>
 #include <QtCore/QPair>
+#include <QtCore/QPointer>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QSet>
+#include <QtCore/QSettings>
+#include <QtCore/QStandardPaths>
 #include <QtCore/QString>
 #include <QtCore/QStringList>
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
+#include <QtCore/QUrlQuery>
 #include <QtCore/QVariant>
 #include <QtCore/QVariantList>
 #include <QtCore/QVariantMap>
 #include <QtCore/QVector>
 #include <QtGui/QColor>
 #include <QtGui/QImage>
+#include <QtNetwork/QNetworkReply>
+#include <QtNetwork/QNetworkRequest>
+#include <QtSql/QSqlQuery>
 #include <algorithm>
 #include <functional>
 #include <memory>

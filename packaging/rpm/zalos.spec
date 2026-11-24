@@ -1,31 +1,25 @@
 %global debug_package %{nil}
+%global _binary_payload w9.xzdio
 %undefine _include_minidebuginfo
 %undefine _include_gdb_index
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.2.10
+Version:        1.3.0
 Release:        1%{?dist}
 Summary:        Native Qt6 (C++/QML) messaging client for Zalo on Linux
-License:        MIT AND BSD-3-Clause
+License:        MIT AND BSD-3-Clause AND OFL-1.1
 URL:            https://github.com/cpfriend1721994/zalos
 Source0:        %{name}-%{version}.tar.gz
 
-# The private fallback copy of libopus must not satisfy or add dependencies of other packages.
-%global __provides_exclude_from ^%{_libdir}/%{name}/fallback/.*$
-%global __requires_exclude_from ^%{_libdir}/%{name}/fallback/.*$
+%global __provides_exclude_from ^%{_libdir}/%{name}/(fallback|qt6)/.*$
+%global __requires_exclude_from ^%{_libdir}/%{name}/(fallback|qt6)/.*$
+%global __requires_exclude ^libQt6.*$|^libicu.*$
 
 BuildRequires:  cmake >= 3.22
 BuildRequires:  gcc-c++
 BuildRequires:  ninja-build
 BuildRequires:  pkgconf-pkg-config
-BuildRequires:  qt6-qtbase-devel >= 6.4
-BuildRequires:  qt6-qtdeclarative-devel >= 6.4
-BuildRequires:  qt6-qtshadertools-devel
-BuildRequires:  qt6-qtsvg-devel
-BuildRequires:  qt6-qtwayland-devel
-BuildRequires:  qt6-qtwebsockets-devel
-BuildRequires:  qt6-qtmultimedia-devel
 BuildRequires:  openh264-devel
 BuildRequires:  zlib-devel
 BuildRequires:  openssl-devel
@@ -34,21 +28,28 @@ BuildRequires:  sqlite-devel
 BuildRequires:  desktop-file-utils
 BuildRequires:  opus
 
-Requires:       qt6-qtbase >= 6.4
-Requires:       qt6-qtdeclarative >= 6.4
-Requires:       qt6-qtsvg
-Requires:       qt6-qtimageformats
-Requires:       qt6-qtwayland
-Requires:       qt6-qtwebsockets
-Requires:       qt6-qtmultimedia
-# C++ call engine (zalos-call, zalos-call-audio in libexec/zalos): libopus and libpulse-simple are dlopen()ed;
-# the system libopus is preferred and a private copy in %{_libdir}/zalos/fallback covers systems without it.
-Recommends:     opus
-Recommends:     pulseaudio-libs
+Requires:       mesa-libGL
+Requires:       mesa-libEGL
+Requires:       fontconfig
+Requires:       freetype
+Requires:       dbus-libs
+Requires:       libxkbcommon
+Requires:       libxkbcommon-x11
+Requires:       libwayland-client
+Requires:       libwayland-cursor
+Requires:       libwayland-egl
 Requires:       xcb-util-cursor
-Requires:       openssl
-Requires:       sqlite
-# Call video: OpenH264 is dlopen()ed, never bundled (fedora-cisco-openh264 repo).
+Requires:       openssl-libs
+Requires:       sqlite-libs
+Requires:       xz-libs
+Requires:       zlib
+Requires:       libzstd
+Requires:       libpng
+Requires:       libicu
+Requires:       pulseaudio-libs
+Requires:       libXrandr
+Requires:       krb5-libs
+Recommends:     opus
 Recommends:     openh264
 
 %description
@@ -65,7 +66,7 @@ includes native cryptographic verification for E2EE message synchronization.
 export CFLAGS="$(echo %{build_cflags} | sed 's/-g[a-z0-9=-]*//g')"
 export CXXFLAGS="$(echo %{build_cxxflags} | sed 's/-g[a-z0-9=-]*//g') -g0 -DNDEBUG"
 %endif
-%cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DZALOS_QML_AOT=OFF
+%cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DZALOS_QML_AOT=ON
 %ifarch aarch64
 %cmake_build -- -j5
 %else
@@ -74,6 +75,7 @@ export CXXFLAGS="$(echo %{build_cxxflags} | sed 's/-g[a-z0-9=-]*//g') -g0 -DNDEB
 
 %install
 %cmake_install
+bash packaging/common/bundle-qt6.sh /opt/qt6 %{buildroot}%{_libdir}/%{name}/qt6 %{buildroot}%{_bindir} %{buildroot}%{_libexecdir}/%{name} --build-icu-shim
 install -d %{buildroot}%{_libdir}/%{name}/fallback
 install -m 0644 "$(readlink -f %{_libdir}/libopus.so.0)" %{buildroot}%{_libdir}/%{name}/fallback/libopus.so.0
 
@@ -85,12 +87,24 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_libexecdir}/%{name}/zalos-call
 %{_libexecdir}/%{name}/zalos-call-audio
 %{_libdir}/%{name}/fallback/libopus.so.0
+%{_libdir}/%{name}/qt6
 %license %{_datadir}/licenses/%{name}/zcall-cpp.LICENSE
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{name}.svg
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
+%{_datadir}/%{name}/fonts/ZalosEmoji-CBDT.ttf
+%{_datadir}/%{name}/fonts/NotoSans-VF.ttf
+%license %{_datadir}/%{name}/fonts/NotoSans-OFL.txt
 
 %changelog
+* Tue Nov 24 2026 Zalos Team <dev@zalos.local> - 1.3.0-1
+- Wire zBusiness Tools to live server APIs (business profile lookup, product catalog & item CRUD, and auto-reply rules) alongside existing quick-message shortcuts.
+- Add Zalo-style OpenStreetMap tile preview cards with sender avatar pins for shared location messages and fix wide panoramic image sizing/aspect fit.
+- Persist labels in SQLite offline cache for instant startup display, fix navigation rail label rendering and hover stability, and fix desktop System Theme colors and KDE/GNOME font detection.
+- Improve narrow-window (480x440+) responsive layouts, modal Esc/keyboard navigation, DPR image decoding bounds, media-run capping, async sound/clipboard handling, and bundle Qt 6.8.3 LTS with QML AOT compilation cleanly.
+- Fix the UI font falling back to the emoji font when the desktop font is missing (Noto Sans fallback, bundled under OFL), links that failed to open or were not clickable, and zBusiness catalog error 113.
+- Use native portal file dialogs instead of Qt Quick Dialogs and the system SQLite for the bundled SQL driver; RPMs are now repackaged from the Ubuntu 24.04 build.
+
 * Mon Nov 23 2026 Zalos Team <dev@zalos.local> - 1.2.10-1
 - Fix being stuck on "Connecting to server" with WebSocket error 501 on Qt 6.4 (the realtime URL now always has a "/" path).
 - Fix a crash in rounded images when the device pixel ratio changes on Wayland.

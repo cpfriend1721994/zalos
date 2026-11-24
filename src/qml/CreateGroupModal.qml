@@ -254,6 +254,15 @@ Item {
                         color: ThemeManager.secondaryTextColor
                     }
 
+                    Timer {
+                        id: memberSearchDebounce
+                        interval: 150
+                        onTriggered: {
+                            root.filterText = memberSearchInput.text;
+                            root.updateFilteredFriends();
+                        }
+                    }
+
                     TextInput {
                         id: memberSearchInput
                         Layout.fillWidth: true
@@ -265,8 +274,13 @@ Item {
                         selectByMouse: true
                         clip: true
                         onTextChanged: {
-                            root.filterText = text;
-                            root.updateFilteredFriends();
+                            if (text.length === 0) {
+                                memberSearchDebounce.stop();
+                                root.filterText = "";
+                                root.updateFilteredFriends();
+                            } else {
+                                memberSearchDebounce.restart();
+                            }
                         }
 
                         Text {
@@ -283,73 +297,78 @@ Item {
                 }
             }
 
-            ListView {
-                id: memberListView
+            Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumHeight: 80
-                clip: true
-                spacing: 2
-                model: root.filteredFriends
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-                delegate: Rectangle {
-                    id: memberRow
-                    required property var modelData
-                    readonly property string memberId: modelData.id || ""
-                    readonly property string memberName: modelData.name || ""
-                    readonly property string memberAvatar: modelData.avatar || ""
-                    readonly property bool selected: root.isMemberSelected(memberRow.memberId)
-                    width: memberListView.width
-                    height: 52
-                    radius: 8
-                    color: itemMouse.containsMouse ? (ThemeManager.hoverColor) : ThemeManager.hoverClearColor
+                ListView {
+                    id: memberListView
+                    anchors.fill: parent
+                    clip: true
+                    spacing: 2
+                    model: root.filteredFriends
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
-                        spacing: 12
+                    delegate: Rectangle {
+                        id: memberRow
+                        required property var modelData
+                        readonly property string memberId: modelData.id || ""
+                        readonly property string memberName: modelData.name || ""
+                        readonly property string memberAvatar: modelData.avatar || ""
+                        readonly property bool selected: root.isMemberSelected(memberRow.memberId)
+                        width: memberListView.width
+                        height: 52
+                        radius: 8
+                        color: itemMouse.containsMouse ? (ThemeManager.hoverColor) : ThemeManager.hoverClearColor
 
-                        Rectangle {
-                            Layout.preferredWidth: 20
-                            Layout.preferredHeight: 20
-                            radius: 10
-                            border.color: memberRow.selected ? Theme.zaloBlue : ThemeManager.borderColor
-                            border.width: 2
-                            color: memberRow.selected ? Theme.zaloBlue : "transparent"
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            spacing: 12
 
-                            ZIcon {
-                                visible: memberRow.selected
-                                anchors.centerIn: parent
-                                name: "check"
-                                size: 14
-                                color: "#FFFFFF"
+                            Rectangle {
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                radius: 10
+                                border.color: memberRow.selected ? Theme.zaloBlue : ThemeManager.borderColor
+                                border.width: 2
+                                color: memberRow.selected ? Theme.zaloBlue : "transparent"
+
+                                ZIcon {
+                                    visible: memberRow.selected
+                                    anchors.centerIn: parent
+                                    name: "check"
+                                    size: 14
+                                    color: "#FFFFFF"
+                                }
+                            }
+
+                            ZAvatar {
+                                size: 36
+                                avatarUrl: memberRow.memberAvatar
+                                name: memberRow.memberName
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: memberRow.memberName
+                                textFormat: Text.PlainText
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 13
+                                color: ThemeManager.textColor
+                                elide: Text.ElideRight
                             }
                         }
 
-                        ZAvatar {
-                            size: 36
-                            avatarUrl: memberRow.memberAvatar
-                            name: memberRow.memberName
+                        MouseArea {
+                            id: itemMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.toggleMember(memberRow.memberId)
                         }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: memberRow.memberName
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 13
-                            color: ThemeManager.textColor
-                            elide: Text.ElideRight
-                        }
-                    }
-
-                    MouseArea {
-                        id: itemMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.toggleMember(memberRow.memberId)
                     }
                 }
 

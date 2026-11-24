@@ -1,6 +1,6 @@
 services:
   build:
-    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    image: localhost/zalos-fedora:43
     build:
       context: .
       dockerfile: Dockerfile
@@ -15,7 +15,7 @@ services:
       "
 
   test:
-    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    image: localhost/zalos-fedora:43
     build:
       context: .
       dockerfile: Dockerfile
@@ -33,9 +33,20 @@ services:
         ctest --output-on-failure
       "
 
-  # Built on the Fedora base (43, the oldest Fedora still maintained): the RPM installs on 43 and newer releases.
   package-rpm:
-    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    image: localhost/zalos-ubuntu:24.04
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    volumes:
+      - .:/workspace:z
+    working_dir: /workspace
+    environment:
+      - HOME=/tmp
+    command: bash -c "bash /workspace/packaging/deb/build-deb.sh && bash /workspace/packaging/rpm/build-rpm-prebuilt.sh"
+
+  package-rpm-source:
+    image: localhost/zalos-fedora:43
     build:
       context: .
       dockerfile: Dockerfile
@@ -44,9 +55,8 @@ services:
     working_dir: /workspace
     command: bash /workspace/packaging/rpm/build-rpm.sh
 
-  # Built on Ubuntu 24.04 (Qt 6.4, glibc 2.39): runs on hosts with Qt >= 6.4 and glibc >= 2.39.
   package-appimage:
-    image: localhost/zalos-ubuntu:24.04 # shared by every Ubuntu-base service (one image)
+    image: localhost/zalos-ubuntu:24.04
     build:
       context: .
       dockerfile: Dockerfile.ubuntu
@@ -67,7 +77,7 @@ services:
     command: bash /workspace/packaging/nix/build-nix.sh
 
   gui-check:
-    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    image: localhost/zalos-fedora:43
     build:
       context: .
       dockerfile: Dockerfile
@@ -87,7 +97,6 @@ services:
         echo '✅ Headless GUI execution sanity check passed.'
       "
 
-  # Clean installs of the Fedora 43-built RPM: oldest (43) and newest (45, OpenSSL 4 + openssl3-libs) Fedora.
   test-fedora-rpm:
     image: docker.io/library/fedora:43
     user: "0:0"
@@ -105,14 +114,13 @@ services:
     command: bash /workspace/scripts/test-fedora-rpm.sh
 
   test-fedora-gui:
-    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    image: localhost/zalos-fedora:43
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
       - .:/workspace:z
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
-      # Session bus of the host so IBus/Fcitx (Vietnamese input) is reachable through its D-Bus portal.
       - ${XDG_RUNTIME_DIR:-/run/user/1000}/bus:/run/host-session-bus:ro
     environment:
       - DISPLAY=${DISPLAY:-:0}
@@ -131,7 +139,7 @@ services:
       "
 
   test-appimage:
-    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    image: localhost/zalos-fedora:43
     build:
       context: .
       dockerfile: Dockerfile
@@ -141,14 +149,13 @@ services:
     command: bash /workspace/scripts/test-appimage.sh
 
   test-appimage-gui:
-    image: localhost/zalos-fedora:43 # shared by every Fedora-base service (one image)
+    image: localhost/zalos-fedora:43
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
       - .:/workspace:z
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
-      # Session bus of the host so IBus/Fcitx (Vietnamese input) is reachable through its D-Bus portal.
       - ${XDG_RUNTIME_DIR:-/run/user/1000}/bus:/run/host-session-bus:ro
     environment:
       - DISPLAY=${DISPLAY:-:0}
@@ -185,9 +192,8 @@ services:
       - NIX_CONFIG=experimental-features = nix-command flakes
     command: nix develop --extra-experimental-features "nix-command flakes"
 
-  # Ubuntu 24.04 (Qt 6.4) is the oldest supported Qt: the .deb built here installs on 24.04 and newer.
   build-ubuntu:
-    image: localhost/zalos-ubuntu:24.04 # shared by every Ubuntu-base service (one image)
+    image: localhost/zalos-ubuntu:24.04
     build:
       context: .
       dockerfile: Dockerfile.ubuntu
@@ -204,7 +210,7 @@ services:
       "
 
   package-deb:
-    image: localhost/zalos-ubuntu:24.04 # shared by every Ubuntu-base service (one image)
+    image: localhost/zalos-ubuntu:24.04
     build:
       context: .
       dockerfile: Dockerfile.ubuntu
@@ -215,7 +221,6 @@ services:
       - HOME=/tmp
     command: bash /workspace/packaging/deb/build-deb.sh
 
-  # Clean installs of the 24.04-built .deb: oldest (24.04) and newest Ubuntu.
   test-deb-ubuntu2404:
     image: docker.io/library/ubuntu:24.04
     user: "0:0"
@@ -223,8 +228,6 @@ services:
       - .:/workspace:z
     command: bash /workspace/scripts/test-deb.sh
 
-  # Dependency matrix (scripts/test-deps.sh): fewest system packages per format; Zalos must still start and
-  # report optional dependencies honestly. AppImage hosts have no Qt, only a desktop baseline.
   test-deps-deb:
     image: docker.io/library/ubuntu:24.04
     user: "0:0"
@@ -286,11 +289,6 @@ services:
       - .:/workspace:z
     command: bash /workspace/scripts/test-deb.sh
 
-  # ---------------------------------------------------------------------------------------------------------------
-  # ARM64 (aarch64) release builds. The host runner is x86_64, so these run under QEMU/binfmt emulation (slow).
-  # Separate image tags keep the amd64 and arm64 images from colliding in the local image store. Register binfmt
-  # once per host before building:  docker run --privileged --rm tonistiigi/binfmt --install arm64
-  # ---------------------------------------------------------------------------------------------------------------
   package-rpm-arm64:
     image: localhost/zalos-fedora-arm64:43
     platform: linux/arm64
@@ -342,7 +340,5 @@ services:
     working_dir: /workspace
     environment:
       - NIX_CONFIG=experimental-features = nix-command flakes
-      # aarch64 under QEMU on an x86_64 kernel: seccomp BPF (the Nix sandbox) cannot load for a foreign
-      # architecture, so build-nix.sh disables the sandbox for emulated runs.
       - ZALOS_EMULATED=1
     command: bash /workspace/packaging/nix/build-nix.sh

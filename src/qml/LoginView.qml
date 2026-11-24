@@ -298,7 +298,6 @@ Rectangle {
                             columnSpacing: 24
                             rowSpacing: 16
 
-                            // Layer 1: QR sign-in
                             ColumnLayout {
                                 id: qrColumn
                                 visible: root.isWide || root.activeTab === 0
@@ -552,7 +551,6 @@ Rectangle {
                                 color: ThemeManager.borderColor
                             }
 
-                            // Layer 2: Browser session + Phone login directly visible
                             ColumnLayout {
                                 id: directAuthColumn
                                 visible: root.isWide || root.activeTab === 1

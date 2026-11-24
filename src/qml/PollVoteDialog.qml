@@ -278,8 +278,13 @@ Item {
                         spacing: 10
 
                         Text {
+                            id: pollQuestionText
                             Layout.fillWidth: true
-                            text: root.question
+                            text: ZaloClient.linkifyText(root.question)
+                            textFormat: Text.StyledText
+                            linkColor: Theme.linkColor
+                            onLinkActivated: function(link) { ZaloClient.openLink(link); }
+                            HoverHandler { cursorShape: pollQuestionText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                             wrapMode: Text.Wrap
                             font.family: Theme.fontFamily
                             font.pixelSize: 16
@@ -290,6 +295,7 @@ Item {
                         Text {
                             visible: root.creatorName.length > 0
                             Layout.fillWidth: true
+                            textFormat: Text.PlainText
                             text: I18n.t("Tạo bởi ", "Created by ")
                                   + (root.creatorIsMe ? I18n.t("Bạn", "you") : root.creatorName)
                                   + (root.createdTime > 0
@@ -303,6 +309,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: I18n.t(root.settingsVi, root.settingsEn)
+                            elide: Text.ElideRight
                             wrapMode: Text.Wrap
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
@@ -397,6 +404,7 @@ Item {
                                     Text {
                                         Layout.fillWidth: true
                                         text: optRow.modelData.content
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
@@ -527,74 +535,97 @@ Item {
                     }
                 }
 
-                ScrollView {
-                    id: votersScroll
-                    clip: true
-                    contentWidth: availableWidth
+                Item {
+                    id: votersPagePane
 
-                    ColumnLayout {
-                        width: votersScroll.availableWidth
-                        spacing: 6
+                    Text {
+                        visible: !root.canViewVoters
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        wrapMode: Text.Wrap
+                        text: root.anonymous
+                              ? I18n.t("Người tham gia không thể thấy người khác bình chọn.", "Participants can't see who voted.")
+                              : I18n.t("Bạn chỉ thấy người bình chọn sau khi đã bình chọn.", "You'll see the voters after you vote.")
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 13
+                        color: ThemeManager.secondaryTextColor
+                    }
 
-                        Text {
-                            visible: !root.canViewVoters
-                            Layout.fillWidth: true
-                            wrapMode: Text.Wrap
-                            text: root.anonymous
-                                  ? I18n.t("Người tham gia không thể thấy người khác bình chọn.", "Participants can't see who voted.")
-                                  : I18n.t("Bạn chỉ thấy người bình chọn sau khi đã bình chọn.", "You'll see the voters after you vote.")
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 13
-                            color: ThemeManager.secondaryTextColor
+                    ListView {
+                        id: votersList
+                        visible: root.canViewVoters
+                        anchors.fill: parent
+                        clip: true
+                        cacheBuffer: 160
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        model: {
+                            if (!root.canViewVoters || !root.options) return null;
+                            const rows = [];
+                            for (let i = 0; i < root.options.length; ++i) {
+                                const opt = root.options[i];
+                                rows.push({ kind: "header", label: String(opt.content || "") + " · " + Number(opt.votes || 0), avatar: "", isMe: false });
+                                const voters = opt.voters || [];
+                                if (voters.length === 0) {
+                                    rows.push({ kind: "empty", label: I18n.t("Chưa có ai chọn", "No votes yet"), avatar: "", isMe: false });
+                                } else {
+                                    for (let j = 0; j < voters.length; ++j) {
+                                        const v = voters[j];
+                                        rows.push({ kind: "voter", label: String(v.name || ""), avatar: String(v.avatar || ""), isMe: v.isMe === true });
+                                    }
+                                }
+                            }
+                            return rows;
                         }
+                        delegate: Item {
+                            id: voterEntry
+                            required property var modelData
+                            readonly property string kind: String(voterEntry.modelData.kind || "voter")
+                            width: votersList.width
+                            height: kind === "header" ? 30 : (kind === "empty" ? 24 : 36)
 
-                        Repeater {
-                            model: root.options
-                            delegate: ColumnLayout {
-                                id: votersGroup
-                                required property var modelData
-                                visible: root.canViewVoters
-                                Layout.fillWidth: true
-                                spacing: 4
-
+                            Text {
+                                visible: voterEntry.kind === "header"
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.bottomMargin: 4
+                                text: voterEntry.modelData.label
+                                textFormat: Text.PlainText
+                                elide: Text.ElideRight
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 13
+                                font.weight: Font.DemiBold
+                                color: ThemeManager.textColor
+                            }
+                            Text {
+                                visible: voterEntry.kind === "empty"
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: voterEntry.modelData.label
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 12
+                                color: ThemeManager.secondaryTextColor
+                            }
+                            RowLayout {
+                                visible: voterEntry.kind === "voter"
+                                anchors.fill: parent
+                                spacing: 10
+                                ZAvatar {
+                                    size: 28
+                                    avatarUrl: voterEntry.modelData.avatar
+                                    name: voterEntry.modelData.label
+                                }
                                 Text {
                                     Layout.fillWidth: true
-                                    Layout.topMargin: 6
-                                    text: votersGroup.modelData.content + " · " + votersGroup.modelData.votes
+                                    text: voterEntry.modelData.label + (voterEntry.modelData.isMe ? I18n.t(" (Bạn)", " (You)") : "")
+                                    textFormat: Text.PlainText
                                     elide: Text.ElideRight
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 13
-                                    font.weight: Font.DemiBold
                                     color: ThemeManager.textColor
-                                }
-                                Text {
-                                    visible: (votersGroup.modelData.voters || []).length === 0
-                                    text: I18n.t("Chưa có ai chọn", "No votes yet")
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: ThemeManager.secondaryTextColor
-                                }
-                                Repeater {
-                                    model: votersGroup.modelData.voters || []
-                                    delegate: RowLayout {
-                                        id: voterRow
-                                        required property var modelData
-                                        Layout.fillWidth: true
-                                        spacing: 10
-                                        ZAvatar {
-                                            size: 28
-                                            avatarUrl: voterRow.modelData.avatar || ""
-                                            name: voterRow.modelData.name || ""
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: voterRow.modelData.name + (voterRow.modelData.isMe === true ? I18n.t(" (Bạn)", " (You)") : "")
-                                            elide: Text.ElideRight
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 13
-                                            color: ThemeManager.textColor
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -602,7 +633,7 @@ Item {
                 }
             }
 
-            RowLayout {
+            Flow {
                 visible: root.loaded && !root.votersPage
                 Layout.fillWidth: true
                 spacing: 8
@@ -618,7 +649,6 @@ Item {
                     text: I18n.t("Gửi vào nhóm", "Share to group")
                     onClicked: ZaloClient.sharePoll(root.pollId)
                 }
-                Item { Layout.fillWidth: true }
                 ZButton {
                     variant: "secondary"
                     text: root.canVote ? I18n.t("Hủy", "Cancel") : I18n.t("Đóng", "Close")

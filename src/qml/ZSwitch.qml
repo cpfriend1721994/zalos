@@ -9,6 +9,17 @@ Item {
     implicitWidth: 40
     implicitHeight: 24
     opacity: enabled ? 1.0 : 0.9
+    activeFocusOnTab: enabled
+    Keys.onSpacePressed: function(event) {
+        if (!root.enabled) return;
+        root.toggled(!root.checked);
+        event.accepted = true;
+    }
+    Keys.onReturnPressed: function(event) {
+        if (!root.enabled) return;
+        root.toggled(!root.checked);
+        event.accepted = true;
+    }
 
     Rectangle {
         id: track
@@ -16,6 +27,8 @@ Item {
         width: 40
         height: 20
         radius: 10
+        border.width: root.activeFocus ? 2 : 0
+        border.color: Theme.zaloBlue
         color: root.enabled ? (root.checked ? Theme.accent : Theme.inactiveSubtle)
                             : (root.checked ? Theme.activeDisabled : Theme.inactiveDisabled)
         Behavior on color { ColorAnimation { duration: 120 } }

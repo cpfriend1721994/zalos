@@ -148,6 +148,12 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString businessTab READ businessTab WRITE setBusinessTab NOTIFY businessTabChanged FINAL)
     Q_PROPERTY(bool hasBusinessPackage READ hasBusinessPackage NOTIFY userProfileChanged FINAL)
     Q_PROPERTY(QString businessPackageName READ businessPackageName NOTIFY userProfileChanged FINAL)
+    Q_PROPERTY(bool businessLoading READ businessLoading NOTIFY businessDataChanged FINAL)
+    Q_PROPERTY(QVariantMap businessProfile READ businessProfile NOTIFY businessDataChanged FINAL)
+    Q_PROPERTY(QVariantList businessCatalogs READ businessCatalogs NOTIFY businessDataChanged FINAL)
+    Q_PROPERTY(QString selectedCatalogId READ selectedCatalogId NOTIFY businessDataChanged FINAL)
+    Q_PROPERTY(QVariantList businessProducts READ businessProducts NOTIFY businessDataChanged FINAL)
+    Q_PROPERTY(QVariantList businessAutoReplies READ businessAutoReplies NOTIFY businessDataChanged FINAL)
     Q_PROPERTY(QString currentNavigationTab READ currentNavigationTab WRITE setCurrentNavigationTab NOTIFY navigationTabChanged FINAL)
 
     Q_PROPERTY(bool hasPinnedMessage READ hasPinnedMessage NOTIFY pinnedMessageChanged FINAL)
@@ -180,6 +186,10 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QVariantList scheduledMessages READ scheduledMessages NOTIFY scheduledMessagesChanged FINAL)
     Q_PROPERTY(bool historyExhausted READ historyExhausted NOTIFY historyLoadingChanged FINAL)
     Q_PROPERTY(bool notifyNewMessage READ notifyNewMessage WRITE setNotifyNewMessage NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(bool notifyReactions READ notifyReactions WRITE setNotifyReactions NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(QStringList currentUnreadReactionIds READ currentUnreadReactionIds NOTIFY unreadReactionsChanged FINAL)
+    Q_PROPERTY(int currentUnreadReactionCount READ currentUnreadReactionCount NOTIFY unreadReactionsChanged FINAL)
+    Q_PROPERTY(QString currentUnreadReactionIcon READ currentUnreadReactionIcon NOTIFY unreadReactionsChanged FINAL)
     Q_PROPERTY(bool notifySound READ notifySound WRITE setNotifySound NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool antiPeeking READ antiPeeking WRITE setAntiPeeking NOTIFY settingsChanged FINAL)
     Q_PROPERTY(QString chatBackgroundMode READ chatBackgroundMode WRITE setChatBackgroundMode NOTIFY settingsChanged FINAL)
@@ -196,6 +206,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString qtRuntimeVersion READ qtRuntimeVersion CONSTANT FINAL)
     Q_PROPERTY(QString rendererBackend READ rendererBackend NOTIFY appLanguageChanged FINAL)
     Q_PROPERTY(bool multimediaAvailable READ multimediaAvailable CONSTANT FINAL)
+    Q_PROPERTY(bool effectsAvailable READ effectsAvailable CONSTANT FINAL)
     Q_PROPERTY(QString platformName READ platformName CONSTANT FINAL)
     Q_PROPERTY(bool checkingUpdate READ checkingUpdate NOTIFY updateCheckChanged FINAL)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY updateCheckChanged FINAL)
@@ -241,6 +252,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QVariantList bankList READ bankList NOTIFY bankDataChanged FINAL)
     Q_PROPERTY(QVariantList bankAccounts READ bankAccounts NOTIFY bankDataChanged FINAL)
     Q_PROPERTY(QVariantList blockedUsers READ blockedUsers NOTIFY blockedUsersChanged FINAL)
+    Q_PROPERTY(QVariantList cachedSystemSounds READ cachedSystemSounds NOTIFY systemSoundsChanged FINAL)
     Q_PROPERTY(bool addFriendViaPhone READ addFriendViaPhone NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool addFriendViaQr READ addFriendViaQr NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool addFriendViaGroup READ addFriendViaGroup NOTIFY serverSettingsChanged FINAL)
@@ -355,7 +367,7 @@ public:
     Q_INVOKABLE void openConversationWithContact(const QString& id, const QString& name, const QString& avatarUrl);
     Call::ZCallEngine* callEngine() const { return m_callEngine; }
     Offline::ZaloOfflineStore* offlineStore() const { return m_offlineStore; }
-    static constexpr int kCacheParseVersion = 6;
+    static constexpr int kCacheParseVersion = 7;
     ZaloApiClient* apiClient() const { return m_apiClient; }
 
     bool showSettingsModal() const { return m_showSettingsModal; }
@@ -412,6 +424,7 @@ public:
     Q_INVOKABLE void openShareCard(const QString& userId, const QString& name);
     Q_INVOKABLE void openSendCardPicker();
     Q_INVOKABLE QVariantList friendsForCard() const;
+    Q_INVOKABLE QVariantList conversationsForForward(const QString& query = QString()) const;
     Q_INVOKABLE void forwardMessage(const QString& targetThreadId, const QString& msgId);
 
     bool showCreatePollModal() const { return m_showCreatePollModal; }
@@ -444,6 +457,7 @@ public:
     Q_INVOKABLE void leaveGroup(const QString& groupId, bool silent = false);
 
     Q_INVOKABLE bool tryPasteClipboardImage();
+    Q_INVOKABLE bool pasteClipboardToDraft();
     Q_INVOKABLE QVariantList getClipboardAttachments();
     Q_INVOKABLE QVariantMap fileInfoForUrl(const QString& fileUrlOrPath);
 
@@ -467,6 +481,13 @@ public:
     Q_INVOKABLE void setCurrentNavigationTab(const QString& tab);
 
     bool notifyNewMessage() const { return m_notifyNewMessage; }
+    bool notifyReactions() const { return m_notifyReactions; }
+    Q_INVOKABLE void setNotifyReactions(bool on);
+    QStringList currentUnreadReactionIds() const { return m_currentUnreadReactionIds; }
+    int currentUnreadReactionCount() const { return int(m_currentUnreadReactionIds.size()); }
+    QString currentUnreadReactionIcon() const { return m_currentUnreadReactionIcon; }
+    Q_INVOKABLE QString nextUnreadReactionMsgId() const;
+    Q_INVOKABLE void markReactionsSeen(const QString& msgId);
     void setNotifyNewMessage(bool val);
 
     bool notifySound() const { return m_notifySound; }
@@ -501,6 +522,7 @@ public:
     QString qtRuntimeVersion() const;
     QString rendererBackend() const;
     bool multimediaAvailable() const;
+    bool effectsAvailable() const;
     QString platformName() const;
     bool checkingUpdate() const { return m_checkingUpdate; }
     bool updateAvailable() const { return m_updateAvailable; }
@@ -586,7 +608,9 @@ public:
     void handleSyncControlForTesting(const QString& actType, const QString& act, const QJsonValue& data) {
         handleSyncControl(actType, act, data);
     }
-    void handleReactionsForTesting(const QJsonArray& reactions, bool isGroup) { handleReactions(reactions, isGroup); }
+    void handleReactionsForTesting(const QJsonArray& reactions, bool isGroup, bool live = false) {
+        handleReactions(reactions, isGroup, live);
+    }
     Platform::DesktopNotifications* notificationsForTesting() const { return m_notifications; }
     void reloadDraftsForTesting() { loadDrafts(); }
     void resolveUnknownUsersForTesting() { resolveUnknownUsers(); }
@@ -680,11 +704,35 @@ public:
     Q_INVOKABLE void openBusinessCatalog();
     Q_INVOKABLE void openBusinessAutoReply();
     Q_INVOKABLE void openBusinessPackage();
+    Q_INVOKABLE void loadBusinessProfile();
+    Q_INVOKABLE void loadBusinessCatalogs();
+    Q_INVOKABLE void selectBusinessCatalog(const QString& catalogId);
+    Q_INVOKABLE void createBusinessCatalog(const QString& name);
+    Q_INVOKABLE void updateBusinessCatalog(const QString& catalogId, const QString& name);
+    Q_INVOKABLE void deleteBusinessCatalog(const QString& catalogId);
+    Q_INVOKABLE void createBusinessProduct(const QString& catalogId, const QString& name,
+                                             const QString& price, const QString& description);
+    Q_INVOKABLE void updateBusinessProduct(const QString& catalogId, const QString& productId,
+                                             const QString& name, const QString& price,
+                                             const QString& description, qint64 createTime);
+    Q_INVOKABLE void deleteBusinessProduct(const QString& catalogId, const QString& productId);
+    Q_INVOKABLE void loadBusinessAutoReplies();
+    Q_INVOKABLE void createBusinessAutoReply(const QString& content, bool enable, int scope,
+                                               qint64 startTime, qint64 endTime);
+    Q_INVOKABLE void updateBusinessAutoReply(qint64 id, const QString& content, bool enable, int scope,
+                                               qint64 startTime, qint64 endTime);
+    Q_INVOKABLE void deleteBusinessAutoReply(qint64 id);
     Q_INVOKABLE void sendProductToCurrentChat(const QString& name, const QString& price, const QString& description, const QString& imageUrl);
     bool showBusinessToolsModal() const { return m_showBusinessToolsModal; }
     QString businessTab() const { return m_businessTab; }
     bool hasBusinessPackage() const { return m_hasBusinessPackage; }
     QString businessPackageName() const { return m_businessPackageName; }
+    bool businessLoading() const { return m_businessLoading; }
+    QVariantMap businessProfile() const { return m_businessProfile; }
+    QVariantList businessCatalogs() const { return m_businessCatalogs; }
+    QString selectedCatalogId() const { return m_selectedCatalogId; }
+    QVariantList businessProducts() const { return m_businessProducts; }
+    QVariantList businessAutoReplies() const { return m_businessAutoReplies; }
     void setBusinessTab(const QString& tab);
     void setShowBusinessToolsModal(bool show);
     Q_INVOKABLE void toggleConversationInfo();
@@ -710,6 +758,8 @@ public:
     Q_INVOKABLE void changeGroupAvatar(const QString& groupId, const QString& fileUrlOrPath);
     Q_INVOKABLE QVariantList reactionList() const;
     Q_INVOKABLE QVariantList systemSounds() const;
+    Q_INVOKABLE void loadSystemSoundsAsync();
+    QVariantList cachedSystemSounds() const { return m_cachedSystemSounds; }
     Q_INVOKABLE bool canRecall(const QString& msgId) const;
     Q_INVOKABLE void recallMessage(const QString& msgId);
     Q_INVOKABLE void deleteMessageForMe(const QString& msgId);
@@ -720,6 +770,7 @@ public:
     Q_INVOKABLE void openSearchResult(const QString& id, const QString& name, const QString& avatar, bool isGroup);
     Q_INVOKABLE void markMediaBroken(const QString& url);
     Q_INVOKABLE bool isMediaBroken(const QString& url) const { return !url.isEmpty() && m_brokenMedia.contains(url); }
+    Q_INVOKABLE bool isMediaTooLarge(const QString& url) const;
     Q_INVOKABLE void retryMedia(const QString& url);
     int brokenMediaRevision() const { return m_brokenMediaRevision; }
     Q_INVOKABLE QVariantMap reactionDetails(const QString& msgId) const;
@@ -729,7 +780,9 @@ public:
     Q_INVOKABLE void showNotice(const QString& text) { emit notice(text); }
     Q_INVOKABLE void openLink(const QString& url, const QString& title = QString(), const QString& thumb = QString());
     Q_INVOKABLE bool openExternalUrl(const QString& url);
+    Q_INVOKABLE QString linkifyText(const QString& text) const;
     static QUrl externalUrl(const QString& url);
+    static QString linkHrefOf(const QJsonObject& obj, const QJsonObject& params);
     static QString uniqueFilePath(const QString& dir, const QString& fileName);
     Q_INVOKABLE QVariantMap qrModules(const QString& text) const;
     static bool isAppOnlyLink(const QString& url);
@@ -741,6 +794,8 @@ public:
     Q_INVOKABLE void saveMediaTo(const QString& url, const QString& destinationFileUrl);
     Q_INVOKABLE void copyImage(const QString& url);
     Q_INVOKABLE void openFileMessage(const QString& url, const QString& fileName);
+    Q_INVOKABLE void prepareVideoPlayback(const QString& url);
+    Q_INVOKABLE static bool isVideoFileName(const QString& nameOrUrl);
     Q_INVOKABLE QString suggestedMediaFileName(const QString& url) const;
     Q_INVOKABLE QString suggestedMediaSaveUrl(const QString& url) const;
     Q_INVOKABLE QString annotatedImageTempPath() const;
@@ -861,16 +916,21 @@ signals:
     void qrLoginStepChanged();
 
     void currentConversationChanged();
+    void unreadReactionsChanged();
+    void reactionJumpRequested(const QString& msgId);
     void composerStateChanged();
     void appLanguageChanged();
     void connectionStateChanged(bool connected);
     void stickerRevisionChanged();
     void brokenMediaChanged();
+    void videoPlaybackReady(const QString& originalUrl, const QString& localFileUrl, const QString& error);
     void revealRequested(const QString& msgId);
     void messageSent(const QString& text);
     void e2eeVerified(bool success, const QString& detail);
     void incomingCallStateChanged(bool active);
     void screenshotCaptured(const QString& uri);
+    void clipboardAttachmentsReady(const QVariantList& items);
+    void systemSoundsChanged();
 
     void settingsModalChanged();
     void userProfileModalChanged();
@@ -884,6 +944,7 @@ signals:
     void pollRevisionChanged();
     void businessToolsModalChanged();
     void businessTabChanged();
+    void businessDataChanged();
     void pinnedMessageChanged();
     void mobileSyncStateChanged();
     void mobileSyncProgressChanged();
@@ -935,6 +996,11 @@ private:
     QString L(const QString& vi, const QString& en) const { return m_appLanguage == "en" ? en : vi; }
     void noticeCallUnavailable(const QString& reason);
     bool openLocalFile(const QString& path);
+    QString nextOpenFailureFile();
+    void watchOpenFailure(const QString& failureFile, const QUrl& url);
+    void reportOpenFailure(const QUrl& url);
+    quint64 m_openSeq = 0;
+    static constexpr int kScanUrlWaitMs = 2500;
     void setLoginStatus(const QString& message, bool isError);
     QString friendlyError(const QString& error, int code = 0) const;
 
@@ -974,6 +1040,11 @@ private:
     void loadUnreadMarks();
     void resyncAfterReconnect();
     bool loadOfflineCache();
+    void fetchBusinessCatalogPage(int page, QVariantList collected, quint64 gen);
+    void applyBusinessCatalogs(const QVariantList& cats);
+    static constexpr int kCatalogPageLimit = 20;
+    static constexpr int kMaxCatalogPages = 25;
+    quint64 m_catalogLoadGen = 0;
     void mergeCachedThread(const QString& convId);
     void mergeCacheRows(const QString& convId, QVector<Models::MessageItem> rows, const QHash<QString, QJsonObject>& raws);
     bool loadOlderFromCache(const QString& convId);
@@ -1027,7 +1098,11 @@ private:
     void rebuildContactsNow();
     void setSyncing(bool syncing);
 
-    void handleReactions(const QJsonArray& reactions, bool isGroup);
+    void handleReactions(const QJsonArray& reactions, bool isGroup, bool live = false);
+    int messageOwnership(const QString& convId, const QString& msgId) const;
+    QString messageSnippet(const QString& convId, const QString& msgId) const;
+    void showReactionNotification(const QString& convId, const QString& msgId, const QString& uid, const QString& icon);
+    void refreshUnreadReactions();
     void refreshReactionSummary(const QString& convId, const QString& msgId);
     void handleTyping(const QString& threadId, const QString& userId, bool isGroup);
     void handleSeen(const QString& threadId, const QString& msgId, const QString& userId, bool isGroup);
@@ -1057,7 +1132,7 @@ private:
     bool m_reactedIdsLoaded{false};
     QVector<Offline::ZaloOfflineStore::ReactionEvent>& eventsOf(const QString& msgId);
     bool hasReactions(const QString& msgId);
-    void addReactionEvent(const QString& msgId, const QString& uid, const QString& icon, const QString& eventId, qint64 ts);
+    bool addReactionEvent(const QString& msgId, const QString& uid, const QString& icon, const QString& eventId, qint64 ts);
     void dropPendingReaction(const QString& msgId, const QString& icon);
     void clearReactionsOf(const QString& msgId, const QString& uid, qint64 clearTs = 0);
     QSet<QString> m_brokenMedia;
@@ -1206,6 +1281,12 @@ private:
     QString m_businessTab{QStringLiteral("profile")};
     bool m_hasBusinessPackage{false};
     QString m_businessPackageName;
+    bool m_businessLoading{false};
+    QVariantMap m_businessProfile;
+    QVariantList m_businessCatalogs;
+    QString m_selectedCatalogId;
+    QVariantList m_businessProducts;
+    QVariantList m_businessAutoReplies;
     Models::RichComposer* m_composer{nullptr};
     bool m_showSyncPrompt{false};
     QString m_voiceTarget;
@@ -1282,6 +1363,10 @@ private:
     Sync::MobileHistorySync* m_historySync{nullptr};
 
     bool m_notifyNewMessage{true};
+    bool m_notifyReactions{true};
+    QStringList m_currentUnreadReactionIds;
+    QString m_currentUnreadReactionIcon;
+    static constexpr qint64 kReactionNotifyWindowMs = 120000;
     bool m_notifySound{false};
     bool m_antiPeeking{false};
     QString m_chatBackgroundMode{QStringLiteral("none")};
@@ -1328,6 +1413,9 @@ private:
     QVariantList m_bankList;
     QVariantList m_bankAccounts;
     QVariantList m_blockedUsers;
+    QVariantList m_cachedSystemSounds;
+    bool m_systemSoundsLoaded{false};
+    bool m_systemSoundsLoading{false};
     QHash<QString, QHash<QString, QVariantList>> m_serverSharedMedia;
     struct LastGroupSender {
         QString uid;

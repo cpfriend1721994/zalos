@@ -65,7 +65,6 @@ QVariantMap PinBoard::detail(const QString& topicId) const {
     }
     if (out.isEmpty()) return out;
     QString text = out.value("title").toString();
-    QString image = out.value("thumb").toString();
     QString href = out.value("href").toString();
     const QString msgId = out.value("msgId").toString();
     const QJsonObject raw = (m_hooks.rawMessage && !msgId.isEmpty()) ? m_hooks.rawMessage(msgId) : QJsonObject();
@@ -77,15 +76,57 @@ QVariantMap PinBoard::detail(const QString& topicId) const {
             const QJsonObject c = content.toObject();
             if (!c.value("title").toString().isEmpty()) text = c.value("title").toString();
             if (!c.value("href").toString().isEmpty()) href = c.value("href").toString();
-            const int type = out.value("msgType").toInt();
-            if ((type == 32 || type == 37) && !href.isEmpty()) image = href;
-            else if (image.isEmpty()) image = c.value("thumb").toString();
         }
     }
+    const QStringList images = mediaCandidates(out, raw, true);
     out.insert("text", text);
-    out.insert("image", image);
+    out.insert("image", images.value(0));
+    out.insert("images", images);
     out.insert("href", href);
     out.insert("local", !raw.isEmpty());
+    return out;
+}
+
+QStringList PinBoard::previewUrls(const QString& topicId) const {
+    if (topicId.isEmpty()) return {};
+    for (const QVariant& v : m_boards.value(m_current).topics) {
+        const QVariantMap topic = v.toMap();
+        if (topic.value("id").toString() != topicId) continue;
+        const QString msgId = topic.value("msgId").toString();
+        const QJsonObject raw = (m_hooks.rawMessage && !msgId.isEmpty()) ? m_hooks.rawMessage(msgId) : QJsonObject();
+        return mediaCandidates(topic, raw, false);
+    }
+    return {};
+}
+
+QStringList PinBoard::mediaCandidates(const QVariantMap& topic, const QJsonObject& rawMessage, bool preferLarge) {
+    QStringList out;
+    const auto add = [&out](const QString& url) {
+        const QString u = url.trimmed();
+        if ((u.startsWith(QLatin1String("http")) || u.startsWith(QLatin1String("file:"))) && !out.contains(u)) out.append(u);
+    };
+    const int type = topic.value("msgType").toInt();
+    const bool picture = type == 32 || type == 37 || type == 49;
+    const QJsonValue content = rawMessage.value("content");
+    const QJsonObject c = content.isObject() ? content.toObject() : QJsonObject();
+    const QJsonObject extra = asObject(c.value("params"));
+    const auto addLarge = [&]() {
+        if (!picture) return;
+        for (const char* key : {"hdUrl", "href", "normalUrl", "oriUrl"}) add(c.value(QLatin1String(key)).toString());
+        add(extra.value("hd").toString());
+        add(topic.value("href").toString());
+    };
+    const auto addSmall = [&]() {
+        for (const char* key : {"thumb", "thumbUrl"}) add(c.value(QLatin1String(key)).toString());
+        add(topic.value("thumb").toString());
+    };
+    if (preferLarge) {
+        addLarge();
+        addSmall();
+    } else {
+        addSmall();
+        addLarge();
+    }
     return out;
 }
 

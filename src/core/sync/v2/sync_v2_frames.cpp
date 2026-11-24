@@ -69,7 +69,7 @@ const ZstdApi* loadZstd() {
 #endif
 }
 
-}  // namespace
+}
 
 bool splitFrames(const QByteArray& data, QVector<QByteArray>* frames) {
     frames->clear();
@@ -289,7 +289,7 @@ std::optional<ParsedSyncV2Partition> parsePartition(const QByteArray& data) {
     return part;
 }
 
-}  // namespace
+}
 
 bool parseSyncV2Chunk(const QByteArray& data, QVector<ParsedSyncV2Partition>* partitions) {
     if (!partitions) return false;
@@ -318,4 +318,4 @@ bool parseSyncV2ConversationChunk(const QByteArray& data,
     return true;
 }
 
-}  // namespace Zalos::Core::Sync::V2
+}

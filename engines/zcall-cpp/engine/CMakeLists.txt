@@ -41,6 +41,21 @@ add_library(zcall_core STATIC
 )
 target_include_directories(zcall_core PUBLIC src)
 target_link_libraries(zcall_core PUBLIC Qt6::Core Qt6::Network OpenSSL::Crypto)
+target_precompile_headers(zcall_core PRIVATE
+    <QtCore/QByteArray>
+    <QtCore/QJsonArray>
+    <QtCore/QJsonDocument>
+    <QtCore/QJsonObject>
+    <QtCore/QObject>
+    <QtCore/QString>
+    <QtCore/QTimer>
+    <QtNetwork/QHostAddress>
+    <QtNetwork/QUdpSocket>
+    <algorithm>
+    <cstdint>
+    <memory>
+    <vector>
+)
 set_target_properties(zcall_core PROPERTIES AUTOMOC ON)
 
 add_executable(zalos-call src/main.cpp)

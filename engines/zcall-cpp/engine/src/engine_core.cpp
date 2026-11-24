@@ -307,8 +307,9 @@ void EngineCore::onControl(const QJsonValue& actv, const QJsonObject& data) {
     if (js::nullish(callId)) callId = d.value(QStringLiteral("id"));
     if (js::nullish(callId)) callId = data.value(QStringLiteral("callId"));
     if (js::nullish(callId)) callId = data.value(QStringLiteral("id"));
-    const bool hasId = !callId.isUndefined();
-    const bool otherCall = c && hasId && str(callId) != fmtNum(c->callId);
+    const QString callIdStr = str(callId);
+    const bool hasId = !js::nullish(callId) && !callIdStr.isEmpty() && callIdStr != QLatin1String("0");
+    const bool otherCall = c && hasId && callIdStr != fmtNum(c->callId);
     if (act == QLatin1String("request")) return incoming(d);
     if (act == QLatin1String("ring_ring")) {
         if (c && c->state == QLatin1String("calling")) {
@@ -338,8 +339,8 @@ void EngineCore::onControl(const QJsonValue& actv, const QJsonObject& data) {
         connectCaller(strOr(params.value(QStringLiteral("rtpSerIp"))));
         return;
     }
-    if (act == QLatin1String("end_call") || act == QLatin1String("cancel") || act == QLatin1String("reject") ||
-        act == QLatin1String("busy")) {
+    if (act == QLatin1String("end_call") || act == QLatin1String("endcall") || act == QLatin1String("cancel")
+        || act == QLatin1String("reject") || act == QLatin1String("busy")) {
         if (hasId) rememberEndedCall(callId);
         if (otherCall) return;
         if (c && c->state == QLatin1String("incoming")) {
@@ -836,7 +837,11 @@ void EngineCore::send416(const CallPtr& c, const QJsonObject& server, const std:
 
 void EngineCore::hangup(const QString& why) {
     const CallPtr c = m_call;
-    if (!c || c->state == QLatin1String("ended")) return;
+    if (!c || c->state == QLatin1String("ended")) {
+        send(QStringLiteral("update"), QStringLiteral("callState"), {{"state", "free"}});
+        m_ui->close(QStringLiteral("ended"));
+        return;
+    }
     log(QStringLiteral("hangup: %1").arg(why));
     if (c->group) {
         groupHangup(why);
@@ -1448,7 +1453,7 @@ void EngineCore::groupCancel(const QString& why) {
 }
 
 void EngineCore::clearCallTimers(Call& c) {
-    for (QTimer** t : {&c.ringTimer, &c.pingTimer}) {
+    for (QPointer<QTimer>* t : {&c.ringTimer, &c.pingTimer}) {
         if (*t) {
             (*t)->stop();
             (*t)->deleteLater();

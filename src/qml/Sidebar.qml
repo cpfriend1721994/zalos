@@ -8,6 +8,7 @@ import Zalos
 
 Rectangle {
     id: root
+    readonly property bool windowShowing: Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true
     objectName: "sidebar"
     width: Theme.sidebarWidth
     color: ThemeManager.surfaceColor
@@ -345,13 +346,24 @@ Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 36
 
-            Row {
-                id: tabRow
+            Flickable {
                 anchors.left: parent.left
                 anchors.leftMargin: 14
+                anchors.right: labelFilterButton.left
+                anchors.rightMargin: 6
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
-                spacing: 8
+                clip: true
+                contentWidth: tabRow.implicitWidth
+                contentHeight: height
+                flickableDirection: Flickable.HorizontalFlick
+                boundsBehavior: Flickable.StopAtBounds
+                interactive: contentWidth > width
+
+                Row {
+                    id: tabRow
+                    height: parent.height
+                    spacing: 8
 
                 ViewCategoryTab {
                     categoryKey: ""
@@ -375,10 +387,11 @@ Rectangle {
 
                 TabDivider {}
 
-                ViewTab {
-                    viewKey: "direct"
-                    title: I18n.t("Nhắn tôi", "Direct")
-                    onClicked: ZaloClient.conversationModel.setViewMode("direct")
+                    ViewTab {
+                        viewKey: "direct"
+                        title: I18n.t("Nhắn tôi", "Direct")
+                        onClicked: ZaloClient.conversationModel.setViewMode("direct")
+                    }
                 }
             }
 
@@ -446,14 +459,24 @@ Rectangle {
                 }
                 Popup {
                     id: labelFilterMenu
+                    margins: 8
                     y: parent.height + 4
                     x: parent.width - width
                     width: 230
+                    height: Math.min(labelFilterCol.implicitHeight + 12, Math.max(120, root.height - 32))
                     padding: 6
                     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                     background: Rectangle { color: ThemeManager.surfaceColor; radius: 8; border.color: ThemeManager.borderColor }
-                    contentItem: ColumnLayout {
-                        spacing: 2
+                    contentItem: Flickable {
+                        clip: true
+                        contentWidth: width
+                        contentHeight: labelFilterCol.implicitHeight
+                        boundsBehavior: Flickable.StopAtBounds
+
+                        ColumnLayout {
+                            id: labelFilterCol
+                            width: parent.width
+                            spacing: 2
                         LabelMenuRow {
                             labelText: I18n.t("Tất cả hội thoại", "All conversations")
                             checked: ZaloClient.conversationModel.labelFilter === 0
@@ -478,6 +501,7 @@ Rectangle {
                             icon: "edit"
                             label: I18n.t("Quản lý thẻ phân loại", "Manage labels")
                             onTriggered: { labelFilterMenu.close(); ZaloClient.labels.manageOpen = true; }
+                        }
                         }
                     }
                 }
@@ -733,7 +757,7 @@ Rectangle {
             property double now: Date.now()
             Timer {
                 interval: 60000
-                running: convList.visible && (convList.Window.window ? (convList.Window.window.visible && convList.Window.window.visibility !== Window.Minimized) : true)
+                running: convList.visible && root.windowShowing
                 repeat: true
                 onTriggered: convList.now = Date.now()
             }
@@ -843,6 +867,7 @@ Rectangle {
                                 text: itemDelegate.name && itemDelegate.name.length > 0
                                       ? itemDelegate.name
                                       : (itemDelegate.isGroup ? I18n.t("Nhóm chưa đặt tên", "Unnamed group") : I18n.t("Người dùng Zalo", "Zalo user"))
+                                textFormat: Text.PlainText
                                 font.family: Theme.fontFamily
                                 font.weight: (itemDelegate.unreadCount > 0) ? Font.DemiBold : Font.Normal
                                 font.pixelSize: 14
@@ -886,6 +911,7 @@ Rectangle {
                                     }
                                     return I18n.t("Chưa có tin nhắn", "No messages yet");
                                 }
+                                textFormat: Text.PlainText
                                 font.italic: itemDelegate.isTyping
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
@@ -1161,6 +1187,7 @@ Rectangle {
         id: convMenu
         margins: 8
         width: 240
+        height: Math.min(convMenuCol.implicitHeight + 12, Math.max(140, root.height - 24))
         padding: 6
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
@@ -1169,8 +1196,16 @@ Rectangle {
             border.color: ThemeManager.borderColor
         }
 
-        contentItem: ColumnLayout {
-            spacing: 2
+        contentItem: Flickable {
+            clip: true
+            contentWidth: width
+            contentHeight: convMenuCol.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+
+            ColumnLayout {
+                id: convMenuCol
+                width: parent.width
+                spacing: 2
             ZMenuRow {
                 icon: "pin"
                 label: root.menuConv.isPinned ? I18n.t("Bỏ ghim hội thoại", "Unpin conversation")
@@ -1275,6 +1310,7 @@ Rectangle {
                 danger: true
                 label: I18n.t("Xoá hội thoại", "Delete conversation")
                 onTriggered: { convMenu.close(); deleteConfirm.open(); }
+            }
             }
         }
     }

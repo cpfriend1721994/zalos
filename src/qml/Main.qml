@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import Zalos
 
@@ -8,12 +9,37 @@ ApplicationWindow {
     visible: !ZaloClient.launchHidden
     width: 1040
     height: 680
-    minimumWidth: 380
-    minimumHeight: 420
+    minimumWidth: 480
+    minimumHeight: 440
     title: "Zalos"
     color: ThemeManager.backgroundColor
+    font.family: Theme.fontFamily
 
-    readonly property bool isCompactMode: width < 680
+    readonly property bool isCompactMode: width < 720
+    readonly property bool anyModalOpen: ZaloClient.showUserProfileModal
+                                      || ZaloClient.pollDialogId > 0
+                                      || ZaloClient.showSettingsModal
+                                      || ZaloClient.showAddFriendModal
+                                      || ZaloClient.showCreateGroupModal
+                                      || ZaloClient.showForwardModal
+                                      || ZaloClient.showCreatePollModal
+                                      || ZaloClient.groupAdmin.manageOpen
+                                      || ZaloClient.groupAdmin.joinOpen
+                                      || ZaloClient.labels.manageOpen
+                                      || ZaloClient.showBusinessToolsModal
+    function closeTopModal(): void {
+        if (ZaloClient.showUserProfileModal) ZaloClient.closeUserProfile();
+        else if (ZaloClient.pollDialogId > 0) ZaloClient.closePollDialog();
+        else if (ZaloClient.showSettingsModal) ZaloClient.closeSettings();
+        else if (ZaloClient.showAddFriendModal) ZaloClient.closeAddFriend();
+        else if (ZaloClient.showCreateGroupModal) ZaloClient.closeCreateGroup();
+        else if (ZaloClient.showForwardModal) ZaloClient.closeForwardModal();
+        else if (ZaloClient.showCreatePollModal) ZaloClient.closeCreatePollModal();
+        else if (ZaloClient.groupAdmin.manageOpen) ZaloClient.groupAdmin.closeManage();
+        else if (ZaloClient.groupAdmin.joinOpen) ZaloClient.groupAdmin.closeJoin();
+        else if (ZaloClient.labels.manageOpen) ZaloClient.labels.manageOpen = false;
+        else if (ZaloClient.showBusinessToolsModal) ZaloClient.closeBusinessTools();
+    }
     readonly property bool inActiveCall: !!(ZaloClient.calls && ZaloClient.calls.phase.length > 0 && ZaloClient.calls.phase !== "ended")
     property bool forceQuit: false
     property int preHideVisibility: Window.AutomaticVisibility
@@ -26,7 +52,7 @@ ApplicationWindow {
         var geom = ZaloClient.windowGeometry()
         if (geom.width && geom.width >= minimumWidth) mainWindow.width = geom.width
         if (geom.height && geom.height >= minimumHeight) mainWindow.height = geom.height
-        if (geom.x !== undefined && geom.x >= 0 && geom.y !== undefined && geom.y >= 0) {
+        if (geom.hasPosition) {
             mainWindow.x = geom.x
             mainWindow.y = geom.y
         }
@@ -290,9 +316,11 @@ ApplicationWindow {
             Sidebar {
                 id: sidebar
                 visible: !mainWindow.isCompactMode || ZaloClient.currentConversationId === ""
-                Layout.preferredWidth: mainWindow.isCompactMode ? -1 : Theme.sidebarWidth
+                Layout.preferredWidth: mainWindow.isCompactMode
+                                       ? -1
+                                       : Math.max(260, Math.min(Theme.sidebarWidth, Math.round(mainWindow.width * 0.34)))
                 Layout.fillWidth: mainWindow.isCompactMode
-                Layout.minimumWidth: mainWindow.isCompactMode ? 200 : 280
+                Layout.minimumWidth: mainWindow.isCompactMode ? 200 : 260
                 Layout.maximumWidth: mainWindow.isCompactMode ? -1 : 390
                 Layout.fillHeight: true
             }
@@ -341,7 +369,15 @@ ApplicationWindow {
         }
     }
 
-    readonly property bool shortcutsLive: (ZaloClient.isLoggedIn || ZaloClient.isOfflineMode) && !ZaloClient.appLock.locked
+    readonly property bool shortcutsLive: (ZaloClient.isLoggedIn || ZaloClient.isOfflineMode)
+                                       && !ZaloClient.appLock.locked
+                                       && !mainWindow.anyModalOpen
+
+    Shortcut {
+        sequence: "Esc"
+        enabled: mainWindow.anyModalOpen && !ZaloClient.appLock.locked && !ImageViewerState.open
+        onActivated: mainWindow.closeTopModal()
+    }
 
     Shortcut {
         sequences: ZaloClient.shortcuts.keySequences("privacy.antiPeeking")
@@ -385,7 +421,10 @@ ApplicationWindow {
     }
     Shortcut {
         sequences: ZaloClient.shortcuts.keySequences("app.hide")
-        onActivated: mainWindow.hide()
+        onActivated: {
+            if (ZaloClient.trayAvailable) mainWindow.hide();
+            else mainWindow.showMinimized();
+        }
     }
     Shortcut {
         sequences: ZaloClient.shortcuts.keySequences("app.screenshot")
@@ -412,7 +451,7 @@ ApplicationWindow {
     Rectangle {
         id: noticeBox
         visible: false
-        z: 1000
+        z: 2500
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 24
@@ -443,7 +482,7 @@ ApplicationWindow {
         z: 900
     }
     LazyOverlay { active: ZaloClient.showSettingsModal; sourceComponent: SettingsModal {} }
-    LazyOverlay { active: ZaloClient.showUserProfileModal; sourceComponent: UserProfileModal {} }
+    LazyOverlay { z: 920; active: ZaloClient.showUserProfileModal; sourceComponent: UserProfileModal {} }
     LazyOverlay { active: ZaloClient.showAddFriendModal; sourceComponent: AddFriendModal {} }
     LazyOverlay { active: ZaloClient.showCreateGroupModal; sourceComponent: CreateGroupModal {} }
     LazyOverlay { active: ZaloClient.showForwardModal; sourceComponent: ForwardMessageModal {} }
@@ -494,6 +533,22 @@ ApplicationWindow {
         z: 950
         active: ZaloClient.showSyncPrompt && !ZaloClient.appLock.locked
         sourceComponent: SyncPromptDialog {}
+    }
+
+    Connections {
+        target: ZaloClient.appLock
+        function onLockedChanged(): void {
+            if (!ZaloClient.appLock.locked) return;
+            if (appLinkPopupLoader.item && typeof appLinkPopupLoader.item.close === "function") appLinkPopupLoader.item.close();
+            if (hiddenPinPopupLoader.item && typeof hiddenPinPopupLoader.item.close === "function") hiddenPinPopupLoader.item.close();
+            const overlay = mainWindow.overlay;
+            if (overlay) {
+                for (let i = 0; i < overlay.children.length; ++i) {
+                    const ch = overlay.children[i];
+                    if (ch && typeof ch.close === "function") ch.close();
+                }
+            }
+        }
     }
 
     LazyOverlay {

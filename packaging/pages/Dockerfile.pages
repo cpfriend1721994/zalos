@@ -1,5 +1,3 @@
-# Minified GitHub Pages artifact, baked without any host bind mount (CI-safe, see scripts/minify-pages.sh).
-# The readable source of truth stays docs/index.html; /app/out is the deployable site copied out by `docker cp`.
 FROM oven/bun:1.4.4-alpine
 WORKDIR /app
 COPY packaging/pages/package.json ./

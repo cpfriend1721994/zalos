@@ -27,6 +27,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QThread>
+#include <QThreadPool>
 #include <QTimer>
 #include <QUuid>
 #include <QVideoFrame>
@@ -58,6 +59,34 @@ CallBridge::CallBridge(Network::ZaloSession* session, QObject* parent)
     m_idleShutdownTimer->setInterval(1500);
     connect(m_idleShutdownTimer, &QTimer::timeout, this, [this] {
         if (phase().isEmpty() || phase() == QLatin1String("ended")) shutdown();
+    });
+
+    m_hangupWatchdog = new QTimer(this);
+    m_hangupWatchdog->setSingleShot(true);
+    m_hangupWatchdog->setInterval(1500);
+    connect(m_hangupWatchdog, &QTimer::timeout, this, [this] {
+        const QString p = phase();
+        if (p.isEmpty() || p == QLatin1String("ended")) return;
+        const QString savedName = peerName();
+        const QString savedAvatar = peerAvatar();
+        const bool savedGroup = isGroup();
+        const QString savedPeer = m_activePeer;
+        const bool savedOutgoing = m_activeOutgoing;
+        const bool savedVideo = m_isVideoMode;
+        const bool savedBubble = m_bubbleEmitted;
+        if (m_process && m_engineReady && m_sendSocket && m_sendSocket->state() == QAbstractSocket::ConnectedState) {
+            sendToEngine({{"type", "request"}, {"command", "endCall"}, {"data", QJsonObject()}});
+            m_sendSocket->flush();
+        }
+        shutdown();
+        m_ui = QJsonObject{{"phase", "ended"}, {"name", savedName}, {"avatar", savedAvatar},
+                           {"group", savedGroup}, {"statusCode", "ended"}};
+        emit stateChanged();
+        emit cameraStateChanged();
+        if (!savedPeer.isEmpty() && !savedGroup && !savedBubble) {
+            m_bubbleEmitted = true;
+            emit callFinished(savedPeer, savedOutgoing, 0, savedVideo);
+        }
     });
     refreshAvailability();
 }
@@ -319,11 +348,36 @@ bool CallBridge::ensureEngine() {
         if (!self || gen != m_engineGen || proc != m_process) return;
         const bool wasInCall = !m_activePeer.isEmpty();
         const bool showing = !phase().isEmpty() && phase() != QLatin1String("ended");
+        const QString peer = m_activePeer;
+        const QJsonValue callId = m_activeCallId;
+        const int callType = m_activeCallType;
+        const bool outgoing = m_activeOutgoing;
+        const bool wasVideo = m_isVideoMode;
+        const bool connected = m_activeConnected;
+        const bool isGroup = m_isGroupMode;
+        const bool endSent = m_endSignalSent;
+        const bool bubbleEmitted = m_bubbleEmitted;
         shutdown();
+        if (!peer.isEmpty() && !isGroup && !endSent && !callId.isUndefined() && !callId.isNull() && m_session) {
+            const QString imei = m_session->imei();
+            const QString path = connected ? QStringLiteral("/api/voicecall/endcall")
+                                           : QStringLiteral("/api/voicecall/cancel");
+            const QJsonObject params = connected
+                ? QJsonObject{{"uidTo", peer}, {"callId", callId}, {"status", 3}, {"imei", imei}}
+                : QJsonObject{{"callerId", peer}, {"callId", callId}, {"callType", callType}, {"status", 0}, {"imei", imei}};
+            qWarning() << "CallBridge: call engine exited before sending" << path << "for peer" << peer;
+            m_session->apiGet("voice_call", path, params, [path](bool ok, const QJsonValue&, const QString& err, int code) {
+                if (!ok) qWarning() << "CallBridge fallback" << path << "failed:" << code << err;
+            });
+        }
         if (wasInCall || showing) {
-            m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}, {"group", isGroup()},
+            m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}, {"group", isGroup},
                                {"statusCode", "disconnected"}};
             emit stateChanged();
+        }
+        if (!peer.isEmpty() && !isGroup && !bubbleEmitted) {
+            m_bubbleEmitted = true;
+            emit callFinished(peer, outgoing, 0, wasVideo);
         }
     });
     connect(m_process, &QProcess::errorOccurred, this, [this, self, gen, proc](QProcess::ProcessError error) {
@@ -347,6 +401,7 @@ bool CallBridge::ensureEngine() {
 void CallBridge::shutdown() {
     ++m_engineGen;
     if (m_idleShutdownTimer) m_idleShutdownTimer->stop();
+    if (m_hangupWatchdog) m_hangupWatchdog->stop();
     if (m_peerVideoIdle) m_peerVideoIdle->stop();
     if (m_process) {
         QProcess* p = m_process;
@@ -354,7 +409,10 @@ void CallBridge::shutdown() {
         p->disconnect(this);
         if (p->state() != QProcess::NotRunning) {
             p->terminate();
-            if (!p->waitForFinished(1500)) p->kill();
+            if (!p->waitForFinished(1500)) {
+                p->kill();
+                p->waitForFinished(500);
+            }
         }
         p->deleteLater();
     }
@@ -379,6 +437,11 @@ void CallBridge::shutdown() {
     m_uiBuffer.clear();
     m_chunks.clear();
     m_activePeer.clear();
+    m_activeCallId = QJsonValue();
+    m_activeCallType = 0;
+    m_activeConnected = false;
+    m_endSignalSent = false;
+    m_bubbleEmitted = false;
     m_isVideoMode = false;
     m_isGroupMode = false;
     if (m_cameraSender) m_cameraSender->stop();
@@ -424,9 +487,25 @@ void CallBridge::onEngineFrame(const QJsonObject& frame) {
             flushPending();
         } else if (command == "callState" && data.value("state").toString() == "free") {
             m_activePeer.clear();
+            const QString p = phase();
+            if (!p.isEmpty() && p != QLatin1String("ended")) {
+                if (m_hangupWatchdog) m_hangupWatchdog->stop();
+                m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()},
+                                   {"group", isGroup()}, {"statusCode", "ended"}};
+                m_isVideoMode = false;
+                if (m_cameraSender) m_cameraSender->stop();
+                m_cameraOn = false;
+                m_prevCameraOn = false;
+                m_screenShareOn = false;
+                emit stateChanged();
+                emit cameraStateChanged();
+                if (m_process && m_idleShutdownTimer) m_idleShutdownTimer->start();
+            }
         } else if (command == "bubble") {
-            emit callFinished(data.value("partnerId").toVariant().toString(), data.value("role").toBool(),
-                              data.value("duration").toInt());
+            m_bubbleEmitted = true;
+            const QString peer = data.value("partnerId").toVariant().toString();
+            emit callFinished(peer.isEmpty() ? m_activePeer : peer, data.value("role").toBool(),
+                              data.value("duration").toInt(), m_isVideoMode);
         }
         return;
     }
@@ -467,19 +546,27 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
                       {"codec", d.value("codec").isNull() ? QJsonValue("[]") : d.value("codec")},
                       {"typeRequest", d.value("type")}, {"imei", imei}};
             m_activePeer = d.value("calleeId").toVariant().toString();
+            m_activeCallId = d.value("callId");
+            m_activeCallType = d.value("type").toInt() == 3 ? 1 : 0;
             m_activeOutgoing = true;
+            m_endSignalSent = false;
+            m_bubbleEmitted = false;
             break;
         case 416:
             path = "/api/voicecall/request";
             params = withExtend({{"calleeId", d.value("calleeId")}, {"rtcpAddress", d.value("rtcpAddress")},
                                  {"rtpAddress", d.value("rtpAddress")}, {"codec", d.value("codec")},
                                  {"session", d.value("session")}, {"callId", d.value("callId")}, {"imei", imei}});
+            m_activeCallId = d.value("callId");
             break;
         case 407:
             path = "/api/voicecall/ringring";
             params = {{"callerId", d.value("callerId")}, {"callId", d.value("callId")}, {"status", 0}, {"imei", imei}};
             m_activePeer = d.value("callerId").toVariant().toString();
+            m_activeCallId = d.value("callId");
             m_activeOutgoing = false;
+            m_endSignalSent = false;
+            m_bubbleEmitted = false;
             break;
         case 408:
             path = "/api/voicecall/answerack";
@@ -491,11 +578,14 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
                                  {"status", d.value("status")}, {"codec", d.value("codec").toString()},
                                  {"rtcpAddress", d.value("rtcpAddress")}, {"rtpAddress", d.value("rtpAddress")},
                                  {"session_id", d.value("session")}});
+            m_activeCallId = d.value("callId");
+            if (d.value("status").toInt() != 0) m_endSignalSent = true;
             break;
         case 405:
             path = "/api/voicecall/cancel";
             params = {{"callerId", d.value("toId")}, {"callId", d.value("callId")}, {"callType", d.value("callType")},
                       {"status", 0}, {"imei", imei}};
+            m_endSignalSent = true;
             break;
         case 406:
             path = "/api/voicecall/logendcall";
@@ -506,6 +596,7 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
         case 409:
             path = "/api/voicecall/endcall";
             params = {{"uidTo", d.value("toId")}, {"callId", d.value("callId")}, {"status", 3}, {"imei", imei}};
+            m_endSignalSent = true;
             break;
         case 12006:
             path = "/api/voicecall/conf";
@@ -551,6 +642,7 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
                 if (!v.isUndefined()) params.insert(QLatin1String(key), v);
             };
             path = command == 12437 ? "/api/voicecall/group/cancel" : "/api/voicecall/group/endcall";
+            m_endSignalSent = true;
             for (const char* key : {"calleeId", "callId", "callType", "hostCall", "data", "partners", "groupId"}) {
                 putPresent(key);
             }
@@ -613,7 +705,10 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
     const QPointer<CallBridge> self(this);
     const quint64 gen = m_engineGen;
     m_session->apiGet("voice_call", path, params,
-        [this, self, gen, command, callId](bool ok, const QJsonValue& data, const QString& error, int code) {
+        [this, self, gen, command, callId, path](bool ok, const QJsonValue& data, const QString& error, int code) {
+            if (!ok && (command == 405 || command == 406 || command == 409 || command == 12437 || command == 12438)) {
+                qWarning() << "CallBridge signal" << command << path << "failed:" << code << error;
+            }
             if (!self || gen != m_engineGen) return;
             if (ok) {
                 sendToEngine({{"type", "recvSignal"}, {"command", command}, {"data", data}});
@@ -627,7 +722,12 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
 void CallBridge::startVoiceCall(const QString& peerId, const QString& peerName, const QString& peerAvatar) {
     if (!m_activePeer.isEmpty() || !ensureEngine()) return;
     m_activePeer = peerId;
+    m_activeCallId = QJsonValue();
+    m_activeCallType = 0;
     m_activeOutgoing = true;
+    m_activeConnected = false;
+    m_endSignalSent = false;
+    m_bubbleEmitted = false;
     m_isVideoMode = false;
     m_isGroupMode = false;
     m_ui = QJsonObject{{"phase", "outgoing"}, {"name", peerName}, {"avatar", peerAvatar}, {"video", false}};
@@ -642,7 +742,12 @@ void CallBridge::startVideoCall(const QString& peerId, const QString& peerName, 
     if (!m_activePeer.isEmpty() || !ensureEngine()) return;
     startVideoPipeline();
     m_activePeer = peerId;
+    m_activeCallId = QJsonValue();
+    m_activeCallType = 1;
     m_activeOutgoing = true;
+    m_activeConnected = false;
+    m_endSignalSent = false;
+    m_bubbleEmitted = false;
     m_isVideoMode = true;
     m_isGroupMode = false;
     m_cameraError.clear();
@@ -661,7 +766,12 @@ void CallBridge::startGroupCall(const QString& groupId, const QString& groupName
     if (!m_activePeer.isEmpty() || !ensureEngine()) return;
     if (isVideo) startVideoPipeline();
     m_activePeer = groupId;
+    m_activeCallId = QJsonValue();
+    m_activeCallType = 0;
     m_activeOutgoing = true;
+    m_activeConnected = false;
+    m_endSignalSent = false;
+    m_bubbleEmitted = false;
     m_isVideoMode = isVideo;
     m_isGroupMode = true;
     m_cameraError.clear();
@@ -825,10 +935,11 @@ void CallBridge::handleVoipControl(const QJsonObject& rawContent) {
         content["data"] = QJsonDocument::fromJson(content.value("data").toString().toUtf8()).object();
     }
     const QString act = content.value("act").toString();
-    const qint64 ts = content.value("data").toObject().value("ts").toVariant().toLongLong();
-    if (ts > 0 && QDateTime::currentMSecsSinceEpoch() - ts > 60000) return;
+    qint64 ts = content.value("data").toObject().value("ts").toVariant().toLongLong();
+    if (ts > 0 && ts < 100000000000LL) ts *= 1000;
 
     const bool incoming = act == "request" || act == "group_request";
+    if (incoming && ts > 0 && QDateTime::currentMSecsSinceEpoch() - ts > 60000) return;
     if (incoming) {
         content["inCallStatus"] = m_activePeer.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue("zalo");
     }
@@ -882,6 +993,7 @@ void CallBridge::onUiLine(const QByteArray& line) {
     if (type == "state") {
         const QString previous = phase();
         m_ui = msg;
+        if (phase() == QLatin1String("connected")) m_activeConnected = true;
         if (m_cameraSender) {
             const bool connected = phase() == QLatin1String("connected");
             m_cameraSender->setEncodingEnabled(connected);
@@ -936,6 +1048,8 @@ void CallBridge::onUiLine(const QByteArray& line) {
     } else if (type == "keyframe") {
         if (m_cameraSender) m_cameraSender->requestKeyFrame();
     } else if (type == "close") {
+        if (m_hangupWatchdog) m_hangupWatchdog->stop();
+        m_activePeer.clear();
         m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}, {"group", isGroup()},
                            {"text", msg.value("text")}, {"statusCode", msg.value("statusCode")},
                            {"statusParams", msg.value("statusParams")}};
@@ -955,6 +1069,7 @@ void CallBridge::onUiLine(const QByteArray& line) {
 }
 
 void CallBridge::resetUi() {
+    if (m_hangupWatchdog) m_hangupWatchdog->stop();
     emit peerVideoResetRequested();
     if (m_peerSink) m_peerSink->setVideoFrame(QVideoFrame());
     m_pendingVideoFrames.store(0, std::memory_order_relaxed);
@@ -965,6 +1080,11 @@ void CallBridge::resetUi() {
     }
     m_ui = {};
     m_activePeer.clear();
+    m_activeCallId = QJsonValue();
+    m_activeCallType = 0;
+    m_activeConnected = false;
+    m_endSignalSent = false;
+    m_bubbleEmitted = false;
     m_cameraOffAnnounced = false;
     m_isVideoMode = false;
     if (m_cameraSender) m_cameraSender->stop();
@@ -980,48 +1100,72 @@ void CallBridge::resetUi() {
     emit cameraStateChanged();
 }
 
-QVariantList CallBridge::audioInputDevices() const {
-    QVariantList out;
-    if (!Platform::MultimediaSupport::available()) return out;
-    for (const QAudioDevice& dev : QMediaDevices::audioInputs()) {
-        const QString id = QString::fromUtf8(dev.id());
-        if (id.isEmpty() || id.endsWith(QLatin1String(".monitor")) || id.startsWith(QLatin1String("zcall_ec_"))
-            || id.startsWith(QLatin1String("raop_sink."))) {
-            continue;
+void CallBridge::refreshDevicesAsync() {
+    if (!Platform::MultimediaSupport::available()) return;
+    if (m_devicesScanning.exchange(true)) return;
+    const QPointer<CallBridge> self(this);
+    QMetaObject::invokeMethod(this, [self]() {
+        if (!self) return;
+        QVariantList ins;
+        for (const QAudioDevice& dev : QMediaDevices::audioInputs()) {
+            const QString id = QString::fromUtf8(dev.id());
+            if (id.isEmpty() || id.endsWith(QLatin1String(".monitor")) || id.startsWith(QLatin1String("zcall_ec_"))
+                || id.startsWith(QLatin1String("raop_sink."))) {
+                continue;
+            }
+            const QString name = dev.description().isEmpty() ? id : dev.description();
+            ins.append(QVariantMap{{"id", id}, {"name", name}});
         }
-        const QString name = dev.description().isEmpty() ? id : dev.description();
-        out.append(QVariantMap{{"id", id}, {"name", name}});
-    }
-    return out;
+        QVariantList outs;
+        for (const QAudioDevice& dev : QMediaDevices::audioOutputs()) {
+            const QString id = QString::fromUtf8(dev.id());
+            if (id.isEmpty() || id.endsWith(QLatin1String(".monitor")) || id.startsWith(QLatin1String("zcall_ec_"))
+                || id.startsWith(QLatin1String("raop_sink."))) {
+                continue;
+            }
+            const QString name = dev.description().isEmpty() ? id : dev.description();
+            outs.append(QVariantMap{{"id", id}, {"name", name}});
+        }
+        QVariantList nonIr;
+        QVariantList allCams;
+        for (const QCameraDevice& dev : QMediaDevices::videoInputs()) {
+            const QString id = QString::fromUtf8(dev.id());
+            const QString name = dev.description().isEmpty() ? id : dev.description();
+            const QVariantMap item{{"id", id}, {"name", name}};
+            allCams.append(item);
+            if (!Media::MediaUtils::isIrCamera(name)) nonIr.append(item);
+        }
+        const QVariantList cams = nonIr.isEmpty() ? allCams : nonIr;
+
+        const bool changed = !self->m_devicesCached
+                             || self->m_cachedAudioInputs != ins
+                             || self->m_cachedAudioOutputs != outs
+                             || self->m_cachedCameras != cams;
+        self->m_cachedAudioInputs = ins;
+        self->m_cachedAudioOutputs = outs;
+        self->m_cachedCameras = cams;
+        self->m_devicesCached = true;
+        self->m_devicesScanning.store(false);
+        if (changed) emit self->devicesChanged();
+    }, Qt::QueuedConnection);
+}
+
+QVariantList CallBridge::audioInputDevices() const {
+    if (!Platform::MultimediaSupport::available()) return {};
+    if (!m_devicesCached) const_cast<CallBridge*>(this)->refreshDevicesAsync();
+    return m_cachedAudioInputs;
 }
 
 QVariantList CallBridge::audioOutputDevices() const {
-    QVariantList out;
-    if (!Platform::MultimediaSupport::available()) return out;
-    for (const QAudioDevice& dev : QMediaDevices::audioOutputs()) {
-        const QString id = QString::fromUtf8(dev.id());
-        if (id.isEmpty() || id.endsWith(QLatin1String(".monitor")) || id.startsWith(QLatin1String("zcall_ec_"))
-            || id.startsWith(QLatin1String("raop_sink."))) {
-            continue;
-        }
-        const QString name = dev.description().isEmpty() ? id : dev.description();
-        out.append(QVariantMap{{"id", id}, {"name", name}});
-    }
-    return out;
+    if (!Platform::MultimediaSupport::available()) return {};
+    if (!m_devicesCached) const_cast<CallBridge*>(this)->refreshDevicesAsync();
+    return m_cachedAudioOutputs;
 }
 
 QVariantList CallBridge::cameraDevices() const {
-    QVariantList nonIr;
-    QVariantList all;
-    if (!Platform::MultimediaSupport::available()) return all;
-    for (const QCameraDevice& dev : QMediaDevices::videoInputs()) {
-        const QString id = QString::fromUtf8(dev.id());
-        const QString name = dev.description().isEmpty() ? id : dev.description();
-        const QVariantMap item{{"id", id}, {"name", name}};
-        all.append(item);
-        if (!Media::MediaUtils::isIrCamera(name)) nonIr.append(item);
-    }
-    return nonIr.isEmpty() ? all : nonIr;
+    if (!Platform::MultimediaSupport::available()) return {};
+    if (!m_devicesCached) const_cast<CallBridge*>(this)->refreshDevicesAsync();
+    return m_cachedCameras;
 }
 
 void CallBridge::selectAudioDevice(const QString& kind, const QString& id) {
@@ -1081,11 +1225,13 @@ void CallBridge::reject() { sendUi({{"action", "reject"}}); }
 
 void CallBridge::hangup() {
     if (phase() == QLatin1String("ended")) {
+        if (m_hangupWatchdog) m_hangupWatchdog->stop();
         resetUi();
         return;
     }
     if (m_uiSocket && m_uiSocket->state() == QAbstractSocket::ConnectedState) {
         sendUi({{"action", "hangup"}});
+        if (m_hangupWatchdog) m_hangupWatchdog->start();
         return;
     }
     if (m_process && m_engineReady && m_sendSocket && m_sendSocket->state() == QAbstractSocket::ConnectedState) {

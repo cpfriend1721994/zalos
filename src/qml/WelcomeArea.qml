@@ -8,6 +8,7 @@ import Zalos
 
 Rectangle {
     id: root
+    readonly property bool windowShowing: Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true
     color: ThemeManager.chatBackgroundColor
 
     property int currentSlide: 0
@@ -26,7 +27,7 @@ Rectangle {
 
     Timer {
         interval: 6000
-        running: root.visible && (root.Window.window ? (root.Window.window.visible && root.Window.window.visibility !== Window.Minimized) : true)
+        running: root.visible && root.windowShowing
         repeat: true
         onTriggered: root.nextSlide()
     }
@@ -174,7 +175,7 @@ Rectangle {
                                 Text {
                                     Layout.fillWidth: true
                                     elide: Text.ElideRight
-                                    text: I18n.t("Nội dung", "Content")
+                                    text: I18n.t("Cuộc gọi HD", "HD Calls")
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 11
                                     font.weight: Font.DemiBold
@@ -198,7 +199,7 @@ Rectangle {
                                     Text {
                                         id: copyLabel
                                         anchors.centerIn: parent
-                                        text: I18n.t("Sao chép", "Copy")
+                                        text: I18n.t("Gọi ngay", "Call now")
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 10
                                         font.weight: Font.DemiBold
@@ -220,7 +221,7 @@ Rectangle {
 
                             ZIcon {
                                 anchors.centerIn: parent
-                                name: "snip"
+                                name: "video"
                                 size: 22
                                 color: Theme.zaloBlue
                             }
@@ -367,7 +368,7 @@ Rectangle {
                 wrapMode: Text.WordWrap
                 text: {
                     switch (root.currentSlide) {
-                        case 0: return I18n.t("Sao chép chữ từ ảnh nhanh chóng", "Copy text from images instantly");
+                        case 0: return I18n.t("Gọi thoại và video trực tiếp", "Direct voice and video calls");
                         case 1: return I18n.t("Trải nghiệm xuyên suốt", "A seamless experience");
                         case 2: return I18n.t("Gửi file nhanh chóng", "Send files fast");
                         case 3: return I18n.t("Nhắn tin nhiều hơn, soạn thảo ít hơn", "Message more, type less");
@@ -388,8 +389,8 @@ Rectangle {
                 wrapMode: Text.WordWrap
                 text: {
                     switch (root.currentSlide) {
-                        case 0: return I18n.t("Giờ đây bạn có thể trích xuất văn bản trực tiếp từ hình ảnh",
-                                              "You can now extract text directly from images");
+                        case 0: return I18n.t("Kết nối qua cuộc gọi thoại, gọi video 1-1 và cuộc gọi nhóm ngay trên máy tính",
+                                              "Connect through 1-on-1 and group voice or video calls right from your desktop");
                         case 1: return I18n.t("Kết nối và giải quyết công việc trên mọi thiết bị với dữ liệu luôn được đồng bộ",
                                               "Stay connected and get work done on every device with your data always in sync");
                         case 2: return I18n.t("Chia sẻ tập tin, tài liệu dung lượng lên đến 1 GB mà không lo giảm chất lượng",

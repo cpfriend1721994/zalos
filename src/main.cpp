@@ -1,4 +1,4 @@
-#include <QApplication>
+#include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QIcon>
@@ -208,9 +208,6 @@ void setupMinimalPluginPath() {
         QStringLiteral("kimg_jxl.so"),
         QStringLiteral("libqjxl.so")
     };
-    const QSet<QString> allowedPlatformThemes{
-        QStringLiteral("libqxdgdesktopportal.so")
-    };
 
     auto syncFilteredDir = [&](const QString& subName, const QSet<QString>& allowed) {
         QDir subDir(runtimeDir + QLatin1Char('/') + subName);
@@ -232,7 +229,6 @@ void setupMinimalPluginPath() {
     };
 
     syncFilteredDir(QStringLiteral("imageformats"), allowedImagePlugins);
-    syncFilteredDir(QStringLiteral("platformthemes"), allowedPlatformThemes);
 
     for (const QFileInfo& entry : root.entryInfoList(QDir::Dirs | QDir::System | QDir::NoDotAndDotDot)) {
         if (entry.isSymLink() && !QFileInfo::exists(entry.symLinkTarget())) {
@@ -300,20 +296,24 @@ void markColdAnonymousMappings() {
 
 }
 
-// AppRun writes "pending" before starting on the system Qt; any normal exit (QML loaded, --version,
-// --help, hand-off to a running instance) proves that Qt works. Only a crash, or a failed QML load or
-// dependency check, leaves "pending" so the next launch switches to the bundled Qt.
-static bool g_hostQtFailed = false;
-
-static void markHostQtHealthy() {
-    const QByteArray path = qgetenv("ZALOS_HOST_QT_GUARD");
-    if (path.isEmpty() || g_hostQtFailed) return;
-    QFile file(QString::fromLocal8Bit(path));
-    if (!file.open(QIODevice::ReadOnly)) return;
-    const QByteArray state = file.readLine().trimmed();
-    file.close();
-    if (!state.startsWith("pending ")) return;
-    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) file.write("ok " + state.mid(8) + '\n');
+void configureBundledQtEnv() {
+    const QString exeDir = QFileInfo(QStringLiteral("/proc/self/exe")).canonicalPath();
+    if (exeDir.isEmpty()) return;
+    const QStringList candidates{
+        QDir::cleanPath(exeDir + QStringLiteral("/../lib/zalos/qt6")),
+        QDir::cleanPath(exeDir + QStringLiteral("/../lib64/zalos/qt6")),
+        QDir::cleanPath(exeDir + QStringLiteral("/../lib/qt6-fallback")),
+    };
+    for (const QString& cand : candidates) {
+        if (!QFileInfo::exists(cand + QStringLiteral("/plugins/platforms"))) continue;
+        qputenv("ZALOS_BUNDLED_QT", "1");
+        qputenv("QT_PLUGIN_PATH", (cand + QStringLiteral("/plugins")).toUtf8());
+        const QString qmlDir = cand + QStringLiteral("/qml");
+        qputenv("QML_IMPORT_PATH", qmlDir.toUtf8());
+        qputenv("QML2_IMPORT_PATH", qmlDir.toUtf8());
+        QCoreApplication::setLibraryPaths({cand + QStringLiteral("/plugins")});
+        return;
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -327,16 +327,14 @@ int main(int argc, char* argv[]) {
     ::prctl(kPrSetMemoryMerge, 1, 0, 0, 0);
 #endif
 
-    std::atexit(markHostQtHealthy);
+    configureBundledQtEnv();
     QCoreApplication::setOrganizationName("Zalos");
     QCoreApplication::setApplicationName("Zalos");
     for (int i = 1; i < argc; ++i) {
         if (QByteArray(argv[i]) != "--check-deps") continue;
         if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
-        QApplication probe(argc, argv);
-        const int code = Zalos::Core::Platform::DependencyReport::run();
-        g_hostQtFailed = code != 0;
-        return code;
+        QGuiApplication probe(argc, argv);
+        return Zalos::Core::Platform::DependencyReport::run();
     }
     bool foregroundRun = qEnvironmentVariableIsSet("ZALOS_DEBUG");
     for (int i = 1; i < argc && !foregroundRun; ++i) {
@@ -378,18 +376,10 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORMTHEME")) {
-        const auto env = QProcessEnvironment::systemEnvironment();
-        const QString desktop = env.value("XDG_CURRENT_DESKTOP").toLower();
-        if (desktop.contains("gnome") || desktop.contains("ubuntu") || desktop.contains("kde")) {
-            qputenv("QT_QPA_PLATFORMTHEME", "xdgdesktopportal");
-        }
-    }
-
     configureInputMethod();
     setupMinimalPluginPath();
 
-    QApplication app(argc, argv);
+    QGuiApplication app(argc, argv);
     app.setApplicationName("Zalos");
     app.setOrganizationName("Zalos");
     app.setApplicationVersion(QStringLiteral(ZALOS_APP_VERSION));
@@ -420,7 +410,7 @@ int main(int argc, char* argv[]) {
     parser.process(app);
 
     if (parser.isSet(testGuiOption)) {
-        QTimer::singleShot(1000, &app, &QApplication::quit);
+        QTimer::singleShot(1000, &app, &QGuiApplication::quit);
     }
 
     Zalos::Core::Platform::SingleInstance singleInstance(Zalos::Core::Platform::SingleInstance::defaultId());
@@ -435,9 +425,11 @@ int main(int argc, char* argv[]) {
         QQuickStyle::setStyle("Basic");
     }
 
+    Zalos::Core::Platform::ThemeManager::registerEmojiFallbackFont();
     auto themeManager = new Zalos::Core::Platform::ThemeManager(&app);
     Q_UNUSED(themeManager);
-    auto zaloClient = new Zalos::Core::Network::ZaloClient(&app);
+    const auto zaloClientOwner = std::make_unique<Zalos::Core::Network::ZaloClient>();
+    auto* zaloClient = zaloClientOwner.get();
     auto trayController = new Zalos::Core::Platform::SystemTrayController(&app);
     zaloClient->setLaunchHidden(zaloClient->trayAvailable()
                                 && (parser.isSet(hiddenOption)
@@ -482,7 +474,6 @@ int main(int argc, char* argv[]) {
                      &app, [trayController, zaloClient, &singleInstance](QObject* obj, const QUrl& objUrl) {
         if (!obj) {
             std::cerr << "Failed to load QML root component: " << objUrl.toString().toStdString() << std::endl;
-            g_hostQtFailed = true;
             QCoreApplication::exit(-1);
             return;
         }
@@ -503,7 +494,7 @@ int main(int argc, char* argv[]) {
                     zaloClient->calls()->hangup();
                     zaloClient->calls()->shutdown();
                 }
-                QApplication::quit();
+                QGuiApplication::quit();
             });
             auto activate = [obj](const QString& token) {
                 if (!token.isEmpty()) qputenv("XDG_ACTIVATION_TOKEN", token.toUtf8());
@@ -519,7 +510,6 @@ int main(int argc, char* argv[]) {
 #else
     engine.load(QUrl(QStringLiteral("qrc:/Zalos/src/qml/Main.qml")));
 #endif
-    if (!engine.rootObjects().isEmpty()) markHostQtHealthy();
 
     QObject::connect(&app, &QCoreApplication::aboutToQuit, zaloClient, [zaloClient]() {
         Zalos::Core::Platform::RenderGuard::markFirstFrame();
@@ -614,7 +604,7 @@ int main(int argc, char* argv[]) {
                     window->grabWindow().save(shotPath);
                 }
             }
-            QApplication::quit();
+            QGuiApplication::quit();
         });
     }
 
