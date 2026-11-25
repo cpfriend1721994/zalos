@@ -503,5 +503,9 @@ if(BUILD_TESTING)
     add_test(NAME qml_aot_coverage COMMAND test_qml_gates qmlAotCoverage)
     add_test(NAME cpp_invariants COMMAND test_qml_gates cppInvariants)
     add_test(NAME ui_visual_diff COMMAND test_qml_gates uiVisualDiff)
+
+    # Debug flags read outside main() must still be registered with the parser, or the app exits on start.
+    add_test(NAME cli_accepts_force_sync_v2 COMMAND zalos --force-sync-v2 --version)
+    set_tests_properties(cli_accepts_force_sync_v2 PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
