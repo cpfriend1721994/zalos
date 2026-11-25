@@ -54,6 +54,18 @@ public:
     void migrateStorage();
     bool isDatabaseOpen() const { return m_db.isOpen(); }
     QString connectionNameForTesting() const { return m_db.connectionName(); }
+
+    // cli_msg_id lookups. The redundant "cli_msg_id <> ''" lets SQLite use the partial cli indexes; without
+    // it the bound :cli can't be proven non-empty and SQLite falls back to a scan. Public for plan tests.
+    static constexpr const char* kSqlFindCliDuplicates =
+        "SELECT id, sender_id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND cli_msg_id <> '' "
+        "AND id <> :id;";
+    static constexpr const char* kSqlTsByCliId =
+        "SELECT ts, conv_id FROM messages WHERE cli_msg_id = :cli AND cli_msg_id <> '' LIMIT 1;";
+    static constexpr const char* kSqlIdByCliId =
+        "SELECT id FROM messages WHERE cli_msg_id = :cli AND cli_msg_id <> '' LIMIT 1;";
+    static constexpr const char* kSqlIdByConvAndCliId =
+        "SELECT id FROM messages WHERE conv_id = :c AND cli_msg_id = :cli AND cli_msg_id <> '' LIMIT 1;";
     QString ownerUid() const;
     bool bindOwner(const QString& uid);
     void clearCache();
