@@ -412,6 +412,9 @@ int main(int argc, char* argv[]) {
     parser.addOption(autostartOption);
     QCommandLineOption debugOption("debug", "Keep logs on the terminal and let Ctrl+C quit (default: detach, log to file).");
     parser.addOption(debugOption);
+    // Read by MobileHistorySync via QCoreApplication::arguments(); registered so the parser accepts it.
+    QCommandLineOption forceSyncV2Option("force-sync-v2", "Debug: use phone history Sync v2 directly (same as ZALOS_FORCE_SYNC_V2=1).");
+    parser.addOption(forceSyncV2Option);
     parser.process(app);
 
     if (parser.isSet(testGuiOption)) {
