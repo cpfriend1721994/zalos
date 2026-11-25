@@ -43,6 +43,11 @@
 #include "core/network/zalo_crypto.h"
 #include "core/platform/theme_manager.h"
 #include "core/platform/system_tray.h"
+#include "core/platform/wheel_boost.h"
+#include "core/platform/middle_autoscroll.h"
+#include "core/network/zalo_client_internal.h"
+#include <QStyleHints>
+#include <QWheelEvent>
 #include "core/crypto/db_cross.h"
 #include "core/models/conversation_model.h"
 #include "core/models/message_model.h"
@@ -435,6 +440,19 @@ private slots:
         window->resize(1920, 1080);
         QCOMPARE(window->width(), 1920);
         QCOMPARE(window->height(), 1080);
+
+        const bool prevCloseToTray = zaloClient->closeToTray();
+        zaloClient->setTrayAvailableForTesting(1);
+        zaloClient->setCloseToTray(true);
+        QCOMPARE(window->close(), false);
+        QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 1000);
+        window->show();
+        QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 1000);
+        window->setProperty("forceQuit", true);
+        QCOMPARE(window->close(), true);
+        zaloClient->setTrayAvailableForTesting(-1);
+        zaloClient->setCloseToTray(prevCloseToTray);
+        QSettings("Zalos", "ZalosApp").remove(QStringLiteral("settings/closeToTray"));
     }
 
     void testConversationSearchFeature() {
@@ -1807,7 +1825,17 @@ private slots:
             const QJsonArray m = MobileHistorySync::toMessages(c, ids, "1111", "u-me-fixture", &skipped);
             (c.isGroup ? group : oneToOne) = m;
         }
-        QCOMPARE(skipped, 1);
+        QCOMPARE(skipped, 0);
+        {
+            bool sawRecall = false;
+            for (const QJsonValue& v : oneToOne) {
+                if (v.toObject().value("msgType").toString() == QStringLiteral("chat.undo")
+                    && v.toObject().value("content").toObject().value("globalMsgId").toString() == QStringLiteral("5003")) {
+                    sawRecall = true;
+                }
+            }
+            QVERIFY(sawRecall);
+        }
         {
             MobileHistorySync::BackupConversation media;
             media.plainId = "1001";
@@ -1819,7 +1847,7 @@ private slots:
             QVERIFY(MobileHistorySync::toMessages(media, ids, "1111", "u-me-fixture", &skippedMedia).isEmpty());
             QCOMPARE(skippedMedia, 1);
         }
-        QCOMPARE(oneToOne.size(), 2);
+        QCOMPARE(oneToOne.size(), 4);
         QCOMPARE(oneToOne.at(0).toObject().value("uidFrom").toString(), QString("9001"));
         QCOMPARE(oneToOne.at(1).toObject().value("uidFrom").toString(), QString("0"));
         QCOMPARE(oneToOne.at(1).toObject().value("idTo").toString(), QString("9001"));
@@ -1834,7 +1862,7 @@ private slots:
         QVERIFY(client.conversationModel()->contains("9002"));
         QCOMPARE(client.conversationModel()->totalUnreadCount(), 0);
         client.selectConversation("9001", "Fixture", "");
-        QCOMPARE(client.messageModel()->rowCount(), 2);
+        QCOMPARE(client.messageModel()->rowCount(), 3);
         QCOMPARE(client.messageModel()->data(client.messageModel()->index(0), MessageModel::TextRole).toString(),
                  QString::fromUtf8("chào bạn"));
 
@@ -2547,6 +2575,107 @@ private slots:
         QVERIFY2(targetBottom <= listBottom,
                  qPrintable(QStringLiteral("target bottom %1 is below the list end %2").arg(targetBottom).arg(listBottom)));
         window->grabWindow().save(QStringLiteral("/workspace/build/test_reaction_jump.png"));
+    }
+
+    void testExpiredMediaRunKeepsHoverActions() {
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        auto* session = client.apiClient()->session();
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        const QString dead = QStringLiteral("https://expired.invalid/zalos-fixture.jpg");
+        auto msg = [&](const QString& id, const QString& type, const QJsonValue& content, qint64 ts) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-run"}, {"idTo", "u-me"},
+                               {"msgType", type}, {"content", content}, {"ts", QString::number(ts)}};
+        };
+        QJsonArray msgs{
+            msg("9401", "chat.photo", QJsonObject{{"thumb", dead}, {"href", dead}, {"title", ""}}, now - 90000),
+            msg("9402", "chat.photo", QJsonObject{{"thumb", dead}, {"href", dead}, {"title", ""}}, now - 80000),
+            msg("9403", "chat.video.msg", QJsonObject{{"thumb", dead}, {"href", dead}, {"title", ""}}, now - 70000),
+        };
+        client.setUserForTesting("u-run", "Fixture Run", "");
+        emit session->messagesReceived(msgs, false, true);
+        client.selectConversation("u-run", "Fixture Run", "");
+        client.setMyUidForTesting("u-me");
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath("qrc:/");
+        engine.addImportPath("qrc:/qt/qml");
+        loadMainWindow(engine);
+        auto window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(1280, 800);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+
+        std::function<QQuickItem*(QQuickItem*, const QString&)> findItem = [&](QQuickItem* root, const QString& name) -> QQuickItem* {
+            if (!root) return nullptr;
+            if (root->objectName() == name) return root;
+            for (QQuickItem* child : root->childItems()) {
+                if (QQuickItem* hit = findItem(child, name)) return hit;
+            }
+            return nullptr;
+        };
+        QQuickItem* tile = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT((tile = findItem(window->contentItem(), QStringLiteral("mediaRunTile"))) != nullptr, 5000);
+        QTest::qWait(1500);
+
+        const QPointF center = tile->mapToScene(QPointF(tile->width() / 2.0, tile->height() / 2.0));
+        QTest::mouseMove(window, center.toPoint());
+        QTest::qWait(300);
+        QQuickItem* actions = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT((actions = findItem(window->contentItem(), QStringLiteral("messageActions"))) != nullptr
+                                 && actions->isVisible() && actions->width() > 0, 3000);
+        const QRectF bounds = actions->mapRectToScene(QRectF(QPointF(0, 0), QSizeF(actions->width(), actions->height())));
+        QVERIFY(bounds.left() >= 0 && bounds.right() <= window->width());
+        QVERIFY(bounds.top() >= 0 && bounds.bottom() <= window->height());
+        window->grabWindow().save(QStringLiteral("/workspace/build/test_expired_run_actions.png"));
+
+        std::function<void(QQuickItem*, QList<QQuickItem*>&)> collectTiles = [&](QQuickItem* root, QList<QQuickItem*>& out) {
+            if (!root) return;
+            if (root->objectName() == QLatin1String("mediaRunTile") && root->isVisible()) out.append(root);
+            for (QQuickItem* child : root->childItems()) collectTiles(child, out);
+        };
+        QList<QQuickItem*> tiles;
+        collectTiles(window->contentItem(), tiles);
+        QCOMPARE(tiles.size(), 2);
+        for (QQuickItem* each : std::as_const(tiles)) {
+            const QPointF at = each->mapToScene(QPointF(each->width() / 2.0, each->height() / 2.0));
+            QTest::mouseMove(window, QPoint(0, 0));
+            QTest::qWait(100);
+            QTest::mouseMove(window, at.toPoint());
+            QTest::qWait(300);
+            QQuickItem* bar = nullptr;
+            QTRY_VERIFY_WITH_TIMEOUT((bar = findItem(window->contentItem(), QStringLiteral("messageActions"))) != nullptr
+                                     && bar->isVisible() && bar->width() > 0, 3000);
+            const QRectF r = bar->mapRectToScene(QRectF(QPointF(0, 0), QSizeF(bar->width(), bar->height())));
+            QVERIFY2(r.left() >= 0 && r.right() <= window->width() && r.top() >= 0 && r.bottom() <= window->height(),
+                     qPrintable(QStringLiteral("bar %1 %2 %3 %4 in %5x%6").arg(r.left()).arg(r.top()).arg(r.right()).arg(r.bottom()).arg(window->width()).arg(window->height())));
+        }
+
+        QQuickItem* lowest = nullptr;
+        std::function<void(QQuickItem*)> collect = [&](QQuickItem* root) {
+            if (!root) return;
+            if (root->objectName() == QLatin1String("mediaClickArea") && root->isVisible()
+                && (!lowest || root->mapToScene(QPointF(0, 0)).y() > lowest->mapToScene(QPointF(0, 0)).y())) {
+                lowest = root;
+            }
+            for (QQuickItem* child : root->childItems()) collect(child);
+        };
+        collect(window->contentItem());
+        QVERIFY(lowest != nullptr);
+        const QPointF videoCenter = lowest->mapToScene(QPointF(lowest->width() / 2.0, lowest->height() / 2.0));
+        QTest::mouseMove(window, QPoint(0, 0));
+        QTest::qWait(100);
+        QTest::mouseMove(window, videoCenter.toPoint());
+        QTest::qWait(300);
+        QQuickItem* videoActions = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT((videoActions = findItem(window->contentItem(), QStringLiteral("messageActions"))) != nullptr
+                                 && videoActions->isVisible() && videoActions->width() > 0, 3000);
+        const QRectF videoBounds = videoActions->mapRectToScene(QRectF(QPointF(0, 0), QSizeF(videoActions->width(), videoActions->height())));
+        QVERIFY(videoBounds.left() >= 0 && videoBounds.right() <= window->width());
+        QVERIFY(videoBounds.top() >= 0 && videoBounds.bottom() <= window->height());
+        window->grabWindow().save(QStringLiteral("/workspace/build/test_expired_video_actions.png"));
     }
 
     void testUiGalleryScreenshots() {
@@ -3992,6 +4121,29 @@ private slots:
         QVERIFY(client.offlineStore()->messageText("9901").isEmpty());
     }
 
+    void testReactionRemovalNotRevivedByReplay() {
+        ZaloClient client;
+        client.setMyUidForTesting("u-me");
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        auto frame = [now](const QString& from, const QString& icon, int rType, const QString& eventId, qint64 ts) {
+            return QJsonObject{{"uidFrom", from}, {"idTo", "g-rr"}, {"msgId", eventId}, {"ts", QString::number(ts)},
+                               {"content", QJsonObject{{"rIcon", icon}, {"rType", rType},
+                                                       {"rMsg", QJsonArray{QJsonObject{{"gMsgID", "m-rr"}}}}}}};
+        };
+        const QJsonObject addOld = frame("u-a", "/-heart", 5, "ev-old", now - 3000);
+        client.handleReactionsForTesting(QJsonArray{addOld}, true);
+        QCOMPARE(client.reactionDetails("m-rr").value("total").toInt(), 1);
+
+        client.handleReactionsForTesting(QJsonArray{frame("u-a", "", -1, "ev-undo", now - 2000)}, true);
+        QCOMPARE(client.reactionDetails("m-rr").value("total").toInt(), 0);
+
+        client.handleReactionsForTesting(QJsonArray{addOld}, true);
+        QCOMPARE(client.reactionDetails("m-rr").value("total").toInt(), 0);
+
+        client.handleReactionsForTesting(QJsonArray{frame("u-a", "/-strong", 3, "ev-new", now - 1000)}, true);
+        QCOMPARE(client.reactionDetails("m-rr").value("total").toInt(), 1);
+    }
+
     void testReactionDetails() {
         ZaloClient client;
         client.setMyUidForTesting("u-me");
@@ -5035,6 +5187,348 @@ private slots:
         QCOMPARE(scheduler.entriesFor("c1").first().toMap().value("state").toString(), QString("failed"));
         scheduler.cancel(scheduler.entriesFor("c1").first().toMap().value("id").toString());
         QCOMPARE(scheduler.entriesFor("c1").size(), 0);
+    }
+
+    void reactionSnapshotShapes_data() {
+        QTest::addColumn<QString>("json");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("per-user counts ordered by count") << QStringLiteral(R"({"reacts":{"u1":{"5":1},"u2":{"3":2}}})") << QStringLiteral("👍❤️ 3");
+        QTest::newRow("unknown rType is a bullet, never heart") << QStringLiteral(R"({"reacts":{"u1":{"999":1}}})") << QStringLiteral("•");
+        QTest::newRow("negative rType and zero count skipped") << QStringLiteral(R"({"reacts":{"u1":{"-1":4,"5":0}}})") << QString();
+        QTest::newRow("string count accepted") << QStringLiteral(R"({"reacts":{"u1":{"5":"2"}}})") << QStringLiteral("❤️ 2");
+        QTest::newRow("null reacts empty") << QStringLiteral(R"({"reacts":null})") << QString();
+        QTest::newRow("missing reacts empty") << QStringLiteral(R"({})") << QString();
+        QTest::newRow("top three emojis then total") << QStringLiteral(R"({"reacts":{"u1":{"5":5,"3":4,"0":3,"32":2,"2":1}}})")
+                                                       << QStringLiteral("❤️👍😆 15");
+        QTest::newRow("legacy icon array") << QStringLiteral(R"({"reacts":["/-heart","/-heart"]})") << QStringLiteral("❤️ 2");
+    }
+
+    void reactionSnapshotShapes() {
+        QFETCH(QString, json);
+        QFETCH(QString, expected);
+        const QJsonObject msg = QJsonDocument::fromJson(json.toUtf8()).object();
+        QCOMPARE(Zalos::Core::Network::Detail::parseReactionSnapshot(msg), expected);
+    }
+
+    void phoneAndOwnProfileNormalisation_data() {
+        QTest::addColumn<QString>("raw");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("country code to leading zero") << QStringLiteral("84912345678") << QStringLiteral("0912345678");
+        QTest::newRow("plus form with spaces") << QStringLiteral("+84 912 345 678") << QStringLiteral("0912345678");
+        QTest::newRow("local form untouched") << QStringLiteral("0912345678") << QStringLiteral("0912345678");
+        QTest::newRow("double-zero after code untouched") << QStringLiteral("840912345678") << QStringLiteral("840912345678");
+        QTest::newRow("short number untouched") << QStringLiteral("8412345") << QStringLiteral("8412345");
+    }
+
+    void phoneAndOwnProfileNormalisation() {
+        using namespace Zalos::Core::Network::Detail;
+        QFETCH(QString, raw);
+        QFETCH(QString, expected);
+        QCOMPARE(normalizeDisplayPhone(raw), expected);
+    }
+
+    void ownProfileIsFoundUnderWrappers() {
+        using namespace Zalos::Core::Network::Detail;
+        const QString name = QStringLiteral("Fixture New");
+        const QJsonObject inner{{"displayName", name}};
+        QCOMPARE(pickOwnProfileObject(QJsonObject{{"profile", inner}}).value("displayName").toString(), name);
+        QCOMPARE(pickOwnProfileObject(QJsonObject{{"info", inner}}).value("displayName").toString(), name);
+        QCOMPARE(pickOwnProfileObject(QJsonObject{{"user", inner}}).value("displayName").toString(), name);
+        QCOMPARE(pickOwnProfileObject(QJsonObject{{"displayName", name}}).value("displayName").toString(), name);
+        QVERIFY(pickOwnProfileObject(QJsonValue(QJsonObject{})).isEmpty());
+    }
+
+    void muteSnapshotHandlesIndefiniteExpiryAndUnits() {
+        using Zalos::Core::Network::Detail::parseMuteSnapshot;
+        const qint64 now = 1700000000;
+        const QJsonObject obj{
+            {"systemTime", now * 1000},
+            {"chatEntries", QJsonArray{
+                QJsonObject{{"id", "u-forever"}, {"muteMode", 2}, {"duration", -1}, {"startTime", now - 100}},
+                QJsonObject{{"id", "u-hour"}, {"muteMode", 1}, {"duration", 3600}, {"startTime", now - 60}},
+                QJsonObject{{"id", "u-expired"}, {"muteMode", 1}, {"duration", 60}, {"startTime", now - 3600}},
+                QJsonObject{{"id", ""}, {"muteMode", 1}, {"duration", -1}},
+            }},
+            {"groupChatEntries", QJsonArray{
+                QJsonObject{{"id", "g-long"}, {"muteMode", 3}, {"duration", 0}, {"startTime", now}},
+            }},
+        };
+        const auto snap = parseMuteSnapshot(obj, 0);
+        QCOMPARE(snap.muted, (QSet<QString>{"u-forever", "u-hour", "g-long"}));
+        QCOMPARE(snap.until.value("u-forever"), qint64(0));
+        QCOMPARE(snap.until.value("u-hour"), (now - 60 + 3600) * 1000);
+        QCOMPARE(snap.until.value("g-long"), qint64(0));
+        QVERIFY(!snap.muted.contains("u-expired"));
+
+        const auto noClock = parseMuteSnapshot(QJsonObject{{"chatEntries", QJsonArray{
+            QJsonObject{{"id", "u-x"}, {"muteMode", 1}, {"duration", -1}}}}}, now);
+        QVERIFY(noClock.muted.contains("u-x"));
+        QVERIFY(parseMuteSnapshot(QJsonObject{}, now).muted.isEmpty());
+    }
+
+    void loginReplyClassification() {
+        using Step = Zalos::Core::Network::ZaloSession::LoginStep;
+        using Zalos::Core::Network::ZaloSession;
+        QCOMPARE(ZaloSession::classifyLoginHttp(429, false), Step::Unavailable);
+        QCOMPARE(ZaloSession::classifyLoginHttp(503, false), Step::Unavailable);
+        QCOMPARE(ZaloSession::classifyLoginHttp(0, true), Step::Unavailable);
+        QCOMPARE(ZaloSession::classifyLoginHttp(400, true), Step::Failed);
+        QCOMPARE(ZaloSession::classifyLoginHttp(401, true), Step::Failed);
+        QCOMPARE(ZaloSession::classifyLoginHttp(200, false), Step::Proceed);
+
+        QCOMPARE(ZaloSession::classifyLoginBody(true, false, -1, false), Step::Unavailable);
+        QCOMPARE(ZaloSession::classifyLoginBody(false, false, -1, true), Step::Failed);
+        QCOMPARE(ZaloSession::classifyLoginBody(false, true, -102, true), Step::Failed);
+        QCOMPARE(ZaloSession::classifyLoginBody(false, true, 600, true), Step::Failed);
+        QCOMPARE(ZaloSession::classifyLoginBody(false, true, 0, false), Step::Failed);
+        QCOMPARE(ZaloSession::classifyLoginBody(false, true, 0, true), Step::Proceed);
+    }
+
+    void credentialsFileLoadRules() {
+        using Zalos::Core::Network::ZaloSession;
+        using Zalos::Core::Network::SessionCookieJar;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        auto write = [&dir](const QString& name, const QByteArray& body) {
+            QFile f(dir.filePath(name));
+            if (f.open(QIODevice::WriteOnly)) f.write(body);
+            return f.fileName();
+        };
+        const QByteArray good = R"({"imei":"fixture-imei","userAgent":"fixture-ua",)"
+                                R"("cookies":[{"name":"zpsid","value":"fixture-value","domain":"chat.zalo.me","path":"/"}]})";
+        QString imei;
+        QString ua;
+        {
+            SessionCookieJar jar;
+            QVERIFY(ZaloSession::loadCredentials(write("good.json", good), &jar, &imei, &ua));
+            QCOMPARE(imei, QString("fixture-imei"));
+            QCOMPARE(ua, QString("fixture-ua"));
+            QCOMPARE(jar.cookiesForUrl(QUrl("https://chat.zalo.me/")).size(), 1);
+        }
+        {
+            SessionCookieJar jar;
+            QVERIFY(!ZaloSession::loadCredentials(write("truncated.json", good.left(good.size() - 9)), &jar, &imei, &ua));
+        }
+        {
+            SessionCookieJar jar;
+            QVERIFY(!ZaloSession::loadCredentials(write("no-imei.json", R"({"cookies":[{"name":"a","value":"b"}]})"), &jar, &imei, &ua));
+        }
+        {
+            SessionCookieJar jar;
+            QVERIFY(!ZaloSession::loadCredentials(write("no-cookies.json", R"({"imei":"fixture-imei","cookies":[]})"), &jar, &imei, &ua));
+        }
+        {
+            SessionCookieJar jar;
+            QVERIFY(!ZaloSession::loadCredentials(dir.filePath("missing.json"), &jar, &imei, &ua));
+        }
+    }
+
+    void offlineSaveStatsCountInsertUpdateDedupe() {
+        ZaloOfflineStore store;
+        store.bindOwner("u-stats-fixture");
+        store.clearCache();
+        store.bindOwner("u-stats-fixture");
+        const auto base = store.saveStats();
+        Zalos::Core::Models::MessageItem a;
+        a.id = "stats-a"; a.senderName = "Fixture"; a.text = "one"; a.messageType = "text"; a.senderId = "u-peer"; a.cliMsgId = "cli-7";
+        QVERIFY(store.saveMessage("stats-conv", a, {}, false));
+        QVERIFY(store.saveMessage("stats-conv", a, {}, false));
+        Zalos::Core::Models::MessageItem b = a;
+        b.id = "stats-b";
+        QVERIFY(store.saveMessage("stats-conv", b, {}, false));
+        const auto after = store.saveStats();
+        QCOMPARE(after.inserted - base.inserted, 2);
+        QCOMPARE(after.updated - base.updated, 1);
+        QCOMPARE(after.deduped - base.deduped, 1);
+        QCOMPARE(after.failed - base.failed, 0);
+        store.clearCache();
+    }
+
+    void syncUndoAndPollRowsAreImported() {
+        using Zalos::Core::Sync::MobileHistorySync;
+        MobileHistorySync::BackupConversation conv;
+        conv.plainId = "1001";
+        MobileHistorySync::BackupRow undo;
+        undo.globalMsgId = "9100";
+        undo.cliMsgId = "c9100";
+        undo.msgType = 36;
+        undo.text = R"({"globalMsgId":"5001","cliMsgId":"c5001","deleteMsg":1})";
+        undo.senderId = "1001";
+        undo.ts = 1700000000000LL;
+        MobileHistorySync::BackupRow poll;
+        poll.globalMsgId = "9200";
+        poll.cliMsgId = "c9200";
+        poll.msgType = 26;
+        poll.text = R"({"poll_id":77,"action":"create","params":{"question":"q"}})";
+        poll.senderId = "1001";
+        poll.ts = 1700000001000LL;
+        MobileHistorySync::BackupRow brokenUndo = undo;
+        brokenUndo.globalMsgId = "9300";
+        brokenUndo.text = "{}";
+        conv.rows << undo << poll << brokenUndo;
+        int skipped = 0;
+        QHash<QString, int> reasons;
+        const QJsonArray out = MobileHistorySync::toMessages(conv, {{"1001", "9001"}}, "1111", "u-me-fixture", &skipped, 0, -1, &reasons);
+        QCOMPARE(out.size(), 5);
+        QCOMPARE(out.at(0).toObject().value("msgType").toString(), QStringLiteral("webchat"));
+        QCOMPARE(out.at(0).toObject().value("msgId").toString(), QStringLiteral("5001"));
+        QCOMPARE(out.at(1).toObject().value("msgType").toString(), QStringLiteral("chat.undo"));
+        QCOMPARE(out.at(1).toObject().value("content").toObject().value("globalMsgId").toString(), QStringLiteral("5001"));
+        QCOMPARE(out.at(2).toObject().value("msgType").toString(), QStringLiteral("group.poll"));
+        QCOMPARE(out.at(2).toObject().value("content").toObject().value("poll_id").toInt(), 77);
+        QCOMPARE(skipped, 0);
+    }
+
+    void syncRowWithoutIdIsCountedAsSkipped() {
+        using Zalos::Core::Sync::MobileHistorySync;
+        MobileHistorySync::BackupConversation conv;
+        conv.plainId = "1001";
+        MobileHistorySync::BackupRow row;
+        row.globalMsgId = "0";
+        row.cliMsgId = "";
+        row.msgType = 0;
+        row.text = "xin chào";
+        row.senderId = "1001";
+        row.ts = 1700000000000LL;
+        conv.rows.append(row);
+        int skipped = 0;
+        QHash<QString, int> reasons;
+        const QJsonArray out = MobileHistorySync::toMessages(conv, {{"1001", "9001"}}, "1111", "u-me-fixture", &skipped, 0, -1, &reasons);
+        QVERIFY(out.isEmpty());
+        QCOMPARE(skipped, 1);
+        QCOMPARE(reasons.value(QStringLiteral("no_id")), 1);
+    }
+
+    void syncMsgType20IsTextNotSkipped() {
+        using Zalos::Core::Sync::MobileHistorySync;
+        MobileHistorySync::BackupConversation conv;
+        conv.plainId = "1001";
+        conv.isGroup = false;
+        MobileHistorySync::BackupRow row;
+        row.globalMsgId = "5001";
+        row.cliMsgId = "c5001";
+        row.msgType = 20;
+        row.text = "xin chào";
+        row.senderId = "1001";
+        row.ts = 1700000000000LL;
+        conv.rows.append(row);
+        const QHash<QString, QString> ids{{"1001", "9001"}};
+        int skipped = 0;
+        QHash<QString, int> reasons;
+        const QJsonArray out = MobileHistorySync::toMessages(conv, ids, "1111", "u-me-fixture", &skipped, 0, -1, &reasons);
+        QCOMPARE(out.size(), 1);
+        QCOMPARE(skipped, 0);
+        QVERIFY(reasons.isEmpty());
+    }
+
+    void testWheelBoostScalesTouchpadOnly() {
+        using Zalos::Core::Platform::WheelBoost;
+        struct Recorder : QObject {
+            QList<QPoint> pixel;
+            QList<QPoint> angle;
+            bool event(QEvent* e) override {
+                if (e->type() != QEvent::Wheel) return QObject::event(e);
+                auto* w = static_cast<QWheelEvent*>(e);
+                pixel << w->pixelDelta();
+                angle << w->angleDelta();
+                w->accept();
+                return true;
+            }
+        } target;
+        WheelBoost boost;
+        target.installEventFilter(&boost);
+        auto send = [&target](QPoint pixel, QPoint angle, Qt::ScrollPhase phase) {
+            QWheelEvent e(QPointF(10, 10), QPointF(10, 10), pixel, angle, Qt::NoButton, Qt::NoModifier, phase, false);
+            e.setAccepted(false);
+            QCoreApplication::sendEvent(&target, &e);
+            return e.isAccepted();
+        };
+
+        QVERIFY(send({0, -30}, {0, -30}, Qt::ScrollUpdate));
+        QCOMPARE(target.pixel.last(), QPoint(0, -50));
+        QCOMPARE(target.angle.last(), QPoint(0, -50));
+
+        target.pixel.clear();
+        send({}, {}, Qt::ScrollBegin);
+        for (int i = 0; i < 3; ++i) send({0, 1}, {0, 1}, Qt::ScrollUpdate);
+        int total = 0;
+        for (const QPoint& p : std::as_const(target.pixel)) total += p.y();
+        QCOMPARE(total, 5);
+
+        send({}, {0, 120}, Qt::NoScrollPhase);
+        QCOMPARE(target.angle.last(), QPoint(0, 120));
+        send({0, 15}, {0, 120}, Qt::NoScrollPhase);
+        QCOMPARE(target.pixel.last(), QPoint(0, 15));
+        QCOMPARE(target.angle.last(), QPoint(0, 120));
+
+        QStyleHints* hints = QGuiApplication::styleHints();
+        const int original = hints->wheelScrollLines();
+        hints->setWheelScrollLines(3);
+        WheelBoost::applyWheelScrollLines(hints);
+        QCOMPARE(hints->wheelScrollLines(), WheelBoost::kMinWheelScrollLines);
+        hints->setWheelScrollLines(8);
+        WheelBoost::applyWheelScrollLines(hints);
+        QCOMPARE(hints->wheelScrollLines(), 8);
+        hints->setWheelScrollLines(original);
+    }
+
+    void testMiddleAutoScrollHoldAndToggle() {
+        using Zalos::Core::Platform::MiddleAutoScroll;
+        QCOMPARE(MiddleAutoScroll::stepFor(0), 0.0);
+        QCOMPARE(MiddleAutoScroll::stepFor(MiddleAutoScroll::kDeadZone), 0.0);
+        QVERIFY(MiddleAutoScroll::stepFor(60) > 0);
+        QCOMPARE(MiddleAutoScroll::stepFor(-60), -MiddleAutoScroll::stepFor(60));
+        QVERIFY(MiddleAutoScroll::stepFor(150) > MiddleAutoScroll::stepFor(60));
+        QCOMPARE(MiddleAutoScroll::stepFor(5000), MiddleAutoScroll::kMaxStep);
+
+        QQmlEngine engine;
+        QQmlComponent comp(&engine);
+        comp.setData("import QtQuick\nWindow { width: 300; height: 300; visible: true\n"
+                     "  Flickable { objectName: \"list\"; anchors.fill: parent; contentHeight: 4000\n"
+                     "    Rectangle { width: 300; height: 4000 } }\n"
+                     "  Rectangle { objectName: \"cover\"; x: 0; y: 250; width: 300; height: 50 } }",
+                     QUrl());
+        std::unique_ptr<QObject> root(comp.create());
+        QVERIFY2(root, qPrintable(comp.errorString()));
+        auto* window = qobject_cast<QQuickWindow*>(root.get());
+        QVERIFY(window);
+        auto* list = window->findChild<QQuickItem*>("list");
+        QVERIFY(list);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+
+        MiddleAutoScroll autoScroll;
+        window->installEventFilter(&autoScroll);
+        QCOMPARE(MiddleAutoScroll::scrollableAt(window->contentItem(), QPointF(150, 100)), list);
+        QCOMPARE(MiddleAutoScroll::scrollableAt(window->contentItem(), QPointF(150, 270)), nullptr);
+
+        QTest::mousePress(window, Qt::MiddleButton, {}, QPoint(150, 270));
+        QVERIFY(!autoScroll.active());
+        QTest::mouseRelease(window, Qt::MiddleButton, {}, QPoint(150, 270));
+
+        QTest::mousePress(window, Qt::MiddleButton, {}, QPoint(150, 100));
+        QVERIFY(autoScroll.active());
+        QTest::mouseMove(window, QPoint(150, 200));
+        QTRY_VERIFY(list->property("contentY").toReal() > 50);
+        QTest::mouseRelease(window, Qt::MiddleButton, {}, QPoint(150, 200));
+        QVERIFY(!autoScroll.active());
+        const qreal stopped = list->property("contentY").toReal();
+        QTest::qWait(80);
+        QCOMPARE(list->property("contentY").toReal(), stopped);
+
+        QTest::mousePress(window, Qt::MiddleButton, {}, QPoint(150, 150));
+        QTest::mouseRelease(window, Qt::MiddleButton, {}, QPoint(150, 150));
+        QVERIFY(autoScroll.active());
+        QTest::mouseMove(window, QPoint(150, 20));
+        QTRY_VERIFY(list->property("contentY").toReal() < stopped);
+        QTRY_COMPARE(list->property("contentY").toReal(), 0.0);
+        QTest::mouseClick(window, Qt::LeftButton, {}, QPoint(150, 20));
+        QVERIFY(!autoScroll.active());
+
+        QTest::mousePress(window, Qt::MiddleButton, {}, QPoint(150, 150));
+        QTest::mouseRelease(window, Qt::MiddleButton, {}, QPoint(150, 150));
+        QVERIFY(autoScroll.active());
+        QTest::keyClick(window, Qt::Key_Escape);
+        QVERIFY(!autoScroll.active());
     }
 
     void testShortcutTableAndPasscodeLock() {
@@ -7744,6 +8238,10 @@ private slots:
         QCOMPARE(tray.menuProperty(0, QStringLiteral("children-display")).toString(), QStringLiteral("submenu"));
         QCOMPARE(tray.menuGroupProperties({0, 1}, {}).size(), 2);
         tray.showMessage(QStringLiteral("Zalos"), QStringLiteral("Test"));
+        tray.shutdown();
+        QVERIFY(!tray.isVisible());
+        tray.shutdown();
+        QVERIFY(!tray.isVisible());
     }
 };
 

@@ -264,6 +264,9 @@ public:
     static QJsonObject nextPullPage(const QJsonObject& data, int cmd, int subCmd);
     static QJsonArray readPointsOf(const QJsonObject& data);
     static bool isFailoverError(int networkError, int httpStatus);
+    enum class LoginStep { Unavailable, Failed, Proceed };
+    static LoginStep classifyLoginHttp(int httpStatus, bool transportError);
+    static LoginStep classifyLoginBody(bool outerEmpty, bool decrypted, int errorCode, bool hasSessionKey);
 
 signals:
     void loggedIn();

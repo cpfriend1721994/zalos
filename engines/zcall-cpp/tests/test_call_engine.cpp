@@ -108,6 +108,48 @@ private Q_SLOTS:
         QVERIFY(m_proc.waitForStarted(5000));
     }
 
+    bool frameSince(int from, int cmd, const QString& type) const {
+        for (int i = from; i < m_frames.size(); ++i)
+            if (m_frames.at(i).value("type").toString() == type && m_frames.at(i).value("command").toInt() == cmd) return true;
+        return false;
+    }
+
+    void staleSignalReplyIgnored() {
+        QTRY_VERIFY_WITH_TIMEOUT(m_engineSend != nullptr, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(sawUpdate(QStringLiteral("native-ready")), 10000);
+        const int base = m_frames.size();
+
+        sendToEngine(QJsonObject{{"type", "request"}, {"command", "makeCall"},
+                                 {"data", QJsonObject{{"type", 1}, {"partner", QJsonArray{QJsonObject{{"id", "123456"}, {"name", "Người thử"}}}}}}});
+        QTRY_VERIFY_WITH_TIMEOUT(frameSince(base, 401, QStringLiteral("sendSignal")), 5000);
+        double callId = 0;
+        for (int i = base; i < m_frames.size(); ++i) {
+            if (m_frames.at(i).value("command").toInt() == 401 && m_frames.at(i).value("type").toString() == "sendSignal")
+                callId = m_frames.at(i).value("data").toObject().value("callId").toDouble();
+        }
+        QVERIFY(callId >= 1000000000);
+
+        const QJsonObject servers{{"servers", QJsonArray{QJsonObject{{"rtpaddr", "10.0.0.1:4200"}, {"rtcpaddr", "10.0.0.1:4201"}}}}};
+        auto reply401 = [&servers](double id) {
+            QJsonObject data = servers;
+            data.insert("status", 0);
+            data.insert("sessId", "S" + QString(40, QLatin1Char('x')));
+            data.insert("fromId", "111111111");
+            data.insert("toId", "222222222");
+            data.insert("id", id);
+            return QJsonObject{{"type", "recvSignal"}, {"command", 401}, {"data", data}};
+        };
+        sendToEngine(reply401(callId + 1));
+        QTest::qWait(800);
+        QVERIFY(!frameSince(base, 416, QStringLiteral("sendSignal")));
+
+        sendToEngine(reply401(callId));
+        QTRY_VERIFY_WITH_TIMEOUT(frameSince(base, 416, QStringLiteral("sendSignal")), 5000);
+        sendToEngine(QJsonObject{{"type", "request"}, {"command", "endCall"}});
+        QTRY_VERIFY_WITH_TIMEOUT(frameSince(base, 409, QStringLiteral("sendSignal"))
+                                 || frameSince(base, 405, QStringLiteral("sendSignal")), 5000);
+    }
+
     void callSetupContract() {
         QTRY_VERIFY_WITH_TIMEOUT(m_engineSend != nullptr, 10000);
         QTRY_VERIFY_WITH_TIMEOUT(sawUpdate(QStringLiteral("native-ready")), 10000);

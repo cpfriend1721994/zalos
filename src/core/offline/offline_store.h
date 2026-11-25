@@ -63,6 +63,13 @@ public:
     QVector<Models::ConversationItem> loadConversations();
     bool saveMessage(const QString& convId, const Models::MessageItem& item, const QJsonObject& raw = {},
                      bool isGroup = false);
+    struct SaveStats {
+        int inserted{0};
+        int updated{0};
+        int deduped{0};
+        int failed{0};
+    };
+    SaveStats saveStats() const { return m_saveStats; }
     bool recordGroupSeen(const QString& msgId, const QString& userId);
     QVector<Models::MessageItem> loadMessages(const QString& convId, QHash<QString, QJsonObject>* raws = nullptr,
                                               int limit = 2000, qint64 beforeTs = 0);
@@ -144,6 +151,8 @@ private:
     QString m_syncState{"CONNECTED"};
     QSqlDatabase m_db;
     std::unique_ptr<QSqlQuery> m_saveMessageQuery;
+    std::unique_ptr<QSqlQuery> m_messageExistsQuery;
+    SaveStats m_saveStats;
     std::unique_ptr<QSqlQuery> m_checkCliMsgQuery;
     std::unique_ptr<QSqlQuery> m_deleteMessageByIdQuery;
     std::unique_ptr<QSqlQuery> m_ftsRowidQuery;

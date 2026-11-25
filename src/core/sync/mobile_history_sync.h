@@ -57,6 +57,7 @@ public:
         QString plainId;
         bool isGroup{false};
         QVector<BackupRow> rows;
+        int sourceRows{0};
     };
 
     explicit MobileHistorySync(Network::ZaloSession* session, QObject* parent = nullptr);
@@ -69,13 +70,16 @@ public:
     void cancel();
     void handleControl(const QJsonObject& content);
 
+    void recordStoreDelta(int inserted, int updated, int deduped, int failed);
+    void recordIngestDelta(const QHash<QString, int>& drops);
+
     static KeyPair generateKeyPair();
     static QByteArray rsaDecrypt(const QByteArray& privateKeyPem, const QString& cipherBase64, bool* ok);
     static QString backupKeyText(const QByteArray& plainKey, int format);
     static QVector<BackupConversation> readBackupDirectory(const QString& dir, QString* error);
     static QJsonArray toMessages(const BackupConversation& conv, const QHash<QString, QString>& ids,
                                  const QString& myPlainUid, const QString& myNoisedUid, int* skipped = nullptr,
-                                 int startRow = 0, int maxRows = -1);
+                                 int startRow = 0, int maxRows = -1, QHash<QString, int>* reasons = nullptr);
     enum class TransferErrorKind { Ignore, PhoneIdle, PhoneActive, Failed };
     static TransferErrorKind classifyTransferError(const QJsonObject& data);
     static int downloadRetryDelayMs(int httpStatus, int networkError, int attempt, const QByteArray& retryAfter,
@@ -136,6 +140,12 @@ private:
     int m_importedMessages{0};
     int m_importedConversations{0};
     int m_skipped{0};
+    QHash<QString, int> m_skipReasons;
+    int m_storeInserted{0};
+    int m_storeUpdated{0};
+    int m_storeDeduped{0};
+    int m_storeFailed{0};
+    QHash<QString, int> m_ingestReasons;
     quint64 m_generation{0};
 
     enum class V2Phase { Conversation, Message };

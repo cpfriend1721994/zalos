@@ -1,7 +1,10 @@
 #include <QtTest>
+#include <QByteArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+
+#include <QRandomGenerator>
 
 #include "network/zalo_crypto.h"
 
@@ -52,6 +55,73 @@ private slots:
     void plainEventPassesThrough() {
         bool ok = false;
         QCOMPARE(ZaloCrypto::decodeEventData(R"({"x":1})", 0, QString(), &ok), QByteArray(R"({"x":1})"));
+        QVERIFY(ok);
+    }
+
+    void sessionAesPropertyRoundTrip() {
+        const QString secret = "MDEyMzQ1Njc4OWFiY2RlZg==";
+        QRandomGenerator rng(0x5a10u);
+        const int sizes[] = {0, 1, 15, 16, 17, 31, 32, 33, 1024, 4096};
+        for (int size : sizes) {
+            QByteArray plain(size, '\0');
+            for (char& c : plain) c = static_cast<char>(rng.bounded(256));
+            const QString cipher = ZaloCrypto::encodeAES(secret, plain);
+            QCOMPARE(ZaloCrypto::encodeAES(secret, plain), cipher);
+            bool ok = false;
+            const QByteArray back = ZaloCrypto::decodeAES(secret, cipher, &ok);
+            QVERIFY2(ok, qPrintable(QStringLiteral("size %1").arg(size)));
+            QCOMPARE(back, plain);
+        }
+    }
+
+    void sessionAesRejectsBadInput() {
+        const QString secret = "MDEyMzQ1Njc4OWFiY2RlZg==";
+        const QByteArray plain = QByteArray(40, 'x');
+        const QString cipher = ZaloCrypto::encodeAES(secret, plain);
+        const QByteArray raw = QByteArray::fromBase64(cipher.toLatin1());
+
+        bool ok = true;
+        ZaloCrypto::decodeAES(secret, QString::fromLatin1(raw.left(raw.size() - 1).toBase64()), &ok);
+        QVERIFY(!ok);
+
+        ok = true;
+        ZaloCrypto::decodeAES(secret, "%%%not-base64%%%", &ok);
+        QVERIFY(!ok);
+
+        ok = true;
+        const QByteArray wrongKey = ZaloCrypto::decodeAES("ZXhhbXBsZS1vdGhlci1rZXktMTY=", cipher, &ok);
+        QVERIFY(!ok || wrongKey != plain);
+    }
+
+    void eventDataRejectsMalformed_data() {
+        QTest::addColumn<QString>("data");
+        QTest::addColumn<int>("encryptType");
+        QTest::addColumn<QString>("key");
+        QTest::newRow("unknown type 4") << QStringLiteral("AAAA") << 4 << QStringLiteral("BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=");
+        QTest::newRow("negative type") << QStringLiteral("AAAA") << -1 << QString();
+        QTest::newRow("gcm blob under 48 bytes") << QStringLiteral("AAAAAAAAAAAAAAAAAAAAAA==") << 2
+                                                 << QStringLiteral("BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=");
+        QTest::newRow("gcm without key") << QStringLiteral("AQEBAQEBAQEBAQEBAQEBAQICAgICAgICAgICAgICAgLlPG8RpxlrlL5m1hl7n06USc6evCDWDZiY3JRt7ii6b") << 2 << QString();
+        QTest::newRow("zlib type 1 garbage") << QStringLiteral("AAAA") << 1 << QString();
+    }
+
+    void eventDataRejectsMalformed() {
+        QFETCH(QString, data);
+        QFETCH(int, encryptType);
+        QFETCH(QString, key);
+        bool ok = true;
+        ZaloCrypto::decodeEventData(data, encryptType, key, &ok);
+        QVERIFY(!ok);
+    }
+
+    void eventDataPlainAndZlibTypes() {
+        const QByteArray json = R"({"ok":true,"msg":"xin chào"})";
+        const QByteArray zlibStream = qCompress(json).mid(4);
+        bool ok = false;
+        QCOMPARE(ZaloCrypto::decodeEventData(QString::fromLatin1(zlibStream.toBase64()), 1, QString(), &ok), json);
+        QVERIFY(ok);
+
+        QCOMPARE(ZaloCrypto::decodeEventData(QString::fromUtf8(json), 0, QString(), &ok), json);
         QVERIFY(ok);
     }
 

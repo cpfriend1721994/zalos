@@ -571,15 +571,22 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
 
         if (msg.value("msgType").toString() == QLatin1String("chat.delete")) {
             handleRemoteDeletes(content.isArray() ? content.toArray() : QJsonArray{content}, isGroup);
+            ++m_ingestDrops[QStringLiteral("remote_delete")];
             continue;
         }
 
-        if (!undoTargetOf(msg).isEmpty()) continue;
+        if (!undoTargetOf(msg).isEmpty()) {
+            ++m_ingestDrops[QStringLiteral("undo_target")];
+            continue;
+        }
 
         QString threadId;
         QString preview;
         Models::MessageItem item = toMessageItem(msg, isGroup, &threadId, &preview);
-        if (threadId.isEmpty() || item.id.isEmpty()) continue;
+        if (threadId.isEmpty() || item.id.isEmpty()) {
+            ++m_ingestDrops[QStringLiteral("no_thread_or_id")];
+            continue;
+        }
         if (const auto recall = recalls.constFind(item.id); recall != recalls.cend()) {
             item.isRecalled = true;
             item.text = recall->second;
@@ -592,6 +599,7 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
         if (const qint64 expireOn = item.extra.value(QStringLiteral("expireOn")).toLongLong();
             expireOn > 0 && expireOn <= QDateTime::currentMSecsSinceEpoch()) {
             if (m_offlineStore) m_offlineStore->deleteMessage(item.id);
+            ++m_ingestDrops[QStringLiteral("expired_ttl")];
             continue;
         }
         if (item.messageType == QLatin1String("poll")) {

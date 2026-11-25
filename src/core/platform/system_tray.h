@@ -190,6 +190,7 @@ public:
     void setWindowVisible(bool visible);
     void setCallState(const QString& phase, const QString& peerName, bool isVideo,
                       bool muted, bool speakerOff, bool cameraOn, bool screenShareOn);
+    void shutdown();
     QString callPhase() const { return m_callPhase; }
     QString toolTip() const { return m_toolTip; }
     bool isVisible() const { return m_registered || m_hostAvailable; }

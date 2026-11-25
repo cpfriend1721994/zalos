@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2026-11-25
+
+### Added
+- **Group Polls in Phone History:** group polls from the phone history sync are imported into the chat timeline.
+- **Middle-Click Autoscroll:** press the middle mouse button over a list (chat, conversation list, contacts, settings) to scroll: hold and drag (farther = faster) or click once to scroll until the next click, `Esc` or a wheel scroll.
+
+### Changed & Improved
+- **Faster Scrolling:** mouse wheel notches move about 1.7× further (at least 5 lines), and touchpad scrolling is scaled to match.
+- **Linked Devices in About:** Settings › About refreshes the linked device list every time the tab opens, and the section is labelled "Linked devices".
+
+### Fixed
+- **Text Messages Missing After Phone Sync:** text messages from phone history were skipped during sync; they are now imported.
+- **Recalled Messages After Phone Sync:** messages recalled on the phone are now shown as recalled instead of as normal messages.
+- **Expired Photo and Video Placeholders:** when several photos or videos have expired next to each other, each placeholder shows its icon above the text again, and the play button no longer covers "Video expired".
+- **Hover Actions on Expired Media:** the reply, forward and more toolbar appears when hovering expired photos and videos, including grouped photos.
+- **Reactions Reappearing After Removal:** a removed reaction no longer comes back when the same older reaction events arrive again during the session.
+- **Late Call Reply Attaching to a New Call:** a delayed call-setup reply from a cancelled call is ignored when it carries a different call ID.
+- **App Restart Duplicate Instance & Status Bar Icon:** Restarting Zalos (such as when toggling hardware acceleration in Settings) now forces a clean exit instead of hiding the old instance to the system tray, and unregisters the outgoing tray SNI D-Bus service before launching the replacement process so two app instances and duplicate status bar icons no longer appear.
+
 ## [1.3.0] - 2026-11-24
 
 ### Added

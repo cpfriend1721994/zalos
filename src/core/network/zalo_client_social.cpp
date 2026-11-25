@@ -674,6 +674,7 @@ bool ZaloClient::hasReactions(const QString& msgId) {
 
 bool ZaloClient::addReactionEvent(const QString& msgId, const QString& uid, const QString& icon, const QString& eventId,
                                   qint64 ts) {
+    if (ts > 0 && ts < m_reactionClearedTs.value(msgId + QLatin1Char('|') + uid, 0)) return false;
     auto& events = eventsOf(msgId);
     for (const auto& e : std::as_const(events)) {
         if (e.eventId == eventId) return false;
@@ -697,6 +698,9 @@ void ZaloClient::dropPendingReaction(const QString& msgId, const QString& icon) 
 }
 
 void ZaloClient::clearReactionsOf(const QString& msgId, const QString& uid, qint64 clearTs) {
+    const qint64 clearedAt = clearTs > 0 ? clearTs : QDateTime::currentMSecsSinceEpoch();
+    qint64& mark = m_reactionClearedTs[msgId + QLatin1Char('|') + uid];
+    mark = qMax(mark, clearedAt);
     auto& events = eventsOf(msgId);
     events.erase(std::remove_if(events.begin(), events.end(), [&uid, clearTs](const auto& e) {
         return e.uid == uid && (clearTs <= 0 || e.ts <= clearTs);

@@ -151,7 +151,21 @@ ZaloClient::ZaloClient(QObject* parent)
                 }
             });
     connect(m_historySync, &Sync::MobileHistorySync::messagesImported, this,
-            [this](const QJsonArray& messages, bool isGroup) { handleIncomingMessages(messages, isGroup, true); });
+            [this](const QJsonArray& messages, bool isGroup) {
+                const auto before = m_offlineStore ? m_offlineStore->saveStats() : Offline::ZaloOfflineStore::SaveStats{};
+                const QHash<QString, int> dropsBefore = m_ingestDrops;
+                handleIncomingMessages(messages, isGroup, true);
+                QHash<QString, int> dropsDelta;
+                for (auto it = m_ingestDrops.cbegin(); it != m_ingestDrops.cend(); ++it) {
+                    const int d = it.value() - dropsBefore.value(it.key());
+                    if (d > 0) dropsDelta.insert(it.key(), d);
+                }
+                m_historySync->recordIngestDelta(dropsDelta);
+                if (!m_offlineStore) return;
+                const auto after = m_offlineStore->saveStats();
+                m_historySync->recordStoreDelta(after.inserted - before.inserted, after.updated - before.updated,
+                                                after.deduped - before.deduped, after.failed - before.failed);
+            });
     connect(session, &ZaloSession::readPointsReceived, this, &ZaloClient::applyReadPoints);
     connect(session, &ZaloSession::controlReceived, this, &ZaloClient::handleSyncControl);
     m_labelDebounce = new QTimer(this);
@@ -979,6 +993,7 @@ void ZaloClient::logout() {
     m_messageThread.clear();
     m_reactions.clear();
     m_reactedIds.clear();
+    m_reactionClearedTs.clear();
     m_reactedIdsLoaded = false;
     m_onlineIds.clear();
     m_blockedIds.clear();
@@ -1168,32 +1183,13 @@ void ZaloClient::loadAccountData() {
     session->apiGet("profile", "/api/social/profile/getmute", {{"imei", session->imei()}},
                     [this, gen](bool ok, const QJsonValue& data, const QString&, int) {
         if (gen != m_accountLoadGen || !ok) return;
-        const QJsonObject obj = data.toObject();
-        qint64 nowSec = obj.value("systemTime").toVariant().toLongLong();
-        if (nowSec > 100000000000LL) nowSec /= 1000;
-        if (nowSec <= 0) nowSec = QDateTime::currentSecsSinceEpoch();
-        QSet<QString> nextMuted;
-        QHash<QString, qint64> nextUntil;
-        for (const char* key : {"chatEntries", "groupChatEntries"}) {
-            for (const QJsonValue& v : obj.value(key).toArray()) {
-                const QJsonObject e = v.toObject();
-                const QString id = idOf(e.value("id"));
-                if (id.isEmpty()) continue;
-                const int muteMode = e.value("muteMode").toInt(0);
-                const qint64 duration = e.value("duration").toVariant().toLongLong();
-                const qint64 start = e.value("startTime").toVariant().toLongLong();
-                const bool infinite = duration == -1 || muteMode == 2 || muteMode == 3;
-                if (!infinite && (duration == 0 || start + duration < nowSec)) continue;
-                nextMuted.insert(id);
-                nextUntil.insert(id, !infinite && duration > 0 ? (start + duration) * 1000 : 0);
-                m_conversationModel->setMuted(id, true);
-            }
-        }
+        const MuteSnapshot snap = parseMuteSnapshot(data.toObject(), QDateTime::currentSecsSinceEpoch());
+        for (const QString& id : snap.muted) m_conversationModel->setMuted(id, true);
         for (const QString& oldId : std::as_const(m_mutedIds)) {
-            if (!nextMuted.contains(oldId)) m_conversationModel->setMuted(oldId, false);
+            if (!snap.muted.contains(oldId)) m_conversationModel->setMuted(oldId, false);
         }
-        m_mutedIds = std::move(nextMuted);
-        m_muteUntil = std::move(nextUntil);
+        m_mutedIds = snap.muted;
+        m_muteUntil = snap.until;
         emit currentConversationChanged();
     });
     refreshBlockedUsers();

@@ -44,6 +44,7 @@ ZaloOfflineStore::~ZaloOfflineStore() {
 
 void ZaloOfflineStore::resetCachedQueries() {
     m_saveMessageQuery.reset();
+    m_messageExistsQuery.reset();
     m_checkCliMsgQuery.reset();
     m_deleteMessageByIdQuery.reset();
     m_ftsRowidQuery.reset();
@@ -827,9 +828,17 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
                 m_deleteMessageByIdQuery->prepare("DELETE FROM messages WHERE id = :oldId;");
             }
             m_deleteMessageByIdQuery->bindValue(":oldId", oldId);
-            m_deleteMessageByIdQuery->exec();
+            if (m_deleteMessageByIdQuery->exec() && m_deleteMessageByIdQuery->numRowsAffected() > 0) ++m_saveStats.deduped;
         }
     }
+
+    if (!m_messageExistsQuery) {
+        m_messageExistsQuery = std::make_unique<QSqlQuery>(m_db);
+        m_messageExistsQuery->prepare("SELECT 1 FROM messages WHERE id = :id;");
+    }
+    m_messageExistsQuery->bindValue(":id", item.id);
+    const bool existed = m_messageExistsQuery->exec() && m_messageExistsQuery->next();
+    m_messageExistsQuery->finish();
 
     if (!m_saveMessageQuery) {
         m_saveMessageQuery = std::make_unique<QSqlQuery>(m_db);
@@ -891,7 +900,12 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
     q.bindValue(":file_size", item.fileSize);
     q.bindValue(":expire_on", expiryOf(raw, item.ts));
     q.bindValue(":seen_uids", item.seenUids.join(QLatin1Char(',')));
-    if (!q.exec()) return false;
+    if (!q.exec()) {
+        ++m_saveStats.failed;
+        return false;
+    }
+    if (existed) ++m_saveStats.updated;
+    else ++m_saveStats.inserted;
     indexMessage(item.id, item);
     return true;
 }

@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QFileInfo>
+#include <QDir>
 #include <QTemporaryDir>
 #include "crypto/db_cross.h"
 
@@ -56,35 +58,45 @@ class TestCrypto : public QObject {
         return ct;
     }
 
-    static bool roundTripZdb4(bool lzmaAlone, std::string* error, QByteArray* extracted) {
-        std::vector<uint8_t> db(64, 0);
-        std::memcpy(db.data(), "SQLite format 3", 16);
-        for (size_t i = 16; i < db.size(); ++i) db[i] = static_cast<uint8_t>(i);
+    using Entry = std::pair<std::string, std::vector<uint8_t>>;
 
+    static bool extractZdb4(const std::vector<Entry>& entries, bool lzmaAlone, std::string* error,
+                            QTemporaryDir& dir, std::string* outputDir) {
         std::vector<uint8_t> pt = {'Z', 'D', 'B', '4', '.', '0', 0, 0, 0, 0, 0, 0, 0, 0};
-        putU32Be(pt, 1);
-        const std::string name = "123456.db";
-        putU32Be(pt, static_cast<uint32_t>(name.size()));
-        pt.insert(pt.end(), name.begin(), name.end());
-        putU32Be(pt, static_cast<uint32_t>(db.size()));
-        const std::vector<uint8_t> packed = compress(db, lzmaAlone);
+        putU32Be(pt, static_cast<uint32_t>(entries.size()));
+        std::vector<uint8_t> body;
+        for (const Entry& e : entries) {
+            putU32Be(pt, static_cast<uint32_t>(e.first.size()));
+            pt.insert(pt.end(), e.first.begin(), e.first.end());
+            putU32Be(pt, static_cast<uint32_t>(e.second.size()));
+            body.insert(body.end(), e.second.begin(), e.second.end());
+        }
+        const std::vector<uint8_t> packed = compress(body, lzmaAlone);
         if (packed.empty()) return false;
         pt.insert(pt.end(), packed.begin(), packed.end());
 
         const std::string passphrase = "0123456789abcdef0123456789abcdef";
         const std::vector<uint8_t> ct = encryptZeroIv(pt, DbCross::deriveAes256Key(passphrase));
 
-        QTemporaryDir dir;
         if (!dir.isValid()) return false;
         const std::string input = dir.filePath("backup.zdb").toStdString();
-        const std::string output = dir.filePath("db").toStdString();
+        *outputDir = dir.filePath("db").toStdString();
         {
             std::ofstream f(input, std::ios::binary);
             f.write(reinterpret_cast<const char*>(ct.data()), static_cast<std::streamsize>(ct.size()));
         }
-        const bool ok = DbCross::decompressAndDecryptZdb4(input, output, passphrase, error);
-        QFile out(QString::fromStdString(output) + "/" + QString::fromStdString(name));
-        if (ok && out.open(QIODevice::ReadOnly)) *extracted = out.readAll();
+        return DbCross::decompressAndDecryptZdb4(input, *outputDir, passphrase, error);
+    }
+
+    static bool roundTripZdb4(bool lzmaAlone, std::string* error, QByteArray* extracted) {
+        std::vector<uint8_t> db(64, 0);
+        std::memcpy(db.data(), "SQLite format 3", 16);
+        for (size_t i = 16; i < db.size(); ++i) db[i] = static_cast<uint8_t>(i);
+        QTemporaryDir dir;
+        std::string out;
+        const bool ok = extractZdb4({{"123456.db", db}}, lzmaAlone, error, dir, &out);
+        QFile file(QString::fromStdString(out) + "/123456.db");
+        if (ok && file.open(QIODevice::ReadOnly)) *extracted = file.readAll();
         return ok;
     }
 
@@ -141,6 +153,43 @@ private slots:
         QVERIFY2(roundTripZdb4(false, &error, &extracted), error.c_str());
         QCOMPARE(extracted.size(), 64);
         QVERIFY(extracted.startsWith("SQLite format 3"));
+    }
+
+    void testZdb4HostileNamesRejectedWithoutWriting_data() {
+        QTest::addColumn<QString>("name");
+        QTest::newRow("parent traversal") << QStringLiteral("../escape.db");
+        QTest::newRow("nested traversal") << QStringLiteral("a/../../escape.db");
+        QTest::newRow("absolute path") << QStringLiteral("/tmp/escape.db");
+        QTest::newRow("empty name") << QString();
+        QTest::newRow("overlong name") << QString(4097, QLatin1Char('a'));
+    }
+
+    void testZdb4HostileNamesRejectedWithoutWriting() {
+        QFETCH(QString, name);
+        const std::vector<uint8_t> payload(16, 0x42);
+        QTemporaryDir dir;
+        std::string out;
+        std::string error;
+        const bool ok = extractZdb4({{name.toStdString(), payload}}, false, &error, dir, &out);
+        QVERIFY(!ok);
+        QVERIFY(!QFileInfo::exists(dir.filePath("escape.db")));
+        QVERIFY(!QFileInfo::exists(QString::fromStdString(out) + "/" + name));
+        QVERIFY(QDir(QString::fromStdString(out)).entryList(QDir::Files | QDir::NoDotAndDotDot).isEmpty());
+    }
+
+    void testZdb4MultiEntryWithEmptyFile() {
+        std::vector<uint8_t> first(64, 0);
+        std::memcpy(first.data(), "SQLite format 3", 16);
+        const std::vector<uint8_t> second(32, 0x7e);
+        QTemporaryDir dir;
+        std::string out;
+        std::string error;
+        QVERIFY2(extractZdb4({{"111.db", first}, {"empty.db", {}}, {"222.db", second}}, false, &error, dir, &out),
+                 error.c_str());
+        QCOMPARE(QFile(QString::fromStdString(out) + "/111.db").size(), 64);
+        QCOMPARE(QFile(QString::fromStdString(out) + "/222.db").size(), 32);
+        QVERIFY(QFile::exists(QString::fromStdString(out) + "/empty.db"));
+        QCOMPARE(QFile(QString::fromStdString(out) + "/empty.db").size(), 0);
     }
 
     void testZdb4LzmaAloneContainer() {

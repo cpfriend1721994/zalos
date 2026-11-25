@@ -2136,13 +2136,14 @@ Item {
                                     visible: ZaloClient.isLoggedIn
                                     Layout.fillWidth: true
                                     spacing: 8
-                                    onVisibleChanged: if (visible && ZaloClient.linkedDevices.length === 0) ZaloClient.refreshLinkedDevices()
+                                    Component.onCompleted: if (ZaloClient.isLoggedIn) ZaloClient.refreshLinkedDevices()
+                                    onVisibleChanged: if (visible) ZaloClient.refreshLinkedDevices()
 
                                     RowLayout {
                                         Layout.fillWidth: true
                                         Text {
                                             Layout.fillWidth: true
-                                            text: I18n.t("Thiết bị liên kết (E2EE)", "Linked devices (E2EE)")
+                                            text: I18n.t("Thiết bị liên kết", "Linked devices")
                                             font.family: Theme.fontFamily
                                             font.weight: Font.DemiBold
                                             font.pixelSize: 13

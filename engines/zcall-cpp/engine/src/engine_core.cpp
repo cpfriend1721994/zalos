@@ -691,6 +691,8 @@ void EngineCore::onRecvSignal(const QString& command, const QJsonObject& data) {
     const CallPtr c = m_call;
     if (command == QLatin1String("401")) {
         if (!c || c->state != QLatin1String("calling")) return;
+        const QJsonValue replyId = data.value("id");
+        if (!replyId.isUndefined() && !replyId.isNull() && num(replyId) != c->callId) return;
         const QJsonValue servers = data.value("servers");
         if (js::truthy(data.value("status")) || !servers.isArray() || servers.toArray().isEmpty()) {
             log(QStringLiteral("recvSignal 401 without servers %1 %2").arg(str(data.value("status")), str(data.value("msg"))));

@@ -104,13 +104,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (`.deb` single file)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.0-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.3.0-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.1-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.3.1-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (`.rpm` single file)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.0-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.1-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -138,9 +138,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.0-${ARCH}.AppImage"
-chmod +x "Zalos-1.3.0-${ARCH}.AppImage"
-"./Zalos-1.3.0-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.1-${ARCH}.AppImage"
+chmod +x "Zalos-1.3.1-${ARCH}.AppImage"
+"./Zalos-1.3.1-${ARCH}.AppImage"
 ```
 The AppImage (~27 MB) bundles its own Qt 6.8.3 LTS runtime with QML AOT compilation, color emoji fallback, and slim FFmpeg 7.1.5 LGPL playback — zero system Qt packages required (works cleanly across Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, and Arch; requires `glibc ≥ 2.35`).
 
@@ -178,7 +178,7 @@ docker compose run --rm package-rpm      # dist/*.deb + dist/*.x86_64.rpm (.rpm 
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.3.0 && git push origin v1.3.0`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.3.1 && git push origin v1.3.1`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.

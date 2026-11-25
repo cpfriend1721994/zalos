@@ -29,6 +29,8 @@
 #include "core/platform/avatar_image_provider.h"
 #include "core/platform/icon_image_provider.h"
 #include "core/platform/render_profile.h"
+#include "core/platform/wheel_boost.h"
+#include "core/platform/middle_autoscroll.h"
 #include "core/platform/dependency_report.h"
 #include "core/platform/single_instance.h"
 
@@ -388,6 +390,9 @@ int main(int argc, char* argv[]) {
                                : QStringLiteral("zalos"));
     app.setWindowIcon(QIcon(":/Zalos/assets/icons/zalos.svg"));
     QPixmapCache::setCacheLimit(4096);
+    Zalos::Core::Platform::WheelBoost::applyWheelScrollLines(app.styleHints());
+    Zalos::Core::Platform::WheelBoost wheelBoost;
+    Zalos::Core::Platform::MiddleAutoScroll middleAutoScroll;
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Zalos - Native Qt6 (C++/QML) messaging client for Zalo on Linux");
@@ -488,12 +493,13 @@ int main(int argc, char* argv[]) {
                 QMetaObject::invokeMethod(obj, "toggleTheme");
             });
             QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::quitRequested,
-                             obj, [obj, zaloClient]() {
+                             obj, [obj, zaloClient, trayController]() {
                 obj->setProperty("forceQuit", true);
                 if (zaloClient->calls()) {
                     zaloClient->calls()->hangup();
                     zaloClient->calls()->shutdown();
                 }
+                trayController->shutdown();
                 QGuiApplication::quit();
             });
             auto activate = [obj](const QString& token) {
@@ -511,14 +517,43 @@ int main(int argc, char* argv[]) {
     engine.load(QUrl(QStringLiteral("qrc:/Zalos/src/qml/Main.qml")));
 #endif
 
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, zaloClient, [zaloClient]() {
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, zaloClient, [zaloClient, trayController]() {
         Zalos::Core::Platform::RenderGuard::markFirstFrame();
         if (zaloClient->calls()) zaloClient->calls()->shutdown();
+        trayController->shutdown();
     });
+
+    auto restartArgs = []() {
+        QStringList args;
+        for (const QString& a : QCoreApplication::arguments().mid(1)) {
+            if (a != QLatin1String("--hidden") && a != QLatin1String("--autostart")) args << a;
+        }
+        return args;
+    };
+    auto restarting = std::make_shared<bool>(false);
+    auto performRestart = [&engine, &singleInstance, zaloClient, trayController, restartArgs, restarting]() {
+        if (*restarting) return;
+        *restarting = true;
+        for (QObject* obj : engine.rootObjects()) {
+            if (obj) obj->setProperty("forceQuit", true);
+        }
+        if (zaloClient->calls()) {
+            zaloClient->calls()->hangup();
+            zaloClient->calls()->shutdown();
+        }
+        trayController->shutdown();
+        const QString exe = qEnvironmentVariable("APPIMAGE", QCoreApplication::applicationFilePath());
+        singleInstance.release();
+        QProcess::startDetached(exe, restartArgs());
+        QCoreApplication::exit(0);
+    };
+    QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::restartRequested, &app, performRestart);
 
     for (QObject* obj : engine.rootObjects()) {
         auto* window = qobject_cast<QQuickWindow*>(obj);
         if (!window) continue;
+        window->installEventFilter(&wheelBoost);
+        window->installEventFilter(&middleAutoScroll);
         auto attemptMarked = std::make_shared<bool>(false);
         auto firstFrameSwapped = std::make_shared<bool>(false);
         if (window->isVisible() && renderProfile.guarded()) {
@@ -562,22 +597,12 @@ int main(int argc, char* argv[]) {
             else bgTrimTimer->start();
         });
         if (!window->isVisible()) bgTrimTimer->start();
-        auto restartArgs = []() {
-            QStringList args;
-            for (const QString& a : QCoreApplication::arguments().mid(1)) {
-                if (a != QLatin1String("--hidden") && a != QLatin1String("--autostart")) args << a;
-            }
-            return args;
-        };
         QObject::connect(window, &QQuickWindow::sceneGraphError, &app,
-                         [renderProfile, &singleInstance, restartArgs](QQuickWindow::SceneGraphError, const QString& message) {
+                         [renderProfile, performRestart](QQuickWindow::SceneGraphError, const QString& message) {
             std::cerr << "[zalos] scene graph error: " << message.toStdString() << std::endl;
             if (!renderProfile.guarded()) return;
             Zalos::Core::Platform::RenderGuard::recordFailure(renderProfile.backend);
-            const QString exe = qEnvironmentVariable("APPIMAGE", QCoreApplication::applicationFilePath());
-            singleInstance.release();
-            QProcess::startDetached(exe, restartArgs());
-            QCoreApplication::exit(0);
+            performRestart();
         });
         QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::memoryTrimRequested, window, [window, &engine]() {
             engine.collectGarbage();
@@ -586,13 +611,6 @@ int main(int argc, char* argv[]) {
 #ifdef __GLIBC__
             malloc_trim(0);
 #endif
-        });
-        QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::restartRequested, &app,
-                         [&singleInstance, restartArgs]() {
-            const QString exe = qEnvironmentVariable("APPIMAGE", QCoreApplication::applicationFilePath());
-            singleInstance.release();
-            QProcess::startDetached(exe, restartArgs());
-            QCoreApplication::quit();
         });
     }
 

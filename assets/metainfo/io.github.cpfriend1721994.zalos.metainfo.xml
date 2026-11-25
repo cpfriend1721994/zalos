@@ -39,6 +39,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.3.1" date="2026-11-25">
+      <description>
+        <p>Fixed restarting Zalos (such as toggling hardware acceleration in Settings) leaving the previous instance alive in the system tray and creating a duplicate app and status bar icon. Phone history sync now imports text messages, group polls and recalled messages, and expired photo and video placeholders keep their icons and actions when several are shown together. Adds middle-click autoscroll, faster mouse wheel and touchpad scrolling, and a refreshed linked-devices list in Settings &gt; About.</p>
+      </description>
+    </release>
     <release version="1.3.0" date="2026-11-24">
       <description>
         <p>Full zBusiness Tools API integration (live business profile lookup, product catalog &amp; product CRUD, and server-synced auto-reply rules), Zalo-style OpenStreetMap tile preview cards with sender avatar pins for shared locations, full-width horizontal panoramic image rendering, NativeTextRendering COLRv1 emoji fixes, universal bundled Qt 6.8.3 LTS runtime with QML AOT compilation across .deb, .rpm, AppImage, Flatpak, Snap, and Nix, SQLite label caching for instant startup, desktop System Theme color/font synchronization fixes, responsive narrow-window (480x440+) layouts, async call device discovery, 32-frame pre-auth WebSocket queuing, non-blocking local file open, and DPR/memory optimizations. Also fixes the interface font falling back to the emoji font when the desktop font is missing (now Noto Sans), links that did not open in the browser (with a notice when no browser is installed) or could not be clicked, and zBusiness catalog error 113; file choosers now use the desktop's native dialog, packages are about 4 MB smaller, and each architecture is compiled once for .deb, AppImage and .rpm.</p>

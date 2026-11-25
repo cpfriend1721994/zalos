@@ -230,6 +230,33 @@ inline bool isOfficialAccount(const QJsonObject& user) {
     return false;
 }
 
+struct MuteSnapshot {
+    QSet<QString> muted;
+    QHash<QString, qint64> until;
+};
+
+inline MuteSnapshot parseMuteSnapshot(const QJsonObject& obj, qint64 fallbackNowSec) {
+    qint64 nowSec = obj.value("systemTime").toVariant().toLongLong();
+    if (nowSec > 100000000000LL) nowSec /= 1000;
+    if (nowSec <= 0) nowSec = fallbackNowSec;
+    MuteSnapshot out;
+    for (const char* key : {"chatEntries", "groupChatEntries"}) {
+        for (const QJsonValue& v : obj.value(key).toArray()) {
+            const QJsonObject e = v.toObject();
+            const QString id = idOf(e.value("id"));
+            if (id.isEmpty()) continue;
+            const int muteMode = e.value("muteMode").toInt(0);
+            const qint64 duration = e.value("duration").toVariant().toLongLong();
+            const qint64 start = e.value("startTime").toVariant().toLongLong();
+            const bool infinite = duration == -1 || muteMode == 2 || muteMode == 3;
+            if (!infinite && (duration == 0 || start + duration < nowSec)) continue;
+            out.muted.insert(id);
+            out.until.insert(id, !infinite && duration > 0 ? (start + duration) * 1000 : 0);
+        }
+    }
+    return out;
+}
+
 inline QString parseReactionSnapshot(const QJsonObject& msg) {
     QJsonValue reactsVal = msg.value(QLatin1String("reacts"));
     if (reactsVal.isUndefined() || reactsVal.isNull()) {

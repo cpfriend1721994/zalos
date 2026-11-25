@@ -476,7 +476,7 @@ Item {
                             visible: mediaMouse.containsMouse
                         }
                         Rectangle {
-                            visible: msgRow.messageType === "video"
+                            visible: msgRow.messageType === "video" && mediaImg.status !== Image.Error
                             anchors.centerIn: parent
                             width: 44
                             height: 44
@@ -581,6 +581,7 @@ Item {
                             model: msgRow.mediaRun
                             delegate: Item {
                                 id: tile
+                                objectName: "mediaRunTile"
                                 required property var modelData
                                 readonly property bool sticker: tile.modelData.messageType === "sticker"
                                 width: tile.sticker ? 130 : 150
@@ -592,15 +593,28 @@ Item {
                                     cache: false
                                     source: tile.sticker ? "" : tile.modelData.mediaUrl
                                     animatedSource: !tile.sticker && tile.modelData.animatedUrl ? tile.modelData.animatedUrl : ""
+                                    errorGlyph: false
                                     sourceSize.width: 320
                                 }
-                                Text {
+                                ColumnLayout {
+                                    objectName: "mediaRunExpiredHint"
                                     visible: !tile.sticker && tileImage.status === Image.Error
                                     anchors.centerIn: parent
-                                    text: I18n.t("Ảnh đã hết hạn", "Photo expired")
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: ThemeManager.secondaryTextColor
+                                    spacing: 6
+                                    ZIcon {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        name: tile.modelData.messageType === "video" ? "video" : "image"
+                                        size: 24
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: tile.modelData.messageType === "video" ? I18n.t("Video đã hết hạn", "Video expired")
+                                                                                     : I18n.t("Ảnh đã hết hạn", "Photo expired")
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: ThemeManager.secondaryTextColor
+                                    }
                                 }
                                 ZSticker {
                                     id: tileSticker
@@ -1657,6 +1671,7 @@ Item {
     }
 
     Loader {
+        objectName: "messageActions"
         active: rowHover.hovered && !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.isPoll && !msgRow.msgId.startsWith("local-")
         y: bubbleRow.y + (senderNameText.visible ? (senderNameText.height + 4) : 0) + 2
         x: Math.max(8, Math.min(msgRow.width - width - 8,

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.3.0 LANGUAGES CXX)
+project(zalos VERSION 1.3.1 LANGUAGES CXX)
 option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -94,6 +94,10 @@ set(ZALOS_SOURCES
     src/core/media/voice_recorder.cpp
     src/core/platform/shortcut_map.h
     src/core/platform/shortcut_map.cpp
+    src/core/platform/wheel_boost.h
+    src/core/platform/wheel_boost.cpp
+    src/core/platform/middle_autoscroll.h
+    src/core/platform/middle_autoscroll.cpp
     src/core/platform/app_lock.h
     src/core/platform/app_lock.cpp
     src/core/platform/storage_manager.h
@@ -394,6 +398,8 @@ if(BUILD_TESTING)
         src/core/network/message_scheduler.cpp
         src/core/media/voice_recorder.cpp
         src/core/platform/shortcut_map.cpp
+        src/core/platform/wheel_boost.cpp
+        src/core/platform/middle_autoscroll.cpp
         src/core/platform/app_lock.cpp
         src/core/platform/storage_manager.cpp
         src/core/network/error_catalog.h

@@ -229,15 +229,30 @@ SystemTrayController::SystemTrayController(QObject* parent)
 }
 
 SystemTrayController::~SystemTrayController() {
+    shutdown();
+}
+
+void SystemTrayController::shutdown() {
+    if (m_watcher) {
+        m_watcher->disconnect(this);
+        m_watcher->deleteLater();
+        m_watcher = nullptr;
+    }
     if (m_busObjectsRegistered) {
         QDBusConnection bus = QDBusConnection::sessionBus();
         if (bus.isConnected()) {
+            bus.disconnect(QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("/StatusNotifierWatcher"),
+                           QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("StatusNotifierHostRegistered"),
+                           this, SLOT(registerWithWatcher()));
             bus.unregisterObject(QStringLiteral("/StatusNotifierItem"));
             bus.unregisterObject(QStringLiteral("/MenuBar"));
             if (!m_serviceName.isEmpty()) bus.unregisterService(m_serviceName);
         }
         m_busObjectsRegistered = false;
     }
+    m_serviceName.clear();
+    m_registered = false;
+    m_hostAvailable = false;
 }
 
 void SystemTrayController::setupDbus() {

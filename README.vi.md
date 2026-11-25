@@ -103,13 +103,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (file `.deb` lẻ)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.0-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.3.0-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.1-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.3.1-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (file `.rpm` lẻ)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.0-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.1-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -137,9 +137,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (di động, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.0-${ARCH}.AppImage"
-chmod +x "Zalos-1.3.0-${ARCH}.AppImage"
-"./Zalos-1.3.0-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.1-${ARCH}.AppImage"
+chmod +x "Zalos-1.3.1-${ARCH}.AppImage"
+"./Zalos-1.3.1-${ARCH}.AppImage"
 ```
 AppImage (~27 MB) đóng gói sẵn runtime Qt 6.8.3 LTS biên dịch QML AOT, font emoji màu fallback và FFmpeg 7.1.5 LGPL tối giản — hoàn toàn không cần Qt hệ thống (chạy trơn tru trên Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch với `glibc ≥ 2.35`).
 
@@ -161,7 +161,7 @@ Zalos không phụ thuộc Python hay Node.js:
 
 ## 🛠️ Build từ mã nguồn
 
-Quá trình build chạy trong container, nên chỉ cần `docker` (hoặc `podman`) kèm Compose và Git.
+Quá trình build chạy trong container, nên chỉ cần `docker` (or `podman`) kèm Compose và Git.
 
 ```bash
 git clone https://github.com/cpfriend1721994/zalos.git
@@ -177,7 +177,7 @@ docker compose run --rm package-rpm      # dist/*.deb + dist/*.x86_64.rpm (.rpm 
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Đẩy một tag theo chuẩn semantic (`git tag v1.3.0 && git push origin v1.3.0`) sẽ build toàn bộ gói và phát hành
+Đẩy một tag theo chuẩn semantic (`git tag v1.3.1 && git push origin v1.3.1`) sẽ build toàn bộ gói và phát hành
 một GitHub Release.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết quy trình đóng góp.

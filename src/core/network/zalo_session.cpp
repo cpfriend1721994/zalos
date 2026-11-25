@@ -233,24 +233,28 @@ void ZaloSession::login(const QString& imei, const QString& userAgent, const QSt
         reply->deleteLater();
         if (gen != m_sessionGen) return;
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (status == 429 || status >= 500 || (reply->error() != QNetworkReply::NoError && status == 0)) {
+        const LoginStep httpStep = classifyLoginHttp(status, reply->error() != QNetworkReply::NoError);
+        if (httpStep == LoginStep::Unavailable) {
             emit loginUnavailable(reply->errorString());
             return;
         }
-        if (reply->error() != QNetworkReply::NoError || !reply->isOpen()) {
+        if (httpStep == LoginStep::Failed || !reply->isOpen()) {
             emit loginFailed(reply->errorString());
             return;
         }
         const QJsonObject outer = QJsonDocument::fromJson(reply->readAll()).object();
-        if (outer.isEmpty()) {
+        bool ok = false;
+        const QByteArray plain = outer.isEmpty() ? QByteArray()
+            : ZaloCrypto::decodeRespAES(encryptKey, outer.value("data").toString(), &ok);
+        const QJsonObject inner = QJsonDocument::fromJson(plain).object();
+        const QJsonObject info = inner.value("data").toObject();
+        const LoginStep bodyStep = classifyLoginBody(outer.isEmpty(), ok, inner.value("error_code").toInt(-1),
+                                                     !info.value("zpw_enk").toString().isEmpty());
+        if (bodyStep == LoginStep::Unavailable) {
             emit loginUnavailable(QStringLiteral("empty_response"));
             return;
         }
-        bool ok = false;
-        const QByteArray plain = ZaloCrypto::decodeRespAES(encryptKey, outer.value("data").toString(), &ok);
-        const QJsonObject inner = QJsonDocument::fromJson(plain).object();
-        const QJsonObject info = inner.value("data").toObject();
-        if (!ok || inner.value("error_code").toInt(-1) != 0 || info.value("zpw_enk").toString().isEmpty()) {
+        if (bodyStep == LoginStep::Failed) {
             const QString msg = inner.value("error_message").toString(outer.value("error_message").toString());
             emit loginFailed(msg.isEmpty() ? QStringLiteral("session_invalid") : msg);
             return;
@@ -329,6 +333,18 @@ QStringList ZaloSession::serviceUrls(const QString& service) const {
 QString ZaloSession::serviceUrl(const QString& service) const {
     const QStringList urls = serviceUrls(service);
     return urls.isEmpty() ? QString() : urls.at(qBound(0, m_preferredHost.value(service), int(urls.size()) - 1));
+}
+
+ZaloSession::LoginStep ZaloSession::classifyLoginHttp(int httpStatus, bool transportError) {
+    if (httpStatus == 429 || httpStatus >= 500 || (transportError && httpStatus == 0)) return LoginStep::Unavailable;
+    if (transportError) return LoginStep::Failed;
+    return LoginStep::Proceed;
+}
+
+ZaloSession::LoginStep ZaloSession::classifyLoginBody(bool outerEmpty, bool decrypted, int errorCode, bool hasSessionKey) {
+    if (outerEmpty) return LoginStep::Unavailable;
+    if (!decrypted || errorCode != 0 || !hasSessionKey) return LoginStep::Failed;
+    return LoginStep::Proceed;
 }
 
 bool ZaloSession::isFailoverError(int networkError, int httpStatus) {

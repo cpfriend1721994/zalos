@@ -1129,6 +1129,8 @@ private:
     QHash<QString, QString> m_messageThread;
     QHash<QString, QVector<Offline::ZaloOfflineStore::ReactionEvent>> m_reactions;
     QSet<QString> m_reactedIds;
+    QHash<QString, qint64> m_reactionClearedTs;
+    QHash<QString, int> m_ingestDrops;
     bool m_reactedIdsLoaded{false};
     QVector<Offline::ZaloOfflineStore::ReactionEvent>& eventsOf(const QString& msgId);
     bool hasReactions(const QString& msgId);

@@ -5,7 +5,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.3.0
+Version:        1.3.1
 Release:        1%{?dist}
 Summary:        Native Qt6 (C++/QML) messaging client for Zalo on Linux
 License:        MIT AND BSD-3-Clause AND OFL-1.1
@@ -97,6 +97,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %license %{_datadir}/%{name}/fonts/NotoSans-OFL.txt
 
 %changelog
+* Wed Nov 25 2026 Zalos Team <dev@zalos.local> - 1.3.1-1
+- Fix app restart (e.g. toggling hardware acceleration) leaving the previous instance running in the system tray and spawning a duplicate app and status bar icon.
+- Import text messages, group polls and recalled messages from phone history sync; reprocessing an existing history no longer duplicates messages.
+- Add middle-click autoscroll, faster mouse wheel and touchpad scrolling, and a refreshed linked-devices list in Settings.
+- Keep expired photo and video placeholder icons and hover actions visible when several are shown together.
+
 * Tue Nov 24 2026 Zalos Team <dev@zalos.local> - 1.3.0-1
 - Wire zBusiness Tools to live server APIs (business profile lookup, product catalog & item CRUD, and auto-reply rules) alongside existing quick-message shortcuts.
 - Add Zalo-style OpenStreetMap tile preview cards with sender avatar pins for shared location messages and fix wide panoramic image sizing/aspect fit.

@@ -7,6 +7,8 @@
 #include "sync/v2/sync_v2_fallback.h"
 #include "sync/v2/sync_v2_frames.h"
 
+#include <algorithm>
+
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -77,7 +79,7 @@ QString typeName(int t) {
 }
 
 bool isSkippedType(int t) {
-    static const QList<int> skipped{20, 21, 25, 26, 29, 32, 33, 34, 35, 36, 45, 51, 52};
+    static const QList<int> skipped{21, 25, 29, 32, 33, 34, 35, 45, 51, 52};
     return skipped.contains(t);
 }
 
@@ -264,6 +266,10 @@ QVector<MobileHistorySync::BackupConversation> MobileHistorySync::readBackupDire
             db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
             db.setDatabaseName(QDir(dir).filePath(file));
             if (db.open() && db.tables().contains(QStringLiteral("ChatContent"))) {
+                QSqlQuery countQ(db);
+                if (countQ.exec(QStringLiteral("SELECT COUNT(*) FROM ChatContent")) && countQ.next()) {
+                    conv.sourceRows += countQ.value(0).toInt();
+                }
                 QSqlQuery q(db);
                 if (!q.exec(QStringLiteral("SELECT * FROM ChatContent WHERE MsgStatus > 0 AND CliMsgId NOT NULL "
                                            "ORDER BY TimeStamp ASC"))) {
@@ -305,15 +311,20 @@ QVector<MobileHistorySync::BackupConversation> MobileHistorySync::readBackupDire
 
 QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const QHash<QString, QString>& ids,
                                          const QString& myPlainUid, const QString& myNoisedUid, int* skipped,
-                                         int startRow, int maxRows) {
+                                         int startRow, int maxRows, QHash<QString, int>* reasons) {
     QJsonArray out;
     int skip = 0;
+    auto skipRow = [&skip, reasons](const QString& reason) {
+        ++skip;
+        if (reasons) (*reasons)[reason] += 1;
+    };
     const QString thread = ids.value(conv.plainId);
     const int totalRows = static_cast<int>(conv.rows.size());
     const int begin = qMax(0, startRow);
     const int end = (maxRows < 0) ? totalRows : qMin(totalRows, begin + maxRows);
     if (thread.isEmpty()) {
         if (skipped) *skipped += qMax(0, end - begin);
+        if (reasons) (*reasons)[QStringLiteral("no_thread")] += qMax(0, end - begin);
         return out;
     }
     auto noised = [&](const QString& plain) -> QString {
@@ -325,7 +336,7 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
     for (int rowIdx = begin; rowIdx < end; ++rowIdx) {
         const BackupRow& row = conv.rows.at(rowIdx);
         if (isSkippedType(row.msgType)) {
-            ++skip;
+            skipRow(QStringLiteral("type_%1").arg(row.msgType));
             continue;
         }
         const bool mine = row.senderId == QLatin1String("0")
@@ -345,7 +356,7 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
             idTo = mine ? thread : myNoisedUid;
         }
         if (uidFrom.isEmpty() || idTo.isEmpty()) {
-            ++skip;
+            skipRow(QStringLiteral("no_sender"));
             continue;
         }
 
@@ -356,11 +367,77 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
         }
         const Crypto::BinNetMessage& bin = row.hasParsedBin ? row.parsedBin : fallbackBin;
         const QString type = typeName(row.msgType);
+        const QString rowMsgId = row.globalMsgId.isEmpty() || row.globalMsgId == "0" ? row.cliMsgId : row.globalMsgId;
+        auto jsonObjectOf = [](const QString& raw) {
+            const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+            return doc.isObject() ? doc.object() : QJsonObject();
+        };
+        auto attachParams = [&]() {
+            return bin.attachs.empty() ? QJsonObject() : jsonObjectOf(str(bin.attachs.front().params));
+        };
+        auto pickId = [](const QJsonObject& o, std::initializer_list<const char*> keys) {
+            for (const char* key : keys) {
+                const QString v = o.value(QLatin1String(key)).toVariant().toString();
+                if (!v.isEmpty() && v != QLatin1String("0")) return v;
+            }
+            return QString();
+        };
+        if (row.msgType == 36) {
+            const QJsonObject src = jsonObjectOf(row.text);
+            const QString explicitId = pickId(src, {"globalMsgId", "msgId"});
+            const QString targetId = explicitId.isEmpty() ? rowMsgId : explicitId;
+            if (targetId.isEmpty()) {
+                skipRow(QStringLiteral("undo_unparsed{no_id}"));
+                continue;
+            }
+            out.append(QJsonObject{
+                {"msgId", targetId},
+                {"cliMsgId", row.cliMsgId},
+                {"msgType", QStringLiteral("webchat")},
+                {"uidFrom", uidFrom},
+                {"idTo", idTo},
+                {"ts", QString::number(row.ts)},
+                {"content", QString()},
+                {"ttl", 0},
+            });
+            out.append(QJsonObject{
+                {"msgId", QStringLiteral("undo:%1").arg(targetId)},
+                {"cliMsgId", QString()},
+                {"msgType", QStringLiteral("chat.undo")},
+                {"uidFrom", uidFrom},
+                {"idTo", idTo},
+                {"ts", QString::number(row.ts)},
+                {"content", QJsonObject{{"globalMsgId", targetId}, {"cliMsgId", row.cliMsgId}, {"deleteMsg", 1}}},
+            });
+            continue;
+        }
+        if (row.msgType == 26) {
+            QJsonObject poll = jsonObjectOf(row.text);
+            if (pickId(poll, {"poll_id", "pollId"}).isEmpty() && pickId(poll.value("params").toObject(), {"pollId", "poll_id"}).isEmpty()) {
+                QJsonObject params = attachParams();
+                poll = QJsonObject{{"action", bin.attachs.empty() ? QString() : str(bin.attachs.front().action)}, {"params", params}};
+                if (pickId(params, {"pollId", "poll_id"}).isEmpty()) {
+                    skipRow(QStringLiteral("poll_unparsed"));
+                    continue;
+                }
+            }
+            out.append(QJsonObject{
+                {"msgId", rowMsgId},
+                {"cliMsgId", row.cliMsgId},
+                {"msgType", type},
+                {"uidFrom", uidFrom},
+                {"idTo", idTo},
+                {"ts", QString::number(row.ts)},
+                {"content", poll},
+                {"ttl", row.ttl},
+            });
+            continue;
+        }
         QJsonValue content;
         if (type == QLatin1String("webchat") || bin.attachs.empty()) {
             const QString text = row.text.isEmpty() ? str(bin.text) : row.text;
             if ((text.isEmpty() && bin.attachs.empty()) || (type != QLatin1String("webchat") && isPlaceholderCaption(text))) {
-                ++skip;
+                skipRow(QStringLiteral("empty_or_placeholder"));
                 continue;
             }
             content = text;
@@ -377,8 +454,12 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
             content = obj;
         }
 
+        if (rowMsgId.isEmpty()) {
+            skipRow(QStringLiteral("no_id"));
+            continue;
+        }
         QJsonObject msg{
-            {"msgId", row.globalMsgId.isEmpty() || row.globalMsgId == "0" ? row.cliMsgId : row.globalMsgId},
+            {"msgId", rowMsgId},
             {"cliMsgId", row.cliMsgId},
             {"msgType", type},
             {"uidFrom", uidFrom},
@@ -974,9 +1055,13 @@ void MobileHistorySync::decryptAndRead() {
     connect(worker, &QThread::finished, this, [this, result, gen]() {
         if (gen != m_generation) return;
         int rows = 0;
-        for (const auto& c : std::as_const(result->conversations)) rows += c.rows.size();
-        log(QStringLiteral("decrypt/read: conversations=%1 rows=%2 error=%3")
-                .arg(result->conversations.size()).arg(rows).arg(result->error));
+        int sourceRows = 0;
+        for (const auto& c : std::as_const(result->conversations)) {
+            rows += c.rows.size();
+            sourceRows += c.sourceRows;
+        }
+        log(QStringLiteral("decrypt/read: conversations=%1 source_rows=%2 rows=%3 error=%4")
+                .arg(result->conversations.size()).arg(sourceRows).arg(rows).arg(result->error));
         if (result->conversations.isEmpty()) {
             if (!result->error.isEmpty()) Network::ErrorCatalog::trace("phone-sync", "backup read failed raw=" + result->error);
             fail(L("Không đọc được tin nhắn trong bản sao lưu: ", "Couldn't read messages from the backup: ")
@@ -1077,6 +1162,9 @@ void MobileHistorySync::resolveIdsAndImport() {
         m_importedMessages = 0;
         m_importedConversations = 0;
         m_skipped = 0;
+        m_skipReasons.clear();
+        m_storeInserted = m_storeUpdated = m_storeDeduped = m_storeFailed = 0;
+        m_ingestReasons.clear();
         importNextChunk();
     };
 
@@ -1092,6 +1180,17 @@ void MobileHistorySync::resolveIdsAndImport() {
     if (pending->outstanding == 0) fail(L("Bản sao lưu không có hội thoại hợp lệ.", "The backup has no valid conversations."));
 }
 
+void MobileHistorySync::recordIngestDelta(const QHash<QString, int>& drops) {
+    for (auto it = drops.constBegin(); it != drops.constEnd(); ++it) m_ingestReasons[it.key()] += it.value();
+}
+
+void MobileHistorySync::recordStoreDelta(int inserted, int updated, int deduped, int failed) {
+    m_storeInserted += inserted;
+    m_storeUpdated += updated;
+    m_storeDeduped += deduped;
+    m_storeFailed += failed;
+}
+
 void MobileHistorySync::importNextChunk() {
     constexpr int kRowsPerTick = 300;
     if (m_importIndex >= m_conversations.size()) {
@@ -1101,13 +1200,28 @@ void MobileHistorySync::importNextChunk() {
                            "Transferred %1 messages from %2 conversations.")
                              .arg(m_importedMessages).arg(m_importedConversations);
         if (m_skipped > 0) status += L(" Bỏ qua %1 tin không hiển thị được.", " Skipped %1 messages that can't be shown.").arg(m_skipped);
+        QStringList reasons;
+        for (auto it = m_skipReasons.constBegin(); it != m_skipReasons.constEnd(); ++it) {
+            reasons << QStringLiteral("%1=%2").arg(it.key()).arg(it.value());
+        }
+        std::sort(reasons.begin(), reasons.end());
+        log(QStringLiteral("import done: transferred=%1 conversations=%2 skipped=%3 reasons=[%4]")
+                .arg(m_importedMessages).arg(m_importedConversations).arg(m_skipped).arg(reasons.join(QStringLiteral(", "))));
+        log(QStringLiteral("store: inserted=%1 updated=%2 deduped=%3 failed=%4")
+                .arg(m_storeInserted).arg(m_storeUpdated).arg(m_storeDeduped).arg(m_storeFailed));
+        QStringList ingest;
+        for (auto it = m_ingestReasons.constBegin(); it != m_ingestReasons.constEnd(); ++it) {
+            ingest << QStringLiteral("%1=%2").arg(it.key()).arg(it.value());
+        }
+        std::sort(ingest.begin(), ingest.end());
+        log(QStringLiteral("ingest drops: [%1]").arg(ingest.join(QStringLiteral(", "))));
         setState(Done, status, 100);
         return;
     }
     BackupConversation& conv = m_conversations[m_importIndex];
     const int totalRows = static_cast<int>(conv.rows.size());
     const QJsonArray messages = toMessages(conv, m_ids, m_myPlainUid, m_myNoisedUid, &m_skipped,
-                                           m_importRowOffset, kRowsPerTick);
+                                           m_importRowOffset, kRowsPerTick, &m_skipReasons);
     if (!messages.isEmpty()) {
         emit messagesImported(messages, conv.isGroup);
         m_importedMessages += messages.size();
@@ -1631,6 +1745,9 @@ void MobileHistorySync::maybeFinishV2() {
     m_importedMessages = 0;
     m_importedConversations = 0;
     m_skipped = 0;
+    m_skipReasons.clear();
+    m_storeInserted = m_storeUpdated = m_storeDeduped = m_storeFailed = 0;
+    m_ingestReasons.clear();
     setState(Importing, L("Đang nhập tin nhắn từ Sync v2...", "Importing Sync v2 messages..."), 70);
     importNextChunk();
 }
