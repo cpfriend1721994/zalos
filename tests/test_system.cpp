@@ -36,6 +36,7 @@
 #include <QDBusArgument>
 #include <QDBusMetaType>
 #include <QDBusVariant>
+#include <QSqlQuery>
 #include "multimedia_support.h"
 #include "platform/app_updater.h"
 
@@ -186,6 +187,39 @@ private slots:
             QCOMPARE(upgraded.rawMessage("7100").value("legacy").toBool(), true);
             QCOMPARE(upgraded.pragmaForTesting("auto_vacuum"), QString("2"));
             upgraded.clearCache();
+        }
+    }
+
+    void testCliMsgIdLookupsUseIndex() {
+        // idx_messages_conv_cli and idx_messages_cli are partial (WHERE cli_msg_id <> ''). SQLite only uses a
+        // partial index when the query repeats that condition; otherwise every saved message scans the whole
+        // conversation, which makes phone history import quadratic.
+        ZaloOfflineStore store;
+        store.clearCache();
+        QSqlDatabase db = QSqlDatabase::database(store.connectionNameForTesting());
+        QVERIFY(db.isOpen());
+        const struct {
+            const char* sql;
+            const char* index;
+        } cases[] = {
+            {ZaloOfflineStore::kSqlFindCliDuplicates, "idx_messages_conv_cli"},
+            {ZaloOfflineStore::kSqlIdByConvAndCliId, "idx_messages_conv_cli"},
+            {ZaloOfflineStore::kSqlIdByCliId, "idx_messages_cli"},
+            {ZaloOfflineStore::kSqlTsByCliId, "idx_messages_cli"},
+        };
+        for (const auto& c : cases) {
+            QSqlQuery q(db);
+            QVERIFY2(q.prepare(QStringLiteral("EXPLAIN QUERY PLAN ") + QLatin1String(c.sql)), c.sql);
+            for (const char* name : {":conv", ":c", ":cli", ":id"}) {
+                if (QByteArray(c.sql).contains(QByteArray(name) + ' ') || QByteArray(c.sql).contains(QByteArray(name) + ';')) {
+                    q.bindValue(QLatin1String(name), QStringLiteral("x"));
+                }
+            }
+            QVERIFY2(q.exec(), c.sql);
+            QStringList plan;
+            while (q.next()) plan << q.value(3).toString();
+            const QString joined = plan.join(QStringLiteral(" | "));
+            QVERIFY2(joined.contains(QLatin1String(c.index)), qPrintable(QStringLiteral("%1 -> %2").arg(c.sql, joined)));
         }
     }
 

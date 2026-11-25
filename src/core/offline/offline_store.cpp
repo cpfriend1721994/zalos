@@ -521,7 +521,7 @@ qint64 ZaloOfflineStore::messageTs(const QString& msgId, QString* convId) const 
         if (convId) *convId = q.value(1).toString();
         return q.value(0).toLongLong();
     }
-    q.prepare("SELECT ts, conv_id FROM messages WHERE cli_msg_id = :cli LIMIT 1;");
+    q.prepare(kSqlTsByCliId);
     q.bindValue(":cli", msgId);
     if (!q.exec() || !q.next()) return 0;
     if (convId) *convId = q.value(1).toString();
@@ -646,9 +646,9 @@ QString ZaloOfflineStore::resolveMessageIdByCliId(const QString& convId, const Q
     if (!m_db.isOpen() || cliMsgId.isEmpty() || cliMsgId == QLatin1String("0")) return {};
     QSqlQuery q(m_db);
     if (convId.isEmpty()) {
-        q.prepare("SELECT id FROM messages WHERE cli_msg_id = :cli LIMIT 1;");
+        q.prepare(kSqlIdByCliId);
     } else {
-        q.prepare("SELECT id FROM messages WHERE conv_id = :c AND cli_msg_id = :cli LIMIT 1;");
+        q.prepare(kSqlIdByConvAndCliId);
         q.bindValue(":c", convId);
     }
     q.bindValue(":cli", cliMsgId);
@@ -809,7 +809,7 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
     if (!item.cliMsgId.isEmpty() && item.cliMsgId != QLatin1String("0")) {
         if (!m_checkCliMsgQuery) {
             m_checkCliMsgQuery = std::make_unique<QSqlQuery>(m_db);
-            m_checkCliMsgQuery->prepare("SELECT id, sender_id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND id <> :id;");
+            m_checkCliMsgQuery->prepare(kSqlFindCliDuplicates);
         }
         m_checkCliMsgQuery->bindValue(":conv", convId);
         m_checkCliMsgQuery->bindValue(":cli", item.cliMsgId);
