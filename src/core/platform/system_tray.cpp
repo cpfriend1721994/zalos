@@ -4,8 +4,11 @@
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusMetaType>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDBusReply>
 #include <QDBusServiceWatcher>
+#include <QDBusVariant>
 #include <QFont>
 #include <QFontMetrics>
 #include <QIcon>
@@ -232,7 +235,41 @@ SystemTrayController::~SystemTrayController() {
     shutdown();
 }
 
+void SystemTrayController::seedAvailabilitySync() {
+    setAvailable(isSystemTrayAvailable());
+}
+
+void SystemTrayController::setAvailable(bool available) {
+    if (m_hostAvailable == available) return;
+    m_hostAvailable = available;
+    emit availabilityChanged();
+}
+
+void SystemTrayController::refreshAvailabilityAsync() {
+    const quint64 gen = ++m_probeGen;
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        setAvailable(false);
+        return;
+    }
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        QStringLiteral("org.kde.StatusNotifierWatcher"),
+        QStringLiteral("/StatusNotifierWatcher"),
+        QStringLiteral("org.freedesktop.DBus.Properties"),
+        QStringLiteral("Get"));
+    msg << QStringLiteral("org.kde.StatusNotifierWatcher")
+        << QStringLiteral("IsStatusNotifierHostRegistered");
+    auto* watcher = new QDBusPendingCallWatcher(bus.asyncCall(msg, 200), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, gen](QDBusPendingCallWatcher* call) {
+        call->deleteLater();
+        if (gen != m_probeGen) return;
+        const QDBusPendingReply<QDBusVariant> reply(*call);
+        setAvailable(!reply.isError() && reply.value().variant().toBool());
+    });
+}
+
 void SystemTrayController::shutdown() {
+    ++m_probeGen;
     if (m_watcher) {
         m_watcher->disconnect(this);
         m_watcher->deleteLater();
@@ -244,6 +281,9 @@ void SystemTrayController::shutdown() {
             bus.disconnect(QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("/StatusNotifierWatcher"),
                            QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("StatusNotifierHostRegistered"),
                            this, SLOT(registerWithWatcher()));
+            bus.disconnect(QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("/StatusNotifierWatcher"),
+                           QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("StatusNotifierHostUnregistered"),
+                           this, SLOT(registerWithWatcher()));
             bus.unregisterObject(QStringLiteral("/StatusNotifierItem"));
             bus.unregisterObject(QStringLiteral("/MenuBar"));
             if (!m_serviceName.isEmpty()) bus.unregisterService(m_serviceName);
@@ -252,7 +292,7 @@ void SystemTrayController::shutdown() {
     }
     m_serviceName.clear();
     m_registered = false;
-    m_hostAvailable = false;
+    setAvailable(false);
 }
 
 void SystemTrayController::setupDbus() {
@@ -282,18 +322,26 @@ void SystemTrayController::setupDbus() {
     connect(m_watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
             [this](const QString&, const QString&, const QString& newOwner) {
                 m_registered = false;
-                if (!newOwner.isEmpty()) registerWithWatcher();
+                if (newOwner.isEmpty()) {
+                    ++m_probeGen;
+                    setAvailable(false);
+                    return;
+                }
+                registerWithWatcher();
             });
     bus.connect(QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("/StatusNotifierWatcher"),
                 QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("StatusNotifierHostRegistered"),
+                this, SLOT(registerWithWatcher()));
+    bus.connect(QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("/StatusNotifierWatcher"),
+                QStringLiteral("org.kde.StatusNotifierWatcher"), QStringLiteral("StatusNotifierHostUnregistered"),
                 this, SLOT(registerWithWatcher()));
     registerWithWatcher();
 }
 
 void SystemTrayController::registerWithWatcher() {
+    refreshAvailabilityAsync();
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected() || !m_busObjectsRegistered) return;
-    m_hostAvailable = isSystemTrayAvailable();
     const QString arg = m_serviceName.isEmpty() ? QStringLiteral("/StatusNotifierItem") : m_serviceName;
     QDBusMessage msg = QDBusMessage::createMethodCall(
         QStringLiteral("org.kde.StatusNotifierWatcher"),
@@ -301,8 +349,11 @@ void SystemTrayController::registerWithWatcher() {
         QStringLiteral("org.kde.StatusNotifierWatcher"),
         QStringLiteral("RegisterStatusNotifierItem"));
     msg << arg;
-    const QDBusMessage reply = bus.call(msg, QDBus::Block, 200);
-    m_registered = reply.type() == QDBusMessage::ReplyMessage;
+    auto* watcher = new QDBusPendingCallWatcher(bus.asyncCall(msg, 200), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* call) {
+        if (m_busObjectsRegistered) m_registered = !call->isError();
+        call->deleteLater();
+    });
 }
 
 void SystemTrayController::setupMenu() {

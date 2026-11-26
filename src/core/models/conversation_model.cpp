@@ -377,8 +377,9 @@ ConversationItem ConversationModel::conversation(const QString& convId) const {
     return i >= 0 ? m_allItems[i] : ConversationItem{};
 }
 
-void ConversationModel::updateProfile(const QString& convId, const QString& name, const QString& avatarUrl, int memberCount) {
+bool ConversationModel::updateProfile(const QString& convId, const QString& name, const QString& avatarUrl, int memberCount) {
     bool changed = false;
+    bool nameChanged = false;
     const int i = indexOf(convId);
     if (i >= 0) {
         auto& item = m_allItems[i];
@@ -386,11 +387,12 @@ void ConversationModel::updateProfile(const QString& convId, const QString& name
             item.name = name;
             stampFolded(item);
             changed = true;
+            nameChanged = true;
         }
         if (!avatarUrl.isEmpty() && item.avatarUrl != avatarUrl) { item.avatarUrl = avatarUrl; changed = true; }
         if (memberCount >= 0 && item.memberCount != memberCount) { item.memberCount = memberCount; changed = true; }
     }
-    if (!changed) return;
+    if (!changed) return false;
     for (int row = 0; row < m_filteredItems.size(); ++row) {
         if (m_filteredItems[row].id != convId) continue;
         m_filteredItems[row] = conversation(convId);
@@ -398,6 +400,9 @@ void ConversationModel::updateProfile(const QString& convId, const QString& name
         emit dataChanged(idx, idx, {NameRole, AvatarUrlRole, MemberCountRole, IsOfficialRole});
         break;
     }
+    if (nameChanged && (!m_searchQuery.isEmpty() || m_strangerOnly || m_typeFilter == QLatin1String("stranger")))
+        applyFilter();
+    return true;
 }
 
 void ConversationModel::setSenderPrefix(const QString& convId, const QString& senderPrefix) {
@@ -442,7 +447,13 @@ void ConversationModel::setMuted(const QString& convId, bool muted) {
     const int i = indexOf(convId);
     if (i < 0 || m_allItems[i].isMuted == muted) return;
     m_allItems[i].isMuted = muted;
-    applyFilter();
+    for (int row = 0; row < m_filteredItems.size(); ++row) {
+        if (m_filteredItems[row].id != convId) continue;
+        m_filteredItems[row].isMuted = muted;
+        const QModelIndex idx = index(row);
+        emit dataChanged(idx, idx, {IsMutedRole});
+        break;
+    }
 }
 
 namespace {

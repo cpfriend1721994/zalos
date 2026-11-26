@@ -263,20 +263,76 @@ private slots:
         QVERIFY(!h.s.hasCarry());
     }
 
+    void farFramesBelowStreakAreIgnored() {
+        Harness h(2, 10);
+        int16_t out[kFrame];
+        for (int i = 0; i < 6; ++i) h.push(i, i * 0.02);
+        QVERIFY(h.pull(out));
+        QVERIFY(same(out, expectedFrame(0, 1)));
+        for (int i = 1000; i < 1007; ++i) h.push(i, 1.0 + (i - 1000) * 0.02);
+        QCOMPARE(h.stats.get(Stat::Reset), int64_t(0));
+        h.push(6, 0.12);
+        QCOMPARE(h.stats.get(Stat::Reset), int64_t(0));
+        QVERIFY(h.pull(out));
+        QVERIFY(same(out, expectedFrame(1, 1)));
+    }
+
+    void alternatingFarAndInWindowNeverResets() {
+        Harness h;
+        int16_t out[kFrame];
+        for (int i = 0; i < 6; ++i) h.push(i, i * 0.02);
+        QVERIFY(h.pull(out));
+        int next = 6;
+        for (int k = 0; k < 40; ++k) {
+            h.push(1000 + k, 1.0 + k * 0.02);
+            h.push(next, 0.12 + (next - 6) * 0.02);
+            ++next;
+            QVERIFY(h.pull(out));
+            QVERIFY(same(out, expectedFrame(1 + k, 1)));
+        }
+        QCOMPARE(h.stats.get(Stat::Reset), int64_t(0));
+    }
+
     void largeSequenceJumpResetsStream() {
         Harness h(2, 10);
         int16_t out[kFrame];
         for (int i = 0; i < 6; ++i) h.push(i, i * 0.02);
         QVERIFY(h.pull(out));
         QVERIFY(same(out, expectedFrame(0, 1)));
-        for (int i = 1000; i < 1006; ++i) h.push(i, 1.0 + (i - 1000) * 0.02);
+        for (int i = 1000; i < 1007; ++i) h.push(i, 1.0 + (i - 1000) * 0.02);
+        QCOMPARE(h.stats.get(Stat::Reset), int64_t(0));
+        h.push(1007, 1.14);
         QCOMPARE(h.stats.get(Stat::Reset), int64_t(1));
+        for (int i = 1008; i < 1013; ++i) h.push(i, 1.0 + (i - 1000) * 0.02);
         QVERIFY(h.pull(out));
-        QVERIFY(same(out, expectedFrame(1000 % 256, 1)));
-        for (int i = 10; i < 16; ++i) h.push(i, 2.0 + (i - 10) * 0.02);
+        QVERIFY(same(out, expectedFrame(1007 % 256, 1)));
+        for (int i = 10; i < 17; ++i) h.push(i, 2.0 + (i - 10) * 0.02);
+        QCOMPARE(h.stats.get(Stat::Reset), int64_t(1));
+        h.push(17, 2.14);
         QCOMPARE(h.stats.get(Stat::Reset), int64_t(2));
+        for (int i = 18; i < 23; ++i) h.push(i, 2.0 + (i - 10) * 0.02);
         QVERIFY(h.pull(out));
-        QVERIFY(same(out, expectedFrame(10, 1)));
+        QVERIFY(same(out, expectedFrame(17, 1)));
+    }
+
+    void longRunReusesBuffersInOrder() {
+        Harness h(5, 10);
+        int16_t out[kFrame];
+        int played = 0;
+        for (int i = 0; i < 2000; ++i) {
+            h.push(i, i * 0.02);
+            if (i >= 5) {
+                QVERIFY(h.pull(out));
+                QVERIFY(same(out, expectedFrame(played++ % 256, 1)));
+            }
+        }
+        while (played < 2000) {
+            QVERIFY(h.pull(out));
+            QVERIFY(same(out, expectedFrame(played++ % 256, 1)));
+        }
+        QCOMPARE(h.stats.get(Stat::Reset), int64_t(0));
+        QCOMPARE(h.stats.get(Stat::Dup), int64_t(0));
+        QCOMPARE(h.stats.get(Stat::Lost), int64_t(0));
     }
 };
 

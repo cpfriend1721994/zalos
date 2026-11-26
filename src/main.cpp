@@ -451,6 +451,9 @@ int main(int argc, char* argv[]) {
     const auto zaloClientOwner = std::make_unique<Zalos::Core::Network::ZaloClient>();
     auto* zaloClient = zaloClientOwner.get();
     auto trayController = new Zalos::Core::Platform::SystemTrayController(&app);
+    trayController->seedAvailabilitySync();
+    QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::availabilityChanged, zaloClient,
+                     &Zalos::Core::Network::ZaloClient::trayAvailableChanged);
     zaloClient->setLaunchHidden(zaloClient->trayAvailable()
                                 && (parser.isSet(hiddenOption)
                                     || (parser.isSet(autostartOption) && zaloClient->startHiddenInTray())));

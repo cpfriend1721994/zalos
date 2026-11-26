@@ -45,10 +45,31 @@ Stream::Stream(std::unique_ptr<Decoder> decoder, int maxTarget, Stats& stats, in
     m_sorted.reserve(kWindow);
 }
 
+std::vector<uint8_t> Stream::takeBuffer() {
+    if (m_pool.empty()) return {};
+    std::vector<uint8_t> buf = std::move(m_pool.back());
+    m_pool.pop_back();
+    return buf;
+}
+
+void Stream::recycle(std::vector<uint8_t>&& payload) {
+    if (m_pool.size() >= kPoolMax) return;
+    payload.clear();
+    m_pool.push_back(std::move(payload));
+}
+
+void Stream::clearPackets() {
+    for (auto& entry : m_packets) recycle(std::move(entry.second));
+    m_packets.clear();
+}
+
 void Stream::push(int64_t idx, const uint8_t* payload, size_t len, double now) {
     m_last = now;
-    if (m_hasNext && ((idx < m_next && m_next - idx > 500) || (idx > m_next && idx - m_next > 500))) {
-        m_packets.clear();
+    const bool far = m_hasNext && (idx - m_next > kFarIdx || m_next - idx > kFarIdx);
+    if (far) {
+        if (++m_farStreak < kFarStreakReset) return;
+        m_farStreak = 0;
+        clearPackets();
         m_carry.clear();
         m_carryPos = 0;
         m_transit.clear();
@@ -56,15 +77,20 @@ void Stream::push(int64_t idx, const uint8_t* payload, size_t len, double now) {
         m_playing = false;
         m_expand = 0;
         m_stats.add(Stat::Reset);
-    } else if (m_hasNext && idx < m_next) {
-        m_stats.add(Stat::Late);
-        return;
+    } else {
+        m_farStreak = 0;
+        if (m_hasNext && idx < m_next) {
+            m_stats.add(Stat::Late);
+            return;
+        }
     }
     if (m_packets.count(idx)) {
         m_stats.add(Stat::Dup);
         return;
     }
-    m_packets.emplace(idx, std::vector<uint8_t>(payload, payload + len));
+    std::vector<uint8_t> buf = takeBuffer();
+    buf.assign(payload, payload + len);
+    m_packets.emplace(idx, std::move(buf));
     m_transit.push_back(now - static_cast<double>(idx) * 0.02);
     if (m_transit.size() > kWindow) m_transit.pop_front();
     if (m_transit.size() >= 20) {
@@ -123,6 +149,7 @@ bool Stream::ensure(size_t samples) {
         std::vector<uint8_t> payload = std::move(it->second);
         m_packets.erase(it);
         decodeInto(&payload, false);
+        recycle(std::move(payload));
         ++m_next;
         m_expand = 0;
         m_stats.add(Stat::OpusOk);
@@ -141,7 +168,9 @@ int64_t Stream::discardTo(int keep) {
     const int64_t extra = lastIdx - m_next + 1 - keep;
     if (extra <= 0) return 0;
     const int64_t cut = m_next + extra;
-    m_packets.erase(m_packets.begin(), m_packets.lower_bound(cut));
+    const auto end = m_packets.lower_bound(cut);
+    for (auto it = m_packets.begin(); it != end; ++it) recycle(std::move(it->second));
+    m_packets.erase(m_packets.begin(), end);
     m_next = m_packets.empty() ? cut : m_packets.begin()->first;
     m_carry.clear();
     m_carryPos = 0;

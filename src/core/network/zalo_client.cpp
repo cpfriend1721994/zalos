@@ -1,4 +1,5 @@
 #include "zalo_client_internal.h"
+#include <QCollator>
 
 namespace Zalos::Core::Network {
 
@@ -22,8 +23,8 @@ ZaloClient::ZaloClient(QObject* parent)
     Platform::FilePicker::setUnavailableHandler([pickerOwner]() {
         if (!pickerOwner) return;
         emit pickerOwner->notice(pickerOwner->L(
-            "Không mở được hộp thoại chọn tệp. Hãy cài xdg-desktop-portal (kèm giao diện GNOME/KDE/GTK) hoặc zenity/kdialog.",
-            "Couldn't open the file chooser. Install xdg-desktop-portal (with its GNOME/KDE/GTK backend) or zenity/kdialog."));
+            "Không mở được hộp thoại chọn tệp. Hãy cài gói xdg-desktop-portal-gtk, zenity hoặc kdialog rồi thử lại.",
+            "Couldn't open the file chooser. Install the xdg-desktop-portal-gtk, zenity or kdialog package and try again."));
     });
     m_conversationModel = new Models::ConversationModel(this);
     m_conversationModel->setCategoryFilter(QString());
@@ -37,6 +38,10 @@ ZaloClient::ZaloClient(QObject* parent)
     m_userLookupTimer->setSingleShot(true);
     m_userLookupTimer->setInterval(400);
     connect(m_userLookupTimer, &QTimer::timeout, this, &ZaloClient::resolveUnknownUsers);
+    m_compositeLookupTimer = new QTimer(this);
+    m_compositeLookupTimer->setSingleShot(true);
+    m_compositeLookupTimer->setInterval(400);
+    connect(m_compositeLookupTimer, &QTimer::timeout, this, &ZaloClient::lookupCompositeMembers);
     m_messageModel->setSenderResolver([this](const QString& uid) {
         return qMakePair(displayNameOf(uid), m_users.value(uid).avatar);
     });
@@ -331,7 +336,12 @@ ZaloClient::ZaloClient(QObject* parent)
         m_hiddenRefreshTimer->setInterval(24 * 60 * 60 * 1000);
         connect(m_hiddenRefreshTimer, &QTimer::timeout, this, &ZaloClient::loadHiddenConversations);
         connect(m_pinBoard, &PinBoard::pinsChanged, this, &ZaloClient::pinnedMessageChanged);
-        connect(this, &ZaloClient::currentConversationChanged, this, [this]() { m_pinBoard->setCurrent(m_currentConvId); loadReminders(); });
+        connect(this, &ZaloClient::currentConversationChanged, this, [this]() {
+            m_pinBoard->setCurrent(m_currentConvId);
+            if (m_currentConvId == m_remindersConvId) return;
+            m_remindersConvId = m_currentConvId;
+            loadReminders();
+        });
         connect(this, &ZaloClient::currentConversationChanged, this, &ZaloClient::composerStateChanged);
         connect(this, &ZaloClient::currentConversationChanged, this, &ZaloClient::conversationStatusChanged);
         connect(this, &ZaloClient::currentConversationChanged, this, &ZaloClient::currentConversationBackgroundChanged);
@@ -350,11 +360,11 @@ ZaloClient::ZaloClient(QObject* parent)
     connect(m_voiceRecorder, &Media::VoiceRecorder::failed, this, [this](const QString& reason) {
         if (reason == QLatin1String("no_microphone")) emit notice(L("Không tìm thấy micro.", "No microphone found."));
         else if (reason == QLatin1String("no_multimedia"))
-            emit notice(L("Máy thiếu thành phần ghi âm của Qt Multimedia (GStreamer/FFmpeg) nên chưa ghi âm được.",
-                          "This system lacks the Qt Multimedia recording components (GStreamer/FFmpeg), so recording is unavailable."));
+            emit notice(L("Máy này thiếu thành phần ghi âm nên chưa ghi âm được. Hãy cập nhật hoặc cài lại Zalos.",
+                          "This computer is missing the recording component, so recording is unavailable. Update or reinstall Zalos."));
         else if (reason == QLatin1String("no_aac_encoder"))
-            emit notice(L("Thiếu bộ mã hóa AAC trong Qt Multimedia nên chưa ghi âm được.",
-                          "Qt Multimedia has no AAC encoder, so recording is unavailable."));
+            emit notice(L("Máy này chưa lưu được định dạng tin nhắn thoại nên chưa ghi âm được. Hãy cập nhật hoặc cài lại Zalos.",
+                          "This computer can't save the voice message format, so recording is unavailable. Update or reinstall Zalos."));
         else {
             emit notice(L("Ghi âm thất bại. Vui lòng thử lại.", "Recording failed. Please try again."));
         }
@@ -883,6 +893,9 @@ void ZaloClient::logout() {
     m_labelManager->reset();
     m_compositeLookups.clear();
     m_compositeAsked.clear();
+    m_compositeRetries.clear();
+    m_compositeLookupInFlight = false;
+    if (m_compositeLookupTimer) m_compositeLookupTimer->stop();
     if (m_showSyncPrompt) {
         m_showSyncPrompt = false;
         emit syncPromptChanged();
@@ -945,6 +958,7 @@ void ZaloClient::logout() {
     m_stickerQueue.clear();
     m_stickerAttempts.clear();
     m_stickerInFlight = 0;
+    ++m_stickerGen;
     m_stickerPrefetching.clear();
     m_downloadsInFlight.clear();
     m_officialIds.clear();
@@ -961,6 +975,7 @@ void ZaloClient::logout() {
     m_quickMessages.clear();
     m_serverSettings.clear();
     m_reminders.clear();
+    m_remindersConvId.clear();
     m_loadingReminders = false;
     m_closeFriendIds.clear();
     m_groupInvites.clear();
@@ -1029,6 +1044,8 @@ void ZaloClient::logout() {
 void ZaloClient::loadAccountData() {
     ZaloSession* session = m_apiClient->session();
     const quint64 gen = ++m_accountLoadGen;
+    m_userLookupInFlight = false;
+    m_compositeLookupInFlight = false;
     setSyncing(true);
 
     if (m_conversationModel->rowCount() == 0) loadOfflineCache();
@@ -1120,23 +1137,29 @@ void ZaloClient::loadAccountData() {
 
     session->fetchFriends([this, finishJob, gen](bool ok, const QJsonValue& data, const QString&, int) {
         if (gen != m_accountLoadGen) return;
-        if (ok) {
-            m_friendsKnown = true;
-            if (m_offlineStore) m_offlineStore->beginBatch();
-            m_conversationModel->beginBatch();
-            QSet<QString> resolved;
-            for (const QJsonValue& v : data.toArray()) {
+        const QJsonArray friendList = data.toArray();
+        if (ok && data.isArray()) m_friendsKnown = true;
+        if (ok && data.isArray() && !friendList.isEmpty()) {
+            QSet<QString> fresh;
+            QJsonObject friendProfiles;
+            for (const QJsonValue& v : friendList) {
                 const QJsonObject u = v.toObject();
                 const QString uid = idOf(u.value("userId"));
                 if (uid.isEmpty()) continue;
-                m_friendIds.insert(uid);
-                m_users[uid] = {pickName(u), u.value("avatar").toString(), 0};
-                if (!m_lastGroupSender.isEmpty()) resolved.insert(uid);
-                noteAccountFlags(uid, u);
-                applyProfileToConversation(uid);
-                persistProfile(uid, false);
+                fresh.insert(uid);
+                friendProfiles.insert(uid, u);
             }
-            if (!resolved.isEmpty()) refreshGroupSenderPrefixes(resolved);
+            const QSet<QString> removed = m_friendIds - fresh;
+            m_friendIds = fresh;
+            if (m_offlineStore) m_offlineStore->beginBatch();
+            m_conversationModel->beginBatch();
+            ProfileIngestOptions options;
+            options.conversations = ProfileIngestOptions::Conversations::Always;
+            options.stripDeviceSuffix = false;
+            options.requireName = false;
+            const QSet<QString> resolved = ingestProfiles(friendProfiles, options);
+            for (const QString& id : removed) persistProfile(id, false);
+            refreshGroupSenderPrefixes(resolved);
             m_conversationModel->endBatch();
             if (m_offlineStore) m_offlineStore->endBatch();
             m_groupMembersCache.clear();
@@ -1188,10 +1211,12 @@ void ZaloClient::loadAccountData() {
                     [this, gen](bool ok, const QJsonValue& data, const QString&, int) {
         if (gen != m_accountLoadGen || !ok) return;
         const MuteSnapshot snap = parseMuteSnapshot(data.toObject(), QDateTime::currentSecsSinceEpoch());
+        m_conversationModel->beginBatch();
         for (const QString& id : snap.muted) m_conversationModel->setMuted(id, true);
         for (const QString& oldId : std::as_const(m_mutedIds)) {
             if (!snap.muted.contains(oldId)) m_conversationModel->setMuted(oldId, false);
         }
+        m_conversationModel->endBatch();
         m_mutedIds = snap.muted;
         m_muteUntil = snap.until;
         emit currentConversationChanged();
@@ -1222,7 +1247,6 @@ void ZaloClient::applyGroupInfo(const QJsonObject& map) {
         m_groups[it.key()] = {g.value("name").toString(), avatar, g.value("totalMember").toInt()};
         m_groupIds.insert(it.key());
         m_groupAdmin->rememberSettings(it.key(), g.value("setting").toObject());
-        if (it.key() == m_currentConvId) emit composerStateChanged();
         if (m_conversationModel->contains(it.key())) applyProfileToConversation(it.key());
         persistProfile(it.key(), true);
 
@@ -1243,6 +1267,7 @@ void ZaloClient::applyGroupInfo(const QJsonObject& map) {
             m_groupRosters.insert(it.key(), roster);
             m_groupMembersCache.remove(it.key());
             emit groupMembersChanged(it.key());
+            if (it.key() == m_currentConvId) emit composerStateChanged();
         }
         updateGroupComposite(it.key());
     }
@@ -1270,40 +1295,80 @@ void ZaloClient::updateGroupComposite(const QString& groupId) {
         if (members.size() >= 4) break;
     }
     m_conversationModel->setMemberAvatars(groupId, members);
-    if (missing) QTimer::singleShot(400, this, &ZaloClient::lookupCompositeMembers);
+    if (missing && !m_compositeLookupTimer->isActive()) m_compositeLookupTimer->start();
+}
+
+QSet<QString> ZaloClient::ingestProfiles(const QJsonObject& profiles, const ProfileIngestOptions& options) {
+    QSet<QString> ingested;
+    for (auto it = profiles.begin(); it != profiles.end(); ++it) {
+        QString uid = it.key();
+        if (options.stripDeviceSuffix && uid.endsWith(QLatin1String("_0"))) uid.chop(2);
+        if (options.skipExisting && !m_users.value(uid).name.isEmpty()) continue;
+        const QJsonObject p = it.value().toObject();
+        const bool myDocuments = options.myDocumentsAlias && uid == myCloudId();
+        const QString name = myDocuments ? L("My Documents", "My Documents") : pickName(p);
+        if (options.requireName && name.isEmpty()) continue;
+        const QString avatar = p.value("avatar").toString();
+        ingested.insert(uid);
+        m_users[uid] = {name, avatar, 0};
+        if (myDocuments && avatar.isEmpty()) m_unresolvedMembers.insert(uid);
+        noteAccountFlags(uid, p);
+        const bool applyConversation = options.conversations == ProfileIngestOptions::Conversations::Always
+            || (options.conversations == ProfileIngestOptions::Conversations::IfPresent && m_conversationModel->contains(uid));
+        if (applyConversation) applyProfileToConversation(uid);
+        persistProfile(uid, false);
+    }
+    return ingested;
 }
 
 void ZaloClient::lookupCompositeMembers() {
-    if (!m_isLoggedIn || m_compositeLookups.isEmpty()) return;
+    if (!m_isLoggedIn || m_compositeLookupInFlight || m_compositeLookups.isEmpty()) return;
+    constexpr int kMaxCompositeRetries = 3;
     QStringList batch;
     for (auto it = m_compositeLookups.begin(); it != m_compositeLookups.end() && batch.size() < 100;) {
         batch << *it;
         m_compositeAsked.insert(*it);
         it = m_compositeLookups.erase(it);
     }
-    m_apiClient->session()->fetchGroupMembersInfo(batch, [this](bool ok, const QJsonValue& data, const QString&, int) {
+    m_compositeLookupInFlight = true;
+    const quint64 gen = m_accountLoadGen;
+    m_apiClient->session()->fetchGroupMembersInfo(batch, [this, gen, batch](bool ok, const QJsonValue& data, const QString&, int) {
+        if (gen != m_accountLoadGen) return;
+        m_compositeLookupInFlight = false;
         if (ok) {
-            QSet<QString> resolved;
-            const QJsonObject profiles = data.toObject().value("profiles").toObject();
-            for (auto it = profiles.begin(); it != profiles.end(); ++it) {
-                QString uid = it.key();
-                if (uid.endsWith("_0")) uid.chop(2);
-                const QJsonObject p = it.value().toObject();
-                const QString name = pickName(p);
-                if (name.isEmpty() || m_users.contains(uid)) continue;
-                m_users[uid] = {name, p.value("avatar").toString(), 0};
-                if (!m_lastGroupSender.isEmpty()) resolved.insert(uid);
-                noteAccountFlags(uid, p);
-                persistProfile(uid, false);
-            }
-            if (!resolved.isEmpty()) refreshGroupSenderPrefixes(resolved);
+            if (m_offlineStore) m_offlineStore->beginBatch();
+            m_conversationModel->beginBatch();
+            ProfileIngestOptions options;
+            options.skipExisting = true;
+            const QSet<QString> named = ingestProfiles(data.toObject().value("profiles").toObject(), options);
+            refreshGroupSenderPrefixes(named);
             for (auto g = m_groupRosters.cbegin(); g != m_groupRosters.cend(); ++g) {
+                bool affected = false;
+                for (const QString& id : g->members) {
+                    if (named.contains(id)) {
+                        affected = true;
+                        break;
+                    }
+                }
+                if (!affected) continue;
+                m_groupMembersCache.remove(g.key());
                 if (m_groups.value(g.key()).avatar.isEmpty()) updateGroupComposite(g.key());
             }
-            m_groupMembersCache.clear();
+            m_conversationModel->endBatch();
+            if (m_offlineStore) m_offlineStore->endBatch();
             m_messageModel->refreshSenders();
         }
-        if (!m_compositeLookups.isEmpty()) QTimer::singleShot(200, this, &ZaloClient::lookupCompositeMembers);
+        for (const QString& id : batch) {
+            if (!displayNameOf(id).isEmpty()) {
+                m_compositeRetries.remove(id);
+                continue;
+            }
+            const int attempts = ++m_compositeRetries[id];
+            if (attempts > kMaxCompositeRetries) continue;
+            m_compositeAsked.remove(id);
+            m_compositeLookups.insert(id);
+        }
+        if (!m_compositeLookups.isEmpty() && !m_compositeLookupTimer->isActive()) m_compositeLookupTimer->start();
     });
 }
 
@@ -1357,21 +1422,15 @@ void ZaloClient::resolveGroupMembers(const QString& groupId) {
                                                                                     const QString&, int) {
         m_memberLookupInFlight.remove(groupId);
         if (!ok) return;
-        QSet<QString> resolved;
-        const QJsonObject profiles = data.toObject().value("profiles").toObject();
-        for (auto it = profiles.begin(); it != profiles.end(); ++it) {
-            QString uid = it.key();
-            if (uid.endsWith("_0")) uid.chop(2);
-            const QJsonObject p = it.value().toObject();
-            const QString name = pickName(p);
-            if (name.isEmpty()) continue;
-            m_users[uid] = {name, p.value("avatar").toString(), 0};
-            if (!m_lastGroupSender.isEmpty()) resolved.insert(uid);
-            noteAccountFlags(uid, p);
-            persistProfile(uid, false);
-            if (m_conversationModel->contains(uid)) applyProfileToConversation(uid);
-        }
-        if (!resolved.isEmpty()) refreshGroupSenderPrefixes(resolved);
+        if (m_offlineStore) m_offlineStore->beginBatch();
+        m_conversationModel->beginBatch();
+        ProfileIngestOptions options;
+        options.conversations = ProfileIngestOptions::Conversations::IfPresent;
+        const QSet<QString> resolved = ingestProfiles(data.toObject().value("profiles").toObject(), options);
+        m_conversationModel->endBatch();
+        if (m_offlineStore) m_offlineStore->endBatch();
+        m_groupMembersCache.clear();
+        refreshGroupSenderPrefixes(resolved);
         for (const QString& id : unknown) {
             if (displayNameOf(id).isEmpty()) {
                 if (!m_unresolvedMembers.contains(id)) dropOldestIfFull(m_unresolvedMembers);
@@ -1397,6 +1456,7 @@ void ZaloClient::setGroupDeputy(const QString& groupId, const QString& memberId,
             else m_groupRosters[groupId].admins.remove(memberId);
             m_groupMembersCache.remove(groupId);
             emit groupMembersChanged(groupId);
+            if (groupId == m_currentConvId) emit composerStateChanged();
             emit notice(add ? L("Đã thêm phó nhóm", "Deputy added") : L("Đã gỡ quyền phó nhóm", "Deputy removed"));
         });
 }
@@ -1414,6 +1474,7 @@ void ZaloClient::transferGroupOwner(const QString& groupId, const QString& membe
             m_groupRosters[groupId].admins.remove(memberId);
             m_groupMembersCache.remove(groupId);
             emit groupMembersChanged(groupId);
+            if (groupId == m_currentConvId) emit composerStateChanged();
             loadGroupInfo({groupId});
             emit notice(L("Đã chuyển quyền trưởng nhóm", "Ownership transferred"));
         });
@@ -1566,17 +1627,24 @@ QVariantMap ZaloClient::qrModules(const QString& text) const {
 }
 
 QVariantList ZaloClient::groupsForInvite(const QString& userId) const {
-    QVariantList out;
+    struct Row {
+        QCollatorSortKey key;
+        QVariantMap map;
+    };
+    QCollator collator;
+    QVector<Row> rows;
+    rows.reserve(m_groupIds.size());
     for (const QString& id : m_groupIds) {
         const Profile p = m_groups.value(id);
         if (p.name.isEmpty()) continue;
         const auto roster = m_groupRosters.constFind(id);
         const bool isMember = roster != m_groupRosters.cend() && roster->members.contains(userId);
-        out.append(QVariantMap{{"id", id}, {"name", p.name}, {"avatar", p.avatar}, {"isMember", isMember}});
+        rows.append(Row{collator.sortKey(p.name), QVariantMap{{"id", id}, {"name", p.name}, {"avatar", p.avatar}, {"isMember", isMember}}});
     }
-    std::sort(out.begin(), out.end(), [](const QVariant& a, const QVariant& b) {
-        return QString::localeAwareCompare(a.toMap().value("name").toString(), b.toMap().value("name").toString()) < 0;
-    });
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.key < b.key; });
+    QVariantList out;
+    out.reserve(rows.size());
+    for (const Row& row : std::as_const(rows)) out.append(row.map);
     return out;
 }
 
@@ -1839,8 +1907,8 @@ void ZaloClient::toggleVoice(const QString& msgId, const QString& url) {
         return;
     }
     if (!m_voicePlayer && !Platform::MultimediaSupport::available()) {
-        emit notice(L("Máy thiếu thành phần phát âm thanh (GStreamer/FFmpeg cho Qt Multimedia) nên chưa phát được tin nhắn thoại.",
-                      "This system lacks the Qt Multimedia playback components (GStreamer/FFmpeg), so voice messages can't play."));
+        emit notice(L("Máy này thiếu thành phần phát âm thanh nên chưa phát được tin nhắn thoại. Hãy cập nhật hoặc cài lại Zalos.",
+                      "This computer is missing the playback component, so voice messages can't play. Update or reinstall Zalos."));
         return;
     }
     if (!m_voicePlayer) {
@@ -1871,7 +1939,7 @@ void ZaloClient::toggleVoice(const QString& msgId, const QString& url) {
             emit notice(L("Không phát được trong ứng dụng, mở bằng trình phát của hệ thống…",
                           "Can't play it in the app; opening it with the system player…"));
             openRemoteFile(url, QStringLiteral("voice-%1.aac").arg(id),
-                           L("Tin nhắn thoại không tồn tại", "The voice message no longer exists"));
+                           L("Tin nhắn thoại không tồn tại", "The voice message no longer exists"), true);
         });
     }
     m_voicePlayer->stop();
@@ -2077,27 +2145,18 @@ void ZaloClient::resolveUnknownUsers() {
         it = m_pendingUserLookups.erase(it);
     }
     m_userLookupInFlight = true;
-    m_apiClient->session()->fetchUserInfo(ids, [this, ids](bool ok, const QJsonValue& data, const QString&, int) {
+    const quint64 gen = m_accountLoadGen;
+    m_apiClient->session()->fetchUserInfo(ids, [this, ids, gen](bool ok, const QJsonValue& data, const QString&, int) {
+        if (gen != m_accountLoadGen) return;
         m_userLookupInFlight = false;
         if (!m_pendingUserLookups.isEmpty()) m_userLookupTimer->start();
         QSet<QString> resolved;
         if (ok) {
             m_conversationModel->beginBatch();
-            const QJsonObject changed = data.toObject().value("changed_profiles").toObject();
-            for (auto it = changed.begin(); it != changed.end(); ++it) {
-                QString uid = it.key();
-                if (uid.endsWith("_0")) uid.chop(2);
-                const QJsonObject p = it.value().toObject();
-                const QString avatar = p.value("avatar").toString();
-                const QString name = uid == myCloudId() ? L("My Documents", "My Documents") : pickName(p);
-                if (name.isEmpty()) continue;
-                resolved.insert(uid);
-                m_users[uid] = {name, avatar, 0};
-                if (uid == myCloudId() && avatar.isEmpty()) m_unresolvedMembers.insert(uid);
-                noteAccountFlags(uid, p);
-                applyProfileToConversation(uid);
-                persistProfile(uid, false);
-            }
+            ProfileIngestOptions options;
+            options.conversations = ProfileIngestOptions::Conversations::Always;
+            options.myDocumentsAlias = true;
+            resolved = ingestProfiles(data.toObject().value("changed_profiles").toObject(), options);
             refreshGroupSenderPrefixes(resolved);
             m_conversationModel->endBatch();
             m_groupMembersCache.clear();
@@ -2110,24 +2169,13 @@ void ZaloClient::resolveUnknownUsers() {
             }
         }
         if (missing.isEmpty() || !m_isLoggedIn || !m_apiClient->session()) return;
-        m_apiClient->session()->fetchGroupMembersInfo(missing, [this, missing](bool ok2, const QJsonValue& d2,
-                                                                               const QString&, int) {
-            if (!ok2) return;
+        m_apiClient->session()->fetchGroupMembersInfo(missing, [this, missing, gen](bool ok2, const QJsonValue& d2,
+                                                                                    const QString&, int) {
+            if (gen != m_accountLoadGen || !ok2) return;
             m_conversationModel->beginBatch();
-            QSet<QString> resolved2;
-            const QJsonObject profiles = d2.toObject().value("profiles").toObject();
-            for (auto it = profiles.begin(); it != profiles.end(); ++it) {
-                QString uid = it.key();
-                if (uid.endsWith("_0")) uid.chop(2);
-                const QJsonObject p = it.value().toObject();
-                const QString name = pickName(p);
-                if (name.isEmpty()) continue;
-                resolved2.insert(uid);
-                m_users[uid] = {name, p.value("avatar").toString(), 0};
-                noteAccountFlags(uid, p);
-                if (m_conversationModel->contains(uid)) applyProfileToConversation(uid);
-                persistProfile(uid, false);
-            }
+            ProfileIngestOptions options;
+            options.conversations = ProfileIngestOptions::Conversations::IfPresent;
+            const QSet<QString> resolved2 = ingestProfiles(d2.toObject().value("profiles").toObject(), options);
             refreshGroupSenderPrefixes(resolved2);
             for (const QString& id : missing) {
                 if (displayNameOf(id).isEmpty()) {
@@ -2243,8 +2291,8 @@ void ZaloClient::applyProfileToConversation(const QString& id) {
     const bool isGroup = m_groups.contains(id);
     Profile p = isGroup ? m_groups.value(id) : m_users.value(id);
     if (!isGroup) p.name = displayNameOf(id);
-    m_conversationModel->updateProfile(id, p.name, p.avatar, isGroup ? p.memberCount : -1);
-    if (m_offlineStore) {
+    const bool changed = m_conversationModel->updateProfile(id, p.name, p.avatar, isGroup ? p.memberCount : -1);
+    if (changed && m_offlineStore) {
         m_offlineStore->saveConversation(m_conversationModel->conversation(id));
     }
     if (id == m_currentConvId) {

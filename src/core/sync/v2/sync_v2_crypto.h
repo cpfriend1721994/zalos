@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QByteArrayView>
 #include <QString>
 
 namespace Zalos::Core::Sync::V2 {
@@ -28,9 +29,9 @@ KeyPair generateKeyPair();
 
 QByteArray calculateAgreement(const QByteArray& priv32, const QByteArray& pub32Or33);
 
-CryptoStatus openMessage(const SessionRecord& record, const QByteArray& sealed, QByteArray* plaintext);
+CryptoStatus openMessage(const SessionRecord& record, QByteArrayView sealed, QByteArray* plaintext);
 
-CryptoStatus openMetadata(const QByteArray& envelope, const QByteArray& receiverIkPub,
+CryptoStatus openMetadata(QByteArrayView envelope, const QByteArray& receiverIkPub,
                           const QByteArray& receiverIkPriv, const QByteArray& receiverEkPriv,
                           MetadataPlain* out);
 

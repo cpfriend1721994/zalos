@@ -14,6 +14,13 @@ QJsonObject parseNestedJsonObject(const QJsonValue& raw) {
     return QJsonDocument::fromJson(s.toUtf8()).object();
 }
 
+qint64 groupTopicPollId(const QJsonObject& data) {
+    return parseNestedJsonObject(data.value(QLatin1String("groupTopic")).toObject().value(QLatin1String("params")))
+        .value(QLatin1String("pollId")).toVariant().toLongLong();
+}
+
+constexpr qint64 kReadPointMaxWaitMs = 15000;
+
 }
 
 void ZaloClient::callLogItem(const QJsonObject& obj, bool missed, Models::MessageItem* item, QString* label) const {
@@ -542,7 +549,11 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
 
 void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup, bool isOld) {
     if (isOld) setSyncing(false);
-    if (!isOld && m_readPointSyncTimer && m_readPointSyncTimer->isActive()) m_readPointSyncTimer->start();
+    if (!isOld && m_readPointSyncTimer && m_readPointSyncTimer->isActive()) {
+        const qint64 untilDeadline = kReadPointMaxWaitMs - m_readPointSyncFirstAsk.elapsed();
+        if (untilDeadline > 0)
+            m_readPointSyncTimer->start(static_cast<int>(qMin<qint64>(m_readPointSyncTimer->interval(), untilDeadline)));
+    }
     m_conversationModel->beginBatch();
     struct BatchGuard {
         Models::ConversationModel* model;
@@ -968,6 +979,7 @@ void ZaloClient::sendTextTo(const QString& convId, bool isGroup, const QString& 
     }
     m_messageModel->mergeMessages(convId, {local});
     m_conversationModel->recordMessage(convId, cleanText, L("Bạn: ", "You: "), now, false);
+    if (m_offlineStore && m_conversationModel->contains(convId)) m_offlineStore->saveConversation(m_conversationModel->conversation(convId));
     setDraft(convId, QString());
     if (convId == m_currentConvId) m_messageModel->clearUnreadMarker();
     if (!quoted.isEmpty()) clearReplyTarget();
@@ -1222,6 +1234,7 @@ void ZaloClient::openConversationWithContact(const QString& id, const QString& n
     if (!m_conversationModel->contains(id)) {
         ensureConversation(id, isGroup);
         m_conversationModel->updateProfile(id, name, avatarUrl);
+        if (m_offlineStore && m_conversationModel->contains(id)) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
     }
     setCurrentNavigationTab("messages");
     selectConversation(id, name, avatarUrl);
@@ -1294,6 +1307,7 @@ void ZaloClient::pinConversation(const QString& id) {
                 return;
             }
             m_conversationModel->setPinned(id, pinned);
+            if (m_offlineStore && m_conversationModel->contains(id)) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
             emit currentConversationChanged();
         });
 }
@@ -1328,6 +1342,7 @@ void ZaloClient::muteConversationFor(const QString& id, int seconds) {
                 m_muteUntil.remove(id);
             }
             m_conversationModel->setMuted(id, mute);
+            if (m_offlineStore && m_conversationModel->contains(id)) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
             emit currentConversationChanged();
         });
 }
@@ -1339,6 +1354,7 @@ bool ZaloClient::isThreadMuted(const QString& threadId) {
         m_mutedIds.remove(threadId);
         m_muteUntil.remove(threadId);
         m_conversationModel->setMuted(threadId, false);
+        if (m_offlineStore && m_conversationModel->contains(threadId)) m_offlineStore->saveConversation(m_conversationModel->conversation(threadId));
         return false;
     }
     return true;
@@ -1361,6 +1377,7 @@ void ZaloClient::toggleUnreadMark(const QString& id) {
                 m_markedUnread.remove(id);
                 m_conversationModel->clearUnread(id);
             }
+            if (m_offlineStore && m_conversationModel->contains(id)) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
         });
 }
 
@@ -1383,20 +1400,20 @@ void ZaloClient::deleteConversation(const QString& id) {
         m_readOnlyThreads.remove(id);
         saveReadOnlyThreads();
         rebuildContacts();
-        emit notice(L("Đã xoá hội thoại.", "Conversation deleted."));
+        emit notice(L("Đã xóa hội thoại.", "Conversation deleted."));
         return;
     }
     if (!m_isLoggedIn) return;
     const QJsonObject last = rawMessage(m_messageModel->latestMessageId(id));
     if (last.isEmpty()) {
-        emit notice(L("Chưa tải được tin nhắn mới nhất của hội thoại nên chưa thể xoá. Hãy mở hội thoại rồi thử lại.",
+        emit notice(L("Chưa tải được tin nhắn mới nhất của hội thoại nên chưa thể xóa. Hãy mở hội thoại rồi thử lại.",
                       "The latest message of this chat isn't loaded yet. Open the chat and try again."));
         return;
     }
     m_apiClient->session()->deleteConversation(id, isGroupThread(id), last,
         [this, id](bool ok, const QJsonValue&, const QString& error, int code) {
             if (!ok) {
-                emit notice(L("Không thể xoá hội thoại: ", "Couldn't delete the conversation: ") + friendlyError(error, code));
+                emit notice(L("Không thể xóa hội thoại: ", "Couldn't delete the conversation: ") + friendlyError(error, code));
                 return;
             }
             if (id == m_currentConvId) openWelcomeScreen();
@@ -1407,7 +1424,7 @@ void ZaloClient::deleteConversation(const QString& id) {
         m_cloudPageState.remove(id);
             m_markedUnread.remove(id);
             if (m_offlineStore) m_offlineStore->deleteConversation(id);
-            emit notice(L("Đã xoá hội thoại.", "Conversation deleted."));
+            emit notice(L("Đã xóa hội thoại.", "Conversation deleted."));
         });
 }
 
@@ -1434,6 +1451,7 @@ bool ZaloClient::loadOfflineCache() {
         Models::ConversationModel* model;
         ~BatchGuard() { model->endBatch(); }
     } batchGuard{m_conversationModel};
+    m_offlineStore->beginBatch();
     for (const auto& c : convs) {
         Models::ConversationItem item = c;
         if (item.name.compare(QLatin1String("Cloud của tôi"), Qt::CaseInsensitive) == 0
@@ -1461,6 +1479,7 @@ bool ZaloClient::loadOfflineCache() {
         }
         m_conversationModel->upsertConversation(item);
     }
+    m_offlineStore->endBatch();
     if (m_labelManager && m_offlineStore) {
         const QString cachedLabels = m_offlineStore->metaValue(QStringLiteral("labels_cache"));
         if (!cachedLabels.isEmpty()) {
@@ -1478,23 +1497,46 @@ void ZaloClient::migrateCachedParses() {
     if (!m_offlineStore) return;
     const QString version = QString::number(kCacheParseVersion);
     if (m_offlineStore->metaValue(QStringLiteral("parse_version")) == version) return;
-    const QSet<QString> touched = m_offlineStore->reparseStored(
+    const QString migrationName = QStringLiteral("cachedParseMigration");
+    if (findChild<QTimer*>(migrationName)) return;
+    const QString owner = m_offlineStore->ownerUid();
+    const Offline::ZaloOfflineStore::StoredReparseFn parse =
         [this](const QJsonObject& raw, bool isGroup, Models::MessageItem* out) {
             if (!isReparsedOnLoad(raw.value("msgType").toString()) && !raw.contains("quote")
                 && !raw.contains("mentions")) return false;
             QString thread, preview;
             *out = toMessageItem(raw, isGroup, &thread, &preview);
             return out->messageType != QLatin1String("poll_update");
-        });
-    for (const QString& convId : touched) {
-        const auto latest = m_offlineStore->loadMessages(convId, nullptr, 1, 0);
-        if (!latest.isEmpty()) {
-            const QString prefix = previewPrefixFor(latest.first(), isGroupThread(convId));
-            m_conversationModel->updateLastMessage(convId, latest.first().text, latest.first().timeStr, prefix, true);
-            m_offlineStore->saveConversation(m_conversationModel->conversation(convId));
+        };
+    struct Cursor {
+        qint64 afterRowId{0};
+        QSet<QString> touched;
+    };
+    auto cursor = std::make_shared<Cursor>();
+    QTimer* timer = new QTimer(this);
+    timer->setObjectName(migrationName);
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, this, [this, timer, owner, parse, cursor, version]() {
+        if (!m_offlineStore || m_offlineStore->ownerUid() != owner) {
+            timer->deleteLater();
+            return;
         }
-    }
-    m_offlineStore->setMetaValue(QStringLiteral("parse_version"), version);
+        if (m_offlineStore->reparseStoredChunk(parse, cursor->afterRowId, Offline::ZaloOfflineStore::kReparseChunkRows, cursor->touched)) {
+            timer->start();
+            return;
+        }
+        timer->deleteLater();
+        for (const QString& convId : std::as_const(cursor->touched)) {
+            const auto latest = m_offlineStore->loadMessages(convId, nullptr, 1, 0);
+            if (!latest.isEmpty()) {
+                const QString prefix = previewPrefixFor(latest.first(), isGroupThread(convId));
+                m_conversationModel->updateLastMessage(convId, latest.first().text, latest.first().timeStr, prefix, true);
+                m_offlineStore->saveConversation(m_conversationModel->conversation(convId));
+            }
+        }
+        m_offlineStore->setMetaValue(QStringLiteral("parse_version"), version);
+    });
+    timer->start(0);
 }
 
 void ZaloClient::purgeExpiredMessages() {
@@ -1825,7 +1867,10 @@ QString ZaloClient::annotatedImageTempPath() const {
 
 void ZaloClient::saveMediaTo(const QString& url, const QString& destinationFileUrl) {
     const QString dest = QUrl(destinationFileUrl).isLocalFile() ? QUrl(destinationFileUrl).toLocalFile() : destinationFileUrl;
-    if (url.isEmpty() || dest.isEmpty()) return;
+    if (url.isEmpty() || dest.isEmpty()) {
+        emit notice(L("Không lưu được tệp đa phương tiện", "Couldn't save the media file"));
+        return;
+    }
     downloadToFile(url, dest, [this, dest](const QString& error) {
         if (!error.isEmpty()) {
             emit notice(L("Không lưu được tệp đa phương tiện", "Couldn't save the media file")
@@ -1850,7 +1895,11 @@ void ZaloClient::copyImage(const QString& url) {
 }
 
 void ZaloClient::openFileMessage(const QString& url, const QString& fileName) {
-    openRemoteFile(url, fileName, L("File không còn tồn tại trên hệ thống", "The file no longer exists on the server"));
+    openRemoteFile(url, fileName, L("File không còn tồn tại trên hệ thống", "The file no longer exists on the server"), true);
+}
+
+void ZaloClient::downloadFileMessage(const QString& url, const QString& fileName) {
+    openRemoteFile(url, fileName, L("File không còn tồn tại trên hệ thống", "The file no longer exists on the server"), false);
 }
 
 bool ZaloClient::isVideoFileName(const QString& nameOrUrl) {
@@ -1913,7 +1962,7 @@ bool ZaloClient::isGoneError(const QString& error) {
     return error == QLatin1String("HTTP 403") || error == QLatin1String("HTTP 404") || error == QLatin1String("HTTP 410");
 }
 
-void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, const QString& goneText) {
+void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, const QString& goneText, bool openAfter) {
     if (url.isEmpty()) {
         emit notice(L("Tệp này không còn đường dẫn tải.", "This file has no download link."));
         return;
@@ -1922,7 +1971,11 @@ void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, con
                         + QString::fromLatin1(QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Md5).toHex());
     const QString known = QSettings("Zalos", "ZalosApp").value(key).toString();
     if (!known.isEmpty() && QFileInfo::exists(known)) {
-        openLocalFile(known);
+        if (openAfter) {
+            openLocalFile(known);
+        } else {
+            emit notice(L("Tệp đã có tại ", "File is already saved at ") + known);
+        }
         return;
     }
     if (m_downloadsInFlight.contains(key)) {
@@ -1936,7 +1989,7 @@ void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, con
     const QString path = uniqueFilePath(dir, safe);
     m_downloadsInFlight.insert(key);
     emit notice(L("Đang tải ", "Downloading ") + QFileInfo(path).fileName() + "...");
-    downloadToFile(url, path, [this, path, key, goneText](const QString& error) {
+    downloadToFile(url, path, [this, path, key, goneText, openAfter](const QString& error) {
         m_downloadsInFlight.remove(key);
         if (isGoneError(error)) {
             emit notice(goneText);
@@ -1948,7 +2001,7 @@ void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, con
         }
         QSettings("Zalos", "ZalosApp").setValue(key, path);
         emit notice(L("Đã tải về ", "Downloaded to ") + path);
-        openLocalFile(path);
+        if (openAfter) openLocalFile(path);
     });
 }
 
@@ -2148,12 +2201,15 @@ void ZaloClient::loadUnreadMarks() {
             }
         }
         for (const QString& id : std::as_const(m_markedUnread)) {
-            if (!marked.contains(id)) m_conversationModel->clearUnread(id);
+            if (marked.contains(id)) continue;
+            m_conversationModel->clearUnread(id);
+            if (m_offlineStore && m_conversationModel->contains(id)) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
         }
         m_markedUnread = marked;
         for (const QString& id : marked) {
             if (m_conversationModel->contains(id) && m_conversationModel->conversation(id).unreadCount == 0) {
                 m_conversationModel->setUnreadCount(id, 1);
+                if (m_offlineStore) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
             }
         }
     });
@@ -2187,6 +2243,7 @@ void ZaloClient::addSystemNotice(const QString& threadId, bool isGroup, const QS
     if (isThreadResident(threadId) || !cacheUsable()) m_messageModel->mergeMessages(threadId, {notice});
     if (m_offlineStore) m_offlineStore->saveMessage(threadId, notice, {}, isGroup);
     m_conversationModel->recordMessage(threadId, text, QString(), ts, false);
+    if (m_offlineStore && m_conversationModel->contains(threadId)) m_offlineStore->saveConversation(m_conversationModel->conversation(threadId));
 }
 
 void ZaloClient::handleRemoteDeletes(const QJsonArray& entries, bool isGroup) {
@@ -2292,17 +2349,13 @@ void ZaloClient::handleGroupControl(const QString& act, const QJsonObject& data)
             }
             m_groupMembersCache.remove(gid);
             emit groupMembersChanged(gid);
+            if (gid == m_currentConvId) emit composerStateChanged();
         }
         addSystemNotice(gid, true, act == "add_admin"
                                        ? L("%1 đã thêm %2 làm phó nhóm", "%1 made %2 a deputy").arg(actorName, who)
                                        : L("%1 đã xóa quyền phó nhóm của %2", "%1 removed %2 as deputy").arg(actorName, who), ts);
-    } else if (act == "update_board" || act == "new_pin_topic" || act == "update_pin_topic") {
-        const QJsonValue rawParams = data.value("groupTopic").toObject().value("params");
-        const QJsonObject params = rawParams.isString()
-                                       ? QJsonDocument::fromJson(rawParams.toString().toUtf8()).object()
-                                       : rawParams.toObject();
-        const qint64 pollId = params.value("pollId").toVariant().toLongLong();
-        if (pollId > 0) refreshPoll(pollId, true);
+    } else if (act == "update_board" || act == "new_pin_topic") {
+        if (const qint64 pollId = groupTopicPollId(data); pollId > 0) refreshPoll(pollId, true);
     } else if (act == "disperse" || act == "disband") {
         if (actor != m_myUid) markThreadReadOnly(gid, QStringLiteral("disbanded"), ts);
     } else if (act == "update_ttl") {
@@ -2337,7 +2390,7 @@ void ZaloClient::markThreadReadOnly(const QString& id, const QString& reason, qi
     if (fresh) {
         addSystemNotice(id, true, reason == QLatin1String("disbanded")
                                       ? L("Trưởng nhóm đã giải tán nhóm", "The owner disbanded the group")
-                                      : L("Bạn đã được xoá khỏi nhóm", "You were removed from the group"), ts);
+                                      : L("Bạn đã được xóa khỏi nhóm", "You were removed from the group"), ts);
     }
     if (id == m_currentConvId) emit composerStateChanged();
 }
@@ -2460,7 +2513,11 @@ void ZaloClient::refreshStrangerRank(const QString& convId) {
     m_strangerRanks.insert(convId, StrangerRank{});
     QPointer<ZaloClient> guard(this);
     m_apiClient->session()->fetchProfileRank(convId, [guard, convId](bool ok, const QJsonValue& data, const QString&, int) {
-        if (!guard || !ok) return;
+        if (!guard) return;
+        if (!ok) {
+            guard->m_strangerRanks.remove(convId);
+            return;
+        }
         guard->applyStrangerRank(convId, data.toObject());
     });
 }
@@ -2520,6 +2577,9 @@ void ZaloClient::handleSyncControl(const QString& actType, const QString& act, c
         }
         return;
     }
+    if (actType == "group" && act == "update_pin_topic") {
+        if (const qint64 pollId = groupTopicPollId(obj); pollId > 0) refreshPoll(pollId, true);
+    }
     if (m_pinBoard->handleControl(act, data)) return;
     if (actType == "group") {
         handleGroupControl(act, obj);
@@ -2543,6 +2603,7 @@ void ZaloClient::handleSyncControl(const QString& actType, const QString& act, c
             m_muteUntil.remove(id);
         }
         m_conversationModel->setMuted(id, mute);
+        if (m_offlineStore && m_conversationModel->contains(id)) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
         if (id == m_currentConvId) emit currentConversationChanged();
     } else if (actType == "pinned_convers") {
         const bool pin = obj.value("action").toInt() == 1;
@@ -2552,6 +2613,7 @@ void ZaloClient::handleSyncControl(const QString& actType, const QString& act, c
             if (raw.startsWith('g') || raw.startsWith('u')) raw.remove(0, 1);
             if (pin) ensureConversation(raw, isGroup);
             m_conversationModel->setPinned(raw, pin);
+            if (m_offlineStore && m_conversationModel->contains(raw)) m_offlineStore->saveConversation(m_conversationModel->conversation(raw));
         }
         emit currentConversationChanged();
     } else if (actType == "label_convers") {
@@ -2565,9 +2627,11 @@ void ZaloClient::handleSyncControl(const QString& actType, const QString& act, c
                     m_markedUnread.insert(id);
                     if (id != m_currentConvId && m_conversationModel->conversation(id).unreadCount == 0) {
                         m_conversationModel->setUnreadCount(id, 1);
+                        if (m_offlineStore && m_conversationModel->contains(id)) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
                     }
                 } else if (m_markedUnread.remove(id)) {
                     m_conversationModel->clearUnread(id);
+                    if (m_offlineStore && m_conversationModel->contains(id)) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
                 }
             }
         }
@@ -2655,17 +2719,23 @@ void ZaloClient::resetReadPoints() {
     m_readPointsLoaded = false;
     m_readPointSyncRetries = 0;
     m_readPointSyncInFlight = 0;
+    m_readPointSyncPending = false;
     if (m_readPointSyncTimer) m_readPointSyncTimer->stop();
 }
 
 void ZaloClient::scheduleReadPointSync(int delayMs) {
     if (!m_readPointSyncTimer || !m_isLoggedIn) return;
     if (m_readPointSyncTimer->isActive() && m_readPointSyncTimer->remainingTime() <= delayMs) return;
+    if (!m_readPointSyncTimer->isActive()) m_readPointSyncFirstAsk.start();
     m_readPointSyncTimer->start(delayMs);
 }
 
 void ZaloClient::syncReadPoints() {
-    if (!m_isLoggedIn || m_readPointSyncInFlight > 0) return;
+    if (!m_isLoggedIn) return;
+    if (m_readPointSyncInFlight > 0) {
+        m_readPointSyncPending = true;
+        return;
+    }
     QStringList groups;
     QStringList users;
     const QString cloudId = myCloudId();
@@ -2677,12 +2747,17 @@ void ZaloClient::syncReadPoints() {
     if (groups.isEmpty() && users.isEmpty()) return;
     constexpr int kBatch = 50;
     const QString owner = m_myUid;
+    const quint64 gen = m_accountLoadGen;
     for (int i = 0; i * kBatch < qMax(groups.size(), users.size()); ++i) {
         ++m_readPointSyncInFlight;
         m_apiClient->session()->fetchLastSeen(groups.mid(i * kBatch, kBatch), users.mid(i * kBatch, kBatch),
-            [this, owner](bool ok, const QJsonValue& data, const QString&, int) {
+            [this, owner, gen](bool ok, const QJsonValue& data, const QString&, int) {
+                if (owner != m_myUid || gen != m_accountLoadGen || !m_isLoggedIn) return;
                 if (m_readPointSyncInFlight > 0) --m_readPointSyncInFlight;
-                if (owner != m_myUid || !m_isLoggedIn) return;
+                if (m_readPointSyncInFlight == 0 && m_readPointSyncPending) {
+                    m_readPointSyncPending = false;
+                    scheduleReadPointSync(0);
+                }
                 if (!ok) {
                     if (m_readPointSyncRetries < 3) {
                         ++m_readPointSyncRetries;
@@ -2766,6 +2841,7 @@ void ZaloClient::sendVoiceMessage(const QString& convId, const QString& filePath
     local.status = QStringLiteral("sending");
     m_messageModel->mergeMessages(convId, {local});
     m_conversationModel->recordMessage(convId, L("[Tin nhắn thoại]", "[Voice message]"), L("Bạn: ", "You: "), now, false);
+    if (m_offlineStore && m_conversationModel->contains(convId)) m_offlineStore->saveConversation(m_conversationModel->conversation(convId));
     if (!m_isLoggedIn) {
         m_messageModel->setStatus(convId, local.id, QStringLiteral("failed"));
         emit notice(L("Đang ngoại tuyến nên chưa gửi được tin nhắn thoại.", "You're offline, so the voice message wasn't sent."));

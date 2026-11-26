@@ -8,6 +8,7 @@
 #include <QList>
 #include <QObject>
 #include <QPointer>
+#include <QRect>
 #include <QString>
 #include <QTemporaryFile>
 #include <QVariantMap>
@@ -19,6 +20,7 @@
 #include <functional>
 #include <memory>
 
+class QMediaDevices;
 class QProcess;
 class QTcpServer;
 class QTcpSocket;
@@ -58,7 +60,10 @@ class CallBridge : public QObject {
     Q_PROPERTY(bool cameraOn READ cameraOn NOTIFY cameraStateChanged FINAL)
     Q_PROPERTY(bool cameraAvailable READ cameraAvailable NOTIFY cameraStateChanged FINAL)
     Q_PROPERTY(bool screenShareOn READ screenShareOn NOTIFY cameraStateChanged FINAL)
+    Q_PROPERTY(bool screenSharePending READ screenSharePending NOTIFY cameraStateChanged FINAL)
     Q_PROPERTY(bool screenShareAvailable READ screenShareAvailable NOTIFY cameraStateChanged FINAL)
+    Q_PROPERTY(QVariantList screenSources READ screenSources NOTIFY screenSourcesChanged FINAL)
+    Q_PROPERTY(bool screenPickerOpen READ screenPickerOpen NOTIFY screenPickerChanged FINAL)
     Q_PROPERTY(QString cameraError READ cameraError NOTIFY cameraStateChanged FINAL)
     Q_PROPERTY(bool peerCamOff READ peerCamOff NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool peerSharing READ peerSharing NOTIFY stateChanged FINAL)
@@ -99,7 +104,10 @@ public:
     bool cameraOn() const { return m_cameraOn; }
     bool cameraAvailable() const;
     bool screenShareOn() const { return m_screenShareOn; }
+    bool screenSharePending() const { return m_screenSharePending; }
     bool screenShareAvailable() const;
+    QVariantList screenSources() const { return m_screenSources; }
+    bool screenPickerOpen() const { return m_screenPickerOpen; }
     QString cameraError() const { return m_cameraError; }
     Q_INVOKABLE void setLocalVideoSink(QVideoSink* sink);
     CameraSender* cameraSenderForTesting() { return cameraSender(); }
@@ -134,6 +142,17 @@ public:
                                    const QVariantList& members, bool isVideo = false);
     Q_INVOKABLE void setCamera(bool on);
     Q_INVOKABLE void setScreenShare(bool on);
+    Q_INVOKABLE void requestScreenShare();
+    Q_INVOKABLE void startScreenShareTarget(const QString& targetId);
+    Q_INVOKABLE void closeScreenPicker();
+
+    struct ScreenSourceDesc {
+        QString name;
+        QRect geometry;
+        bool isPrimary{false};
+        QString preview;
+    };
+    static QVariantList buildScreenSourcesFromDescriptors(const QList<ScreenSourceDesc>& screens, const QString& allPreview);
     Q_INVOKABLE void accept(bool camStartOff = false);
     Q_INVOKABLE void reject();
     Q_INVOKABLE void hangup();
@@ -145,6 +164,7 @@ public:
     void injectUiBytesForTesting(const QByteArray& bytes) { m_uiBuffer += bytes; drainUiBuffer(); }
     void callSendSignalForTesting(int command, const QJsonObject& data) { onSendSignal(command, data); }
     int pendingEngineFrameCountForTesting() const { return m_pending.size(); }
+    void openScreenPickerForTesting(const QVariantList& sources);
 #endif
 
     void handleVoipControl(const QJsonObject& content);
@@ -169,6 +189,8 @@ signals:
     void videoFrameReceived(bool isKey, const QString& codec, const QByteArray& data, int src);
     void peerVideoChanged();
     void peerVideoResetRequested();
+    void screenSourcesChanged();
+    void screenPickerChanged();
 
 private:
     bool ensureEngine();
@@ -213,6 +235,9 @@ private:
     bool m_cameraOn{false};
     bool m_prevCameraOn{false};
     bool m_screenShareOn{false};
+    bool m_screenSharePending{false};
+    bool m_screenPickerOpen{false};
+    QVariantList m_screenSources;
     bool m_cameraOffAnnounced{false};
     QString m_cameraError;
     CameraSender* m_cameraSender{nullptr};
@@ -220,12 +245,21 @@ private:
     CameraSender* cameraSender();
     void applyCamera(bool on);
     void applyScreenShare(bool on);
+    void applyScreenShareTarget(const QString& targetId);
+    void retireEngine(QProcess* p);
+    void runQueuedStart();
+    bool deferUntilEngineRetired(std::function<void()> start);
+    void flushMicVolume();
     QThread* m_videoThread{nullptr};
     PeerVideoDecoder* m_videoDecoder{nullptr};
     QPointer<QVideoSink> m_peerSink;
     QTimer* m_peerVideoIdle{nullptr};
     QTimer* m_idleShutdownTimer{nullptr};
     QTimer* m_hangupWatchdog{nullptr};
+    QTimer* m_micVolumeTimer{nullptr};
+    int m_micVolumeRequested{-1};
+    QList<QProcess*> m_retiringEngines;
+    std::function<void()> m_queuedStart;
     bool m_peerVideoActive{false};
     qint64 m_lastKeyRequestMs{0};
     QHash<QString, QStringList> m_chunks;
@@ -253,6 +287,7 @@ private:
     mutable QVariantList m_cachedCameras;
     mutable std::atomic<bool> m_devicesScanning{false};
     mutable bool m_devicesCached{false};
+    QMediaDevices* m_mediaDevices{nullptr};
 };
 
 }

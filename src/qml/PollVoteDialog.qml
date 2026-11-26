@@ -49,7 +49,9 @@ Item {
         }
         return savedCount === root.selected.length;
     }
-    property bool votersPage: ZaloClient.pollDialogVoters
+    property int votersPageMode: -1
+    readonly property bool votersPage: votersPageMode < 0 ? ZaloClient.pollDialogVoters : votersPageMode === 1
+    function showVotersPage(on: bool): void { root.votersPageMode = on ? 1 : 0; }
 
     function syncFromPoll(): void {
         if (root.dirty || !root.loaded) return;
@@ -164,15 +166,8 @@ Item {
     }
     Keys.onEscapePressed: root.requestClose()
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#000000"
-        opacity: 0.5
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: root.requestClose()
-        }
+    ZModalScrim {
+        onDismissed: root.requestClose()
     }
 
     Rectangle {
@@ -213,7 +208,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.votersPage = false
+                        onClicked: root.showVotersPage(false)
                     }
                 }
 
@@ -343,7 +338,7 @@ Item {
                                 enabled: root.canViewVoters
                                 hoverEnabled: true
                                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                onClicked: root.votersPage = true
+                                onClicked: root.showVotersPage(true)
                             }
                         }
 

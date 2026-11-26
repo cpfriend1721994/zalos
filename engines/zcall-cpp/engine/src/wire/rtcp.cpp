@@ -413,19 +413,45 @@ std::optional<ReportBlock> RxStats::block(double nowMs) {
     return b;
 }
 
+RxStats* RtcpFeedback::trackStats(bool video, uint32_t ssrc) {
+    auto& streams = video ? m_videoStats : m_audioStats;
+    const auto it = streams.find(ssrc);
+    if (it != streams.end()) return &it->second;
+    if (streams.size() >= kMaxRtcpStreams) return nullptr;
+    return &streams.try_emplace(ssrc, video ? 90000.0 : 16000.0).first->second;
+}
+
+RxStats& RtcpFeedback::primaryStats(bool video) {
+    const auto& primary = video ? m_videoPrimary : m_audioPrimary;
+    auto& streams = video ? m_videoStats : m_audioStats;
+    if (primary) {
+        const auto it = streams.find(*primary);
+        if (it != streams.end()) return it->second;
+    }
+    return video ? m_emptyVideo : m_emptyAudio;
+}
+
 void RtcpFeedback::onRtp(bool video, const QByteArray& rtp, double nowMs) {
     if (rtp.size() < 12) return;
-    if (!m_peerSsrc) m_peerSsrc = rd32be(rtp, 8);
+    const uint32_t ssrc = rd32be(rtp, 8);
+    if (!m_peerSsrc) m_peerSsrc = ssrc;
     if (const auto tw = readTwSeq(rtp)) m_twcc.add(*tw, nowMs);
-    (video ? m_video : m_audio).onPacket(rtp, nowMs);
+    RxStats* st = trackStats(video, ssrc);
+    if (!st) return;
+    auto& primary = video ? m_videoPrimary : m_audioPrimary;
+    if (!primary) primary = ssrc;
+    st->onPacket(rtp, nowMs);
 }
 
 void RtcpFeedback::onRtcp(bool video, const QByteArray& buf, double nowMs) {
-    RxStats& st = video ? m_video : m_audio;
+    auto& streams = video ? m_videoStats : m_audioStats;
     for (int o = 0; o + 4 <= buf.size();) {
         if ((u8at(buf, o) >> 6) != 2) return;
         const int len = (rd16be(buf, o + 2) + 1) * 4;
-        if (u8at(buf, o + 1) == 200 && o + len <= buf.size()) st.onSr(buf.mid(o, len), nowMs);
+        if (u8at(buf, o + 1) == 200 && o + 8 <= buf.size() && o + len <= buf.size()) {
+            const auto it = streams.find(rd32be(buf, o + 4));
+            if (it != streams.end()) it->second.onSr(buf.mid(o, len), nowMs);
+        }
         o += len;
     }
 }
@@ -437,25 +463,26 @@ QVector<QByteArray> RtcpFeedback::twccPackets() {
     return pk;
 }
 
-QByteArray RtcpFeedback::audioReport(double nowMs, uint32_t rtpTs, uint32_t packets, uint32_t octets) {
-    const auto blk = m_audio.block(nowMs);
+QByteArray RtcpFeedback::audioReport(double nowMs, uint32_t rtpTs, uint32_t packets, uint32_t octets,
+                                     std::optional<double> wallMs) {
+    const auto blk = audio().block(nowMs);
     ++m_counters.reports;
     QVector<ReportBlock> blocks;
     if (blk) blocks.push_back(*blk);
-    return buildSr(m_localSsrc, nowMs, rtpTs, packets, octets, blocks) + buildSdes(m_localSsrc);
+    return buildSr(m_localSsrc, wallMs.value_or(nowMs), rtpTs, packets, octets, blocks) + buildSdes(m_localSsrc);
 }
 
 QByteArray RtcpFeedback::videoReport(double nowMs) {
-    const auto blk = m_video.block(nowMs);
+    const auto blk = video().block(nowMs);
     if (!blk) return {};
     ++m_counters.reports;
     return buildRr(m_localSsrc, {*blk}) + buildSdes(m_localSsrc);
 }
 
 QByteArray RtcpFeedback::pli() {
-    if (!m_video.started()) return {};
+    if (!video().started()) return {};
     ++m_counters.pli;
-    return buildPli(m_localSsrc, m_video.ssrc());
+    return buildPli(m_localSsrc, video().ssrc());
 }
 
 }

@@ -43,7 +43,8 @@ VoiceRecorder::VoiceRecorder(QObject* parent) : QObject(parent) {
 
 VoiceRecorder::~VoiceRecorder() {
     if (m_recording) finish(false);
-    if (!m_path.isEmpty()) QFile::remove(std::exchange(m_path, QString()));
+    if (m_stopping.id != 0) QFile::remove(m_stopping.path);
+    if (m_active.id != 0) QFile::remove(m_active.path);
 }
 
 void VoiceRecorder::ensurePassiveProbe() const {
@@ -89,12 +90,14 @@ bool VoiceRecorder::start() {
             emit failed(text);
         });
         connect(m_recorder, &QMediaRecorder::recorderStateChanged, this, [this](QMediaRecorder::RecorderState state) {
-            if (state != QMediaRecorder::StoppedState || m_recording || m_path.isEmpty()) return;
-            const QString path = std::exchange(m_path, QString());
-            if (m_keepOnStop && m_durationMs >= kMinDurationMs && QFile::exists(path)) emit finished(path, m_durationMs);
-            else QFile::remove(path);
+            if (state == QMediaRecorder::StoppedState) settleStopped();
         });
     }
+    if (m_recorder->recorderState() != QMediaRecorder::StoppedState) {
+        emit startRefused();
+        return false;
+    }
+    settleStopped();
     m_input->setDevice(QMediaDevices::defaultAudioInput());
     m_recorder->setMediaFormat(aacFormat());
     m_recorder->setQuality(QMediaRecorder::NormalQuality);
@@ -102,18 +105,20 @@ bool VoiceRecorder::start() {
     m_recorder->setAudioSampleRate(16000);
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/voice");
     QDir().mkpath(dir);
-    m_path = dir + QStringLiteral("/voice-%1.aac").arg(QDateTime::currentMSecsSinceEpoch());
-    m_recorder->setOutputLocation(QUrl::fromLocalFile(m_path));
-    m_keepOnStop = true;
+    m_active = Clip{++m_clipSeq,
+                    dir + QStringLiteral("/voice-%1-%2.aac").arg(QDateTime::currentMSecsSinceEpoch()).arg(m_clipSeq),
+                    0, true};
+    m_recorder->setOutputLocation(QUrl::fromLocalFile(m_active.path));
     m_startedAt = QDateTime::currentMSecsSinceEpoch();
     m_durationMs = 0;
     m_recording = true;
     m_recorder->record();
     if (m_recorder->recorderState() == QMediaRecorder::StoppedState) {
+        QFile::remove(m_active.path);
+        m_active = Clip{};
         m_recording = false;
-        m_keepOnStop = false;
         m_tick.stop();
-        if (!m_path.isEmpty()) QFile::remove(std::exchange(m_path, QString()));
+        emit startRefused();
         emit recordingChanged();
         return false;
     }
@@ -131,10 +136,24 @@ void VoiceRecorder::finish(bool keep) {
     if (!m_recording) return;
     m_tick.stop();
     m_durationMs = int(QDateTime::currentMSecsSinceEpoch() - m_startedAt);
+    m_active.durationMs = m_durationMs;
+    m_active.keep = keep;
+    m_stopping = std::exchange(m_active, Clip{});
     m_recording = false;
-    m_keepOnStop = keep;
     emit recordingChanged();
-    if (m_recorder) m_recorder->stop();
+    if (!m_recorder) {
+        settleStopped();
+        return;
+    }
+    m_recorder->stop();
+    if (m_recorder->recorderState() == QMediaRecorder::StoppedState) settleStopped();
+}
+
+void VoiceRecorder::settleStopped() {
+    if (m_stopping.id == 0) return;
+    const Clip clip = std::exchange(m_stopping, Clip{});
+    if (clip.keep && clip.durationMs >= kMinDurationMs && QFile::exists(clip.path)) emit finished(clip.path, clip.durationMs);
+    else QFile::remove(clip.path);
 }
 
 }

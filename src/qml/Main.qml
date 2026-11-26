@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Templates as T
@@ -17,6 +18,7 @@ ApplicationWindow {
 
     readonly property bool isCompactMode: width < 720
     readonly property bool anyModalOpen: ZaloClient.showUserProfileModal
+    readonly property real callBarInset: callOverlayLoader.item && !callOverlayLoader.item.minimized ? callOverlayLoader.item.controlBarHeight : 0
                                       || ZaloClient.pollDialogId > 0
                                       || ZaloClient.showSettingsModal
                                       || ZaloClient.showAddFriendModal
@@ -44,6 +46,7 @@ ApplicationWindow {
     property bool forceQuit: false
     property int preHideVisibility: Window.AutomaticVisibility
     property int preScreenshotVisibility: Window.AutomaticVisibility
+    property int lastShownVisibility: Window.Windowed
 
     flags: Qt.Window
 
@@ -86,6 +89,8 @@ ApplicationWindow {
     onHeightChanged: geomSaveTimer.restart()
     onVisibilityChanged: {
         recordGeometry()
+        if (visibility === Window.Windowed || visibility === Window.Maximized || visibility === Window.FullScreen)
+            lastShownVisibility = visibility
         ZaloClient.notifyWindowVisibility(mainWindow.visible && mainWindow.visibility !== Window.Hidden)
     }
     onVisibleChanged: {
@@ -104,26 +109,41 @@ ApplicationWindow {
         function onAppLanguageChanged(): void {
             if (I18n.currentLanguage !== ZaloClient.appLanguage) I18n.setLanguage(ZaloClient.appLanguage);
         }
-        function onRequestHideForScreenshot() {
-            mainWindow.preScreenshotVisibility = mainWindow.visibility;
+        function onRequestHideForScreenshot(): void {
+            if (mainWindow.visibility === Window.FullScreen
+                    || mainWindow.visibility === Window.Maximized
+                    || mainWindow.visibility === Window.Windowed) {
+                mainWindow.preScreenshotVisibility = mainWindow.visibility;
+            } else {
+                mainWindow.preScreenshotVisibility = mainWindow.lastShownVisibility;
+            }
             mainWindow.hide();
         }
         function onHideWindowRequested(): void {
             mainWindow.minimizeOrHideForCall();
         }
-        function onRequestRestoreAfterScreenshot() {
-            if (mainWindow.preScreenshotVisibility === Window.FullScreen) {
-                mainWindow.showFullScreen();
-                mainWindow.raise();
-                mainWindow.requestActivate();
-            } else if (mainWindow.preScreenshotVisibility === Window.Maximized) {
-                mainWindow.showMaximized();
-                mainWindow.raise();
-                mainWindow.requestActivate();
-            } else {
-                mainWindow.showAndActivate();
-            }
+        function onRequestRestoreAfterScreenshot(): void {
+            var target = mainWindow.preScreenshotVisibility;
             mainWindow.preScreenshotVisibility = Window.AutomaticVisibility;
+            if (target === Window.AutomaticVisibility) {
+                if (!mainWindow.visible
+                        || mainWindow.visibility === Window.Hidden
+                        || mainWindow.visibility === Window.Minimized) {
+                    target = mainWindow.lastShownVisibility;
+                }
+            }
+            if (target === Window.FullScreen) {
+                if (!mainWindow.visible || mainWindow.visibility !== Window.FullScreen)
+                    mainWindow.showFullScreen();
+            } else if (target === Window.Maximized) {
+                if (!mainWindow.visible || mainWindow.visibility !== Window.Maximized)
+                    mainWindow.showMaximized();
+            } else if (target !== Window.AutomaticVisibility) {
+                if (!mainWindow.visible || mainWindow.visibility !== Window.Windowed)
+                    mainWindow.showNormal();
+            }
+            mainWindow.raise();
+            mainWindow.requestActivate();
         }
     }
     Connections {
@@ -179,7 +199,12 @@ ApplicationWindow {
         } else if (mainWindow.preHideVisibility === Window.Maximized) {
             mainWindow.showMaximized();
         } else if (mainWindow.visibility === Window.Minimized) {
-            mainWindow.showNormal();
+            if (mainWindow.lastShownVisibility === Window.FullScreen)
+                mainWindow.showFullScreen();
+            else if (mainWindow.lastShownVisibility === Window.Maximized)
+                mainWindow.showMaximized();
+            else
+                mainWindow.showNormal();
         } else {
             mainWindow.show();
         }
@@ -422,7 +447,7 @@ ApplicationWindow {
     Shortcut {
         sequences: ZaloClient.shortcuts.keySequences("app.hide")
         onActivated: {
-            if (ZaloClient.trayAvailable) mainWindow.hide();
+            if (ZaloClient.trayAvailable) mainWindow.hideToTray();
             else mainWindow.showMinimized();
         }
     }
@@ -454,7 +479,7 @@ ApplicationWindow {
         z: 2500
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 24
+        anchors.bottomMargin: 24 + mainWindow.callBarInset
         width: Math.min(parent.width - 32, noticeText.implicitWidth + 32)
         height: noticeText.implicitHeight + 20
         radius: 8
@@ -468,7 +493,7 @@ ApplicationWindow {
             horizontalAlignment: Text.AlignHCenter
             font.family: Theme.fontFamily
             font.pixelSize: 12
-            color: "#FFFFFF"
+            color: Theme.textOnColor
         }
         Timer {
             id: noticeTimer

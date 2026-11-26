@@ -19,7 +19,17 @@ Playout::Playout(Sink* sink, DecoderFactory factory, int depth, int minDelayMs, 
     m_frame.resize(kFrame);
 }
 
-Playout::~Playout() { flush(); }
+Playout::~Playout() {
+    requestStop();
+    if (!m_thread.joinable()) return;
+    constexpr double kDestroyWaitSec = 1.0;
+    {
+        std::unique_lock<std::mutex> lock(m_stopMutex);
+        m_stopCv.wait_for(lock, std::chrono::duration<double>(kDestroyWaitSec), [this] { return m_done.load(); });
+    }
+    if (!m_done.load()) m_sink->abort();
+    m_thread.join();
+}
 
 void Playout::start() {
     if (m_thread.joinable()) return;
@@ -186,23 +196,25 @@ void Playout::clockLoop() {
     }
 }
 
-void Playout::flush() {
+void Playout::requestStop() {
     {
         std::lock_guard<std::mutex> lock(m_stopMutex);
         m_stop.store(true);
     }
     m_stopCv.notify_all();
+}
+
+bool Playout::flush(double seconds) {
+    requestStop();
     if (m_thread.joinable()) {
         std::unique_lock<std::mutex> lock(m_stopMutex);
-        const bool done = m_stopCv.wait_for(lock, std::chrono::seconds(1), [this] { return m_done.load(); });
+        const bool done = m_stopCv.wait_for(lock, std::chrono::duration<double>(seconds), [this] { return m_done.load(); });
         lock.unlock();
-        if (!done) {
-            m_thread.detach();
-            return;
-        }
+        if (!done) return false;
         m_thread.join();
     }
     m_sources.clear();
+    return true;
 }
 
 }

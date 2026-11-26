@@ -407,7 +407,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.isVideo ? (ZaloClient.multimediaAvailable
                                       ? I18n.t("Không phát được video trực tiếp trong ứng dụng", "Couldn't play the video in-app")
-                                      : I18n.t("Máy thiếu thành phần phát video (Qt Multimedia)", "This system lacks the video playback components (Qt Multimedia)"))
+                                      : I18n.t("Máy này chưa phát được video", "Video playback isn't available on this computer"))
                                    : I18n.t("Không tải được ảnh", "Couldn't load the picture")
                 color: "#CFD3D8"
                 font.family: Theme.fontFamily

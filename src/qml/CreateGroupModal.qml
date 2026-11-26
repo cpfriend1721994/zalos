@@ -103,16 +103,10 @@ Item {
         }
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#000000"
-        opacity: root.visible ? 0.5 : 0
-        Behavior on opacity { NumberAnimation { duration: 150 } }
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: root.closeModal()
-        }
+    ZModalScrim {
+        shown: root.visible
+        fadeDuration: 150
+        onDismissed: root.closeModal()
     }
 
     Rectangle {

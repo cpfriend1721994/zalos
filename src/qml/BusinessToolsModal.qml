@@ -53,14 +53,8 @@ Item {
         }
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#000000"
-        opacity: 0.5
-        MouseArea {
-            anchors.fill: parent
-            onClicked: root.close()
-        }
+    ZModalScrim {
+        onDismissed: root.close()
     }
 
     Rectangle {
@@ -374,8 +368,8 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             wrapMode: Text.Wrap
-                            text: I18n.t("Chỉnh sửa thông tin hồ sơ kinh doanh hiện chỉ thực hiện trên Zalo điện thoại/web (máy chủ không mở API cập nhật hồ sơ từ máy tính).",
-                                         "Editing business profile fields is only supported on Zalo mobile/web (the server exposes read-only lookup to desktop).")
+                            text: I18n.t("Chỉnh sửa thông tin hồ sơ kinh doanh hiện chỉ thực hiện trên Zalo điện thoại/web (Zalo chưa cho phép cập nhật hồ sơ từ máy tính).",
+                                         "Editing business profile fields is only supported on Zalo mobile/web (Zalo doesn't allow updating it from a computer yet).")
                             font.family: Theme.fontFamily
                             font.pixelSize: 11
                             color: ThemeManager.secondaryTextColor

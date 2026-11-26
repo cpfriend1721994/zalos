@@ -5,9 +5,12 @@
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QList>
 #include <QMutex>
 #include <QObject>
+#include <QPair>
 #include <QPointer>
+#include <QRect>
 #include <QSize>
 #include <QString>
 #include <QVideoFrame>
@@ -21,6 +24,8 @@ class QTimer;
 class QVideoSink;
 
 namespace Zalos::Core::Call {
+
+class PortalScreenCast;
 
 class CameraSender : public QObject {
     Q_OBJECT
@@ -38,9 +43,16 @@ public:
 
     bool start(QString* error = nullptr);
     bool startScreen(QString* error = nullptr);
+    bool startPortalScreen(QString* error = nullptr);
     void stop();
     bool running() const { return m_camera != nullptr; }
-    bool screenRunning() const { return m_screenTimer != nullptr; }
+    bool screenRunning() const { return m_screenTimer != nullptr || m_portalStreaming; }
+    bool portalPending() const { return m_portalPending; }
+    void setScreenTarget(const QString& target) { m_screenTarget = target; }
+    QString screenTarget() const { return m_screenTarget; }
+
+    static QImage stitchScreenCaptures(const QList<QPair<QRect, QImage>>& parts);
+    static QString encodePreviewDataUrl(const QImage& image);
 
     void setProfile(QSize size, int fps, int bitrate);
     void setScreenProfile(int maxSide, int maxShort, int fps, int bitrate);
@@ -60,13 +72,21 @@ public:
 signals:
     void frameEncoded(bool key, const QByteArray& annexB, int width, int height);
     void failed(const QString& reason);
+    void portalScreenStarted();
+    void portalScreenCancelled();
+    void portalScreenUnavailable();
+    void portalScreenStopped();
 
 private:
     void ensureEncodeThread();
     void stopEncodeThread();
+    void stopLocalCapture();
+    void stopPortalCast();
     QImage grabDesktopOrWindow();
     void startWaylandGrab();
+    bool screenCaptureExhausted() const;
     void captureScreenFrame();
+    void showPreview(const QImage& image);
     void dispatchScreenImage(const QImage& image);
     void encodeFrame(const QVideoFrame& frame, qint64 now);
     void encodeImage(const QImage& image, qint64 now);
@@ -84,7 +104,10 @@ private:
     QString m_grabTempFile;
     QStringList m_grabTools;
     int m_grabToolIndex{0};
+    int m_grabFailures{0};
     bool m_grabToolsInitialized{false};
+    bool m_grabDecoding{false};
+    std::atomic<bool> m_previewBusy{false};
     QImage m_lastCapturedDesktop;
     QImage m_lastScreenImage;
     QThread* m_encodeThread{nullptr};
@@ -112,6 +135,10 @@ private:
     QElapsedTimer m_clock;
     qint64 m_lastFrameMs{-1};
     qint64 m_lastKeyMs{-1};
+    QString m_screenTarget;
+    PortalScreenCast* m_portalCast{nullptr};
+    bool m_portalPending{false};
+    bool m_portalStreaming{false};
 };
 
 }

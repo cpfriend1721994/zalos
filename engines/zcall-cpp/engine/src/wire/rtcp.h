@@ -4,6 +4,7 @@
 #include <QByteArray>
 #include <QVector>
 
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <optional>
@@ -134,28 +135,38 @@ struct RtcpCounters {
     int nack{0};
 };
 
+inline constexpr std::size_t kMaxRtcpStreams = 64;
+
 class RtcpFeedback {
 public:
-    explicit RtcpFeedback(uint32_t localSsrc) : m_localSsrc(localSsrc), m_audio(16000), m_video(90000) {}
+    explicit RtcpFeedback(uint32_t localSsrc) : m_localSsrc(localSsrc), m_emptyAudio(16000), m_emptyVideo(90000) {}
     void onRtp(bool video, const QByteArray& rtp, double nowMs);
     void onRtcp(bool video, const QByteArray& buf, double nowMs);
     QVector<QByteArray> twccPackets();
-    QByteArray audioReport(double nowMs, uint32_t rtpTs, uint32_t packets, uint32_t octets);
+    QByteArray audioReport(double nowMs, uint32_t rtpTs, uint32_t packets, uint32_t octets,
+                           std::optional<double> wallMs = std::nullopt);
     QByteArray videoReport(double nowMs);
     QByteArray pli();
 
     uint32_t localSsrc() const { return m_localSsrc; }
     uint32_t peerSsrc() const { return m_peerSsrc; }
     RtcpCounters& counters() { return m_counters; }
-    RxStats& audio() { return m_audio; }
-    RxStats& video() { return m_video; }
+    RxStats& audio() { return primaryStats(false); }
+    RxStats& video() { return primaryStats(true); }
     TwccRecorder& twcc() { return m_twcc; }
 
 private:
+    RxStats* trackStats(bool video, uint32_t ssrc);
+    RxStats& primaryStats(bool video);
+
     uint32_t m_localSsrc;
+    RxStats m_emptyAudio;
+    RxStats m_emptyVideo;
     TwccRecorder m_twcc;
-    RxStats m_audio;
-    RxStats m_video;
+    std::unordered_map<uint32_t, RxStats> m_audioStats;
+    std::unordered_map<uint32_t, RxStats> m_videoStats;
+    std::optional<uint32_t> m_audioPrimary;
+    std::optional<uint32_t> m_videoPrimary;
     uint32_t m_peerSsrc{0};
     RtcpCounters m_counters;
 };

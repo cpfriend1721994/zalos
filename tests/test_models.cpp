@@ -9,6 +9,90 @@
 
 using namespace Zalos::Core::Models;
 
+namespace {
+
+QString convIdAt(const ConversationModel& model, int row)
+{
+    return model.data(model.index(row), ConversationModel::IdRole).toString();
+}
+
+qint64 runBaseMs()
+{
+    return QDateTime(QDate(2026, 11, 2), QTime(9, 0)).toMSecsSinceEpoch();
+}
+
+MessageItem runImage(int i)
+{
+    MessageItem m;
+    m.id = QStringLiteral("run-%1").arg(i);
+    m.cliMsgId = QStringLiteral("cli-run-%1").arg(i);
+    m.senderId = QStringLiteral("u-new");
+    m.messageType = QStringLiteral("image");
+    m.mediaUrl = QStringLiteral("https://cdn.example/run-%1.jpg").arg(i);
+    m.ts = runBaseMs() + i * 1000LL;
+    return m;
+}
+
+void loadImageRun(MessageModel& model, const QString& convId, int count)
+{
+    QVector<MessageItem> rows;
+    rows.reserve(count);
+    for (int i = 0; i < count; ++i) rows.append(runImage(i));
+    model.loadConversation(convId);
+    model.mergeMessages(convId, rows);
+}
+
+QString headRows(const MessageModel& model)
+{
+    QStringList heads;
+    for (int row = 0; row < model.rowCount(); ++row) {
+        if (!model.data(model.index(row), MessageModel::InMediaRunRole).toBool()) heads << QString::number(row);
+    }
+    return heads.join(QStringLiteral(","));
+}
+
+QString rowKey(const MessageModel& model, int row)
+{
+    static const int roles[] = {
+        MessageModel::IdRole, MessageModel::MessageTypeRole, MessageModel::MediaUrlRole, MessageModel::TextRole,
+        MessageModel::TimestampRole, MessageModel::IsRecalledRole, MessageModel::FirstInGroupRole,
+        MessageModel::LastInGroupRole, MessageModel::DateSeparatorRole, MessageModel::ShowStatusRole,
+        MessageModel::UnreadMarkerRole, MessageModel::InMediaRunRole, MessageModel::MediaRunRole
+    };
+    QStringList parts;
+    const QModelIndex idx = model.index(row);
+    for (const int role : roles) {
+        if (role == MessageModel::MediaRunRole) {
+            QStringList ids;
+            for (const QVariant& tile : model.data(idx, role).toList()) {
+                ids << tile.toMap().value(QStringLiteral("msgId")).toString();
+            }
+            parts << ids.join(QStringLiteral(","));
+        } else {
+            parts << model.data(idx, role).toString();
+        }
+    }
+    return parts.join(QStringLiteral("|"));
+}
+
+void loadFreshCopy(const MessageModel& source, const QString& convId, int unreadCount, MessageModel& fresh)
+{
+    const QVector<MessageItem> rows = source.threadOf(convId);
+    fresh.loadConversation(QStringLiteral("c-fresh"));
+    fresh.mergeMessages(QStringLiteral("c-fresh"), rows);
+    if (unreadCount > 0) fresh.setUnreadMarker(QStringLiteral("c-fresh"), unreadCount);
+}
+
+void compareRows(const MessageModel& actual, const MessageModel& expected)
+{
+    QCOMPARE(actual.rowCount(), expected.rowCount());
+    for (int row = 0; row < actual.rowCount(); ++row) {
+        QCOMPARE(rowKey(actual, row), rowKey(expected, row));
+    }
+}
+
+}
+
 class TestModels : public QObject {
     Q_OBJECT
 
@@ -180,19 +264,15 @@ private slots:
         QCOMPARE(model.data(model.index(0), MessageModel::QuoteSenderRole).toString(), QString("Fixture"));
     }
 
-    void testForwardedAndExpireRoles() {
+    void testE2EEFlagRole() {
         MessageModel model;
         model.loadConversation("t");
         MessageItem m;
         m.id = "f1";
         m.text = "test";
-        m.isForwarded = true;
         m.isE2EE = true;
-        m.expireOn = 1800000000000LL;
         model.mergeMessages("t", {m});
-        QCOMPARE(model.data(model.index(0), MessageModel::IsForwardedRole).toBool(), true);
         QCOMPARE(model.data(model.index(0), MessageModel::IsE2EERole).toBool(), true);
-        QCOMPARE(model.data(model.index(0), MessageModel::ExpireOnRole).toLongLong(), 1800000000000LL);
     }
 
     void testPresentationRoles() {
@@ -328,20 +408,32 @@ private slots:
 
     void testMessageModelAdd() {
         MessageModel model;
-        int countBefore = model.rowCount();
-        model.addMessage("Xin chào từ bộ kiểm thử tự động", true);
-        QCOMPARE(model.rowCount(), countBefore + 1);
+        model.loadConversation("c-add");
+        MessageItem m;
+        m.id = "add-1";
+        m.cliMsgId = "cli-add-1";
+        m.senderId = "u-me";
+        m.text = "Xin chào từ bộ kiểm thử tự động";
+        m.isMine = true;
+        m.ts = 100;
+        model.mergeMessages("c-add", {m});
+        QCOMPARE(model.rowCount(), 1);
 
-        QModelIndex lastIdx = model.index(countBefore);
+        QModelIndex lastIdx = model.index(0);
         QCOMPARE(model.data(lastIdx, MessageModel::TextRole).toString(), "Xin chào từ bộ kiểm thử tự động");
         QCOMPARE(model.data(lastIdx, MessageModel::IsMineRole).toBool(), true);
     }
 
     void testMessageSearchAndGetById() {
         MessageModel model;
-        model.addMessageDirect("conv-1", "m1", "Alice", "Xin chào mọi người", "10:00", false, false);
-        model.addMessageDirect("conv-1", "m2", "Bob", "Hôm nay thời tiết đẹp quá", "10:01", false, false);
-        model.addMessageDirect("conv-1", "m3", "Tôi", "Hẹn gặp mọi người vào chiều nay nhé", "10:02", true, false);
+        MessageItem a;
+        a.id = "m1"; a.senderName = "Alice"; a.text = "Xin chào mọi người"; a.timeStr = "10:00"; a.ts = 100;
+        MessageItem b;
+        b.id = "m2"; b.senderName = "Bob"; b.text = "Hôm nay thời tiết đẹp quá"; b.timeStr = "10:01"; b.ts = 200;
+        MessageItem c;
+        c.id = "m3"; c.senderName = "Tôi"; c.text = "Hẹn gặp mọi người vào chiều nay nhé"; c.timeStr = "10:02"; c.ts = 300;
+        c.isMine = true;
+        model.mergeMessages("conv-1", {a, b, c});
 
         model.loadConversation("conv-1");
         QCOMPARE(model.rowCount(), 3);
@@ -660,7 +752,10 @@ private slots:
         model.clearUnreadMarker();
         QCOMPARE(model.unreadMarkerRow(), -1);
 
-        model.addMessage("temp", true);
+        MessageItem temp;
+        temp.id = "local-temp-1"; temp.cliMsgId = "cli-temp-1"; temp.senderId = "u-me"; temp.text = "temp";
+        temp.isMine = true; temp.ts = 400;
+        model.mergeMessages("g1", {temp});
         const QString localId = model.data(model.index(3), MessageModel::IdRole).toString();
         QCOMPARE(model.rowOfMessage(localId), 3);
         model.confirmMessage("g1", localId, "40");
@@ -830,6 +925,193 @@ private slots:
         QCOMPARE(model.data(model.index(1), MessageModel::TextRole).toString(), serverCall.text);
         QVERIFY(model.contains(QStringLiteral("c-call"), serverCall.id));
         QVERIFY(!model.contains(QStringLiteral("c-call"), recentLocal.id));
+    }
+
+    void testUpdateProfileReportsRealChanges() {
+        ConversationModel model;
+        ConversationItem item;
+        item.id = QStringLiteral("c-new");
+        item.name = QStringLiteral("Fixture New");
+        model.setConversations({item});
+
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        QVERIFY(!model.updateProfile(QStringLiteral("c-new"), QStringLiteral("Fixture New"), QString()));
+        QCOMPARE(changed.count(), 0);
+
+        QVERIFY(!model.updateProfile(QStringLiteral("c-missing"), QStringLiteral("Fixture Missing"), QString()));
+        QCOMPARE(changed.count(), 0);
+
+        QVERIFY(model.updateProfile(QStringLiteral("c-new"), QStringLiteral("Fixture Renamed"), QString()));
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(changed.first().at(2).value<QList<int>>().contains(ConversationModel::NameRole));
+        QCOMPARE(model.data(model.index(0), ConversationModel::NameRole).toString(), QStringLiteral("Fixture Renamed"));
+    }
+
+    void testSetMutedTouchesOnlyMuteRole() {
+        ConversationModel model;
+        ConversationItem pinned;
+        pinned.id = QStringLiteral("c-pin");
+        pinned.name = QStringLiteral("Fixture Pinned");
+        pinned.isPinned = true;
+        pinned.lastTs = 100;
+        ConversationItem recent;
+        recent.id = QStringLiteral("c-a");
+        recent.name = QStringLiteral("Fixture Recent");
+        recent.lastTs = 300;
+        ConversationItem older;
+        older.id = QStringLiteral("c-b");
+        older.name = QStringLiteral("Fixture Older");
+        older.lastTs = 200;
+        model.setConversations({pinned, recent, older});
+        QCOMPARE(convIdAt(model, 0), QStringLiteral("c-pin"));
+        QCOMPARE(convIdAt(model, 1), QStringLiteral("c-a"));
+        QCOMPARE(convIdAt(model, 2), QStringLiteral("c-b"));
+
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        model.setMuted(QStringLiteral("c-pin"), true);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(resets.count(), 0);
+        const QList<int> roles = changed.first().at(2).value<QList<int>>();
+        QCOMPARE(roles.size(), 1);
+        QCOMPARE(roles.first(), static_cast<int>(ConversationModel::IsMutedRole));
+        QCOMPARE(convIdAt(model, 0), QStringLiteral("c-pin"));
+        QCOMPARE(convIdAt(model, 1), QStringLiteral("c-a"));
+        QCOMPARE(convIdAt(model, 2), QStringLiteral("c-b"));
+        QVERIFY(model.data(model.index(0), ConversationModel::IsMutedRole).toBool());
+
+        model.setMuted(QStringLiteral("c-pin"), true);
+        QCOMPARE(changed.count(), 1);
+    }
+
+    void testMediaRunCacheSurvivesTextInsert() {
+        MessageModel model;
+        const QString conv = QStringLiteral("c-run-cache");
+        loadImageRun(model, conv, 40);
+        QCOMPARE(model.rowCount(), 40);
+        QCOMPARE(headRows(model), QStringLiteral("0,16,32"));
+        QCOMPARE(model.data(model.index(0), MessageModel::MediaRunRole).toList().size(), 16);
+        QCOMPARE(model.data(model.index(32), MessageModel::MediaRunRole).toList().size(), 8);
+
+        MessageItem caption;
+        caption.id = QStringLiteral("run-text");
+        caption.senderId = QStringLiteral("u-new");
+        caption.messageType = QStringLiteral("text");
+        caption.text = QStringLiteral("Fixture caption");
+        caption.ts = runBaseMs() + 19500;
+        model.mergeMessages(conv, {caption});
+        QCOMPARE(model.rowCount(), 41);
+        QCOMPARE(model.data(model.index(20), MessageModel::IdRole).toString(), QStringLiteral("run-text"));
+        QCOMPARE(headRows(model), QStringLiteral("0,16,20,21,37"));
+        QCOMPARE(model.data(model.index(16), MessageModel::MediaRunRole).toList().size(), 4);
+        QCOMPARE(model.data(model.index(21), MessageModel::MediaRunRole).toList().size(), 16);
+
+        MessageModel fresh;
+        loadFreshCopy(model, conv, 0, fresh);
+        compareRows(model, fresh);
+    }
+
+    void testMediaRunCacheSurvivesRemoveInsideRun() {
+        MessageModel model;
+        const QString conv = QStringLiteral("c-run-cache");
+        loadImageRun(model, conv, 40);
+        QCOMPARE(headRows(model), QStringLiteral("0,16,32"));
+
+        model.removeMessage(conv, QStringLiteral("run-5"));
+        QCOMPARE(model.rowCount(), 39);
+        QCOMPARE(headRows(model), QStringLiteral("0,16,32"));
+        QCOMPARE(model.data(model.index(0), MessageModel::MediaRunRole).toList().size(), 16);
+
+        MessageModel fresh;
+        loadFreshCopy(model, conv, 0, fresh);
+        compareRows(model, fresh);
+    }
+
+    void testMediaRunCacheSplitsOnRecall() {
+        MessageModel model;
+        const QString conv = QStringLiteral("c-run-cache");
+        loadImageRun(model, conv, 40);
+
+        model.markRecalled(conv, QStringLiteral("run-5"), QStringLiteral("Fixture recalled"));
+        QCOMPARE(headRows(model), QStringLiteral("0,5,6,22,38"));
+        QCOMPARE(model.data(model.index(4), MessageModel::InMediaRunRole).toBool(), true);
+        QCOMPARE(model.data(model.index(0), MessageModel::MediaRunRole).toList().size(), 5);
+        QCOMPARE(model.data(model.index(5), MessageModel::MediaRunRole).toList().size(), 0);
+        QCOMPARE(model.data(model.index(6), MessageModel::MediaRunRole).toList().size(), 16);
+
+        MessageModel fresh;
+        loadFreshCopy(model, conv, 0, fresh);
+        compareRows(model, fresh);
+    }
+
+    void testUnreadMarkerInvalidatesRunCache() {
+        MessageModel model;
+        const QString conv = QStringLiteral("c-run-cache");
+        loadImageRun(model, conv, 40);
+
+        model.setUnreadMarker(conv, 5);
+        QCOMPARE(model.unreadMarkerRow(), 35);
+        QCOMPARE(headRows(model), QStringLiteral("0,16,32,35,36"));
+        MessageModel marked;
+        loadFreshCopy(model, conv, 5, marked);
+        compareRows(model, marked);
+
+        model.clearUnreadMarker();
+        QCOMPARE(model.unreadMarkerRow(), -1);
+        QCOMPARE(headRows(model), QStringLiteral("0,16,32"));
+        MessageModel cleared;
+        loadFreshCopy(model, conv, 0, cleared);
+        compareRows(model, cleared);
+    }
+
+    void testQuoteChangeInvalidatesRunCache() {
+        MessageModel model;
+        const QString conv = QStringLiteral("c-run-cache");
+        loadImageRun(model, conv, 40);
+
+        MessageItem quoted;
+        quoted.id = QStringLiteral("srv-run-10");
+        quoted.cliMsgId = QStringLiteral("cli-run-10");
+        quoted.senderId = QStringLiteral("u-new");
+        quoted.messageType = QStringLiteral("image");
+        quoted.mediaUrl = QStringLiteral("https://cdn.example/run-10.jpg");
+        quoted.quoteMsgId = QStringLiteral("run-3");
+        quoted.quoteSender = QStringLiteral("Fixture Sender");
+        quoted.quoteText = QStringLiteral("Fixture quoted");
+        quoted.ts = runBaseMs() + 10000;
+        model.mergeMessages(conv, {quoted});
+        QCOMPARE(model.rowCount(), 40);
+        QCOMPARE(model.data(model.index(10), MessageModel::IdRole).toString(), QStringLiteral("srv-run-10"));
+        QCOMPARE(headRows(model), QStringLiteral("0,10,11,27"));
+
+        MessageModel fresh;
+        loadFreshCopy(model, conv, 0, fresh);
+        compareRows(model, fresh);
+    }
+
+    void testPollUpdateKeepsRunCacheConsistent() {
+        MessageModel model;
+        const QString conv = QStringLiteral("c-run-cache");
+        loadImageRun(model, conv, 40);
+
+        MessageItem poll;
+        poll.id = QStringLiteral("run-poll");
+        poll.senderId = QStringLiteral("u-new");
+        poll.messageType = QStringLiteral("poll");
+        poll.text = QStringLiteral("Fixture question");
+        poll.pollData = {{"poll_id", 77LL}, {"question", QStringLiteral("Fixture question")}};
+        poll.ts = runBaseMs() + 20500;
+        model.mergeMessages(conv, {poll});
+        QCOMPARE(model.rowCount(), 41);
+        QCOMPARE(headRows(model), QStringLiteral("0,16,21,22,38"));
+
+        model.setPollData(77LL, {{"poll_id", 77LL}, {"question", QStringLiteral("Fixture updated question")}}, conv);
+        QCOMPARE(model.data(model.index(21), MessageModel::TextRole).toString(), QStringLiteral("Fixture updated question"));
+        QCOMPARE(headRows(model), QStringLiteral("0,16,21,22,38"));
+
+        MessageModel fresh;
+        loadFreshCopy(model, conv, 0, fresh);
+        compareRows(model, fresh);
     }
 };
 

@@ -40,7 +40,8 @@ public:
     void start();
     bool push(int64_t idx, const uint8_t* payload, size_t len, int64_t src, double now);
     void mixOnce(double now, int16_t* out);
-    void flush();
+    void requestStop();
+    bool flush(double seconds);
 
     bool farActive() const { return monoSeconds() < m_farUntil.load(std::memory_order_relaxed); }
     Stats& stats() { return m_stats; }

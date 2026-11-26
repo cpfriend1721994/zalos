@@ -1,15 +1,31 @@
 import QtQuick
 import QtMultimedia
+import Zalos
 
 Item {
     id: root
     property int fillMode: VideoOutput.PreserveAspectFit
-    property alias output: out
-    readonly property QtObject videoSink: out.videoSink
+    readonly property bool useSoftware: ZaloClient.softwareRenderer || GraphicsInfo.api === GraphicsInfo.Software
+    readonly property QtObject output: viewLoader.item
+    readonly property QtObject videoSink: viewLoader.item ? viewLoader.item.videoSink : null
 
-    VideoOutput {
-        id: out
+    Loader {
+        id: viewLoader
         anchors.fill: parent
-        fillMode: root.fillMode
+        sourceComponent: root.useSoftware ? softwareComp : hardwareComp
+    }
+
+    Component {
+        id: hardwareComp
+        VideoOutput {
+            fillMode: root.fillMode
+        }
+    }
+
+    Component {
+        id: softwareComp
+        ZSoftwareVideoItem {
+            fillMode: root.fillMode
+        }
     }
 }

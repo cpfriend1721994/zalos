@@ -7,6 +7,7 @@
 #include <QNetworkCookie>
 #include <QNetworkReply>
 #include <QSettings>
+#include <QScopeGuard>
 #include <QSoundEffect>
 #include <QQmlComponent>
 #include <QPointer>
@@ -32,6 +33,11 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVideoSink>
+#include <QMediaPlayer>
+#include <QVideoFrame>
+#include <QVideoFrameFormat>
+#include "core/media/software_video_item.h"
+#include "core/call/portal_screen_cast.h"
 #include <QPainter>
 #include <QDBusArgument>
 #include <QDBusMetaType>
@@ -84,6 +90,7 @@
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include "test_support_loopback.h"
 
 using namespace Zalos::Core::Network;
 using namespace Zalos::Core::Platform;
@@ -721,7 +728,7 @@ private slots:
         QVERIFY(client.isThreadReadOnly("g-ro"));
         QCOMPARE(client.composerLockReason(), QString::fromUtf8("Bạn không thể gửi tin nhắn vào nhóm được nữa"));
         QVERIFY(client.composerLockDeletable());
-        QVERIFY(noticeIn("g-ro", QString::fromUtf8("Bạn đã được xoá khỏi nhóm")));
+        QVERIFY(noticeIn("g-ro", QString::fromUtf8("Bạn đã được xóa khỏi nhóm")));
 
         client.handleGroupControlForTesting("disperse", QJsonObject{{"groupId", "g-dis"}, {"sourceId", "u-ro-owner"}});
         QVERIFY(client.isThreadReadOnly("g-dis"));
@@ -1067,7 +1074,7 @@ private slots:
         client.setAppLanguage("vi");
         client.openOfflineCacheForTesting("u-mig-owner");
         auto* store = client.offlineStore();
-        QCOMPARE(store->metaValue("parse_version"), QString::number(ZaloClient::kCacheParseVersion));
+        QTRY_COMPARE_WITH_TIMEOUT(store->metaValue("parse_version"), QString::number(ZaloClient::kCacheParseVersion), 5000);
         const auto rows = store->loadMessages("u-mig-peer");
         QCOMPARE(rows.size(), 1);
         QCOMPARE(rows.first().messageType, QString("system"));
@@ -1388,22 +1395,27 @@ private slots:
 
     void testMessageStreamFeatures() {
         MessageModel model;
-        int countBefore = model.rowCount();
+        MessageItem mine;
+        mine.id = "stream-1"; mine.cliMsgId = "cli-stream-1"; mine.senderId = "u-me";
+        mine.text = "Thử nghiệm tin nhắn hệ thống tiếng Việt"; mine.isMine = true; mine.ts = 100;
+        MessageItem partner;
+        partner.id = "stream-2"; partner.cliMsgId = "cli-stream-2"; partner.senderId = "u-partner";
+        partner.text = "Tin nhắn phản hồi từ đối tác"; partner.ts = 200;
+        MessageItem att;
+        att.id = "stream-3"; att.cliMsgId = "cli-stream-3"; att.senderId = "u-me"; att.messageType = "image";
+        att.text = "bang_gia_gpu.png"; att.mediaUrl = "https://cdn.example.com/gpu.png"; att.isMine = true; att.ts = 300;
+        model.loadConversation("stream-conv");
+        model.mergeMessages("stream-conv", {mine, partner, att});
+        QCOMPARE(model.rowCount(), 3);
 
-        model.addMessage("Thử nghiệm tin nhắn hệ thống tiếng Việt", true);
-        QCOMPARE(model.rowCount(), countBefore + 1);
-        QModelIndex idxText = model.index(countBefore);
+        QModelIndex idxText = model.index(0);
         QCOMPARE(model.data(idxText, MessageModel::TextRole).toString(), "Thử nghiệm tin nhắn hệ thống tiếng Việt");
         QCOMPARE(model.data(idxText, MessageModel::IsMineRole).toBool(), true);
 
-        model.addMessage("Tin nhắn phản hồi từ đối tác", false);
-        QCOMPARE(model.rowCount(), countBefore + 2);
-        QModelIndex idxContact = model.index(countBefore + 1);
+        QModelIndex idxContact = model.index(1);
         QCOMPARE(model.data(idxContact, MessageModel::IsMineRole).toBool(), false);
 
-        model.addAttachmentMessage("image", "bang_gia_gpu.png", "https://cdn.example.com/gpu.png", true);
-        QCOMPARE(model.rowCount(), countBefore + 3);
-        QModelIndex idxAtt = model.index(countBefore + 2);
+        QModelIndex idxAtt = model.index(2);
         QCOMPARE(model.data(idxAtt, MessageModel::MessageTypeRole).toString(), "image");
         QCOMPARE(model.data(idxAtt, MessageModel::TextRole).toString(), "bang_gia_gpu.png");
         QCOMPARE(model.data(idxAtt, MessageModel::MediaUrlRole).toString(), "https://cdn.example.com/gpu.png");
@@ -1543,20 +1555,6 @@ private slots:
         QCOMPARE(msgModel->rowCount(), initialCount + 1);
         QCOMPARE(msgModel->data(lastIdx, MessageModel::IsMineRole).toBool(), true);
         QCOMPARE(msgModel->data(lastIdx, MessageModel::TextRole).toString(), QString("Xin chào bạn!"));
-    }
-
-    void testFileUtilsAndDiskUsage() {
-        DiskUsage usage = FileUtils::getDiskUsage("/");
-        QVERIFY(usage.total > 0.0);
-        QVERIFY(usage.available > 0.0);
-        QVERIFY(usage.free <= usage.total);
-
-        DirectorySizeResult res = FileUtils::getDirectorySize("/tmp", 2);
-        QCOMPARE(res.path, QString("/tmp"));
-        QVERIFY(res.durationMs >= 0.0);
-
-        DirectoryTreeNode tree = FileUtils::getDirectoryTree("/tmp", 1);
-        QVERIFY(tree.depth == 0);
     }
 
     void testMediaUtilsThumbnails() {
@@ -2630,6 +2628,7 @@ private slots:
 
         QQmlApplicationEngine engine;
         engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
         engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
         engine.addImportPath("qrc:/");
         engine.addImportPath("qrc:/qt/qml");
@@ -2766,6 +2765,7 @@ private slots:
 
         QQmlApplicationEngine engine;
         engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
         engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
         engine.addImportPath("qrc:/");
         engine.addImportPath("qrc:/qt/qml");
@@ -2786,7 +2786,7 @@ private slots:
             shot("chat_" + suffix);
             if (auto* ml = window->findChild<QQuickItem*>("messageList")) {
                 QVERIFY2(ml->property("atYEnd").toBool(), "the chat must open at its end, bottom margin included");
-                QCOMPARE(ml->property("bottomMargin").toDouble(), 19.0);
+                QCOMPARE(ml->property("bottomMargin").toDouble(), 5.0);
                 auto* pill = window->findChild<QQuickItem*>("typingPill");
                 QVERIFY(pill != nullptr);
                 const double pillTop = pill->height() + pill->property("anchors").value<QObject*>()->property("bottomMargin").toDouble();
@@ -3344,13 +3344,6 @@ private slots:
         QVERIFY(client.offlineStore() != nullptr);
         QVERIFY(client.apiClient() != nullptr);
 
-        QVariantMap disk = client.getDiskUsage("/");
-        QVERIFY(disk.contains("available"));
-        QVERIFY(disk.contains("total"));
-
-        QVariantMap dir = client.getDirectorySize("/tmp");
-        QVERIFY(dir.contains("totalSize"));
-
         QString ocrResult = client.recognizeImageText("/nonexistent/file.png");
         QVERIFY(ocrResult.isEmpty());
 
@@ -3553,8 +3546,11 @@ private slots:
         QVERIFY(noticeSpy.count() > noticesBefore);
         QCOMPARE(client.pollView(4242).value("loaded").toBool(), false);
 
+        const QString groupNameBeforeRename = client.currentConversationName();
+        const int noticesBeforeRename = noticeSpy.count();
         client.changeGroupName("grp-100", "Nhóm Dự Án 2026");
-        QCOMPARE(client.currentConversationName(), QString("Nhóm Dự Án 2026"));
+        QCOMPARE(client.currentConversationName(), groupNameBeforeRename);
+        QVERIFY(noticeSpy.count() > noticesBeforeRename);
 
         client.addMemberToGroup("grp-100", "u-123");
         client.removeMemberFromGroup("grp-100", "u-123");
@@ -4589,12 +4585,17 @@ private slots:
         QCOMPARE(client.showUserProfileModal(), true);
         QCOMPARE(client.profileIsSelf(), true);
 
+        const QString displayNameBeforeEdit = client.profileDisplayName();
+        const QString userNameBeforeEdit = client.currentUserName();
+        const int genderBeforeEdit = client.profileGender();
+        const QString dobBeforeEdit = client.profileDob();
+        const QString bioBeforeEdit = client.profileBio();
         client.updateMyProfile("Nguyễn Văn Test", 1, "01/01/1995", "Yêu công nghệ, thích lập trình");
-        QCOMPARE(client.profileDisplayName(), QString("Nguyễn Văn Test"));
-        QCOMPARE(client.currentUserName(), QString("Nguyễn Văn Test"));
-        QCOMPARE(client.profileGender(), 1);
-        QCOMPARE(client.profileDob(), QString("01/01/1995"));
-        QCOMPARE(client.profileBio(), QString("Yêu công nghệ, thích lập trình"));
+        QCOMPARE(client.profileDisplayName(), displayNameBeforeEdit);
+        QCOMPARE(client.currentUserName(), userNameBeforeEdit);
+        QCOMPARE(client.profileGender(), genderBeforeEdit);
+        QCOMPARE(client.profileDob(), dobBeforeEdit);
+        QCOMPARE(client.profileBio(), bioBeforeEdit);
 
         client.viewProfile("user-xyz");
         QCOMPARE(client.showUserProfileModal(), true);
@@ -5645,7 +5646,10 @@ private slots:
             const QVariantMap m = v.toMap();
             QCOMPARE(m.value("clearable").toBool(), m.value("key").toString() != "downloads");
         }
-        QCOMPARE(storage.clear("downloads"), qint64(0));
+        QSignalSpy downloadsCleared(&storage, &StorageManager::usageChanged);
+        storage.clear(QStringLiteral("downloads"));
+        QTest::qWait(100);
+        QCOMPARE(downloadsCleared.count(), 0);
 
         Zalos::Core::Media::VoiceRecorder recorder;
         if (recorder.available()) QSKIP("a microphone is present");
@@ -5721,7 +5725,6 @@ private slots:
 
     void testSystemSoundsAutostartAndTray() {
         using Zalos::Core::Platform::SoundEngine;
-        // licence files are not, and a directory without index.theme (alsa) is skipped.
         QTemporaryDir data;
         QDir root(data.path());
         QVERIFY(root.mkpath("sounds/fixture/stereo"));
@@ -6808,7 +6811,7 @@ private slots:
         }
 
         auto* calls = client.calls();
-        calls->injectUiLineForTesting(R"({"type":"state","phase":"connected","video":false,"peerSharing":true,"name":"Peer","since":10})");
+        calls->injectUiLineForTesting(R"({"type":"state","phase":"connected","video":true,"peerSharing":true,"name":"Peer","since":10})");
         QCOMPARE(calls->peerSharing(), true);
         if (Zalos::Core::Call::CameraSender::encoderAvailable() && Zalos::Core::Call::CameraSender::screenAvailable()) {
             calls->setScreenShare(true);
@@ -6854,7 +6857,7 @@ private slots:
         QTest::qWait(150);
 
         auto* calls = client.calls();
-        calls->injectUiLineForTesting(R"({"type":"state","phase":"connected","video":false,"name":"Call Friend","since":1000})");
+        calls->injectUiLineForTesting(R"({"type":"state","phase":"connected","video":true,"name":"Call Friend","since":1000})");
         QTRY_VERIFY_WITH_TIMEOUT(window->findChild<QQuickItem*>(QStringLiteral("callOverlayRoot")) != nullptr, 2000);
         auto* overlay = window->findChild<QQuickItem*>(QStringLiteral("callOverlayRoot"));
         auto* callCard = window->findChild<QQuickItem*>(QStringLiteral("callCard"));
@@ -7466,7 +7469,7 @@ private slots:
             ZaloClient repClient;
             repClient.openOfflineCacheForTesting("u-photo-rep");
             auto* store = repClient.offlineStore();
-            QCOMPARE(store->metaValue("parse_version"), QString::number(ZaloClient::kCacheParseVersion));
+            QTRY_COMPARE_WITH_TIMEOUT(store->metaValue("parse_version"), QString::number(ZaloClient::kCacheParseVersion), 5000);
             const auto rows = store->loadMessages("g-photo");
             QCOMPARE(rows.size(), 1);
             QCOMPARE(rows.first().messageType, QStringLiteral("image"));
@@ -8326,6 +8329,885 @@ private slots:
 
         settings.remove(QStringLiteral("settings/defaultReaction"));
         settings.remove(QStringLiteral("appearance/interfaceScale"));
+    }
+
+    void testTrayAvailabilityIsCached() {
+        SystemTrayController tray;
+        QSignalSpy changed(&tray, &SystemTrayController::availabilityChanged);
+        QVERIFY(!tray.cachedAvailable());
+        tray.seedAvailabilitySync();
+        QVERIFY(!tray.cachedAvailable());
+        QCOMPARE(changed.count(), 0);
+        ZaloClient client;
+        QVERIFY(!client.trayAvailable());
+        const QMetaObject* meta = client.metaObject();
+        const QMetaProperty prop = meta->property(meta->indexOfProperty("trayAvailable"));
+        QCOMPARE(prop.notifySignal().name(), QByteArray("trayAvailableChanged"));
+    }
+
+    void testStorageUsageReadyAndVoiceClear() {
+        QTemporaryDir cacheRoot;
+        const QByteArray oldCache = qgetenv("XDG_CACHE_HOME");
+        qputenv("XDG_CACHE_HOME", cacheRoot.path().toUtf8());
+        {
+            StorageManager storage;
+            const QVariantList expected = storage.usage();
+            QSignalSpy ready(&storage, &StorageManager::usageReady);
+            storage.refreshUsageAsync();
+            QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 5000);
+            const QVariantList got = ready.first().first().toList();
+            QCOMPARE(int(got.size()), int(expected.size()));
+            for (qsizetype i = 0; i < got.size(); ++i) {
+                const QVariantMap a = got.at(i).toMap();
+                const QVariantMap b = expected.at(i).toMap();
+                QCOMPARE(a.value("key").toString(), b.value("key").toString());
+                QVERIFY(a.contains("bytes") && a.contains("files") && a.contains("clearable") && a.contains("path"));
+            }
+
+            const QString voiceDir = StorageManager::directory(QStringLiteral("voice"));
+            QDir().mkpath(voiceDir);
+            QFile clip(voiceDir + QStringLiteral("/fixture-clip.aac"));
+            QVERIFY(clip.open(QIODevice::WriteOnly));
+            clip.write("fixture");
+            clip.close();
+            QSignalSpy cleared(&storage, &StorageManager::usageChanged);
+            storage.clear(QStringLiteral("voice"));
+            QTRY_COMPARE_WITH_TIMEOUT(cleared.count(), 1, 5000);
+            QVERIFY(QDir(voiceDir).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+        }
+        if (oldCache.isEmpty()) qunsetenv("XDG_CACHE_HOME");
+        else qputenv("XDG_CACHE_HOME", oldCache);
+    }
+
+    void testShortcutPrimaryTextFallback() {
+        using Zalos::Core::Platform::ShortcutMap;
+        QTemporaryDir config;
+        ShortcutMap map;
+        map.load(config.path());
+        QCOMPARE(map.primaryText(QStringLiteral("composer.voice")), QStringLiteral("Ctrl+Shift+V"));
+        QCOMPARE(map.primaryText(QStringLiteral("unknown")), QString());
+        QVERIFY(map.keys(QStringLiteral("unknown")).isEmpty());
+    }
+
+    void testBoundedHashEvictsInInsertionOrder() {
+        BoundedSet<QString> ids;
+        for (int i = 0; i < kMaxTrackedIds; ++i) ids.insert(QStringLiteral("u-b%1").arg(i));
+        QCOMPARE(int(ids.size()), kMaxTrackedIds);
+        ids.insert(QStringLiteral("u-b0"));
+        QCOMPARE(int(ids.size()), kMaxTrackedIds);
+        Zalos::Core::Network::Detail::dropOldestIfFull(ids);
+        QVERIFY(!ids.contains(QStringLiteral("u-b0")));
+        QVERIFY(ids.contains(QStringLiteral("u-b1")));
+        QCOMPARE(int(ids.size()), kMaxTrackedIds - 1);
+    }
+
+    void testQuickMessageFormResetsFields() {
+        ZaloClient client;
+        ThemeManager themeMgr;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        ConversationItem peer;
+        peer.id = QStringLiteral("u-qm");
+        peer.name = QStringLiteral("Fixture Quick");
+        client.conversationModel()->setConversations({peer});
+        client.selectConversation(QStringLiteral("u-qm"), QStringLiteral("Fixture Quick"), QString());
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
+        engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath("qrc:/");
+        engine.addImportPath("qrc:/qt/qml");
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(1280, 800);
+        QTest::qWait(600);
+        auto* chatArea = window->findChild<QQuickItem*>(QStringLiteral("chatArea"));
+        QVERIFY(chatArea != nullptr);
+        QObject* popup = chatArea->findChild<QObject*>(QStringLiteral("quickMsgPopup"));
+        QObject* keyword = chatArea->findChild<QObject*>(QStringLiteral("qmKeywordField"));
+        QObject* content = chatArea->findChild<QObject*>(QStringLiteral("qmTextField"));
+        QVERIFY(popup != nullptr && keyword != nullptr && content != nullptr);
+
+        auto openForm = [popup](double id, const QString& kw, const QString& text) {
+            QMetaObject::invokeMethod(popup, "openQuickForm", Q_ARG(double, id), Q_ARG(QString, kw), Q_ARG(QString, text));
+        };
+        auto closeForm = [popup]() { QMetaObject::invokeMethod(popup, "closeQuickForm"); };
+        auto fieldsAre = [keyword, content](const QString& kw, const QString& text) {
+            return keyword->property("text").toString() == kw && content->property("text").toString() == text;
+        };
+        const QString emptyText;
+
+        openForm(0, emptyText, emptyText);
+        QVERIFY(fieldsAre(emptyText, emptyText));
+        keyword->setProperty("text", QStringLiteral("Fixture typed"));
+        content->setProperty("text", QStringLiteral("Fixture body typed"));
+        closeForm();
+        openForm(0, emptyText, emptyText);
+        QVERIFY(fieldsAre(emptyText, emptyText));
+        closeForm();
+
+        openForm(7, QStringLiteral("fixture-kw-a"), QStringLiteral("Fixture body A"));
+        QVERIFY(fieldsAre(QStringLiteral("fixture-kw-a"), QStringLiteral("Fixture body A")));
+        keyword->setProperty("text", QStringLiteral("edited"));
+        closeForm();
+        openForm(7, QStringLiteral("fixture-kw-a"), QStringLiteral("Fixture body A"));
+        QVERIFY(fieldsAre(QStringLiteral("fixture-kw-a"), QStringLiteral("Fixture body A")));
+
+        openForm(8, QStringLiteral("fixture-kw-b"), QStringLiteral("Fixture body B"));
+        QVERIFY(fieldsAre(QStringLiteral("fixture-kw-b"), QStringLiteral("Fixture body B")));
+        closeForm();
+        openForm(0, emptyText, emptyText);
+        QVERIFY(fieldsAre(emptyText, emptyText));
+        closeForm();
+    }
+
+    void testProfileWritesWaitForServer() {
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request&) { return TestSupport::jsonEnvelope(1); });
+        auto isSuccessNotice = [](const QVariantList& args) {
+            const QString text = args.first().toString();
+            return text.contains(QStringLiteral("Profile updated successfully"))
+                || text.contains(QString::fromUtf8("Đã cập nhật thông tin cá nhân"));
+        };
+        ZaloClient client;
+        QSignalSpy notices(&client, &ZaloClient::notice);
+        const QString nameBefore = client.currentUserName();
+
+        client.updateMyProfile(QStringLiteral("Fixture Offline"), 0, QString(), QString());
+        QCOMPARE(notices.count(), 1);
+        QVERIFY(!isSuccessNotice(notices.first()));
+        QCOMPARE(client.currentUserName(), nameBefore);
+        QCOMPARE(api.total(), 0);
+
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        notices.clear();
+        client.updateMyProfile(QStringLiteral("Fixture Failing"), 0, QString(), QStringLiteral("bio fixture"));
+        QTRY_COMPARE_WITH_TIMEOUT(notices.count(), 2, 5000);
+        QCOMPARE(client.currentUserName(), nameBefore);
+        for (const QList<QVariant>& args : notices) QVERIFY(!isSuccessNotice(args));
+
+        api.setResponder([](const TestSupport::LoopbackApi::Request&) { return TestSupport::jsonEnvelope(0, QJsonObject{}); });
+        notices.clear();
+        client.updateMyProfile(QStringLiteral("Fixture Online"), 0, QString(), QStringLiteral("bio fixture"));
+        QTRY_COMPARE_WITH_TIMEOUT(notices.count(), 1, 5000);
+        QCOMPARE(client.currentUserName(), QStringLiteral("Fixture Online"));
+        QVERIFY(isSuccessNotice(notices.first()));
+    }
+
+    void testFriendAndGroupWritesWaitForServer() {
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request&) { return TestSupport::jsonEnvelope(1); });
+        ZaloClient client;
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        QSignalSpy notices(&client, &ZaloClient::notice);
+        auto friendIds = [&client]() {
+            QStringList ids;
+            for (const QVariant& v : client.friendsForCard()) ids << v.toMap().value("id").toString();
+            return ids;
+        };
+        client.setUserForTesting(QStringLiteral("u-rm-1"), QStringLiteral("Fixture Remove"), QString());
+        client.setFriendsForTesting({QStringLiteral("u-rm-1")});
+        ConversationItem group;
+        group.id = QStringLiteral("g-cn-1");
+        group.name = QStringLiteral("Fixture Old Name");
+        group.isGroup = true;
+        client.conversationModel()->setConversations({group});
+
+        client.removeFriend(QStringLiteral("u-rm-1"));
+        QCOMPARE(notices.count(), 1);
+        QVERIFY(friendIds().contains(QStringLiteral("u-rm-1")));
+        client.changeGroupName(QStringLiteral("g-cn-1"), QStringLiteral("Fixture New Name"));
+        QCOMPARE(notices.count(), 2);
+        QCOMPARE(client.conversationModel()->conversation(QStringLiteral("g-cn-1")).name, QStringLiteral("Fixture Old Name"));
+        QCOMPARE(api.total(), 0);
+
+        client.setLoggedInForTesting(true);
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        client.removeFriend(QStringLiteral("u-rm-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(notices.count(), 3, 5000);
+        QVERIFY(friendIds().contains(QStringLiteral("u-rm-1")));
+        client.changeGroupName(QStringLiteral("g-cn-1"), QStringLiteral("Fixture New Name"));
+        QTRY_COMPARE_WITH_TIMEOUT(notices.count(), 4, 5000);
+        QCOMPARE(client.conversationModel()->conversation(QStringLiteral("g-cn-1")).name, QStringLiteral("Fixture Old Name"));
+
+        api.setResponder([](const TestSupport::LoopbackApi::Request&) { return TestSupport::jsonEnvelope(0, QJsonObject{}); });
+        client.removeFriend(QStringLiteral("u-rm-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(!friendIds().contains(QStringLiteral("u-rm-1")), 5000);
+        client.changeGroupName(QStringLiteral("g-cn-1"), QStringLiteral("Fixture New Name"));
+        QTRY_COMPARE_WITH_TIMEOUT(client.conversationModel()->conversation(QStringLiteral("g-cn-1")).name,
+                                  QStringLiteral("Fixture New Name"), 5000);
+    }
+
+    void testRemovedFriendIsDroppedAfterRefresh() {
+        bool replyArray = true;
+        TestSupport::LoopbackApi api([&replyArray](const TestSupport::LoopbackApi::Request& r) {
+            if (!r.target.contains(QStringLiteral("/api/social/friend/getfriends"))) return TestSupport::jsonEnvelope(1);
+            if (!replyArray) return TestSupport::jsonEnvelope(0, QJsonObject{});
+            return TestSupport::jsonEnvelope(0, QJsonArray{QJsonObject{
+                {"userId", "u-keep"}, {"displayName", "Fixture Keep"}, {"avatar", ""}}});
+        });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.openOfflineCacheForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        client.setFriendsForTesting({QStringLiteral("u-gone"), QStringLiteral("u-keep")});
+        auto profileOf = [&client](const QString& id) {
+            for (const ZaloOfflineStore::CachedProfile& p : client.offlineStore()->loadProfiles()) {
+                if (p.id == id) return p;
+            }
+            return ZaloOfflineStore::CachedProfile{};
+        };
+
+        client.refreshContacts();
+        QTRY_VERIFY_WITH_TIMEOUT(profileOf(QStringLiteral("u-gone")).id == QStringLiteral("u-gone"), 5000);
+        QVERIFY(!profileOf(QStringLiteral("u-gone")).isFriend);
+        QVERIFY(profileOf(QStringLiteral("u-keep")).isFriend);
+
+        replyArray = false;
+        client.setFriendsForTesting({QStringLiteral("u-keep")});
+        client.refreshContacts();
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/social/friend/getfriends")), 2, 3000);
+        QTest::qWait(300);
+        QVERIFY(profileOf(QStringLiteral("u-keep")).isFriend);
+    }
+
+    void testForwardToManyReportsPartialFailure() {
+        int textSends = 0;
+        TestSupport::LoopbackApi api([&textSends](const TestSupport::LoopbackApi::Request& r) {
+            if (!r.target.contains(QStringLiteral("/api/message/sms"))) return TestSupport::jsonEnvelope(0, QJsonObject{});
+            ++textSends;
+            if (textSends == 2) return TestSupport::jsonEnvelope(1);
+            return TestSupport::jsonEnvelope(0, QJsonObject{{"msgId", QString::number(72000 + textSends)}});
+        });
+        auto sourceMessage = []() {
+            MessageItem item;
+            item.id = QStringLiteral("m-fwd-1");
+            item.senderId = QStringLiteral("u-me");
+            item.senderName = QStringLiteral("Fixture Me");
+            item.text = QStringLiteral("Fixture forwarded line");
+            item.messageType = QStringLiteral("text");
+            item.ts = 1700000700000LL;
+            item.isMine = true;
+            return item;
+        };
+        const QStringList targets{QStringLiteral("u-fwd-1"), QStringLiteral("u-fwd-2"), QStringLiteral("u-fwd-3")};
+
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        client.selectConversation(QStringLiteral("u-fwd-src"), QStringLiteral("Fixture Source"), QString());
+        client.messageModel()->mergeMessages(QStringLiteral("u-fwd-src"), {sourceMessage()});
+        QSignalSpy notices(&client, &ZaloClient::notice);
+        auto hasNotice = [&notices](const QString& fragment) {
+            for (const QList<QVariant>& args : notices) {
+                if (args.first().toString().contains(fragment)) return true;
+            }
+            return false;
+        };
+        client.forwardMessageToMany(targets, QStringLiteral("m-fwd-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(hasNotice(QStringLiteral("2/3")), 5000);
+        QVERIFY(!hasNotice(QStringLiteral("3/3")));
+        QCOMPARE(api.count(QStringLiteral("/api/message/sms")), 3);
+
+        ZaloClient offline;
+        QSignalSpy offlineNotices(&offline, &ZaloClient::notice);
+        offline.selectConversation(QStringLiteral("u-fwd-src"), QStringLiteral("Fixture Source"), QString());
+        offline.messageModel()->mergeMessages(QStringLiteral("u-fwd-src"), {sourceMessage()});
+        offline.forwardMessageToMany(targets, QStringLiteral("m-fwd-1"));
+        QVERIFY(offlineNotices.count() >= 1);
+        QVERIFY(offlineNotices.last().first().toString().contains(QStringLiteral("0/3")));
+        QCOMPARE(api.count(QStringLiteral("/api/message/sms")), 3);
+    }
+
+    void testStrangerRankRetriesAfterFailure() {
+        bool rankOk = false;
+        TestSupport::LoopbackApi api([&rankOk](const TestSupport::LoopbackApi::Request& r) {
+            if (!r.target.contains(QStringLiteral("/api/social/profile/getrank"))) return TestSupport::jsonEnvelope(1);
+            if (!rankOk) return TestSupport::jsonEnvelope(1);
+            return TestSupport::jsonEnvelope(0, QJsonObject{{"userRank", "BLACK"}});
+        });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.setFriendsForTesting({QStringLiteral("u-known")});
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        ConversationItem stranger;
+        stranger.id = QStringLiteral("u-str-1");
+        stranger.name = QStringLiteral("Fixture Stranger");
+        client.conversationModel()->setConversations({stranger});
+
+        client.selectConversation(QStringLiteral("u-str-1"), QStringLiteral("Fixture Stranger"), QString());
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/social/profile/getrank")), 1, 3000);
+        QTest::qWait(300);
+        rankOk = true;
+        client.selectConversation(QStringLiteral("u-str-1"), QStringLiteral("Fixture Stranger"), QString());
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/social/profile/getrank")), 2, 3000);
+        QTRY_COMPARE_WITH_TIMEOUT(client.strangerRank(), 2, 3000);
+    }
+
+    void testGroupLinkErrorIsNotReportedAsDisabled() {
+        bool linkOk = false;
+        TestSupport::LoopbackApi api([&linkOk](const TestSupport::LoopbackApi::Request& r) {
+            if (!r.target.contains(QStringLiteral("/api/group/link/detail"))) return TestSupport::jsonEnvelope(1);
+            if (!linkOk) return TestSupport::jsonEnvelope(1);
+            return TestSupport::jsonEnvelope(0, QJsonObject{{"link", "https://zalo.me/g/fixture-link"}, {"enabled", 1}});
+        });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        client.applyGroupInfoForTesting(QJsonObject{{"g-link", QJsonObject{
+            {"name", "Fixture Link Group"}, {"totalMember", 2}, {"creatorId", "u-me"},
+            {"memVerList", QJsonArray{"u-me_0", "u-peer_0"}}}}});
+        QSignalSpy notices(&client, &ZaloClient::notice);
+
+        client.groupAdmin()->openManage(QStringLiteral("g-link"));
+        QTRY_VERIFY_WITH_TIMEOUT(client.groupAdmin()->link().value("error").toBool(), 3000);
+        QVERIFY(!client.groupAdmin()->link().contains(QStringLiteral("enabled")));
+        client.groupAdmin()->createLink();
+        QTest::qWait(200);
+        QCOMPARE(api.count(QStringLiteral("/api/group/link/new")), 0);
+        QVERIFY(notices.count() >= 1);
+
+        linkOk = true;
+        client.groupAdmin()->retryLink();
+        QTRY_VERIFY_WITH_TIMEOUT(client.groupAdmin()->link().value("enabled").toBool(), 3000);
+        QVERIFY(!client.groupAdmin()->link().value("error").toBool());
+    }
+
+    void testBlockedListKeepsEveryPage() {
+        bool blockedFail = false;
+        int blockedPages = 0;
+        TestSupport::LoopbackApi api([&blockedFail, &blockedPages](const TestSupport::LoopbackApi::Request& r) {
+            if (!r.target.contains(QStringLiteral("/api/friend/blocklistv2"))) return TestSupport::jsonEnvelope(1);
+            if (blockedFail) return TestSupport::jsonEnvelope(1);
+            const bool second = ++blockedPages == 2;
+            const int base = second ? 100 : 0;
+            const int size = second ? 2 : 100;
+            QJsonArray profiles;
+            for (int i = 0; i < size; ++i) {
+                profiles.append(QJsonObject{{"userId", QStringLiteral("u-blk-%1").arg(base + i)},
+                                            {"displayName", QStringLiteral("Fixture Blocked %1").arg(base + i)},
+                                            {"avatar", ""}});
+            }
+            return TestSupport::jsonEnvelope(0, QJsonObject{{"profiles", profiles}});
+        });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+
+        client.refreshBlockedUsers();
+        QTRY_COMPARE_WITH_TIMEOUT(int(client.blockedUsers().size()), 102, 5000);
+        QCOMPARE(api.count(QStringLiteral("/api/friend/blocklistv2")), 2);
+
+        blockedFail = true;
+        client.refreshBlockedUsers();
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/friend/blocklistv2")), 3, 3000);
+        QTest::qWait(200);
+        QCOMPARE(int(client.blockedUsers().size()), 102);
+    }
+
+    void testReminderReloadsOnlyOnConversationChange() {
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request&) { return TestSupport::jsonEnvelope(0, QJsonArray{}); });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+
+        client.selectConversation(QStringLiteral("u-rem-a"), QStringLiteral("Fixture Reminder A"), QString());
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/board/oneone/list")), 1, 3000);
+        client.selectConversation(QStringLiteral("u-rem-a"), QStringLiteral("Fixture Reminder A"), QString());
+        QTest::qWait(300);
+        QCOMPARE(api.count(QStringLiteral("/api/board/oneone/list")), 1);
+        client.selectConversation(QStringLiteral("u-rem-b"), QStringLiteral("Fixture Reminder B"), QString());
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/board/oneone/list")), 2, 3000);
+    }
+
+    void testPinTopicUpdateRefreshesPoll() {
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request&) { return TestSupport::jsonEnvelope(1); });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.setGroupForTesting(QStringLiteral("g-pin"), QStringLiteral("Fixture Pin Group"), QString());
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+
+        client.pins()->setCurrent(QStringLiteral("g-pin"));
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/board/pin/list")), 1, 3000);
+        client.handleSyncControlForTesting(QStringLiteral("group"), QStringLiteral("update_pin_topic"), QJsonObject{
+            {"groupId", "g-pin"},
+            {"groupTopic", QJsonObject{{"params", QStringLiteral("{\"pollId\":9911}")}}}});
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/poll/detail")), 1, 3000);
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/board/pin/list")), 2, 3000);
+    }
+
+    void testGroupAdminFlagsRefreshComposer() {
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request&) { return TestSupport::jsonEnvelope(1); });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        client.selectConversation(QStringLiteral("g-adm"), QStringLiteral("Fixture Admin Group"), QString());
+
+        QSignalSpy composer(&client, &ZaloClient::composerStateChanged);
+        QList<int> membersAtEmit;
+        QObject::connect(&client, &ZaloClient::composerStateChanged, &client, [&client, &membersAtEmit]() {
+            membersAtEmit << int(client.groupMembers(QStringLiteral("g-adm")).size());
+        });
+        client.applyGroupInfoForTesting(QJsonObject{{"g-adm", QJsonObject{
+            {"name", "Fixture Admin Group"}, {"totalMember", 2}, {"creatorId", "u-owner"},
+            {"memVerList", QJsonArray{"u-owner_0", "u-me_0"}}}}});
+        QVERIFY(composer.count() >= 1);
+        QCOMPARE(int(membersAtEmit.size()), composer.count());
+        for (const int members : membersAtEmit) QCOMPARE(members, 2);
+
+        composer.clear();
+        client.handleGroupControlForTesting(QStringLiteral("add_admin"), QJsonObject{
+            {"groupId", "g-adm"}, {"sourceId", "u-owner"}, {"updateMembers", QJsonArray{QJsonObject{{"id", "u-me"}}}}});
+        QCOMPARE(composer.count(), 1);
+        QCOMPARE(client.myGroupRole(QStringLiteral("g-adm")), QStringLiteral("admin"));
+    }
+
+    void testNicknameChangeRefreshesGroupSender() {
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request&) { return TestSupport::jsonEnvelope(0, QJsonObject{}); });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        client.setUserForTesting(QStringLiteral("u-al-peer"), QStringLiteral("Fixture Old"), QString());
+        client.setGroupForTesting(QStringLiteral("g-alias"), QStringLiteral("Fixture Alias Group"), QString());
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{QJsonObject{
+            {"msgId", "71001"}, {"cliMsgId", "71001"}, {"uidFrom", "u-al-peer"}, {"idTo", "g-alias"},
+            {"dName", "Fixture Old"}, {"msgType", "webchat"}, {"content", "Fixture group line"},
+            {"ts", QString::number(1700000600000LL)}}}, true, false);
+        QCOMPARE(client.conversationModel()->conversation(QStringLiteral("g-alias")).senderPrefix, QStringLiteral("Fixture Old: "));
+
+        client.changeFriendAlias(QStringLiteral("u-al-peer"), QStringLiteral("Fixture Alias"));
+        QTRY_COMPARE_WITH_TIMEOUT(client.conversationModel()->conversation(QStringLiteral("g-alias")).senderPrefix,
+                                  QStringLiteral("Fixture Alias: "), 3000);
+        QCOMPARE(api.count(QStringLiteral("/api/alias/update")), 1);
+    }
+
+    void testStickerRequestsStayWithinSessionLimit() {
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request& r) {
+            if (r.target.contains(QStringLiteral("sticker_detail"))) return QByteArray();
+            return TestSupport::jsonEnvelope(1);
+        });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        ZaloSession* session = client.apiClient()->session();
+        auto emitStickers = [session](int from, int to) {
+            QJsonArray batch;
+            for (int id = from; id < to; ++id) {
+                batch.append(QJsonObject{
+                    {"msgId", QString::number(70100 + id)}, {"cliMsgId", QString::number(70100 + id)},
+                    {"uidFrom", "u-stk-peer"}, {"idTo", "u-me"}, {"msgType", "chat.sticker"},
+                    {"ts", QString::number(1700000500000LL + id)},
+                    {"content", QJsonObject{{"id", 9100 + id}, {"catId", 10}, {"type", 7}}}});
+            }
+            emit session->messagesReceived(batch, false, false);
+        };
+
+        emitStickers(1, 7);
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("sticker_detail")), 4, 3000);
+        QTest::qWait(200);
+        QCOMPARE(api.count(QStringLiteral("sticker_detail")), 4);
+
+        client.logout();
+        QTest::qWait(100);
+        api.answerHeld(TestSupport::jsonEnvelope(1));
+        QTest::qWait(300);
+
+        client.setLoggedInForTesting(true);
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        emitStickers(7, 13);
+        QTest::qWait(500);
+        QCOMPARE(api.count(QStringLiteral("sticker_detail")), 8);
+        QCOMPARE(api.held(), 4);
+    }
+
+    void testReadPointSyncRunsUnderSteadyTraffic() {
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request& r) {
+            if (r.target.contains(QStringLiteral("get-last-seen"))) return TestSupport::jsonEnvelope(0, QJsonObject{});
+            return TestSupport::jsonEnvelope(1);
+        });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        ConversationItem peer;
+        peer.id = QStringLiteral("u-rp-max");
+        peer.name = QStringLiteral("Fixture Steady");
+        client.conversationModel()->setConversations({peer});
+        ZaloSession* session = client.apiClient()->session();
+
+        emit session->realtimeStateChanged(true);
+        for (int i = 0; i < 40 && api.count(QStringLiteral("get-last-seen")) == 0; ++i) {
+            emit session->messagesReceived(QJsonArray{QJsonObject{
+                {"msgId", QString::number(60000 + i)}, {"cliMsgId", QString::number(60000 + i)},
+                {"uidFrom", "u-rp-max"}, {"idTo", "u-me"}, {"msgType", "webchat"},
+                {"content", QStringLiteral("Fixture steady %1").arg(i)},
+                {"ts", QString::number(QDateTime::currentMSecsSinceEpoch())}}}, false, false);
+            QTest::qWait(500);
+        }
+        QVERIFY(api.count(QStringLiteral("get-last-seen")) > 0);
+    }
+
+    void testCompositeLookupDebouncesAndCapsRetries() {
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request&) { return TestSupport::jsonEnvelope(1); });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        const QJsonObject group{{"name", "Fixture Composite"}, {"totalMember", 3}, {"creatorId", "u-me"},
+                                {"memVerList", QJsonArray{"u-me_0", "u-c1_0", "u-c2_0"}}};
+        for (int i = 0; i < 10; ++i) {
+            client.applyGroupInfoForTesting(QJsonObject{{"g-comp", group}});
+            QTest::qWait(10);
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/social/group/members")), 1, 3000);
+        QTest::qWait(150);
+        QCOMPARE(api.count(QStringLiteral("/api/social/group/members")), 1);
+        QTRY_COMPARE_WITH_TIMEOUT(api.count(QStringLiteral("/api/social/group/members")), 4, 8000);
+        QTest::qWait(1500);
+        QCOMPARE(api.count(QStringLiteral("/api/social/group/members")), 4);
+    }
+
+    void testScreenshotPreservesWindowVisibility() {
+        QSettings("Zalos", "ZalosApp").remove(QStringLiteral("window"));
+        auto cleanup = qScopeGuard([]() {
+            QSettings("Zalos", "ZalosApp").remove(QStringLiteral("window"));
+        });
+
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        QQmlApplicationEngine engine;
+        engine.addImageProvider(QStringLiteral("avatar"), new AvatarImageProvider);
+        engine.addImageProvider(QStringLiteral("cover"), new AvatarImageProvider(false));
+        engine.addImageProvider(QStringLiteral("media"), new AvatarImageProvider(false));
+        engine.addImageProvider(QStringLiteral("icon"), new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath(QStringLiteral("qrc:/"));
+        engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+
+        window->showMaximized();
+        QTRY_COMPARE_WITH_TIMEOUT(window->visibility(), QWindow::Maximized, 1000);
+        emit client.requestRestoreAfterScreenshot();
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+        QVERIFY(window->isVisible());
+        QCOMPARE(window->visibility(), QWindow::Maximized);
+
+        window->showFullScreen();
+        QTRY_COMPARE_WITH_TIMEOUT(window->visibility(), QWindow::FullScreen, 1000);
+        emit client.requestRestoreAfterScreenshot();
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+        QVERIFY(window->isVisible());
+        QCOMPARE(window->visibility(), QWindow::FullScreen);
+
+        window->showMaximized();
+        QTRY_COMPARE_WITH_TIMEOUT(window->visibility(), QWindow::Maximized, 1000);
+        emit client.requestHideForScreenshot();
+        QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 1000);
+        emit client.requestRestoreAfterScreenshot();
+        QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 1000);
+        QTRY_COMPARE_WITH_TIMEOUT(window->visibility(), QWindow::Maximized, 1000);
+
+        window->showFullScreen();
+        QTRY_COMPARE_WITH_TIMEOUT(window->visibility(), QWindow::FullScreen, 1000);
+        emit client.requestHideForScreenshot();
+        QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 1000);
+        emit client.requestRestoreAfterScreenshot();
+        QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 1000);
+        QTRY_COMPARE_WITH_TIMEOUT(window->visibility(), QWindow::FullScreen, 1000);
+
+        window->showNormal();
+        QTRY_COMPARE_WITH_TIMEOUT(window->visibility(), QWindow::Windowed, 1000);
+        emit client.requestHideForScreenshot();
+        QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 1000);
+        emit client.requestRestoreAfterScreenshot();
+        QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 1000);
+        QTRY_COMPARE_WITH_TIMEOUT(window->visibility(), QWindow::Windowed, 1000);
+    }
+
+    void testSoftwareVideoItemRendersFrames() {
+        using Zalos::Core::Media::SoftwareVideoItem;
+
+        QRectF target;
+        QRectF source;
+        SoftwareVideoItem::computeRects(QSizeF(160, 160), QSize(160, 80), Qt::IgnoreAspectRatio, &target, &source);
+        QCOMPARE(target, QRectF(0, 0, 160, 160));
+        QCOMPARE(source, QRectF(0, 0, 160, 80));
+
+        SoftwareVideoItem::computeRects(QSizeF(160, 160), QSize(160, 80), Qt::KeepAspectRatio, &target, &source);
+        QCOMPARE(target, QRectF(0, 40, 160, 80));
+        QCOMPARE(source, QRectF(0, 0, 160, 80));
+
+        SoftwareVideoItem::computeRects(QSizeF(160, 160), QSize(80, 160), Qt::KeepAspectRatio, &target, &source);
+        QCOMPARE(target, QRectF(40, 0, 80, 160));
+        QCOMPARE(source, QRectF(0, 0, 80, 160));
+
+        SoftwareVideoItem::computeRects(QSizeF(80, 80), QSize(160, 80), Qt::KeepAspectRatioByExpanding, &target, &source);
+        QCOMPARE(target, QRectF(0, 0, 80, 80));
+        QCOMPARE(source, QRectF(40, 0, 80, 80));
+
+        SoftwareVideoItem::computeRects(QSizeF(80, 80), QSize(80, 160), Qt::KeepAspectRatioByExpanding, &target, &source);
+        QCOMPARE(target, QRectF(0, 0, 80, 80));
+        QCOMPARE(source, QRectF(0, 40, 80, 80));
+
+        if (Zalos::Core::Platform::MultimediaSupport::available()) {
+            QQuickWindow window;
+            window.setColor(Qt::black);
+            window.resize(160, 160);
+            auto* item = new SoftwareVideoItem(window.contentItem());
+            item->setSize(QSizeF(160, 160));
+            QVERIFY(item->videoSink() != nullptr);
+
+            QVideoFrame yuvFrame(QVideoFrameFormat(QSize(160, 80), QVideoFrameFormat::Format_YUV420P));
+            QVERIFY(yuvFrame.map(QVideoFrame::WriteOnly));
+            std::memset(yuvFrame.bits(0), 150, size_t(yuvFrame.bytesPerLine(0) * 80));
+            std::memset(yuvFrame.bits(1), 44, size_t(yuvFrame.bytesPerLine(1) * 40));
+            std::memset(yuvFrame.bits(2), 21, size_t(yuvFrame.bytesPerLine(2) * 40));
+            yuvFrame.unmap();
+            item->videoSink()->setVideoFrame(yuvFrame);
+            QVERIFY(item->hasFrame());
+            QCOMPARE(item->frameSize(), QSize(160, 80));
+
+            window.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&window));
+            QTest::qWait(50);
+            QImage grab = window.grabWindow();
+            QVERIFY(!grab.isNull());
+            const QRgb centerGreen = grab.pixel(80, 80);
+            QVERIFY2(qGreen(centerGreen) > 170 && qRed(centerGreen) < 80 && qBlue(centerGreen) < 80,
+                     qPrintable(QStringLiteral("expected green center pixel, got (%1,%2,%3)")
+                                    .arg(qRed(centerGreen)).arg(qGreen(centerGreen)).arg(qBlue(centerGreen))));
+            const QRgb topLetterbox = grab.pixel(80, 10);
+            QVERIFY2(qRed(topLetterbox) < 20 && qGreen(topLetterbox) < 20 && qBlue(topLetterbox) < 20,
+                     qPrintable(QStringLiteral("expected black letterbox pixel, got (%1,%2,%3)")
+                                    .arg(qRed(topLetterbox)).arg(qGreen(topLetterbox)).arg(qBlue(topLetterbox))));
+
+            item->setFillMode(Qt::KeepAspectRatioByExpanding);
+            QTest::qWait(50);
+            grab = window.grabWindow();
+            const QRgb croppedTop = grab.pixel(80, 10);
+            QVERIFY2(qGreen(croppedTop) > 170 && qRed(croppedTop) < 80 && qBlue(croppedTop) < 80,
+                     qPrintable(QStringLiteral("expected green cropped pixel, got (%1,%2,%3)")
+                                    .arg(qRed(croppedTop)).arg(qGreen(croppedTop)).arg(qBlue(croppedTop))));
+
+            QVideoFrame argbFrame(QVideoFrameFormat(QSize(160, 160), QVideoFrameFormat::Format_BGRA8888));
+            QVERIFY(argbFrame.map(QVideoFrame::WriteOnly));
+            for (int row = 0; row < 160; ++row) {
+                auto* dst = reinterpret_cast<QRgb*>(argbFrame.bits(0) + row * argbFrame.bytesPerLine(0));
+                std::fill(dst, dst + 160, 0xFF0000FF);
+            }
+            argbFrame.unmap();
+            item->videoSink()->setVideoFrame(argbFrame);
+            QTest::qWait(50);
+            grab = window.grabWindow();
+            const QRgb centerBlue = grab.pixel(80, 80);
+            QVERIFY2(qBlue(centerBlue) > 200 && qRed(centerBlue) < 40 && qGreen(centerBlue) < 40,
+                     qPrintable(QStringLiteral("expected blue pixel, got (%1,%2,%3)")
+                                    .arg(qRed(centerBlue)).arg(qGreen(centerBlue)).arg(qBlue(centerBlue))));
+
+            item->videoSink()->setVideoFrame(QVideoFrame());
+            QVERIFY(!item->hasFrame());
+            QVERIFY(item->frameSize().isEmpty());
+
+            QMediaPlayer player;
+            player.setVideoOutput(item);
+            QCOMPARE(player.videoSink(), item->videoSink());
+        }
+
+        const QByteArray prevBackend = qgetenv("QT_QUICK_BACKEND");
+        const auto restoreBackend = qScopeGuard([&prevBackend]() {
+            if (prevBackend.isNull()) qunsetenv("QT_QUICK_BACKEND");
+            else qputenv("QT_QUICK_BACKEND", prevBackend);
+        });
+        qputenv("QT_QUICK_BACKEND", "software");
+
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        QQmlApplicationEngine engine;
+        engine.addImportPath(QStringLiteral("qrc:/"));
+        engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+        engine.loadFromModule("Zalos", "ZVideoView");
+#else
+        engine.load(QUrl(QStringLiteral("qrc:/Zalos/src/qml/ZVideoView.qml")));
+#endif
+        auto* rootItem = qobject_cast<QQuickItem*>(engine.rootObjects().value(0));
+        QVERIFY(rootItem != nullptr);
+        auto* swItem = qobject_cast<SoftwareVideoItem*>(rootItem->property("output").value<QObject*>());
+        QVERIFY(swItem != nullptr);
+        QCOMPARE(rootItem->property("videoSink").value<QObject*>(), static_cast<QObject*>(swItem->videoSink()));
+    }
+
+    void testScreenShareStitchAndPicker() {
+        using Zalos::Core::Call::CallBridge;
+        using Zalos::Core::Call::CameraSender;
+        using Zalos::Core::Call::PortalScreenCast;
+
+        QImage leftImg(160, 120, QImage::Format_RGB32);
+        leftImg.fill(Qt::red);
+        QImage rightImg(160, 80, QImage::Format_RGB32);
+        rightImg.fill(Qt::blue);
+
+        const QImage stitched = CameraSender::stitchScreenCaptures({
+            qMakePair(QRect(-160, 0, 160, 120), leftImg),
+            qMakePair(QRect(0, 0, 160, 80), rightImg),
+        });
+        QCOMPARE(stitched.size(), QSize(320, 120));
+        QCOMPARE(stitched.pixelColor(80, 60), QColor(Qt::red));
+        QCOMPARE(stitched.pixelColor(240, 40), QColor(Qt::blue));
+        QCOMPARE(stitched.pixelColor(240, 100), QColor(Qt::black));
+
+        const QString previewUrl = CameraSender::encodePreviewDataUrl(stitched);
+        QVERIFY(previewUrl.startsWith(QStringLiteral("data:image/jpeg;base64,")));
+        const QByteArray jpgBytes = QByteArray::fromBase64(previewUrl.mid(23).toLatin1());
+        const QImage decodedThumb = QImage::fromData(jpgBytes, "JPEG");
+        QVERIFY(!decodedThumb.isNull());
+        QVERIFY(decodedThumb.width() <= 320 && decodedThumb.height() <= 180);
+
+        const QVariantList single = CallBridge::buildScreenSourcesFromDescriptors(
+            {CallBridge::ScreenSourceDesc{QStringLiteral("HDMI-1"), QRect(0, 0, 1920, 1080), true, previewUrl}},
+            QString());
+        QCOMPARE(single.size(), 1);
+        QCOMPARE(single.at(0).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("screen:0"));
+
+        const QVariantList multi = CallBridge::buildScreenSourcesFromDescriptors(
+            {
+                CallBridge::ScreenSourceDesc{QStringLiteral("DP-1"), QRect(-1920, 0, 1920, 1080), true, previewUrl},
+                CallBridge::ScreenSourceDesc{QStringLiteral("HDMI-1"), QRect(0, 0, 1920, 1200), false, previewUrl},
+            },
+            previewUrl);
+        QCOMPARE(multi.size(), 3);
+        QCOMPARE(multi.at(0).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("screen:0"));
+        QCOMPARE(multi.at(0).toMap().value(QStringLiteral("isPrimary")).toBool(), true);
+        QCOMPARE(multi.at(1).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("screen:1"));
+        const QVariantMap allMap = multi.at(2).toMap();
+        QCOMPARE(allMap.value(QStringLiteral("id")).toString(), QStringLiteral("all"));
+        QCOMPARE(allMap.value(QStringLiteral("isAll")).toBool(), true);
+        QCOMPARE(allMap.value(QStringLiteral("width")).toInt(), 3840);
+        QCOMPARE(allMap.value(QStringLiteral("height")).toInt(), 1200);
+        QCOMPARE(allMap.value(QStringLiteral("screenCount")).toInt(), 2);
+
+        const QByteArray fmtPod = PortalScreenCast::buildVideoFormatPod();
+        QVERIFY(!fmtPod.isEmpty());
+        QCOMPARE(fmtPod.size() % 8, 0);
+        quint32 parsedFmt = 0;
+        int parsedW = 0;
+        int parsedH = 0;
+        QVERIFY(PortalScreenCast::parseVideoFormatPod(fmtPod.constData(), &parsedFmt, &parsedW, &parsedH));
+        QCOMPARE(parsedFmt, PortalScreenCast::kSpaVideoFormatBGRx);
+        QCOMPARE(parsedW, 1280);
+        QCOMPARE(parsedH, 720);
+
+        const QByteArray bufPod = PortalScreenCast::buildBuffersParamPod();
+        QVERIFY(!bufPod.isEmpty());
+        QCOMPARE(bufPod.size() % 8, 0);
+
+        for (const quint32 fmt : {PortalScreenCast::kSpaVideoFormatBGRx,
+                                  PortalScreenCast::kSpaVideoFormatBGRA,
+                                  PortalScreenCast::kSpaVideoFormatRGBx,
+                                  PortalScreenCast::kSpaVideoFormatRGBA}) {
+            const int stride = 24;
+            QByteArray raw(stride * 4, '\0');
+            for (int row = 0; row < 4; ++row) {
+                uchar* line = reinterpret_cast<uchar*>(raw.data()) + row * stride;
+                for (int col = 0; col < 4; ++col) {
+                    const bool bgFirst = (fmt == PortalScreenCast::kSpaVideoFormatBGRx
+                                          || fmt == PortalScreenCast::kSpaVideoFormatBGRA);
+                    line[col * 4 + 0] = bgFirst ? 10 : 200;
+                    line[col * 4 + 1] = 120;
+                    line[col * 4 + 2] = bgFirst ? 200 : 10;
+                    line[col * 4 + 3] = 255;
+                }
+            }
+            const QImage converted = PortalScreenCast::convertVideoBuffer(
+                fmt, 4, 4, reinterpret_cast<const uchar*>(raw.constData()), stride, raw.size());
+            QVERIFY(!converted.isNull());
+            QCOMPARE(converted.size(), QSize(4, 4));
+            const QColor c = converted.pixelColor(2, 2);
+            QCOMPARE(c.red(), 200);
+            QCOMPARE(c.green(), 120);
+            QCOMPARE(c.blue(), 10);
+        }
+
+        const QByteArray tiny(12, '\0');
+        QVERIFY(PortalScreenCast::convertVideoBuffer(
+                    PortalScreenCast::kSpaVideoFormatBGRx, 4, 4,
+                    reinterpret_cast<const uchar*>(tiny.constData()), 16, tiny.size())
+                    .isNull());
+        QVERIFY(PortalScreenCast::convertVideoBuffer(999, 4, 4,
+                    reinterpret_cast<const uchar*>(tiny.constData()), 16, tiny.size())
+                    .isNull());
+
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider(QStringLiteral("avatar"), new AvatarImageProvider);
+        engine.addImageProvider(QStringLiteral("cover"), new AvatarImageProvider(false));
+        engine.addImageProvider(QStringLiteral("media"), new AvatarImageProvider(false));
+        engine.addImageProvider(QStringLiteral("icon"), new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath(QStringLiteral("qrc:/"));
+        engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(960, 680);
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+
+        auto* calls = client.calls();
+        calls->injectUiLineForTesting(R"({"type":"state","phase":"connected","video":true,"name":"Call Friend","since":1000})");
+        QTRY_VERIFY_WITH_TIMEOUT(window->findChild<QQuickItem*>(QStringLiteral("callOverlayRoot")) != nullptr, 2000);
+        auto* overlay = window->findChild<QQuickItem*>(QStringLiteral("callOverlayRoot"));
+        QVERIFY(overlay != nullptr);
+
+        calls->openScreenPickerForTesting(multi);
+        auto* picker = window->findChild<QQuickItem*>(QStringLiteral("callScreenPicker"));
+        QVERIFY(picker != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(picker->isVisible(), 1000);
+        QCOMPARE(overlay->property("selectedScreenId").toString(), QStringLiteral("screen:0"));
+
+        std::function<QQuickItem*(QQuickItem*, const QString&)> findVisual = [&](QQuickItem* root, const QString& name) -> QQuickItem* {
+            if (!root) return nullptr;
+            if (root->objectName() == name) return root;
+            for (QQuickItem* child : root->childItems()) {
+                if (QQuickItem* found = findVisual(child, name)) return found;
+            }
+            return nullptr;
+        };
+        QQuickItem* secondCard = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT((secondCard = findVisual(picker, QStringLiteral("screenSourceCard_screen:1"))) != nullptr
+                                     && secondCard->x() > 100.0 && secondCard->width() > 0.0,
+                                 1000);
+        auto* shareBtn = window->findChild<QQuickItem*>(QStringLiteral("callScreenPickerShareBtn"));
+        QVERIFY(secondCard && shareBtn);
+        const QPoint cardCenter = secondCard->mapToScene(QPointF(secondCard->width() / 2.0, secondCard->height() / 2.0)).toPoint();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, cardCenter);
+        QTRY_COMPARE_WITH_TIMEOUT(overlay->property("selectedScreenId").toString(), QStringLiteral("screen:1"), 1000);
+
+        const QPoint shareCenter = shareBtn->mapToScene(QPointF(shareBtn->width() / 2.0, shareBtn->height() / 2.0)).toPoint();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, shareCenter);
+        QTRY_VERIFY_WITH_TIMEOUT(!calls->screenPickerOpen(), 1000);
+        calls->hangup();
     }
 };
 

@@ -26,11 +26,8 @@ Item {
 
     function close(): void { ZaloClient.groupAdmin.closeManage(); }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#000000"
-        opacity: 0.5
-        MouseArea { anchors.fill: parent; onClicked: root.close() }
+    ZModalScrim {
+        onDismissed: root.close()
     }
 
     component SectionTitle: Text {
@@ -182,12 +179,28 @@ Item {
 
                     SectionTitle { text: I18n.t("Link tham gia nhóm", "Group invite link") }
                     Hint {
-                        visible: !ZaloClient.groupAdmin.link.loaded
+                        visible: !ZaloClient.groupAdmin.link.loaded && ZaloClient.groupAdmin.link.error !== true
                         text: ZaloClient.isLoggedIn ? I18n.t("Đang tải…", "Loading…")
                                                     : I18n.t("Cần kết nối tới Zalo", "Connect to Zalo first")
                     }
+                    Hint {
+                        visible: ZaloClient.groupAdmin.link.error === true
+                        text: I18n.t("Không tải được link tham gia. Kiểm tra kết nối rồi thử lại.",
+                                     "The invite link could not be loaded. Check your connection and try again.")
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        visible: ZaloClient.groupAdmin.link.error === true
+                        ZButton {
+                            variant: "secondary"
+                            iconName: "refresh"
+                            text: I18n.t("Thử lại", "Retry")
+                            onClicked: ZaloClient.groupAdmin.retryLink()
+                        }
+                    }
                     Rectangle {
-                        visible: ZaloClient.groupAdmin.link.enabled === true
+                        visible: ZaloClient.groupAdmin.link.enabled === true && ZaloClient.groupAdmin.link.error !== true
                         Layout.fillWidth: true
                         implicitHeight: linkText.implicitHeight + 16
                         radius: 6
@@ -206,7 +219,7 @@ Item {
                         }
                     }
                     Hint {
-                        visible: ZaloClient.groupAdmin.link.loaded === true && ZaloClient.groupAdmin.link.enabled !== true
+                        visible: ZaloClient.groupAdmin.link.loaded === true && ZaloClient.groupAdmin.link.enabled !== true && ZaloClient.groupAdmin.link.error !== true
                         text: root.canEdit ? I18n.t("Link tham gia đang tắt. Bật để mọi người có link đều xin vào được nhóm.",
                                                     "The invite link is off. Turn it on so anyone with the link can ask to join.")
                                            : I18n.t("Nhóm chưa bật link tham gia.", "This group has no invite link.")
@@ -214,7 +227,7 @@ Item {
                     Flow {
                         Layout.fillWidth: true
                         spacing: 8
-                        visible: ZaloClient.groupAdmin.link.loaded === true
+                        visible: ZaloClient.groupAdmin.link.loaded === true && ZaloClient.groupAdmin.link.error !== true
                         ZButton {
                             visible: ZaloClient.groupAdmin.link.enabled === true
                             variant: "tonal"
@@ -223,7 +236,7 @@ Item {
                             onClicked: ZaloClient.groupAdmin.copyLink()
                         }
                         ZButton {
-                            visible: root.canEdit
+                            visible: root.canEdit && ZaloClient.groupAdmin.link.error !== true
                             variant: ZaloClient.groupAdmin.link.enabled === true ? "secondary" : "primary"
                             iconName: ZaloClient.groupAdmin.link.enabled === true ? "refresh" : "link"
                             text: ZaloClient.groupAdmin.link.enabled === true ? I18n.t("Tạo link mới", "New link")

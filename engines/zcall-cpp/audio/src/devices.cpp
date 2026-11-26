@@ -185,7 +185,31 @@ std::shared_ptr<Process> Mic::current() {
     return m_proc;
 }
 
+void Mic::markFault(const std::string& why) {
+    if (!m_faulted.exchange(true)) fault("mic", why);
+}
+
+bool Mic::closed() {
+    std::lock_guard<std::mutex> lock(m_lock);
+    return m_closed;
+}
+
+void Mic::recover() {
+    if (!m_faulted.load()) return;
+    MaybeName source;
+    {
+        std::lock_guard<std::mutex> lock(m_lock);
+        if (m_closed) return;
+        source = m_source;
+    }
+    switchTo(source);
+}
+
 void Mic::switchTo(const MaybeName& source) {
+    {
+        std::lock_guard<std::mutex> lock(m_lock);
+        m_source = source;
+    }
     if (!m_device && pulseRunning()) {
         std::string err;
         auto api = PulseSimpleApi::load(&err);
@@ -235,7 +259,7 @@ void Mic::switchTo(const MaybeName& source) {
     o.out = Process::Io::Pipe;
     std::string error;
     std::shared_ptr<Process> fresh(Process::spawn(cmd, o, &error).release());
-    if (!fresh) fault("mic", error);
+    if (!fresh) markFault(error);
     std::shared_ptr<Process> old;
     std::shared_ptr<PulseSimpleApi> oldApi;
     void* oldStream = nullptr;
@@ -316,14 +340,18 @@ bool Mic::nextFrame(int16_t* out) {
         if (!ok) {
             if (stream) {
                 std::lock_guard<std::mutex> lock(m_lock);
-                if (!m_closed && m_pulseStream != stream) continue;
+                if (m_closed) return false;
+                if (m_pulseStream != stream) continue;
             } else if (proc != current()) {
                 continue;
             }
-            logLine("microphone stream ended");
-            fault("mic", "capture ended");
+            if (!m_faulted.exchange(true)) {
+                logLine("microphone stream ended");
+                fault("mic", "capture ended");
+            }
             return false;
         }
+        if (m_faulted.exchange(false)) logLine("mic: capture resumed");
         return true;
     }
 }
@@ -375,7 +403,7 @@ bool Processing::start(const MaybeName& mic, const MaybeName& speaker) {
     m_proc = Process::spawn({"pipewire", "-c", m_conf}, o, &error);
     if (!m_proc) {
         logLine("audio processing unavailable: " + error);
-        stop();
+        removeConfig();
         return false;
     }
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -392,15 +420,23 @@ bool Processing::start(const MaybeName& mic, const MaybeName& speaker) {
             ready = haveSource && haveSink;
         }
         if (ready) {
+            removeConfig();
             logLine("audio processing on (mic " + (mic ? *mic : std::string("default")) + ", speaker "
                     + (speaker ? *speaker : std::string("default")) + ", quantum 256)");
             return true;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
+    removeConfig();
     logLine("audio processing did not start; using the devices directly");
     stop();
     return false;
+}
+
+void Processing::removeConfig() {
+    if (m_conf.empty()) return;
+    ::unlink(m_conf.c_str());
+    m_conf.clear();
 }
 
 void Processing::stop() {
@@ -412,10 +448,7 @@ void Processing::stop() {
         }
         m_proc.reset();
     }
-    if (!m_conf.empty()) {
-        ::unlink(m_conf.c_str());
-        m_conf.clear();
-    }
+    removeConfig();
 }
 
 std::optional<int> parseSchedPolicy(const std::string& stat) {

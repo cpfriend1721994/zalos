@@ -68,6 +68,8 @@ void ZaloClient::sendFile(const QString& fileUrlOrPath, const QString& caption) 
                 return;
             }
             const QString serverId = idOf(data.toObject().value("msgId"));
+            const QString cdnUrl = data.toObject().value("cdnUrl").toString();
+            if (!cdnUrl.isEmpty()) m_messageModel->setMedia(convId, localId, cdnUrl);
             m_messageModel->setStatus(convId, localId, QStringLiteral("sent"));
             if (!serverId.isEmpty()) m_messageModel->confirmMessage(convId, localId, serverId);
         }, cliMsgId, ttl);
@@ -151,7 +153,9 @@ void ZaloClient::pumpStickerQueue() {
     while (m_stickerInFlight < 4 && !m_stickerQueue.isEmpty()) {
         const QString key = m_stickerQueue.takeFirst();
         ++m_stickerInFlight;
-        m_apiClient->session()->fetchStickerDetail(key.toLongLong(), [this, key](bool ok, const QJsonValue& d, const QString&, int) {
+        const quint64 gen = m_stickerGen;
+        m_apiClient->session()->fetchStickerDetail(key.toLongLong(), [this, key, gen](bool ok, const QJsonValue& d, const QString&, int) {
+        if (gen != m_stickerGen || !m_stickerWaiters.contains(key)) return;
         --m_stickerInFlight;
         QTimer::singleShot(0, this, &ZaloClient::pumpStickerQueue);
         const QVariantMap info = ok ? StickerStore::describe(d.toObject()) : QVariantMap();
@@ -159,8 +163,8 @@ void ZaloClient::pumpStickerQueue() {
         if (url.isEmpty()) {
             const int attempt = ++m_stickerAttempts[key];
             if (attempt < 3) {
-                QTimer::singleShot(30000, this, [this, key]() {
-                    if (m_stickerWaiters.contains(key) && !m_stickerQueue.contains(key)) {
+                QTimer::singleShot(30000, this, [this, key, gen]() {
+                    if (gen == m_stickerGen && m_stickerWaiters.contains(key) && !m_stickerQueue.contains(key)) {
                         m_stickerQueue.append(key);
                         pumpStickerQueue();
                     }
@@ -246,14 +250,22 @@ void ZaloClient::findUserByUsername(const QString& username) {
 }
 
 void ZaloClient::forwardMessageToMany(const QStringList& targetThreadIds, const QString& msgId) {
-    int sent = 0;
+    QStringList targets;
     for (const QString& tid : targetThreadIds) {
-        if (tid.isEmpty()) continue;
-        sendForward(tid, msgId, false);
-        ++sent;
+        if (!tid.isEmpty()) targets.append(tid);
     }
-    if (sent > 0)
-        emit notice(L("Đã chuyển tiếp tới %1 hội thoại", "Forwarded to %1 chats").arg(sent));
+    if (targets.isEmpty()) return;
+    const int total = targets.size();
+    auto remaining = std::make_shared<int>(total);
+    auto succeeded = std::make_shared<int>(0);
+    QPointer<ZaloClient> guard(this);
+    for (const QString& tid : targets) {
+        sendForward(tid, msgId, false, [guard, remaining, succeeded, total](bool ok) {
+            if (ok) ++*succeeded;
+            if (--*remaining > 0 || !guard) return;
+            emit guard->notice(guard->L("Đã chuyển tiếp %1/%2 hội thoại", "Forwarded to %1/%2 chats").arg(*succeeded).arg(total));
+        });
+    }
 }
 
 void ZaloClient::refreshSentFriendRequests() {
@@ -489,6 +501,22 @@ void ZaloClient::handleReactions(const QJsonArray& reactions, bool isGroup, bool
     bool unreadChanged = false;
     QHash<QString, QPair<QString, QString>> toNotify;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    struct ThreadKeys {
+        QHash<QString, QString> idByCliMsgId;
+        QHash<QString, bool> isMineByKey;
+    };
+    QHash<QString, ThreadKeys> threadKeys;
+    const auto keysOf = [this, &threadKeys](const QString& convId) -> const ThreadKeys& {
+        const auto found = threadKeys.constFind(convId);
+        if (found != threadKeys.constEnd()) return found.value();
+        ThreadKeys keys;
+        for (const auto& item : m_messageModel->threadOf(convId)) {
+            if (!item.cliMsgId.isEmpty() && !keys.idByCliMsgId.contains(item.cliMsgId)) keys.idByCliMsgId.insert(item.cliMsgId, item.id);
+            if (!keys.isMineByKey.contains(item.id)) keys.isMineByKey.insert(item.id, item.isMine);
+            if (!item.cliMsgId.isEmpty() && !keys.isMineByKey.contains(item.cliMsgId)) keys.isMineByKey.insert(item.cliMsgId, item.isMine);
+        }
+        return threadKeys.insert(convId, keys).value();
+    };
     for (const QJsonValue& v : reactions) {
         const QJsonObject r = v.toObject();
         QString uidFrom = idOf(r.value("uidFrom"));
@@ -518,13 +546,7 @@ void ZaloClient::handleReactions(const QJsonArray& reactions, bool isGroup, bool
             if (msgId.isEmpty() || msgId == QLatin1String("0")) continue;
             const QString convId = m_messageThread.value(msgId, thread == "0" ? m_myUid : thread);
             if (usedCliId) {
-                QString resolved;
-                for (const auto& item : m_messageModel->threadOf(convId)) {
-                    if (item.cliMsgId == cliMsgId) {
-                        resolved = item.id;
-                        break;
-                    }
-                }
+                QString resolved = keysOf(convId).idByCliMsgId.value(cliMsgId);
                 if (resolved.isEmpty() && m_offlineStore) {
                     resolved = m_offlineStore->resolveMessageIdByCliId(convId, cliMsgId);
                 }
@@ -538,7 +560,13 @@ void ZaloClient::handleReactions(const QJsonArray& reactions, bool isGroup, bool
                     ? QStringLiteral("anon:%1:%2:%3").arg(uidFrom, icon).arg(ts) : eventId;
                 if (self) dropPendingReaction(msgId, icon);
                 const bool fresh = addReactionEvent(msgId, uidFrom, icon, id, ts);
-                const int ownership = !self ? messageOwnership(convId, msgId) : 0;
+                int ownership = 0;
+                if (!self) {
+                    const ThreadKeys& keys = keysOf(convId);
+                    const auto owner = keys.isMineByKey.constFind(msgId);
+                    if (owner != keys.isMineByKey.constEnd()) ownership = owner.value() ? 1 : 0;
+                    else ownership = m_offlineStore ? m_offlineStore->isMineMessage(msgId) : -1;
+                }
                 const bool canNotifyOwn = (ownership == 1) || (!isGroup && ownership == -1);
                 if (fresh && !self && m_offlineStore && !m_hiddenThreads.contains(convId) && canNotifyOwn
                     && m_offlineStore->addUnreadReaction(convId, msgId, id, uidFrom, icon, ts)) {
@@ -559,15 +587,6 @@ void ZaloClient::handleReactions(const QJsonArray& reactions, bool isGroup, bool
         showReactionNotification(it.value().first, it.key(), who, icon);
     }
     if (unreadChanged) refreshUnreadReactions();
-}
-
-int ZaloClient::messageOwnership(const QString& convId, const QString& msgId) const {
-    for (const auto& item : m_messageModel->threadOf(convId)) {
-        if (item.id == msgId || (!item.cliMsgId.isEmpty() && item.cliMsgId == msgId)) {
-            return item.isMine ? 1 : 0;
-        }
-    }
-    return m_offlineStore ? m_offlineStore->isMineMessage(msgId) : -1;
 }
 
 QString ZaloClient::messageSnippet(const QString& convId, const QString& msgId) const {
@@ -1762,11 +1781,12 @@ void ZaloClient::resolveZInstantBankCard(const QString& convId, const QString& m
     if (!url.isValid() || (url.scheme() != QLatin1String("http") && url.scheme() != QLatin1String("https"))) return;
     const QString key = convId + QLatin1Char(':') + msgId;
     if (m_bankCardFetching.contains(key)) return;
-    dropOldestIfFull(m_bankCardFetching);
     m_bankCardFetching.insert(key);
     QPointer<ZaloClient> guard(this);
-    fetchBytes(dataUrl, [guard, convId, msgId](const QByteArray& bytes, const QString& err) {
-        if (!guard || !err.isEmpty() || bytes.isEmpty()) return;
+    fetchBytes(dataUrl, [guard, key, convId, msgId](const QByteArray& bytes, const QString& err) {
+        if (!guard) return;
+        guard->m_bankCardFetching.remove(key);
+        if (!err.isEmpty() || bytes.isEmpty()) return;
         const QJsonDocument doc = QJsonDocument::fromJson(bytes);
         const QString textFallback = QString::fromUtf8(bytes);
         const BankCardFields card = extractBankCardFields(

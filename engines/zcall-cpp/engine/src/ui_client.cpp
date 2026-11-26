@@ -139,6 +139,16 @@ void ElectronCallUi::notice(const QString& code, const QJsonObject& params) {
     if (m_fallback) m_fallback->status(code, m_state.value("since").toDouble(), params);
 }
 
+void ElectronCallUi::clearNotice() {
+    if (!m_hasState) return;
+    m_state.remove("noticeCode");
+    m_state.remove("noticeParams");
+    m_state.remove("notice");
+    QJsonObject msg = m_state;
+    msg.insert("type", "state");
+    send(msg);
+}
+
 void ElectronCallUi::micVolume(int pct) {
     if (!m_hasState) return;
     m_state.insert("micVolume", pct);

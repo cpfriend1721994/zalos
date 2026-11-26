@@ -40,6 +40,17 @@ DirStats stats(const QString& dir) {
     return s;
 }
 
+QVariantList collectUsage() {
+    QVariantList out;
+    for (const QString& key : kKeys) {
+        const QString dir = StorageManager::directory(key);
+        const DirStats s = stats(dir);
+        out.append(QVariantMap{{"key", key}, {"bytes", s.bytes}, {"files", s.files},
+                               {"clearable", key != "downloads"}, {"path", dir}});
+    }
+    return out;
+}
+
 }
 
 StorageManager::StorageManager(QObject* parent) : QObject(parent) {
@@ -81,28 +92,42 @@ QString StorageManager::directory(const QString& key) {
 }
 
 QVariantList StorageManager::usage() const {
-    QVariantList out;
-    for (const QString& key : kKeys) {
-        const QString dir = directory(key);
-        const DirStats s = stats(dir);
-        out.append(QVariantMap{{"key", key}, {"bytes", s.bytes}, {"files", s.files},
-                               {"clearable", key != "downloads"}, {"path", dir}});
-    }
-    return out;
+    return collectUsage();
 }
 
-qint64 StorageManager::clear(const QString& key) {
-    if (key == "downloads" || !kKeys.contains(key)) return 0;
-    const QString dir = directory(key);
-    const qint64 before = stats(dir).bytes;
-    QDir d(dir);
-    for (const QFileInfo& fi : d.entryInfoList(QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot)) {
-        if (fi.isDir()) QDir(fi.absoluteFilePath()).removeRecursively();
-        else QFile::remove(fi.absoluteFilePath());
-    }
-    if (key == "avatars" && m_avatarMemoryCleaner) m_avatarMemoryCleaner();
-    emit usageChanged();
-    return before - stats(dir).bytes;
+void StorageManager::refreshUsageAsync() {
+    QPointer<StorageManager> self(this);
+    QThreadPool::globalInstance()->start([self]() {
+        const QVariantList stats = collectUsage();
+        QObject* app = QCoreApplication::instance();
+        if (app && self) {
+            QMetaObject::invokeMethod(app, [self, stats]() {
+                if (self) emit self->usageReady(stats);
+            }, Qt::QueuedConnection);
+        }
+    });
+}
+
+void StorageManager::clear(const QString& key) {
+    if (key == "downloads" || !kKeys.contains(key)) return;
+    const bool clearAvatars = key == "avatars";
+    QPointer<StorageManager> self(this);
+    QThreadPool::globalInstance()->start([self, key, clearAvatars]() {
+        const QString dir = directory(key);
+        QDir d(dir);
+        for (const QFileInfo& fi : d.entryInfoList(QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot)) {
+            if (fi.isDir()) QDir(fi.absoluteFilePath()).removeRecursively();
+            else QFile::remove(fi.absoluteFilePath());
+        }
+        QObject* app = QCoreApplication::instance();
+        if (app && self) {
+            QMetaObject::invokeMethod(app, [self, clearAvatars]() {
+                if (!self) return;
+                if (clearAvatars && self->m_avatarMemoryCleaner) self->m_avatarMemoryCleaner();
+                emit self->usageChanged();
+            }, Qt::QueuedConnection);
+        }
+    });
 }
 
 bool StorageManager::openDownloadsFolder() const {

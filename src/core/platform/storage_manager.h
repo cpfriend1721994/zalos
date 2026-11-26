@@ -26,7 +26,8 @@ public:
     void setMaxAgeDays(int days);
 
     Q_INVOKABLE QVariantList usage() const;
-    Q_INVOKABLE qint64 clear(const QString& key);
+    Q_INVOKABLE void refreshUsageAsync();
+    Q_INVOKABLE void clear(const QString& key);
     Q_INVOKABLE bool openDownloadsFolder() const;
     Q_INVOKABLE qint64 prune();
     void pruneAsync();
@@ -41,6 +42,7 @@ public:
 signals:
     void settingsChanged();
     void usageChanged();
+    void usageReady(const QVariantList& stats);
 
 private:
     int m_avatarLimitMb{300};

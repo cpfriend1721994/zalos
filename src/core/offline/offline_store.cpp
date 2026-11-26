@@ -15,6 +15,7 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QUrl>
+#include <QUuid>
 #include <QDebug>
 #include <QtEndian>
 
@@ -28,6 +29,10 @@ ZaloOfflineStore::ZaloOfflineStore(QObject* parent)
 ZaloOfflineStore::~ZaloOfflineStore() {
     resetCachedQueries();
     maintenance();
+    closeDatabase();
+}
+
+void ZaloOfflineStore::closeDatabase() {
     QString connName = m_db.connectionName();
     if (m_db.isOpen()) {
         if (m_batchDepth > 0) {
@@ -188,7 +193,11 @@ bool ZaloOfflineStore::initializeDatabase(const QString& customPath) {
         dbPath = QDir(baseDir).filePath("offline.db");
     }
 
-    QString connName = QString("offline_store_%1").arg(reinterpret_cast<quintptr>(this));
+    if (m_db.isValid()) {
+        resetCachedQueries();
+        closeDatabase();
+    }
+    QString connName = QStringLiteral("offline_store_%1").arg(QUuid::createUuid().toString(QUuid::Id128));
     m_db = QSqlDatabase::addDatabase("QSQLITE", connName);
     m_db.setDatabaseName(dbPath);
 
@@ -1056,30 +1065,44 @@ void ZaloOfflineStore::setMetaValue(const QString& key, const QString& value) {
     }
 }
 
-QSet<QString> ZaloOfflineStore::reparseStored(
-    const std::function<bool(const QJsonObject& raw, bool isGroup, Models::MessageItem* out)>& fn) {
+QSet<QString> ZaloOfflineStore::reparseStored(const StoredReparseFn& fn) {
     QSet<QString> touched;
-    if (!m_db.isOpen()) return touched;
+    qint64 afterRowId = 0;
+    while (reparseStoredChunk(fn, afterRowId, kReparseChunkRows, touched)) {
+    }
+    return touched;
+}
+
+bool ZaloOfflineStore::reparseStoredChunk(const StoredReparseFn& fn, qint64& afterRowId, int limit, QSet<QString>& touched) {
+    if (!m_db.isOpen() || limit <= 0) return false;
     struct Update { QString id; QString convId; Models::MessageItem item; };
     QVector<Update> updates;
+    int scanned = 0;
     {
         QSqlQuery r(m_db);
         r.setForwardOnly(true);
-        r.exec("SELECT id, conv_id, is_group, raw, text, message_type, media_url, href FROM messages "
-               "WHERE is_recalled = 0 AND raw IS NOT NULL AND length(raw) > 0;");
+        r.prepare("SELECT rowid, id, conv_id, is_group, raw, text, message_type, media_url, href FROM messages "
+                  "WHERE rowid > :after AND is_recalled = 0 AND raw IS NOT NULL AND length(raw) > 0 "
+                  "ORDER BY rowid LIMIT :limit;");
+        r.bindValue(":after", afterRowId);
+        r.bindValue(":limit", limit);
+        r.exec();
         while (r.next()) {
-            const QJsonObject raw = decodeRaw(r.value(3));
+            ++scanned;
+            afterRowId = r.value(0).toLongLong();
+            const QJsonObject raw = decodeRaw(r.value(4));
             if (raw.isEmpty()) continue;
             Models::MessageItem item;
-            if (!fn(raw, r.value(2).toInt() == 1, &item)) continue;
-            if (item.text == r.value(4).toString() && item.messageType == r.value(5).toString() &&
-                item.mediaUrl == r.value(6).toString() && item.href == r.value(7).toString()) {
+            if (!fn(raw, r.value(3).toInt() == 1, &item)) continue;
+            if (item.text == r.value(5).toString() && item.messageType == r.value(6).toString() &&
+                item.mediaUrl == r.value(7).toString() && item.href == r.value(8).toString()) {
                 continue;
             }
-            updates.append({r.value(0).toString(), r.value(1).toString(), item});
+            updates.append({r.value(1).toString(), r.value(2).toString(), item});
         }
     }
-    if (updates.isEmpty()) return touched;
+    const bool more = scanned == limit;
+    if (updates.isEmpty()) return more;
     m_db.transaction();
     QSqlQuery w(m_db);
     w.prepare("UPDATE messages SET text = :text, message_type = :type, href = :href, media_url = :media WHERE id = :id;");
@@ -1094,7 +1117,7 @@ QSet<QString> ZaloOfflineStore::reparseStored(
         touched.insert(u.convId);
     }
     m_db.commit();
-    return touched;
+    return more;
 }
 
 qint64 ZaloOfflineStore::expiryOf(const QJsonObject& raw, qint64 ts) {

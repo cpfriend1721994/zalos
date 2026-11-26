@@ -55,6 +55,8 @@ public:
     bool isDatabaseOpen() const { return m_db.isOpen(); }
     QString connectionNameForTesting() const { return m_db.connectionName(); }
 
+    static constexpr int kReparseChunkRows = 500;
+
     static constexpr const char* kSqlFindCliDuplicates =
         "SELECT id, sender_id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND cli_msg_id <> '' "
         "AND id <> :id;";
@@ -112,7 +114,9 @@ public:
     qint64 nextExpiry(qint64 now) const;
     QString metaValue(const QString& key) const;
     void setMetaValue(const QString& key, const QString& value);
-    QSet<QString> reparseStored(const std::function<bool(const QJsonObject& raw, bool isGroup, Models::MessageItem* out)>& fn);
+    using StoredReparseFn = std::function<bool(const QJsonObject& raw, bool isGroup, Models::MessageItem* out)>;
+    QSet<QString> reparseStored(const StoredReparseFn& fn);
+    bool reparseStoredChunk(const StoredReparseFn& fn, qint64& afterRowId, int limit, QSet<QString>& touched);
     bool deleteMessagesUpTo(const QString& convId, const QString& lastMsgId);
     bool saveProfile(const CachedProfile& profile);
     QString pragmaForTesting(const QString& name) const;
@@ -174,6 +178,7 @@ private:
     bool m_ftsAvailable{false};
     int m_batchDepth{0};
     void resetCachedQueries();
+    void closeDatabase();
     void indexMessage(const QString& msgId, const Models::MessageItem& item);
 };
 

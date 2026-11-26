@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -19,12 +20,16 @@ Item {
         return tabKeys.indexOf(key) >= 0 ? key : "general";
     }
 
-    Component.onCompleted: visibleChanged()
+    function onShown(): void {
+        currentTab = normalizeTab(ZaloClient.settingsInitialTab);
+        ZaloClient.loadSystemSoundsAsync();
+    }
+
+    Component.onCompleted: {
+        if (visible) root.onShown();
+    }
     onVisibleChanged: {
-        if (visible) {
-            currentTab = normalizeTab(ZaloClient.settingsInitialTab);
-            ZaloClient.loadSystemSoundsAsync();
-        }
+        if (visible) root.onShown();
     }
 
     Connections {
@@ -411,16 +416,11 @@ Item {
         }
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#000000"
-        opacity: root.visible ? 0.55 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 160 } }
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: ZaloClient.closeSettings()
-        }
+    ZModalScrim {
+        shown: root.visible
+        shade: 0.55
+        fadeDuration: 160
+        onDismissed: ZaloClient.closeSettings()
     }
 
     Rectangle {
@@ -1265,8 +1265,8 @@ Item {
                                         delegate: Rectangle {
                                             id: reactionOption
                                             required property var modelData
-                                            readonly property string reactionKey: String(modelData.key || "")
-                                            readonly property string reactionEmoji: String(modelData.emoji || "")
+                                            readonly property string reactionKey: String(reactionOption.modelData.key || "")
+                                            readonly property string reactionEmoji: String(reactionOption.modelData.emoji || "")
                                             readonly property bool selected: ZaloClient.defaultReaction === reactionKey
                                             width: 36
                                             height: 36
@@ -1516,7 +1516,7 @@ Item {
 
                                 ToggleRow {
                                     title: I18n.t("Chống nhìn lén", "Anti-peeking")
-                                    readonly property string hideShortcut: ZaloClient.shortcuts.keys("privacy.antiPeeking")[0] || "Ctrl+Shift+H"
+                                    readonly property string hideShortcut: ZaloClient.shortcuts.primaryText("privacy.antiPeeking") || "Ctrl+Shift+H"
                                     subtitle: I18n.t("Làm mờ tin nhắn cho tới khi rê chuột vào, ẩn nội dung trong thông báo. Bật/tắt nhanh: %1 hoặc menu biểu tượng ở khay hệ thống",
                                                      "Dims messages until hovered and hides notification content. Quick switch: %1 or the tray icon menu").arg(hideShortcut)
                                     checked: ZaloClient.antiPeeking
@@ -1589,7 +1589,7 @@ Item {
 
                                 SectionTitle { text: I18n.t("Khóa ứng dụng bằng mã", "App passcode lock") }
                                 SectionHint {
-                                    readonly property string lockShortcut: ZaloClient.shortcuts.keys("app.lock")[0] || "Ctrl+L"
+                                    readonly property string lockShortcut: ZaloClient.shortcuts.primaryText("app.lock") || "Ctrl+L"
                                     text: I18n.t("Khi đã đặt mã, Zalos tự khóa lúc mở, khi bạn nhấn %1 và sau thời gian không dùng; thông báo sẽ ẩn nội dung khi đang khóa. Mã chỉ khóa giao diện: tin nhắn lưu trên máy không được mã hóa thêm.",
                                                  "With a passcode, Zalos locks on start, on %1 and after a period of inactivity; notifications hide their content while locked. It only locks the window: messages stored on this computer are not additionally encrypted.").arg(lockShortcut)
                                 }
@@ -1729,7 +1729,11 @@ Item {
                                 width: parent.width
                                 spacing: 12
                                 property var usage: []
-                                function refresh(): void { storageTab.usage = ZaloClient.storage.usage(); }
+                                property bool usageLoading: true
+                                function refresh(): void {
+                                    storageTab.usageLoading = true;
+                                    ZaloClient.storage.refreshUsageAsync();
+                                }
                                 function sizeText(bytes: real): string {
                                     if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
                                     if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
@@ -1750,6 +1754,10 @@ Item {
                                 Component.onCompleted: if (visible) refresh()
                                 Connections {
                                     target: ZaloClient.storage
+                                    function onUsageReady(stats: var) {
+                                        storageTab.usage = stats;
+                                        storageTab.usageLoading = false;
+                                    }
                                     function onUsageChanged() { if (storageTab.visible) storageTab.refresh(); }
                                 }
 
@@ -1758,8 +1766,23 @@ Item {
                                     text: I18n.t("Dung lượng Zalos dùng trên máy. Xóa bộ nhớ đệm không xóa tin nhắn; lịch sử ngoại tuyến của tài khoản không nằm ở đây. File đã tải là của bạn, Zalos không tự xóa.",
                                                  "Space Zalos uses on this computer. Clearing caches never deletes messages; the account's offline history is not listed here. Downloaded files are yours and are never deleted by Zalos.")
                                 }
+                                SectionHint {
+                                    visible: storageTab.usageLoading
+                                    text: I18n.t("Đang tính…", "Calculating…")
+                                }
                                 Repeater {
-                                    model: storageTab.usage
+                                    model: storageTab.usageLoading ? 3 : 0
+                                    delegate: Rectangle {
+                                        required property int index
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 52
+                                        radius: 10
+                                        color: ThemeManager.hoverColor
+                                        opacity: 0.5
+                                    }
+                                }
+                                Repeater {
+                                    model: storageTab.usageLoading ? 0 : storageTab.usage
                                     delegate: Rectangle {
                                         id: usageRow
                                         required property var modelData

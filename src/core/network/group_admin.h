@@ -21,6 +21,7 @@ class GroupAdmin : public QObject {
     Q_PROPERTY(QString groupId READ groupId NOTIFY manageChanged FINAL)
     Q_PROPERTY(bool manageOpen READ manageOpen NOTIFY manageChanged FINAL)
     Q_PROPERTY(bool canAdminister READ canAdminister NOTIFY manageChanged FINAL)
+    Q_PROPERTY(bool isOwner READ isOwner NOTIFY manageChanged FINAL)
     Q_PROPERTY(QVariantMap link READ link NOTIFY linkChanged FINAL)
     Q_PROPERTY(QVariantMap settings READ settings NOTIFY settingsChanged FINAL)
     Q_PROPERTY(QVariantList pending READ pending NOTIFY pendingChanged FINAL)
@@ -51,6 +52,7 @@ public:
     QString groupId() const { return m_groupId; }
     bool manageOpen() const { return m_manageOpen; }
     bool canAdminister() const;
+    bool isOwner() const;
     QVariantMap link() const { return m_link; }
     QVariantMap settings() const;
     QVariantList pending() const { return m_pending; }
@@ -67,6 +69,7 @@ public:
     Q_INVOKABLE void openManage(const QString& groupId);
     Q_INVOKABLE void closeManage();
     Q_INVOKABLE void reload();
+    Q_INVOKABLE void retryLink();
     Q_INVOKABLE void createLink();
     Q_INVOKABLE void disableLink();
     Q_INVOKABLE void copyLink();
@@ -107,6 +110,7 @@ private:
     void loadLink();
     void loadPending();
     void loadBlocked();
+    void applyLinkError();
     void applyLink(const QJsonObject& data);
     void applyPending(const QJsonObject& data);
     void applyBlocked(const QJsonObject& data);

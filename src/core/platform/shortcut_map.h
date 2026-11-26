@@ -23,6 +23,7 @@ public:
         return out;
     }
     Q_INVOKABLE QVariantList all() const;
+    Q_INVOKABLE QString primaryText(const QString& cmd) const;
     QStringList commands() const { return m_order; }
 
     static QHash<QString, QStringList> defaults();

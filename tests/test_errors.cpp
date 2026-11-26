@@ -34,7 +34,7 @@ private slots:
         QVERIFY(ErrorCatalog::render(0, "Host not found", false).contains(QString::fromUtf8("máy chủ Zalo")));
         QVERIFY(ErrorCatalog::render(0, "Connection refused", true).contains("refused"));
         QVERIFY(ErrorCatalog::render(0, "Connection timed out", false).contains(QString::fromUtf8("quá lâu")));
-        QVERIFY(ErrorCatalog::render(0, "Operation canceled", false).contains(QString::fromUtf8("huỷ")));
+        QVERIFY(ErrorCatalog::render(0, "Operation canceled", false).contains(QString::fromUtf8("hủy")));
         QVERIFY(ErrorCatalog::render(0, "Network is unreachable", false).contains(QString::fromUtf8("mạng")));
         QVERIFY(!ErrorCatalog::render(0, "Network is unreachable", false).contains("unreachable"));
     }

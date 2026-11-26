@@ -1201,8 +1201,15 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
                         send["toid"] = threadId;
                         send["normalUrl"] = res.value("normalUrl");
                     }
+                    const QString cdnUrl = res.value("normalUrl").toString().isEmpty()
+                                               ? res.value("hdUrl").toString()
+                                               : res.value("normalUrl").toString();
                     apiPost("file", QString("/api/%1/photo_original/send?").arg(isGroup ? "group" : "message"),
-                            send, cb, {{"nretry", "0"}});
+                            send, [cb, cdnUrl](bool ok, const QJsonValue& data, const QString& error, int errorCode) {
+                                QJsonObject out = data.toObject();
+                                if (ok && !cdnUrl.isEmpty()) out["cdnUrl"] = cdnUrl;
+                                cb(ok, out, error, errorCode);
+                            }, {{"nretry", "0"}});
                     return;
                 }
                 const QString fileId = res.value("fileId").toVariant().toString();

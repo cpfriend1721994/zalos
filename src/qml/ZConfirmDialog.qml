@@ -8,7 +8,7 @@ Popup {
     id: root
     property string title: ""
     property string okText: I18n.t("Đồng ý", "OK")
-    property string cancelText: I18n.t("Huỷ", "Cancel")
+    property string cancelText: I18n.t("Hủy", "Cancel")
     property bool danger: false
     property bool okEnabled: true
     default property alias content: body.data

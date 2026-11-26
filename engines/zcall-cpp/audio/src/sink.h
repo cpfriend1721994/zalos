@@ -21,6 +21,7 @@ public:
     virtual ~Sink() = default;
     virtual bool write(const int16_t* pcm, int samples, std::string* error) = 0;
     virtual void close() = 0;
+    virtual void abort() {}
     virtual bool paced() const { return false; }
     virtual std::optional<double> latencyMs() { return std::nullopt; }
     std::atomic<bool> silent{false};
@@ -52,11 +53,13 @@ public:
     static std::unique_ptr<PipeSink> start(const std::vector<std::string>& cmd, std::string* error);
     bool write(const int16_t* pcm, int samples, std::string* error) override;
     void close() override;
+    void abort() override;
     bool replace(const std::vector<std::string>& cmd, std::string* error);
 
 private:
     std::mutex m_lock;
     std::unique_ptr<Process> m_proc;
+    std::atomic<int> m_childPid{-1};
     std::vector<int16_t> m_zero;
 };
 

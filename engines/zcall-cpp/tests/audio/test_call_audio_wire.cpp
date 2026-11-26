@@ -75,6 +75,46 @@ private slots:
         QCOMPARE(QString::fromStdString(pyBytesRepr(0x01)), QStringLiteral("b'\\x01'"));
     }
 
+    void emptyFrameThenVolumeParses() {
+        auto stream = encodeInFrame(0x00000007u, 0x0000000Bu, {});
+        stream.push_back('V');
+        stream.push_back(42);
+        InParser p;
+        p.feed(stream.data(), stream.size());
+        InMessage m;
+        QVERIFY(p.next(m));
+        QCOMPARE(int(m.kind), int(InMessage::Kind::Frame));
+        QCOMPARE(m.idx, 7u);
+        QCOMPARE(m.src, 0x0Bu);
+        QVERIFY(m.payload.empty());
+        QVERIFY(p.next(m));
+        QCOMPARE(int(m.kind), int(InMessage::Kind::Volume));
+        QCOMPARE(int(m.value), 42);
+        QVERIFY(!p.next(m));
+        QCOMPARE(p.pending(), size_t(0));
+        QVERIFY(!p.failed());
+    }
+
+    void emptyFrameSplitAcrossReadsWaitsForHeader() {
+        const auto frame = encodeInFrame(1, 2, {});
+        InParser p;
+        InMessage m;
+        for (size_t i = 0; i < frame.size(); ++i) {
+            p.feed(&frame[i], 1);
+            QCOMPARE(p.next(m), i + 1 == frame.size());
+        }
+        QCOMPARE(int(m.kind), int(InMessage::Kind::Frame));
+        QVERIFY(m.payload.empty());
+        const uint8_t v = 'V';
+        p.feed(&v, 1);
+        QVERIFY(!p.next(m));
+        const uint8_t value = 9;
+        p.feed(&value, 1);
+        QVERIFY(p.next(m));
+        QCOMPARE(int(m.kind), int(InMessage::Kind::Volume));
+        QCOMPARE(int(m.value), 9);
+    }
+
     void levelFrameIsBigEndian() {
         const uint8_t opus[] = {9, 8, 7};
         const auto out = encodeLevelFrame(45, opus, 3);

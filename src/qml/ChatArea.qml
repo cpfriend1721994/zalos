@@ -427,67 +427,6 @@ Rectangle {
         ImageViewerState.show(list, start);
     }
 
-    function dateLabel(ts: real): string {
-        if (!ts || ts < 946684800000) return "";
-        const d = new Date(ts);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const day = new Date(d);
-        day.setHours(0, 0, 0, 0);
-        const diff = Math.round((today - day) / 86400000);
-        const hm = Qt.formatTime(d, "HH:mm");
-        if (diff === 0) return hm + " " + I18n.t("Hôm nay", "Today");
-        if (diff === 1) return hm + " " + I18n.t("Hôm qua", "Yesterday");
-        return hm + " " + Qt.formatDate(d, "dd/MM/yyyy");
-    }
-
-    function fullTimestamp(ts: real, fallback: string): string {
-        if (ts && ts >= 946684800000) {
-            const d = new Date(ts);
-            return Qt.formatTime(d, "HH:mm:ss") + " " + Qt.formatDate(d, "dd/MM/yyyy");
-        }
-        return fallback || "";
-    }
-
-    function fileSizeText(bytes: real): string {
-        if (!bytes || bytes <= 0) return I18n.t("Tệp đính kèm", "Attachment");
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
-        if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + " MB";
-        return (bytes / 1073741824).toFixed(2) + " GB";
-    }
-
-    function fileColor(ext: string): color {
-        if (["doc", "docx"].indexOf(ext) >= 0) return "#2B579A";
-        if (["xls", "xlsx", "csv"].indexOf(ext) >= 0) return "#217346";
-        if (["ppt", "pptx"].indexOf(ext) >= 0) return "#D24726";
-        if (ext === "pdf") return "#E2574C";
-        if (["gif", "jpg", "jpeg", "png", "svg", "webp"].indexOf(ext) >= 0) return "#2E9E6B";
-        if (["zip", "rar", "7z", "tar", "gz"].indexOf(ext) >= 0) return "#8E6E53";
-        if (["m4a", "mp4", "mov", "avi", "mkv"].indexOf(ext) >= 0) return "#7E57C2";
-        if (["mp3", "mpg", "wav", "flac"].indexOf(ext) >= 0) return "#EC407A";
-        if (["txt", "log", "md"].indexOf(ext) >= 0) return "#607D8B";
-        return "#8A94A6";
-    }
-
-    function statusLabel(status: string): string {
-        if (status === "sending") return I18n.t("Đang gửi", "Sending");
-        if (status === "seen") return I18n.t("Đã xem", "Seen");
-        if (status === "failed") return I18n.t("Gửi lỗi", "Failed");
-        return I18n.t("Đã gửi", "Sent");
-    }
-
-    function seenTooltipText(seenUids: var): string {
-        if (!seenUids || seenUids.length === 0) return "";
-        const names = [];
-        for (let i = 0; i < seenUids.length; ++i) {
-            const uid = seenUids[i];
-            const name = ZaloClient.displayNameOf(uid);
-            names.push(name && name.length > 0 ? name : uid);
-        }
-        return I18n.t("Đã xem: ", "Seen by: ") + names.join(", ");
-    }
-
     Shortcut {
         sequences: ZaloClient.shortcuts.keySequences("chat.find")
         enabled: root.visible
@@ -586,32 +525,14 @@ Rectangle {
                     anchors.rightMargin: 16
                     spacing: 10
 
-                    Rectangle {
+                    ZIconButton {
+                        id: btnBack
                         visible: mainWindow.isCompactMode
-                        width: 32
-                        height: 32
-                        radius: 16
-                        color: btnBackMouse.pressed ? ThemeManager.selectedColor :
-                               (btnBackMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
-                        scale: btnBackMouse.pressed ? 0.92 : 1.0
-                        Behavior on scale { NumberAnimation { duration: 100 } }
-
-                        ZIcon {
-                            anchors.centerIn: parent
-                            name: "arrow_left"
-                            size: 16
-                            color: ThemeManager.textColor
-                        }
-
-                        MouseArea {
-                            id: btnBackMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: ZaloClient.openWelcomeScreen()
-                            ToolTip.visible: containsMouse
-                            ToolTip.text: I18n.t("Quay lại danh sách hội thoại", "Back to conversations")
-                        }
+                        iconName: "arrow_left"
+                        iconSize: 16
+                        tooltip: I18n.t("Quay lại danh sách hội thoại", "Back to conversations")
+                        tooltipDelay: 0
+                        onClicked: ZaloClient.openWelcomeScreen()
                     }
 
                     ZAvatar {
@@ -717,157 +638,61 @@ Rectangle {
                     RowLayout {
                         spacing: 4
 
-                        Rectangle {
+                        ZIconButton {
+                            id: btnAddMember
                             visible: ZaloClient.currentConversationCanCreateGroup
-                            width: 32
-                            height: 32
-                            radius: 16
-                            color: addMemMouse.pressed ? ThemeManager.selectedColor :
-                                   (addMemMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
-                            scale: addMemMouse.pressed ? 0.92 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "user_add"
-                                size: 20
-                                color: ThemeManager.textColor
-                            }
-
-                            MouseArea {
-                                id: addMemMouse
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                hoverEnabled: true
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: ZaloClient.currentConversationIsGroup
-                                              ? I18n.t("Thêm thành viên vào nhóm", "Add member to group")
-                                              : I18n.t("Tạo nhóm với người này", "Create group with this person")
-                                onClicked: ZaloClient.currentConversationIsGroup ? ZaloClient.openAddMemberModal() : ZaloClient.openCreateGroup()
-                            }
+                            iconName: "user_add"
+                            iconSize: 20
+                            tooltip: ZaloClient.currentConversationIsGroup
+                                ? I18n.t("Thêm thành viên vào nhóm", "Add member to group")
+                                : I18n.t("Tạo nhóm với người này", "Create group with this person")
+                            onClicked: ZaloClient.currentConversationIsGroup ? ZaloClient.openAddMemberModal() : ZaloClient.openCreateGroup()
                         }
 
-                        Rectangle {
-                            width: 32
-                            height: 32
-                            radius: 16
-                            color: (root.showInChatSearch || searchMouse.containsMouse) ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                            scale: searchMouse.pressed ? 0.92 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "search"
-                                size: 18
-                                color: root.showInChatSearch ? Theme.zaloBlue : ThemeManager.textColor
-                            }
-
-                            MouseArea {
-                                id: searchMouse
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                hoverEnabled: true
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Tìm kiếm trong tin nhắn", "Search messages")
-                                onClicked: root.showInChatSearch ? root.closeSearch() : root.openSearch()
-                            }
+                        ZIconButton {
+                            id: btnSearch
+                            iconName: "search"
+                            iconColor: root.showInChatSearch ? Theme.zaloBlue : ThemeManager.textColor
+                            highlighted: root.showInChatSearch
+                            pressTint: false
+                            tooltip: I18n.t("Tìm kiếm trong tin nhắn", "Search messages")
+                            onClicked: root.showInChatSearch ? root.closeSearch() : root.openSearch()
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: btnVoiceCall
                             visible: ZaloClient.currentConversationCanCall
-                            width: 32
-                            height: 32
-                            radius: 16
-                            color: voiceMouse.pressed ? ThemeManager.selectedColor :
-                                   (voiceMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
-                            scale: voiceMouse.pressed ? 0.92 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "phone"
-                                size: 18
-                                color: ThemeManager.textColor
-                            }
-
-                            MouseArea {
-                                id: voiceMouse
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                hoverEnabled: true
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: ZaloClient.currentConversationIsGroup
-                                              ? I18n.t("Cuộc gọi thoại nhóm", "Group voice call")
-                                              : I18n.t("Cuộc gọi thoại", "Voice call")
-                                onClicked: {
-                                    if (ZaloClient.currentConversationIsGroup) ZaloClient.startGroupCall(false);
-                                    else ZaloClient.startVoiceCall();
-                                }
+                            iconName: "phone"
+                            tooltip: ZaloClient.currentConversationIsGroup
+                                ? I18n.t("Cuộc gọi thoại nhóm", "Group voice call")
+                                : I18n.t("Cuộc gọi thoại", "Voice call")
+                            onClicked: {
+                                if (ZaloClient.currentConversationIsGroup) ZaloClient.startGroupCall(false);
+                                else ZaloClient.startVoiceCall();
                             }
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: btnVideoCall
                             visible: ZaloClient.currentConversationCanCall
-                            width: 32
-                            height: 32
-                            radius: 16
-                            color: videoMouse.pressed ? ThemeManager.selectedColor :
-                                   (videoMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
-                            scale: videoMouse.pressed ? 0.92 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "video"
-                                size: 18
-                                color: ThemeManager.textColor
-                            }
-
-                            MouseArea {
-                                id: videoMouse
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                hoverEnabled: true
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: ZaloClient.currentConversationIsGroup
-                                              ? I18n.t("Cuộc gọi video nhóm", "Group video call")
-                                              : I18n.t("Cuộc gọi video", "Video call")
-                                onClicked: {
-                                    if (ZaloClient.currentConversationIsGroup) ZaloClient.startGroupCall(true);
-                                    else ZaloClient.startVideoCall();
-                                }
+                            iconName: "video"
+                            tooltip: ZaloClient.currentConversationIsGroup
+                                ? I18n.t("Cuộc gọi video nhóm", "Group video call")
+                                : I18n.t("Cuộc gọi video", "Video call")
+                            onClicked: {
+                                if (ZaloClient.currentConversationIsGroup) ZaloClient.startGroupCall(true);
+                                else ZaloClient.startVideoCall();
                             }
                         }
 
-                        Rectangle {
-                            width: 32
-                            height: 32
-                            radius: 16
-                            color: (ZaloClient.showConversationInfo || infoMouse.containsMouse) ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                            scale: infoMouse.pressed ? 0.92 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "sidebar_panel"
-                                size: 18
-                                color: ZaloClient.showConversationInfo ? Theme.zaloBlue : ThemeManager.textColor
-                            }
-
-                            MouseArea {
-                                id: infoMouse
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                hoverEnabled: true
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Thông tin hội thoại", "Conversation info")
-                                onClicked: ZaloClient.toggleConversationInfo()
-                            }
+                        ZIconButton {
+                            id: btnInfo
+                            iconName: "sidebar_panel"
+                            iconColor: ZaloClient.showConversationInfo ? Theme.zaloBlue : ThemeManager.textColor
+                            highlighted: ZaloClient.showConversationInfo
+                            pressTint: false
+                            tooltip: I18n.t("Thông tin hội thoại", "Conversation info")
+                            onClicked: ZaloClient.toggleConversationInfo()
                         }
                     }
                 }
@@ -1367,9 +1192,9 @@ Rectangle {
                 model: ZaloClient.messageModel
                 reuseItems: true
                 cacheBuffer: 280
-                spacing: 14
+                spacing: 0
                 topMargin: pinBar.visible ? 16 + 56 : 16
-                bottomMargin: 19
+                bottomMargin: 5
 
                 ScrollBar.vertical: ScrollBar {
                     id: verticalScrollBar
@@ -1556,10 +1381,11 @@ Rectangle {
                 Repeater {
                     model: ZaloClient.scheduledMessages
                     RowLayout {
+                        id: scheduledRow
                         required property var modelData
                         Layout.fillWidth: true
                         spacing: 8
-                        ZIcon { name: "reminder"; size: 14; color: modelData.state === "failed" ? Theme.badgeRed : Theme.zaloBlue }
+                        ZIcon { name: "reminder"; size: 14; color: scheduledRow.modelData.state === "failed" ? Theme.badgeRed : Theme.zaloBlue }
                         Text {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
@@ -1567,20 +1393,20 @@ Rectangle {
                             font.pixelSize: 12
                             font.weight: Font.Normal
                             color: ThemeManager.textColor
-                            text: (modelData.state === "failed" ? I18n.t("Gửi lỗi · ", "Failed · ")
-                                   : modelData.state === "sending" ? I18n.t("Đang gửi · ", "Sending · ") : "")
-                                  + Qt.formatDateTime(new Date(modelData.sendAt), "HH:mm dd/MM") + " — " + modelData.text
+                            text: (scheduledRow.modelData.state === "failed" ? I18n.t("Gửi lỗi · ", "Failed · ")
+                                   : scheduledRow.modelData.state === "sending" ? I18n.t("Đang gửi · ", "Sending · ") : "")
+                                  + Qt.formatDateTime(new Date(scheduledRow.modelData.sendAt), "HH:mm dd/MM") + " — " + scheduledRow.modelData.text
                         }
                         Text {
-                            visible: modelData.state !== "sending"
-                            text: I18n.t("Huỷ", "Cancel")
+                            visible: scheduledRow.modelData.state !== "sending"
+                            text: I18n.t("Hủy", "Cancel")
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
                             color: Theme.zaloBlue
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: ZaloClient.cancelScheduledMessage(modelData.id)
+                                onClicked: ZaloClient.cancelScheduledMessage(scheduledRow.modelData.id)
                             }
                         }
                     }
@@ -1740,7 +1566,7 @@ Rectangle {
                             width: 18
                             height: 18
                             radius: 9
-                            color: removeDraftMouse.containsMouse ? "#D32F2F" : "#99000000"
+                            color: removeDraftMouse.containsMouse ? Theme.badgeRed : "#99000000"
                             ZIcon { anchors.centerIn: parent; name: "close"; size: 10; color: "#FFFFFF" }
                             MouseArea {
                                 id: removeDraftMouse
@@ -1826,7 +1652,7 @@ Rectangle {
                 ZButton {
                     visible: ZaloClient.composerLockDeletable
                     variant: "secondary"
-                    text: I18n.t("Xoá trò chuyện", "Delete conversation")
+                    text: I18n.t("Xóa trò chuyện", "Delete conversation")
                     onClicked: ZaloClient.deleteConversation(ZaloClient.currentConversationId)
                 }
             }
@@ -1903,10 +1729,6 @@ Rectangle {
                 }
             }
 
-            Behavior on height {
-                NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-            }
-
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 0
@@ -1922,364 +1744,183 @@ Rectangle {
                         anchors.rightMargin: 12
                         spacing: 6
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbSticker
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbStickerMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "sticker"
-                                size: 18
-                                color: root.emojiPickerOpen ? Theme.zaloBlue
-                                     : (tbStickerMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbStickerMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor))
-                            }
-
-                            MouseArea {
-                                id: tbStickerMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                property bool wasOpenOnPress: false
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Biểu tượng cảm xúc (Emoji/Stickers)", "Stickers & Emojis")
-                                onPressed: wasOpenOnPress = root.emojiPickerOpen
-                                onClicked: {
-                                    if (!wasOpenOnPress) {
-                                        root.emojiPickerOpen = true;
-                                    }
+                            pressedScale: 0.94
+                            iconName: "sticker"
+                            iconColor: root.emojiPickerOpen ? Theme.zaloBlue : (tbSticker.pressed ? Theme.zaloBlueHover : (tbSticker.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor))
+                            tooltip: I18n.t("Biểu tượng cảm xúc (Emoji/Stickers)", "Stickers & Emojis")
+                            property bool wasOpenOnPress: false
+                            onPressStarted: wasOpenOnPress = root.emojiPickerOpen
+                            onClicked: {
+                                if (!wasOpenOnPress) {
+                                    root.emojiPickerOpen = true;
                                 }
                             }
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbImage
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbImageMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "image"
-                                size: 18
-                                color: tbImageMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbImageMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbImageMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Gửi hình ảnh", "Send image")
-                                onClicked: imageFileDialog.open()
-                            }
+                            pressedScale: 0.94
+                            iconName: "image"
+                            iconColor: tbImage.pressed ? Theme.zaloBlueHover : (tbImage.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: I18n.t("Gửi hình ảnh", "Send image")
+                            onClicked: imageFileDialog.open()
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbClip
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbClipMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "clip"
-                                size: 18
-                                color: tbClipMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbClipMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbClipMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Đính kèm tệp tin", "Attach file")
-                                onClicked: documentFileDialog.open()
-                            }
+                            pressedScale: 0.94
+                            iconName: "clip"
+                            iconColor: tbClip.pressed ? Theme.zaloBlueHover : (tbClip.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: I18n.t("Đính kèm tệp tin", "Attach file")
+                            onClicked: documentFileDialog.open()
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbSnip
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbSnipMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "snip"
-                                size: 18
-                                color: tbSnipMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbSnipMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbSnipMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                readonly property string snipShortcut: ZaloClient.shortcuts.keys("app.screenshot")[0] || "Ctrl+Alt+S"
-                                ToolTip.text: I18n.t("Chụp ảnh màn hình (%1)", "Capture screenshot (%1)").arg(snipShortcut)
-                                onClicked: ZaloClient.requestScreenshot()
-                            }
+                            pressedScale: 0.94
+                            iconName: "snip"
+                            readonly property string snipShortcut: ZaloClient.shortcuts.keys("app.screenshot")[0] || "Ctrl+Alt+S"
+                            iconColor: tbSnip.pressed ? Theme.zaloBlueHover : (tbSnip.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: I18n.t("Chụp ảnh màn hình (%1)", "Capture screenshot (%1)").arg(tbSnip.snipShortcut)
+                            onClicked: ZaloClient.requestScreenshot()
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbMention
+                            width: 28
+                            height: 28
+                            radius: 4
+                            color: "transparent"
+                            pressedScale: 0.94
                             visible: ZaloClient.currentConversationIsGroup
+                            iconName: "mention"
+                            iconColor: tbMention.pressed ? Theme.zaloBlueHover : (tbMention.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: I18n.t("Nhắc tên thành viên (@)", "Mention a member (@)")
+                            onClicked: {
+                                msgInput.forceActiveFocus();
+                                msgInput.insert(msgInput.cursorPosition, "@");
+                            }
+                        }
+
+                        ZIconButton {
+                            id: tbCard
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbMentionMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "mention"
-                                size: 18
-                                color: tbMentionMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbMentionMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbMentionMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Nhắc tên thành viên (@)", "Mention a member (@)")
-                                onClicked: {
-                                    msgInput.forceActiveFocus();
-                                    msgInput.insert(msgInput.cursorPosition, "@");
-                                }
-                            }
-                        }
-
-                        Rectangle {
+                            pressedScale: 0.94
                             visible: ZaloClient.currentConversationId.length > 0
+                            iconName: "contacts"
+                            iconColor: tbCard.pressed ? Theme.zaloBlueHover : (tbCard.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: I18n.t("Gửi danh thiếp", "Send a contact card")
+                            onClicked: ZaloClient.openSendCardPicker()
+                        }
+
+                        ZIconButton {
+                            id: tbPoll
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbCardMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "contacts"
-                                size: 18
-                                color: tbCardMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbCardMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbCardMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Gửi danh thiếp", "Send a contact card")
-                                onClicked: ZaloClient.openSendCardPicker()
-                            }
-                        }
-
-                        Rectangle {
+                            pressedScale: 0.94
                             visible: ZaloClient.currentConversationIsGroup
-                            width: 28
-                            height: 28
-                            radius: 4
-                            color: "transparent"
-                            scale: tbPollMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "poll"
-                                size: 18
-                                color: tbPollMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbPollMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbPollMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Tạo cuộc bình chọn", "Create poll")
-                                onClicked: ZaloClient.openCreatePollModal()
-                            }
+                            iconName: "poll"
+                            iconColor: tbPoll.pressed ? Theme.zaloBlueHover : (tbPoll.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: I18n.t("Tạo cuộc bình chọn", "Create poll")
+                            onClicked: ZaloClient.openCreatePollModal()
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbReminder
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbReminderMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "reminder"
-                                size: 18
-                                color: tbReminderMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbReminderMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbReminderMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Hẹn giờ gửi tin nhắn", "Schedule message")
-                                onClicked: reminderPopup.open()
-                            }
+                            pressedScale: 0.94
+                            iconName: "reminder"
+                            iconColor: tbReminder.pressed ? Theme.zaloBlueHover : (tbReminder.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: I18n.t("Hẹn giờ gửi tin nhắn", "Schedule message")
+                            onClicked: reminderPopup.open()
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbQuickMsg
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbQuickMsgMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "quick_message"
-                                size: 18
-                                color: tbQuickMsgMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbQuickMsgMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbQuickMsgMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Tin nhắn nhanh", "Quick message")
-                                onClicked: quickMsgPopup.open()
-                            }
+                            pressedScale: 0.94
+                            iconName: "quick_message"
+                            iconColor: tbQuickMsg.pressed ? Theme.zaloBlueHover : (tbQuickMsg.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: I18n.t("Tin nhắn nhanh", "Quick message")
+                            onClicked: quickMsgPopup.open()
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbVoice
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbVoiceMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
+                            pressedScale: 0.94
+                            iconName: "mic"
                             opacity: ZaloClient.voiceRecorder.available ? 1.0 : 0.45
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "mic"
-                                size: 18
-                                color: tbVoiceMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbVoiceMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbVoiceMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: ZaloClient.voiceRecorder.available
-                                              ? I18n.t("Ghi âm tin nhắn thoại (Ctrl+Shift+V)", "Record a voice message (Ctrl+Shift+V)")
-                                              : (ZaloClient.voiceRecorder.unavailableReason === "no_microphone"
-                                                 ? I18n.t("Không tìm thấy micro", "No microphone found")
-                                                 : (ZaloClient.voiceRecorder.unavailableReason === "no_multimedia"
-                                                    ? I18n.t("Máy thiếu thành phần ghi âm (Qt Multimedia)", "No Qt Multimedia recording components")
-                                                    : I18n.t("Thiếu bộ mã hóa AAC nên chưa ghi âm được", "No AAC encoder: recording unavailable")))
-                                onClicked: ZaloClient.voiceRecorder.start()
-                            }
+                            iconColor: tbVoice.pressed ? Theme.zaloBlueHover : (tbVoice.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            readonly property string voiceShortcut: ZaloClient.shortcuts.primaryText("composer.voice")
+                            tooltip: ZaloClient.voiceRecorder.available
+                                ? I18n.t("Ghi âm tin nhắn thoại", "Record a voice message") + (tbVoice.voiceShortcut.length > 0 ? " (" + tbVoice.voiceShortcut + ")" : "")
+                                : (ZaloClient.voiceRecorder.unavailableReason === "no_microphone"
+                                   ? I18n.t("Không tìm thấy micro", "No microphone found")
+                                   : (ZaloClient.voiceRecorder.unavailableReason === "no_multimedia"
+                                      ? I18n.t("Máy này chưa hỗ trợ ghi âm", "This device does not support voice recording")
+                                      : I18n.t("Chưa ghi âm được trên máy này", "Voice recording is not available on this device yet")))
+                            onClicked: ZaloClient.voiceRecorder.start()
                         }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbFormat
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbFormatMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: "format_text"
-                                size: 18
-                                color: root.isFormattingActive ? Theme.zaloBlue
-                                     : (tbFormatMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbFormatMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor))
-                            }
-
-                            MouseArea {
-                                id: tbFormatMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Định dạng tin nhắn", "Format message")
-                                onClicked: root.isFormattingActive = !root.isFormattingActive
-                            }
+                            pressedScale: 0.94
+                            iconName: "format_text"
+                            iconColor: root.isFormattingActive ? Theme.zaloBlue : (tbFormat.pressed ? Theme.zaloBlueHover : (tbFormat.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor))
+                            tooltip: I18n.t("Định dạng tin nhắn", "Format message")
+                            onClicked: root.isFormattingActive = !root.isFormattingActive
                         }
 
                         Item { Layout.fillWidth: true }
 
-                        Rectangle {
+                        ZIconButton {
+                            id: tbExpand
                             width: 28
                             height: 28
                             radius: 4
                             color: "transparent"
-                            scale: tbExpandMouse.pressed ? 0.94 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 100 } }
-
-                            ZIcon {
-                                anchors.centerIn: parent
-                                name: root.isEditorExpanded ? "collapse" : "expand"
-                                size: 18
-                                color: tbExpandMouse.pressed ? Theme.zaloBlueHover
-                                     : (tbExpandMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
-                            }
-
-                            MouseArea {
-                                id: tbExpandMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                ToolTip.visible: containsMouse
-                                ToolTip.delay: 350
-                                ToolTip.text: root.isEditorExpanded ? I18n.t("Thu gọn ô soạn thảo", "Collapse editor") : I18n.t("Mở rộng ô soạn thảo", "Expand editor")
-                                onClicked: root.isEditorExpanded = !root.isEditorExpanded
-                            }
+                            pressedScale: 0.94
+                            iconName: root.isEditorExpanded ? "collapse" : "expand"
+                            iconColor: tbExpand.pressed ? Theme.zaloBlueHover : (tbExpand.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: root.isEditorExpanded ? I18n.t("Thu gọn ô soạn thảo", "Collapse editor") : I18n.t("Mở rộng ô soạn thảo", "Expand editor")
+                            onClicked: root.isEditorExpanded = !root.isEditorExpanded
                         }
                     }
                 }
@@ -2324,13 +1965,13 @@ Rectangle {
                             delegate: Rectangle {
                                 id: fmtButton
                                 required property var modelData
-                                readonly property var state: ZaloClient.composer.active
+                                readonly property var fmtState: ZaloClient.composer.active
                                 readonly property bool on: fmtButton.modelData.st === "lst_1" || fmtButton.modelData.st === "lst_2"
-                                                           ? fmtButton.state.list === fmtButton.modelData.st
-                                                           : fmtButton.modelData.st === "ind_inc" ? Number(fmtButton.state.indent || 0) > 0
-                                                           : fmtButton.modelData.st === "size" ? (fmtButton.state.size || "").length > 0
-                                                           : fmtButton.modelData.st === "color" ? (fmtButton.state.color || "").length > 0
-                                                           : fmtButton.state[fmtButton.modelData.st] === true
+                                                           ? fmtButton.fmtState.list === fmtButton.modelData.st
+                                                           : fmtButton.modelData.st === "ind_inc" ? Number(fmtButton.fmtState.indent || 0) > 0
+                                                           : fmtButton.modelData.st === "size" ? (fmtButton.fmtState.size || "").length > 0
+                                                           : fmtButton.modelData.st === "color" ? (fmtButton.fmtState.color || "").length > 0
+                                                           : fmtButton.fmtState[fmtButton.modelData.st] === true
                                 Layout.preferredWidth: 26
                                 Layout.preferredHeight: 26
                                 radius: 4
@@ -2341,8 +1982,8 @@ Rectangle {
                                     anchors.centerIn: parent
                                     name: fmtButton.modelData.icon
                                     size: 16
-                                    color: fmtButton.modelData.st === "color" && (fmtButton.state.color || "").length > 2
-                                           ? "#" + fmtButton.state.color.substring(2)
+                                    color: fmtButton.modelData.st === "color" && (fmtButton.fmtState.color || "").length > 2
+                                           ? "#" + fmtButton.fmtState.color.substring(2)
                                            : (fmtButton.on ? ThemeManager.textColor : ThemeManager.secondaryTextColor)
                                 }
                                 MouseArea {
@@ -3484,11 +3125,22 @@ Rectangle {
 
             Popup {
                 id: quickMsgPopup
+                objectName: "quickMsgPopup"
                 property bool formOpen: false
                 property real editId: 0
-                property string editKeyword: ""
-                property string editText: ""
-                onClosed: quickMsgPopup.formOpen = false
+                function openQuickForm(id: real, keyword: string, content: string): void {
+                    quickMsgPopup.editId = id;
+                    qmKeywordField.text = keyword;
+                    qmTextField.text = content;
+                    quickMsgPopup.formOpen = true;
+                }
+                function closeQuickForm(): void {
+                    quickMsgPopup.formOpen = false;
+                    quickMsgPopup.editId = 0;
+                    qmKeywordField.text = "";
+                    qmTextField.text = "";
+                }
+                onClosed: quickMsgPopup.closeQuickForm()
                 margins: 8
                 width: Math.min(320, root.width - 24)
                 height: Math.min(quickMsgCol.implicitHeight + 16, Math.max(160, root.height - 40))
@@ -3542,10 +3194,10 @@ Rectangle {
                                 ToolTip.visible: containsMouse
                                 ToolTip.text: I18n.t("Tạo tin nhắn nhanh", "Create quick message")
                                 onClicked: {
-                                    quickMsgPopup.editId = 0;
-                                    quickMsgPopup.editKeyword = "";
-                                    quickMsgPopup.editText = "";
-                                    quickMsgPopup.formOpen = !quickMsgPopup.formOpen;
+                                    if (quickMsgPopup.formOpen && quickMsgPopup.editId === 0)
+                                        quickMsgPopup.closeQuickForm();
+                                    else
+                                        quickMsgPopup.openQuickForm(0, "", "");
                                 }
                             }
                         }
@@ -3565,15 +3217,15 @@ Rectangle {
                         spacing: 6
                         ZTextField {
                             id: qmKeywordField
+                            objectName: "qmKeywordField"
                             Layout.fillWidth: true
                             placeholderText: I18n.t("Từ khóa (vd: chao)", "Keyword (e.g. hi)")
-                            text: quickMsgPopup.editKeyword
                         }
                         ZTextField {
                             id: qmTextField
+                            objectName: "qmTextField"
                             Layout.fillWidth: true
                             placeholderText: I18n.t("Nội dung tin nhắn", "Message content")
-                            text: quickMsgPopup.editText
                         }
                         RowLayout {
                             Layout.fillWidth: true
@@ -3582,7 +3234,7 @@ Rectangle {
                             ZButton {
                                 variant: "secondary"
                                 text: I18n.t("Hủy", "Cancel")
-                                onClicked: quickMsgPopup.formOpen = false
+                                onClicked: quickMsgPopup.closeQuickForm()
                             }
                             ZButton {
                                 enabled: qmKeywordField.text.trim().length > 0 && qmTextField.text.trim().length > 0
@@ -3592,7 +3244,7 @@ Rectangle {
                                         ZaloClient.updateQuickMessage(quickMsgPopup.editId, qmKeywordField.text, qmTextField.text);
                                     else
                                         ZaloClient.createQuickMessage(qmKeywordField.text, qmTextField.text);
-                                    quickMsgPopup.formOpen = false;
+                                    quickMsgPopup.closeQuickForm();
                                 }
                             }
                         }
@@ -3672,12 +3324,7 @@ Rectangle {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            quickMsgPopup.editId = qmRow.modelData.id;
-                                            quickMsgPopup.editKeyword = qmRow.modelData.keyword;
-                                            quickMsgPopup.editText = qmRow.modelData.text;
-                                            quickMsgPopup.formOpen = true;
-                                        }
+                                        onClicked: quickMsgPopup.openQuickForm(qmRow.modelData.id, qmRow.modelData.keyword, qmRow.modelData.text)
                                     }
                                 }
                                 Rectangle {
@@ -3790,6 +3437,7 @@ Rectangle {
                                 { vi: "08:00 sáng", en: "8:00 AM", offset: 0, hour: 8 }
                             ]
                             delegate: Rectangle {
+                                id: schedPresetRow
                                 required property var modelData
                                 Layout.fillWidth: true
                                 height: 28
@@ -3802,7 +3450,7 @@ Rectangle {
 
                                 Text {
                                     anchors.centerIn: parent
-                                    text: I18n.t(modelData.vi, modelData.en)
+                                    text: I18n.t(schedPresetRow.modelData.vi, schedPresetRow.modelData.en)
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 11
                                     color: ThemeManager.textColor
@@ -3813,8 +3461,8 @@ Rectangle {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: reminderPopup.schedule(modelData.hour >= 0 ? reminderPopup.nextAt(modelData.hour)
-                                                                                          : Date.now() + modelData.offset)
+                                    onClicked: reminderPopup.schedule(schedPresetRow.modelData.hour >= 0 ? reminderPopup.nextAt(schedPresetRow.modelData.hour)
+                                                                                          : Date.now() + schedPresetRow.modelData.offset)
                                 }
                             }
                         }
@@ -4017,7 +3665,7 @@ Rectangle {
                         visible: messageMenu.isServerMessage
                         icon: "trash"
                         danger: true
-                        label: I18n.t("Xoá chỉ ở phía tôi", "Delete for me")
+                        label: I18n.t("Xóa chỉ ở phía tôi", "Delete for me")
                         onTriggered: { ZaloClient.deleteMessageForMe(messageMenu.msgId); messageMenu.close(); }
                     }
                 }
@@ -4035,7 +3683,7 @@ Rectangle {
         id: imageFileDialog
         title: I18n.t("Chọn hình ảnh để gửi", "Select photo to send")
         fileMode: ZFilePicker.OpenFiles
-        nameFilters: ["Hình ảnh (*.png *.jpg *.jpeg *.gif *.webp *.bmp)", "Tất cả các tệp (*.*)"]
+        nameFilters: [I18n.t("Hình ảnh (*.png *.jpg *.jpeg *.gif *.webp *.bmp)", "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"), I18n.t("Tất cả các tệp (*.*)", "All files (*.*)")]
         onAccepted: {
             for (var i = 0; i < selectedFiles.length; i++) {
                 root.addDraftFile(selectedFiles[i].toString());
@@ -4047,7 +3695,7 @@ Rectangle {
         id: documentFileDialog
         title: I18n.t("Chọn tệp tin đính kèm", "Select document to attach")
         fileMode: ZFilePicker.OpenFiles
-        nameFilters: ["Tất cả các tệp (*.*)"]
+        nameFilters: [I18n.t("Tất cả các tệp (*.*)", "All files (*.*)")]
         onAccepted: {
             for (var j = 0; j < selectedFiles.length; j++) {
                 root.addDraftFile(selectedFiles[j].toString());

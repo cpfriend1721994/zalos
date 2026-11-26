@@ -100,9 +100,15 @@ bool isDigits(const QString& s) {
     return true;
 }
 
-QString firstColumn(const QSqlRecord& rec, const QSqlQuery& q, std::initializer_list<const char*> names) {
-    for (const char* n : names) {
-        const int i = rec.indexOf(QLatin1String(n));
+QVector<int> resolveColumns(const QSqlRecord& rec, std::initializer_list<const char*> names) {
+    QVector<int> indexes;
+    indexes.reserve(static_cast<qsizetype>(names.size()));
+    for (const char* n : names) indexes.append(rec.indexOf(QLatin1String(n)));
+    return indexes;
+}
+
+QString firstColumn(const QSqlQuery& q, const QVector<int>& indexes) {
+    for (const int i : indexes) {
         if (i >= 0 && !q.value(i).isNull()) return q.value(i).toString();
     }
     return {};
@@ -121,8 +127,8 @@ MobileHistorySync::MobileHistorySync(Network::ZaloSession* session, QObject* par
             startV2Fallback(QStringLiteral("confirm timeout after transfer_sync2"));
             return;
         } else if (m_state == WaitingConfirm) {
-            fail(L("Điện thoại chưa xác nhận yêu cầu đồng bộ. Lưu ý: đồng bộ tin nhắn từ điện thoại (đặc biệt trên iPhone / Sync v2) đang ở mức thử nghiệm (beta).",
-                   "The phone did not confirm the sync request. Note: phone history sync (especially on iPhone / Sync v2) is currently in beta."));
+            fail(L("Điện thoại chưa xác nhận yêu cầu đồng bộ. Lưu ý: đồng bộ tin nhắn từ điện thoại (nhất là iPhone) vẫn đang thử nghiệm.",
+                   "The phone did not confirm the sync request. Note: syncing messages from the phone (especially iPhone) is still experimental."));
         } else if (m_state == PhonePreparing) {
             fail(L("Điện thoại chưa gửi bản sao lưu sau 30 phút.", "The phone did not send a backup within 30 minutes."));
         } else if (m_state == Importing && m_download) {
@@ -271,21 +277,29 @@ QVector<MobileHistorySync::BackupConversation> MobileHistorySync::readBackupDire
                     conv.sourceRows += countQ.value(0).toInt();
                 }
                 QSqlQuery q(db);
+                q.setForwardOnly(true);
                 if (!q.exec(QStringLiteral("SELECT * FROM ChatContent WHERE MsgStatus > 0 AND CliMsgId NOT NULL "
                                            "ORDER BY TimeStamp ASC"))) {
                     q.exec(QStringLiteral("SELECT * FROM ChatContent"));
                 }
                 const QSqlRecord rec = q.record();
+                const QVector<int> globalMsgIdCols = resolveColumns(rec, {"GlbMsgId", "GlobalMsgId", "MsgId"});
+                const QVector<int> cliMsgIdCols = resolveColumns(rec, {"CliMsgId", "cliMsgId"});
+                const QVector<int> msgTypeCols = resolveColumns(rec, {"MsgType"});
+                const QVector<int> tsCols = resolveColumns(rec, {"TimeStamp", "Ts"});
+                const QVector<int> senderCols = resolveColumns(rec, {"SenderId", "FromId", "FromUid"});
+                const QVector<int> textCols = resolveColumns(rec, {"MsgContent", "Message"});
+                const QVector<int> ttlCols = resolveColumns(rec, {"TTL"});
+                const int bin = rec.indexOf(QStringLiteral("BinNet"));
                 while (q.next()) {
                     BackupRow row;
-                    row.globalMsgId = firstColumn(rec, q, {"GlbMsgId", "GlobalMsgId", "MsgId"});
-                    row.cliMsgId = firstColumn(rec, q, {"CliMsgId", "cliMsgId"});
-                    row.msgType = firstColumn(rec, q, {"MsgType"}).toInt();
-                    row.ts = firstColumn(rec, q, {"TimeStamp", "Ts"}).toLongLong();
-                    row.senderId = firstColumn(rec, q, {"SenderId", "FromId", "FromUid"});
-                    row.text = firstColumn(rec, q, {"MsgContent", "Message"});
-                    row.ttl = firstColumn(rec, q, {"TTL"}).toLongLong();
-                    const int bin = rec.indexOf(QStringLiteral("BinNet"));
+                    row.globalMsgId = firstColumn(q, globalMsgIdCols);
+                    row.cliMsgId = firstColumn(q, cliMsgIdCols);
+                    row.msgType = firstColumn(q, msgTypeCols).toInt();
+                    row.ts = firstColumn(q, tsCols).toLongLong();
+                    row.senderId = firstColumn(q, senderCols);
+                    row.text = firstColumn(q, textCols);
+                    row.ttl = firstColumn(q, ttlCols).toLongLong();
                     if (bin >= 0) {
                         const QByteArray rawBin = q.value(bin).toByteArray();
                         if (!rawBin.isEmpty()) {
@@ -600,7 +614,7 @@ void MobileHistorySync::startV2Fallback(const QString& why) {
     m_v2Ek = V2::generateKeyPair();
     if (m_v2Ik.pub.size() != 33 || m_v2Ik.priv.size() != 32 ||
         m_v2Ek.pub.size() != 33 || m_v2Ek.priv.size() != 32) {
-        fail(L("Không tạo được khóa Sync v2.", "Couldn't create Sync v2 keys."));
+        fail(L("Không chuẩn bị được kết nối an toàn với điện thoại. Vui lòng thử lại.", "Couldn't prepare a secure connection to the phone. Please try again."));
         return;
     }
 
@@ -614,8 +628,8 @@ void MobileHistorySync::startV2Fallback(const QString& why) {
     m_ids.clear();
 
     setState(WaitingConfirm,
-             L("Đã gửi yêu cầu (Sync v2). Mở Zalo trên điện thoại và bấm Đồng ý để chuyển tin nhắn.",
-               "Request sent (Sync v2). Open Zalo on your phone and tap Allow to transfer messages."),
+             L("Đã gửi yêu cầu. Mở Zalo trên điện thoại và bấm Đồng ý để chuyển tin nhắn.",
+               "Request sent. Open Zalo on your phone and tap Allow to transfer messages."),
              10);
 
     const QJsonArray queries{QJsonObject{
@@ -670,8 +684,8 @@ void MobileHistorySync::sendV2SessionRequest(const QString& type, int priority, 
     log(QStringLiteral("v2 590 sent type=%1 ussidx=%2 queries=%3 sync=%4 ws=%5")
             .arg(type).arg(ussidx).arg(queries.size()).arg(m_v2SyncId.left(8)).arg(wsSent));
     if (!wsSent) {
-        fail(L("Chưa kết nối được máy chủ realtime để gửi yêu cầu Sync v2.",
-               "Realtime connection is not ready to send the Sync v2 request."));
+        fail(L("Chưa kết nối được máy chủ Zalo để gửi yêu cầu đồng bộ. Vui lòng thử lại.",
+               "Not connected to Zalo's servers yet, so the sync request couldn't be sent. Please try again."));
     }
 }
 
@@ -681,7 +695,7 @@ void MobileHistorySync::sendNextV2MessageSession() {
 
     m_v2Ek = V2::generateKeyPair();
     if (m_v2Ek.pub.size() != 33 || m_v2Ek.priv.size() != 32) {
-        fail(L("Không tạo được khóa Sync v2.", "Couldn't create Sync v2 keys."));
+        fail(L("Không chuẩn bị được kết nối an toàn với điện thoại. Vui lòng thử lại.", "Couldn't prepare a secure connection to the phone. Please try again."));
         return;
     }
 
@@ -703,8 +717,8 @@ void MobileHistorySync::sendNextV2MessageSession() {
 
     const int progress = 50 + (18 * m_v2ConvCursor) / qMax(1, static_cast<int>(m_v2PendingConvs.size()));
     setState(PhonePreparing,
-             L("Đang tải tin nhắn từng hội thoại Sync v2 (%1/%2)...",
-               "Fetching Sync v2 conversation messages (%1/%2)...")
+             L("Đang tải tin nhắn từng hội thoại (%1/%2)...",
+               "Fetching messages for each conversation (%1/%2)...")
                  .arg(m_v2ConvCursor).arg(m_v2PendingConvs.size()),
              progress);
 
@@ -812,7 +826,6 @@ void MobileHistorySync::handleControl(const QJsonObject& content) {
             const bool en = m_lang == QLatin1String("en");
             const bool unmapped = Network::ErrorCatalog::phoneSyncName(phoneCode) == QLatin1String("UNMAPPED");
             fail(Network::ErrorCatalog::pick(Network::ErrorCatalog::phoneSyncError(phoneCode), en)
-                 + (en ? QStringLiteral(" (code %1)") : QStringLiteral(" (mã %1)")).arg(phoneCode)
                  + (unmapped ? L(" Nếu bạn dùng iPhone, Zalos có thể chưa hỗ trợ cách đồng bộ của Zalo trên iPhone.",
                                  " If you use an iPhone, Zalos may not support the way Zalo on iPhone syncs yet.")
                              : QString()));
@@ -1271,13 +1284,13 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
         const int status = data.value("status").toVariant().toInt();
         if (status == 3) {
             setState(WaitingConfirm,
-                     L("Đã gửi yêu cầu (Sync v2). Mở Zalo trên điện thoại và bấm Đồng ý để chuyển tin nhắn.",
-                       "Request sent (Sync v2). Open Zalo on your phone and tap Allow to transfer messages."),
+                     L("Đã gửi yêu cầu. Mở Zalo trên điện thoại và bấm Đồng ý để chuyển tin nhắn.",
+                       "Request sent. Open Zalo on your phone and tap Allow to transfer messages."),
                      10);
         } else if (status == 1 || status == 4 || status == 5) {
             setState(PhonePreparing,
-                     L("Điện thoại đã đồng ý. Đang chờ điện thoại đóng gói và gửi tin nhắn (Sync v2)...",
-                       "The phone agreed. Waiting for it to pack and send messages (Sync v2)..."),
+                     L("Điện thoại đã đồng ý. Đang chờ điện thoại đóng gói và gửi tin nhắn...",
+                       "The phone agreed. Waiting for it to pack and send messages..."),
                      20);
             m_timeout.start(kBackupTimeoutMs);
         } else if (status == 6 || status == 7) {
@@ -1302,8 +1315,8 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
         } else if (status == 9 || status == 10) {
             m_session->sendSyncV2Release(m_v2SyncId, 2);
             m_v2Active = false;
-            fail(L("Điện thoại đã hủy hoặc gặp lỗi khi đồng bộ (Sync v2).",
-                   "The phone cancelled or failed during Sync v2."));
+            fail(L("Điện thoại đã hủy hoặc gặp lỗi khi đồng bộ.",
+                   "The phone cancelled the sync or ran into an error."));
         }
         return;
     }
@@ -1312,7 +1325,9 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
         const int err = data.value("errorCode").toInt(data.value("err").toInt(0));
         m_session->sendSyncV2Release(m_v2SyncId, 2);
         m_v2Active = false;
-        fail(L("Lỗi đồng bộ từ điện thoại (Sync v2, mã %1).", "Phone sync error (Sync v2, code %1).").arg(err));
+        Network::ErrorCatalog::trace("phone-sync", QStringLiteral("v2 transfer_error code=%1 name=%2")
+                                                       .arg(err).arg(Network::ErrorCatalog::phoneSyncName(err)));
+        fail(Network::ErrorCatalog::pick(Network::ErrorCatalog::phoneSyncError(err), m_lang == QLatin1String("en")));
         return;
     }
 
@@ -1321,7 +1336,9 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
         if (err != 0) {
             m_session->sendSyncV2Release(m_v2SyncId, 2);
             m_v2Active = false;
-            fail(L("Lỗi gói đồng bộ Sync v2 (mã %1).", "Sync v2 batch error (code %1).").arg(err));
+            Network::ErrorCatalog::trace("phone-sync", QStringLiteral("v2 upload_batch err=%1").arg(err));
+            fail(L("Điện thoại gặp lỗi khi gửi tin nhắn. Vui lòng thử lại.",
+                   "The phone ran into an error while sending messages. Please try again."));
             return;
         }
         const QString msgUrl = data.value("msgUrl").toString(data.value("url").toString());
@@ -1468,12 +1485,12 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
     V2MessageParseResult parseV2MessageBatch(const QByteArray& bytes, const V2::SessionRecord& session,
                                              const QString& myNoisedUid, bool tryConversationChunk) {
         V2MessageParseResult out;
-        QVector<QByteArray> frames;
+        QVector<QByteArrayView> frames;
         if (!V2::splitFrames(bytes, &frames) || frames.isEmpty()) {
             out.errorKind = V2MessageParseResult::InvalidFraming;
             return out;
         }
-        for (const QByteArray& frame : frames) {
+        for (const QByteArrayView frame : frames) {
             QByteArray compressed;
             const V2::CryptoStatus st = V2::openMessage(session, frame, &compressed);
             if (st != V2::CryptoStatus::Ok) {
@@ -1507,8 +1524,8 @@ void MobileHistorySync::processNextV2Download() {
     m_v2InFlightDownload = true;
     setState(PhonePreparing,
              task.batchType == 2
-                 ? L("Đang tải và giải mã thông tin phiên Sync v2...", "Downloading and decrypting Sync v2 session...")
-                 : L("Đang tải và giải mã gói tin nhắn Sync v2...", "Downloading and decrypting Sync v2 messages..."),
+                 ? L("Đang nhận thông tin đồng bộ từ điện thoại...", "Receiving sync details from the phone...")
+                 : L("Đang nhận tin nhắn từ điện thoại...", "Receiving messages from the phone..."),
              task.batchType == 2 ? 30 : 50);
     m_timeout.start(kDownloadStallMs);
 
@@ -1535,14 +1552,18 @@ void MobileHistorySync::processNextV2Download() {
             m_v2InFlightDownload = false;
             m_session->sendSyncV2Release(m_v2SyncId, 2);
             m_v2Active = false;
-            fail(L("Gói Sync v2 vượt quá giới hạn 64 MB.", "Sync v2 batch exceeds the 64 MB limit."));
+            fail(L("Dữ liệu điện thoại gửi quá lớn (trên 64 MB) nên chưa nhận được.", "The data sent by the phone is too large (over 64 MB) to receive."));
             return;
         }
         if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
             m_v2InFlightDownload = false;
             m_session->sendSyncV2Release(m_v2SyncId, 2);
             m_v2Active = false;
-            fail(L("Không tải được gói Sync v2 (HTTP %1).", "Failed to download Sync v2 batch (HTTP %1).").arg(httpStatus));
+            const bool en = m_lang == QLatin1String("en");
+            const QString detail = httpStatus > 0
+                ? Network::ErrorCatalog::render(httpStatus, QStringLiteral("HTTP %1").arg(httpStatus), en)
+                : Network::ErrorCatalog::render(0, reply->errorString(), en);
+            fail(L("Không nhận được tin nhắn từ điện thoại: ", "Couldn't receive messages from the phone: ") + detail);
             return;
         }
         const QByteArray bytes = reply->readAll();
@@ -1550,7 +1571,7 @@ void MobileHistorySync::processNextV2Download() {
             m_v2InFlightDownload = false;
             m_session->sendSyncV2Release(m_v2SyncId, 2);
             m_v2Active = false;
-            fail(L("Gói Sync v2 vượt quá giới hạn 64 MB.", "Sync v2 batch exceeds the 64 MB limit."));
+            fail(L("Dữ liệu điện thoại gửi quá lớn (trên 64 MB) nên chưa nhận được.", "The data sent by the phone is too large (over 64 MB) to receive."));
             return;
         }
         if (task.batchType == 1) {
@@ -1558,7 +1579,7 @@ void MobileHistorySync::processNextV2Download() {
                 m_v2InFlightDownload = false;
                 m_session->sendSyncV2Release(m_v2SyncId, 2);
                 m_v2Active = false;
-                fail(L("Thiếu khóa phiên Sync v2.", "Missing Sync v2 session key."));
+                fail(L("Thiếu thông tin đồng bộ từ điện thoại. Vui lòng thử lại.", "Sync details from the phone are missing. Please try again."));
                 return;
             }
             const V2::SessionRecord session = m_v2Session;
@@ -1574,20 +1595,21 @@ void MobileHistorySync::processNextV2Download() {
                         QString err;
                         switch (res.errorKind) {
                         case V2MessageParseResult::InvalidFraming:
-                            err = self->L("Gói dữ liệu Sync v2 không hợp lệ.", "Invalid Sync v2 batch framing.");
+                            err = self->L("Dữ liệu điện thoại gửi không hợp lệ. Vui lòng thử lại.", "The data sent by the phone is invalid. Please try again.");
                             break;
                         case V2MessageParseResult::DecryptFailed:
-                            err = self->L("Không giải mã được gói tin nhắn Sync v2 (%1).",
-                                          "Failed to decrypt Sync v2 message batch (%1).")
-                                      .arg(V2::cryptoStatusName(res.cryptoStatus));
+                            Network::ErrorCatalog::trace("phone-sync", QStringLiteral("v2 message decrypt failed status=%1")
+                                                                           .arg(V2::cryptoStatusName(res.cryptoStatus)));
+                            err = self->L("Không đọc được tin nhắn điện thoại gửi. Vui lòng thử lại.",
+                                          "Couldn't read the messages sent by the phone. Please try again.");
                             break;
                         case V2MessageParseResult::ZstdFailed:
-                            err = self->L("Không giải nén được gói tin nhắn Sync v2 (zstd).",
-                                          "Failed to decompress Sync v2 message batch (zstd).");
+                            err = self->L("Không đọc được tin nhắn điện thoại gửi. Vui lòng thử lại.",
+                                          "Couldn't read the messages sent by the phone. Please try again.");
                             break;
                         case V2MessageParseResult::ParseFailed:
                         case V2MessageParseResult::None:
-                            err = self->L("Không phân tích được dữ liệu tin nhắn Sync v2.", "Failed to parse Sync v2 messages.");
+                            err = self->L("Không đọc được tin nhắn điện thoại gửi. Vui lòng thử lại.", "Couldn't read the messages sent by the phone. Please try again.");
                             break;
                         }
                         if (self->m_session) self->m_session->sendSyncV2Release(self->m_v2SyncId, 2);
@@ -1627,19 +1649,20 @@ void MobileHistorySync::processNextV2Download() {
 
 bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& bytes, QString* error) {
     if (batchType == 2) {
-        QVector<QByteArray> frames;
+        QVector<QByteArrayView> frames;
         if (!V2::splitFrames(bytes, &frames) || frames.isEmpty()) {
-            if (error) *error = L("Gói dữ liệu Sync v2 không hợp lệ.", "Invalid Sync v2 batch framing.");
+            if (error) *error = L("Dữ liệu điện thoại gửi không hợp lệ. Vui lòng thử lại.", "The data sent by the phone is invalid. Please try again.");
             return false;
         }
-        for (const QByteArray& frame : frames) {
+        for (const QByteArrayView frame : frames) {
             V2::MetadataPlain metaOut;
             const V2::CryptoStatus st = V2::openMetadata(frame, m_v2Ik.pub, m_v2Ik.priv, m_v2Ek.priv, &metaOut);
             if (st != V2::CryptoStatus::Ok) {
                 if (error) {
-                    *error = L("Không giải mã được thông tin phiên Sync v2 (%1).",
-                               "Failed to decrypt Sync v2 session metadata (%1).")
-                                 .arg(V2::cryptoStatusName(st));
+                    Network::ErrorCatalog::trace("phone-sync", QStringLiteral("v2 metadata decrypt failed status=%1")
+                                                                   .arg(V2::cryptoStatusName(st)));
+                    *error = L("Không đọc được thông tin đồng bộ từ điện thoại. Vui lòng thử lại.",
+                               "Couldn't read the sync details from the phone. Please try again.");
                 }
                 return false;
             }
@@ -1670,7 +1693,7 @@ bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& byte
 
     if (batchType == 1) {
         if (!m_v2HasSession) {
-            if (error) *error = L("Thiếu khóa phiên Sync v2.", "Missing Sync v2 session key.");
+            if (error) *error = L("Thiếu thông tin đồng bộ từ điện thoại. Vui lòng thử lại.", "Sync details from the phone are missing. Please try again.");
             return false;
         }
         V2MessageParseResult res = parseV2MessageBatch(bytes, m_v2Session, m_myNoisedUid, m_v2Phase == V2Phase::Conversation);
@@ -1678,20 +1701,21 @@ bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& byte
             if (error) {
                 switch (res.errorKind) {
                 case V2MessageParseResult::InvalidFraming:
-                    *error = L("Gói dữ liệu Sync v2 không hợp lệ.", "Invalid Sync v2 batch framing.");
+                    *error = L("Dữ liệu điện thoại gửi không hợp lệ. Vui lòng thử lại.", "The data sent by the phone is invalid. Please try again.");
                     break;
                 case V2MessageParseResult::DecryptFailed:
-                    *error = L("Không giải mã được gói tin nhắn Sync v2 (%1).",
-                               "Failed to decrypt Sync v2 message batch (%1).")
-                                 .arg(V2::cryptoStatusName(res.cryptoStatus));
+                    Network::ErrorCatalog::trace("phone-sync", QStringLiteral("v2 message decrypt failed status=%1")
+                                                                   .arg(V2::cryptoStatusName(res.cryptoStatus)));
+                    *error = L("Không đọc được tin nhắn điện thoại gửi. Vui lòng thử lại.",
+                               "Couldn't read the messages sent by the phone. Please try again.");
                     break;
                 case V2MessageParseResult::ZstdFailed:
-                    *error = L("Không giải nén được gói tin nhắn Sync v2 (zstd).",
-                               "Failed to decompress Sync v2 message batch (zstd).");
+                    *error = L("Không đọc được tin nhắn điện thoại gửi. Vui lòng thử lại.",
+                               "Couldn't read the messages sent by the phone. Please try again.");
                     break;
                 case V2MessageParseResult::ParseFailed:
                 case V2MessageParseResult::None:
-                    *error = L("Không phân tích được dữ liệu tin nhắn Sync v2.", "Failed to parse Sync v2 messages.");
+                    *error = L("Không đọc được tin nhắn điện thoại gửi. Vui lòng thử lại.", "Couldn't read the messages sent by the phone. Please try again.");
                     break;
                 }
             }
@@ -1747,7 +1771,7 @@ void MobileHistorySync::maybeFinishV2() {
     m_skipReasons.clear();
     m_storeInserted = m_storeUpdated = m_storeDeduped = m_storeFailed = 0;
     m_ingestReasons.clear();
-    setState(Importing, L("Đang nhập tin nhắn từ Sync v2...", "Importing Sync v2 messages..."), 70);
+    setState(Importing, L("Đang nhập tin nhắn từ điện thoại...", "Importing messages from the phone..."), 70);
     importNextChunk();
 }
 

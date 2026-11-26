@@ -20,6 +20,7 @@ Rectangle {
     property var members: []
     property string myRole: ""
     property bool showAllMembers: false
+    property string trackedConvId: ""
     readonly property int memberLimit: 30
     property var sharedMedia: []
     property var sharedFiles: []
@@ -90,12 +91,17 @@ Rectangle {
     Connections {
         target: ZaloClient
         function onCurrentConversationChanged() {
-            nameEditRow.isEditingName = false;
-            nameEditRow.editingConvId = "";
-            root.showAllMembers = false;
+            const cid = ZaloClient.currentConversationId;
+            const switched = cid !== root.trackedConvId;
+            root.trackedConvId = cid;
+            if (switched) {
+                nameEditRow.isEditingName = false;
+                nameEditRow.editingConvId = "";
+                root.showAllMembers = false;
+            }
             root.refreshMembers();
             root.refreshShared();
-            root.requestServerShared();
+            if (switched) root.requestServerShared();
         }
         function onGroupMembersChanged(groupId: string) {
             if (groupId === ZaloClient.currentConversationId) root.refreshMembers();

@@ -62,16 +62,10 @@ Item {
         }
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#000000"
-        opacity: root.visible ? 0.5 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 160 } }
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: ZaloClient.closeUserProfile()
-        }
+    ZModalScrim {
+        shown: root.visible
+        fadeDuration: 160
+        onDismissed: ZaloClient.closeUserProfile()
     }
 
     Rectangle {
@@ -104,8 +98,8 @@ Item {
             Rectangle {
                 anchors.fill: parent
                 gradient: Gradient {
-                    GradientStop { position: 0.0; color: ThemeManager.isDarkMode ? "#1E293B" : Theme.zaloBlue }
-                    GradientStop { position: 1.0; color: ThemeManager.isDarkMode ? "#0F172A" : Theme.zaloBlueHover }
+                    GradientStop { position: 0.0; color: ThemeManager.isDarkMode ? ThemeManager.surfaceColor : Theme.zaloBlue }
+                    GradientStop { position: 1.0; color: ThemeManager.isDarkMode ? ThemeManager.cardBackgroundColor : Theme.zaloBlueHover }
                 }
             }
 
@@ -113,6 +107,7 @@ Item {
                 anchors.fill: parent
                 visible: (ZaloClient.profileCover || "").length > 0
                 source: ZaloClient.profileCover
+                sourceSize.width: Math.max(1, Math.min(4096, Math.round(width * Screen.devicePixelRatio)))
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 smooth: true
@@ -145,15 +140,15 @@ Item {
                 width: 30
                 height: 30
                 radius: 15
-                color: closeMouse.containsMouse ? "#FFFFFFFF" : "#D9FFFFFF"
-                border.color: "#14000000"
+                color: closeMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor
+                border.color: ThemeManager.borderColor
                 border.width: 1
 
                 ZIcon {
                     anchors.centerIn: parent
                     name: "close"
                     size: 14
-                    color: "#1F2937"
+                    color: ThemeManager.textColor
                 }
 
                 MouseArea {

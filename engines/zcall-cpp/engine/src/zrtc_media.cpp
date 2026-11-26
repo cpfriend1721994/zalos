@@ -9,7 +9,6 @@
 #include "wire/zrtp_packet.h"
 
 #include <QCoreApplication>
-#include <QDateTime>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QNetworkAddressEntry>
@@ -42,8 +41,6 @@ constexpr int kP2pBindFastMs = 100;
 constexpr int kP2pBindSlowMs = 400;
 constexpr double kP2pBindGiveUpMs = 15000;
 constexpr uint32_t kAudioTs = 320;
-
-double nowMs() { return double(QDateTime::currentMSecsSinceEpoch()); }
 
 bool envIs(const char* name, const char* value) { return qEnvironmentVariable(name) == QLatin1String(value); }
 
@@ -190,10 +187,8 @@ void ZrtcMedia::resetCounters() {
     m_vidWanted.clear();
     m_renderWidth.clear();
     m_vidAsked.clear();
-    m_rxRoc = RocTracker{};
-    m_rxRocs.clear();
-    m_videoRoc = RocTracker{};
-    m_videoRocs.clear();
+    m_audioRx.clear();
+    m_videoRx.clear();
     m_members.clear();
     m_speak.clear();
     m_pliAt.clear();
@@ -206,8 +201,6 @@ void ZrtcMedia::resetCounters() {
     m_lastIpCheckAt = 0;
     m_relayAudioStreak = 0;
     m_changeAddrSeq = 0;
-    m_seenAudioSeqs.clear();
-    m_seenAudioOrder.clear();
     m_p2pPath.reset();
     m_p2pSeen = false;
     m_p2pSeq = 0;
@@ -253,7 +246,7 @@ void ZrtcMedia::onNegotiated(const NegotiatedParams& params) {
     opts.localSsrc = u32mod(params.localUid);
     opts.log = [](const QString& l) { zlog(l); };
     opts.onProfile = [this](const SendProfile& p) { applySendProfile(p); };
-    opts.now = [] { return nowMs(); };
+    opts.now = [this] { return mono(); };
     m_sendRate.reset();
     if (rateOn && m_group && m_plan && !m_plan->rows.isEmpty()) {
         opts.layers = m_plan->rows;
@@ -404,7 +397,7 @@ void ZrtcMedia::initZrtp(const QByteArray& packet, std::function<void(std::optio
 
 void ZrtcMedia::initSendAll() {
     m_initTries++;
-    m_initSentAt = nowMs();
+    m_initSentAt = mono();
     for (const Server& s : m_servers) {
         const bool answered = std::any_of(m_replies.begin(), m_replies.end(), [&s](const Reply& r) { return r.server == s; });
         if (!answered) sendTo(m_initPacket, s);
@@ -467,7 +460,7 @@ void ZrtcMedia::finishInit() {
 void ZrtcMedia::startRingPing() {
     stopRingPing(false);
     if (m_replies.isEmpty()) return;
-    m_ringPingSince = nowMs();
+    m_ringPingSince = mono();
     m_ringPingSent = 0;
     m_ringPingReplies = 0;
     const int iv = pingIntervalMs();
@@ -494,7 +487,7 @@ void ZrtcMedia::stopRingPing(bool logSummary) {
         zlog(QStringLiteral("media: ping before answer: %1 sent, %2 replies (MsgType 2) in %3 s of ringing")
                  .arg(m_ringPingSent)
                  .arg(m_ringPingReplies)
-                 .arg(js::toFixed1((nowMs() - m_ringPingSince) / 1000.0)));
+                 .arg(js::toFixed1((mono() - m_ringPingSince) / 1000.0)));
     }
 }
 
@@ -534,8 +527,8 @@ void ZrtcMedia::start(const QString& role, const QString& rtpSerIp) {
         if (!(r.server == active)) sendEndCall(r.server, r.token);
     zlog(QStringLiteral("media: started"));
     if (!m_group) sendPing();
-    m_startedAt = nowMs();
-    m_lastRxAt = nowMs();
+    m_startedAt = mono();
+    m_lastRxAt = mono();
     m_lastAudioRxAt = m_lastRxAt;
     m_localIpSig = localIpSig();
     m_lastIpCheckAt = m_startedAt;
@@ -563,7 +556,7 @@ void ZrtcMedia::start(const QString& role, const QString& rtpSerIp) {
         sendTo(buildReqForwardPacket(u32mod(m_params.localUid), m_serverToken, 0, 8, payload), *m_activeServer);
     });
     timer(2000, true, [this] {
-        if (nowMs() - m_lastRxAt > kMediaTimeoutMs) {
+        if (mono() - m_lastRxAt > kMediaTimeoutMs) {
             zlog(QStringLiteral("media: no audio from peer"));
             if (m_listener) m_listener->mediaTimeout();
         }
@@ -596,24 +589,32 @@ void ZrtcMedia::p2pStart() {
         }
     }
     if (m_p2pCands.isEmpty()) return;
-    m_p2pBindStart = nowMs();
+    m_p2pBindStart = mono();
     zlog(QStringLiteral("media: P2P binding to %1 candidate(s)").arg(m_p2pCands.size()));
     p2pBindTick();
 }
 
 void ZrtcMedia::p2pBindTick() {
-    if (!m_active || m_p2pPath || nowMs() - m_p2pBindStart > kP2pBindGiveUpMs) return;
+    if (!m_active || m_p2pPath || mono() - m_p2pBindStart > kP2pBindGiveUpMs) return;
     const bool callee = m_params.role == QLatin1String("callee");
     for (const auto& [s, index] : m_p2pCands)
         sendTo(buildP2pBind(callee, u32mod(m_params.callId), m_p2pSeq, index), s);
     m_p2pSeq++;
-    timer(nowMs() - m_p2pBindStart < 1000 ? kP2pBindFastMs : kP2pBindSlowMs, false, [this] { p2pBindTick(); });
+    timer(mono() - m_p2pBindStart < 1000 ? kP2pBindFastMs : kP2pBindSlowMs, false, [this] { p2pBindTick(); });
 }
 
 void ZrtcMedia::p2pUp(const Server& from) {
     if (m_p2pPath && m_p2pPath->host == from.host && m_p2pPath->port == from.port) return;
     m_p2pPath = from;
     zlog(QStringLiteral("media: P2P path up"));
+}
+
+bool ZrtcMedia::fromTrusted(const Server& from) const {
+    return (m_activeServer && *m_activeServer == from) || (m_p2pPath && *m_p2pPath == from);
+}
+
+bool ZrtcMedia::isP2pCandidate(const Server& from) const {
+    return std::any_of(m_p2pCands.begin(), m_p2pCands.end(), [&from](const std::pair<Server, uint32_t>& c) { return c.first == from; });
 }
 
 void ZrtcMedia::onP2p(const QByteArray& msg, const QHostAddress& addr, quint16 port) {
@@ -623,7 +624,6 @@ void ZrtcMedia::onP2p(const QByteArray& msg, const QHostAddress& addr, quint16 p
     const bool callee = m_params.role == QLatin1String("callee");
     const uint32_t callId = u32mod(m_params.callId);
     if (callId && rd32le(msg, 3) != callId) return;
-    m_lastP2pRxAt = nowMs();
     if (!m_p2pSeen) {
         m_p2pSeen = true;
         zlog(QStringLiteral("media: first P2P packet from the peer (kind %1)").arg(kind));
@@ -633,19 +633,29 @@ void ZrtcMedia::onP2p(const QByteArray& msg, const QHostAddress& addr, quint16 p
         sendTo(buildP2pBindAnswer(callee, callId, msg, peerAddr), from);
     } else if (kind == P2p::Keepalive && msg.size() >= 10 && u8at(msg, 9) == 1) {
         sendTo(buildP2pPong(callee, msg), from);
-        p2pUp(from);
+        if (isP2pCandidate(from)) p2pUp(from);
+        if (m_p2pPath && *m_p2pPath == from) m_lastP2pRxAt = mono();
     } else if (kind == P2p::Signal && msg.size() >= 10) {
-        if (u8at(msg, 9) == 2) stopP2p(false, QStringLiteral("peer-p2p-signal-stop"));
+        if (fromTrusted(from) && u8at(msg, 9) == 2) stopP2p(false, QStringLiteral("peer-p2p-signal-stop"));
     } else if (kind == P2p::Video && msg.size() > P2p::HeaderLen + 12) {
-        if (onVideo(msg.mid(P2p::HeaderLen))) p2pUp(from);
+        if (onVideo(msg.mid(P2p::HeaderLen), from) == MediaRx::Accepted) {
+            m_lastP2pRxAt = mono();
+            p2pUp(from);
+        }
     } else if (kind == P2p::VideoRtcp && msg.size() > P2p::HeaderLen) {
+        if (!fromTrusted(from)) return;
+        m_lastP2pRxAt = mono();
         onVideoRtcp(msg.mid(P2p::HeaderLen));
         peerRtcp(true, msg.mid(P2p::HeaderLen));
     } else if (kind == P2p::AudioRtcp && msg.size() > P2p::HeaderLen) {
+        if (!fromTrusted(from)) return;
+        m_lastP2pRxAt = mono();
         peerRtcp(false, msg.mid(P2p::HeaderLen));
     } else if (kind == P2p::Audio && msg.size() > P2p::HeaderLen + 12) {
-        if (onAudio(msg.mid(P2p::HeaderLen), true)) {
+        const MediaRx rx = onAudio(msg.mid(P2p::HeaderLen), from, true);
+        if (rx == MediaRx::Accepted) {
             m_counters.rxP2p++;
+            m_lastP2pRxAt = mono();
             p2pUp(from);
         }
     }
@@ -700,7 +710,7 @@ void ZrtcMedia::sendChangeAddress(const QString& why) {
 
 void ZrtcMedia::checkNetworkAndAudio() {
     if (!m_active || !m_startedAt) return;
-    const double now = nowMs();
+    const double now = mono();
     const double lastAudio = m_lastAudioRxAt > 0 ? m_lastAudioRxAt : m_startedAt;
     if (m_lastIpCheckAt == 0 || now - m_lastIpCheckAt >= 3000.0 || (!m_group && now - lastAudio > 1000.0)) {
         m_lastIpCheckAt = now;
@@ -901,8 +911,10 @@ void ZrtcMedia::onAudioStderr() {
         static const QRegularExpression fault(QStringLiteral("^\\[audio-io\\] fault: (mic|speaker)\\b"));
         static const QRegularExpression vol(QStringLiteral("^\\[audio-io\\] mic volume: (\\d+)%"));
         static const QRegularExpression mode(QStringLiteral("^\\[audio-io\\] mic mode: (auto|manual)\\b"));
+        static const QRegularExpression resumed(QStringLiteral("^\\[audio-io\\] mic: capture resumed\\b"));
         const auto fm = fault.match(line);
         if (fm.hasMatch() && m_listener) m_listener->mediaAudioFault(fm.captured(1));
+        if (resumed.match(line).hasMatch() && m_listener) m_listener->mediaAudioRecovered(QStringLiteral("mic"));
         const auto vm = vol.match(line);
         if (vm.hasMatch() && m_listener) m_listener->mediaMicVolume(vm.captured(1).toInt());
         const auto mm = mode.match(line);
@@ -940,7 +952,7 @@ void ZrtcMedia::onAudioStdout() {
             if (m_audioOut.size() < 4 + n) break;
             const int level = u8at(m_audioOut, 1);
             sendAudioFrame(m_audioOut.mid(4, n), level);
-            const double t = nowMs();
+            const double t = mono();
             m_micPeak = std::min(m_micPeak, level);
             if (t - m_micLevelAt >= 100) {
                 m_micLevelAt = t;
@@ -965,8 +977,8 @@ void ZrtcMedia::sendAudioFrame(const QByteArray& opus, int level) {
     a.ssrc = ssrc;
     a.twSeq = m_twSeq;
     a.level = level;
-    a.captureMs = nowMs();
-    a.sendMs = a.captureMs;
+    a.captureMs = wall();
+    a.sendMs = wall();
     const QByteArray hdr = m_group ? buildGroupAudioRtpHeader(a) : buildAudioRtpHeader(a);
     const QByteArray rtp = m_plainMedia ? hdr + opus : protectRtp(hdr, opus, *m_srtp, uint16_t(m_seq), ssrc, m_roc);
     const uint32_t callId = u32mod(m_params.callId);
@@ -984,7 +996,7 @@ void ZrtcMedia::sendAudioFrame(const QByteArray& opus, int level) {
 }
 
 void ZrtcMedia::noteAudioTx() {
-    const double now = nowMs();
+    const double now = mono();
     if (m_aTxLast) m_aTxMaxGap = std::max(m_aTxMaxGap, now - m_aTxLast);
     m_aTxLast = now;
     m_aTxN++;
@@ -1026,13 +1038,13 @@ void ZrtcMedia::sendVideoFrame(const OutVideoFrame& f) {
     }
     if (f.key) m_vKeySent = true;
     const uint32_t ssrc = u32mod(m_params.localUid);
-    const double now = nowMs();
+    const double now = mono();
     if (!m_vStart) m_vStart = now;
     const uint32_t ts = m_vTsBase + u32mod(std::floor(now - m_vStart) * 90.0);
     const QVector<QByteArray> chunks = packetizeFrame(f.data);
     const bool sfuOn = groupCam && m_plan && m_plan->hasSfu;
     const SfuExt sfu{m_plan ? m_plan->sfuId : 14, m_plan ? m_plan->sfuLong : true};
-    const double captureMs = now;
+    const double captureMs = wall();
     const bool callee = m_params.role == QLatin1String("callee");
     const uint32_t callId = u32mod(m_params.callId);
     for (int i = 0; i < chunks.size(); ++i) {
@@ -1048,7 +1060,7 @@ void ZrtcMedia::sendVideoFrame(const OutVideoFrame& f) {
             a.layerSeq = uint16_t(m_vLayerSeq);
         }
         a.captureMs = captureMs;
-        a.sendMs = nowMs();
+        a.sendMs = wall();
         const QByteArray hdr = sfuOn ? buildGroupVideoRtpHeader(a, sfu) : buildAudioRtpHeader(a);
         const QByteArray rtp = groupCam ? hdr + chunks[i] : protectRtp(hdr, chunks[i], *m_srtp, uint16_t(m_vSeq), ssrc, m_vRoc);
         const QByteArray relay = wrapMediaPacket(MsgType::VideoRtp, m_serverToken, rtp);
@@ -1066,7 +1078,7 @@ void ZrtcMedia::sendVideoFrame(const OutVideoFrame& f) {
         }
         m_vTxBytes += uint64_t(rtp.size());
         m_vTxPkts++;
-        if (groupCam) m_vTxLastTx = nowMs();
+        if (groupCam) m_vTxLastTx = mono();
         if (m_sendRate) m_sendRate->onSent(m_twSeq);
         m_vSeq = (m_vSeq + 1) & 0xffff;
         if (m_vSeq == 0) m_vRoc++;
@@ -1100,7 +1112,7 @@ void ZrtcMedia::drainStep() {
 }
 
 void ZrtcMedia::noteVideoTx(bool key) {
-    const double now = nowMs();
+    const double now = mono();
     m_vTxFrames++;
     if (key) m_vTxKeys++;
     m_vTxLastTx = now;
@@ -1146,8 +1158,8 @@ std::optional<double> ZrtcMedia::downlinkLoss() {
 
 void ZrtcMedia::sendRtcpReports() {
     if (!m_rtcp) return;
-    const double now = nowMs();
-    if (m_sendRate) m_sendRate->tick(now - m_vTxLastTx < 1500, downlinkLoss());
+    const double now = mono();
+    if (m_sendRate) m_sendRate->tick(now - m_vTxLastTx < 1500, m_group ? std::optional<double>{} : downlinkLoss());
     if (m_group) {
         if (now - m_lastRtcpLogAt >= kRtcpLogMs) {
             m_lastRtcpLogAt = now;
@@ -1155,7 +1167,7 @@ void ZrtcMedia::sendRtcpReports() {
         }
         return;
     }
-    sendRtcp(false, m_rtcp->audioReport(now, m_ts, uint32_t(m_counters.tx), uint32_t(m_audioOctets)));
+    sendRtcp(false, m_rtcp->audioReport(now, m_ts, uint32_t(m_counters.tx), uint32_t(m_audioOctets), wall()));
     const QByteArray v = m_rtcp->videoReport(now);
     if (!v.isEmpty()) sendRtcp(true, v);
     if (now - m_lastRtcpLogAt >= kRtcpLogMs) {
@@ -1169,13 +1181,13 @@ void ZrtcMedia::sendRtcpReports() {
 }
 
 void ZrtcMedia::peerRtcp(bool video, const QByteArray& buf) {
-    if (m_rtcp) m_rtcp->onRtcp(video, buf, nowMs());
+    if (m_rtcp) m_rtcp->onRtcp(video, buf, mono());
     if (m_sendRate) m_sendRate->onRtcp(video ? 'v' : 'a', buf);
 }
 
 void ZrtcMedia::requestPeerKeyFrame(const QString& why, const QJsonValue& src) {
     if (!m_rtcp) return;
-    const double now = nowMs();
+    const double now = mono();
     const double n = js::number(src);
     const uint32_t key = (std::isfinite(n) && n > 0) ? u32mod(n) : 0;
     const double stamp = key ? m_pliAt.value(key, 0) : m_lastPliAt;
@@ -1207,34 +1219,47 @@ void ZrtcMedia::onVideoRtcp(const QByteArray& buf) {
     }
 }
 
-bool ZrtcMedia::onAudio(const QByteArray& rtp, bool isP2p) {
-    if ((!m_srtp && !m_plainMedia) || rtp.size() < 12) return false;
+template <std::size_t N>
+ZrtcMedia::MediaRx ZrtcMedia::acceptRtp(const QByteArray& rtp, const Server& from, SsrcTable<RxStream<N>>& table, Inbound& out) {
     const uint16_t seq = rd16be(rtp, 2);
-    uint32_t ssrc = rd32be(rtp, 8);
-    RocTracker* tracker = &m_rxRoc;
-    if (m_group) {
-        if (m_params.localUid && ssrc == u32mod(m_params.localUid)) return false;
-        tracker = &m_rxRocs[ssrc];
-    }
-    uint32_t roc = tracker->guess(seq);
-    std::optional<QByteArray> opus;
+    const uint32_t headerSsrc = rd32be(rtp, 8);
+    if (m_group && m_params.localUid && headerSsrc == u32mod(m_params.localUid)) return MediaRx::Dropped;
+    if (m_plainMedia && !fromTrusted(from)) return MediaRx::Dropped;
+    const RxStream<N>* known = table.find(headerSsrc);
+    const RxStream<N> fresh{};
+    const RxStream<N>& base = known ? *known : fresh;
+    uint32_t roc = base.roc.guess(seq);
     if (m_plainMedia) {
-        if ((u8at(rtp, 0) >> 6) == 2) {
-            if (const auto p = parseRtp(rtp)) {
-                ssrc = p->ssrc;
-                if (rtp.size() > p->headerLen) opus = rtp.mid(p->headerLen);
-            }
-        }
-    } else if (const auto got = unprotectWithTracker(rtp, *m_srtp, *tracker, &roc)) {
-        opus = got->payload;
-        ssrc = got->ssrc;
+        if ((u8at(rtp, 0) >> 6) != 2) return MediaRx::Dropped;
+        const auto p = parseRtp(rtp);
+        if (!p || rtp.size() <= p->headerLen) return MediaRx::Dropped;
+        out.payload = rtp.mid(p->headerLen);
+        out.ssrc = p->ssrc;
+    } else {
+        if (!m_srtp) return MediaRx::Dropped;
+        const auto got = unprotectWithTracker(rtp, *m_srtp, base.roc, &roc);
+        if (!got) return MediaRx::Dropped;
+        out.payload = got->payload;
+        out.ssrc = got->ssrc;
     }
-    if (!opus) {
+    RxStream<N>& state = table.ensure(headerSsrc);
+    if (!state.replay.accept(uint64_t(roc) * 0x10000u + seq)) return MediaRx::Replayed;
+    state.roc.update(seq, roc);
+    out.seq = seq;
+    out.roc = roc;
+    return MediaRx::Accepted;
+}
+
+ZrtcMedia::MediaRx ZrtcMedia::onAudio(const QByteArray& rtp, const Server& from, bool isP2p) {
+    if ((!m_srtp && !m_plainMedia) || rtp.size() < 12) return MediaRx::Dropped;
+    Inbound in;
+    const MediaRx rx = acceptRtp(rtp, from, m_audioRx, in);
+    if (rx == MediaRx::Dropped) {
         m_counters.rxBad++;
-        return false;
+        return rx;
     }
-    tracker->update(seq, roc);
-    const double now = nowMs();
+    if (rx == MediaRx::Replayed) return rx;
+    const double now = mono();
     m_lastRxAt = now;
     m_lastAudioRxAt = now;
     if (isP2p) {
@@ -1242,23 +1267,13 @@ bool ZrtcMedia::onAudio(const QByteArray& rtp, bool isP2p) {
     } else if (m_p2pPath) {
         if (++m_relayAudioStreak >= 25) stopP2p(true, QStringLiteral("relay-audio-streak"));
     }
-    const uint32_t extSeq = uint32_t(roc * 0x10000u + seq);
-    const uint64_t dedupKey = (uint64_t(ssrc) << 32) | extSeq;
-    if (m_seenAudioSeqs.contains(dedupKey)) return true;
-    m_seenAudioSeqs.insert(dedupKey);
-    m_seenAudioOrder.push_back(dedupKey);
-    if (m_seenAudioOrder.size() > 256) {
-        m_seenAudioSeqs.remove(m_seenAudioOrder.front());
-        m_seenAudioOrder.pop_front();
-    }
     if (m_group) {
-        const int n = m_members.value(ssrc, 0) + 1;
-        m_members[ssrc] = n;
+        const int n = ++m_members.ensure(in.ssrc);
         if (n == 1) {
-            zlog(QStringLiteral("media: first audio from member %1").arg(ssrc));
-            if (m_listener) m_listener->mediaMemberAudio(ssrc);
+            zlog(QStringLiteral("media: first audio from member %1").arg(in.ssrc));
+            if (m_listener) m_listener->mediaMemberAudio(in.ssrc);
         }
-        noteSpeaking(ssrc, rtp);
+        noteSpeaking(in.ssrc, rtp);
     }
     if (m_rtcp) m_rtcp->onRtp(false, rtp, now);
     m_counters.rx++;
@@ -1269,21 +1284,22 @@ bool ZrtcMedia::onAudio(const QByteArray& rtp, bool isP2p) {
         if (m_counters.rx == 50 && m_listener) m_listener->mediaEarlyAudio(QStringLiteral("stream"));
     }
     if (m_audio) {
+        const uint32_t extSeq = uint32_t(in.roc * 0x10000u + in.seq);
         QByteArray h(11, '\0');
         h[0] = char(0x46);
         wr32be(h, 1, extSeq);
-        wr32be(h, 5, ssrc);
-        wr16be(h, 9, uint32_t(opus->size()));
-        m_audio->write(h + *opus);
+        wr32be(h, 5, in.ssrc);
+        wr16be(h, 9, uint32_t(in.payload.size()));
+        m_audio->write(h + in.payload);
     }
-    return true;
+    return MediaRx::Accepted;
 }
 
 void ZrtcMedia::noteSpeaking(uint32_t ssrc, const QByteArray& rtp) {
     const auto level = rtpAudioLevel(rtp);
     if (!level) return;
-    const double now = nowMs();
-    Speak& sp = m_speak[ssrc];
+    const double now = mono();
+    Speak& sp = m_speak.ensure(ssrc);
     const bool loud = *level <= kSpeakDbov;
     sp.hist.push_back(loud);
     if (sp.hist.size() > 10) sp.hist.removeFirst();
@@ -1296,38 +1312,20 @@ void ZrtcMedia::noteSpeaking(uint32_t ssrc, const QByteArray& rtp) {
     }
 }
 
-bool ZrtcMedia::onVideo(const QByteArray& rtp) {
-    if ((!m_srtp && !m_plainMedia) || rtp.size() < 12) return false;
-    const uint16_t seq = rd16be(rtp, 2);
-    RocTracker* tracker = &m_videoRoc;
-    if (m_group) {
-        const uint32_t ssrc = rd32be(rtp, 8);
-        if (m_params.localUid && ssrc == u32mod(m_params.localUid)) return false;
-        tracker = &m_videoRocs[ssrc];
-    }
-    uint32_t roc = tracker->guess(seq);
-    std::optional<QByteArray> payload;
-    uint32_t ssrc = rd32be(rtp, 8);
-    if (m_plainMedia) {
-        if ((u8at(rtp, 0) >> 6) == 2) {
-            if (const auto p = parseRtp(rtp)) {
-                if (rtp.size() > p->headerLen) payload = rtp.mid(p->headerLen);
-            }
-        }
-    } else if (const auto got = unprotectWithTracker(rtp, *m_srtp, *tracker, &roc)) {
-        payload = got->payload;
-        ssrc = got->ssrc;
-    }
-    if (!payload) {
+ZrtcMedia::MediaRx ZrtcMedia::onVideo(const QByteArray& rtp, const Server& from) {
+    if ((!m_srtp && !m_plainMedia) || rtp.size() < 12) return MediaRx::Dropped;
+    Inbound in;
+    const MediaRx rx = acceptRtp(rtp, from, m_videoRx, in);
+    if (rx == MediaRx::Dropped) {
         m_counters.rxBad++;
-        return false;
+        return rx;
     }
-    tracker->update(seq, roc);
-    m_lastRxAt = nowMs();
+    if (rx == MediaRx::Replayed) return rx;
+    m_lastRxAt = mono();
     if (m_rtcp) {
         m_rtcp->onRtp(true, rtp, m_lastRxAt);
         if (m_nack) {
-            for (const NackRequest& item : m_nack->note(ssrc, seq, m_lastRxAt)) {
+            for (const NackRequest& item : m_nack->note(in.ssrc, in.seq, m_lastRxAt)) {
                 sendRtcp(true, buildNack(m_rtcp->localSsrc(), item.ssrc, item.seqs));
                 m_rtcp->counters().nack++;
             }
@@ -1336,16 +1334,16 @@ bool ZrtcMedia::onVideo(const QByteArray& rtp) {
     const int pt = u8at(rtp, 1) & 0x7f;
     const bool marker = (u8at(rtp, 1) & 0x80) != 0;
     VideoPacket pkt;
-    pkt.seq = seq;
+    pkt.seq = in.seq;
     pkt.ts = rd32be(rtp, 4);
     pkt.pt = pt;
     pkt.marker = marker;
-    pkt.payload = *payload;
-    pkt.roc = roc;
-    pkt.ssrc = ssrc;
+    pkt.payload = in.payload;
+    pkt.roc = in.roc;
+    pkt.ssrc = in.ssrc;
     if (m_listener) m_listener->mediaVideo(pkt);
-    if (m_group) noteVideoMember(ssrc);
-    return true;
+    if (m_group) noteVideoMember(in.ssrc);
+    return rx;
 }
 
 void ZrtcMedia::noteVideoMember(uint32_t ssrc) {
@@ -1482,25 +1480,25 @@ void ZrtcMedia::onGroupControl(const Unwrapped& p) {
 
 void ZrtcMedia::onUdp(const QByteArray& msg, const QHostAddress& addr, quint16 port) {
     if (msg.isEmpty()) return;
+    const Server from{addr.toString(), port, {}};
     const int t = u8at(msg, 0);
     if (t == MsgType::P2pExt) {
         if (m_active && m_hasParams) onP2p(msg, addr, port);
         return;
     }
     if (t == MsgType::VideoFec && msg.size() > 5) {
-        if (m_active && m_startedAt) {
+        if (m_active && m_startedAt && fromTrusted(from)) {
             onVideoRtcp(msg.mid(5));
             peerRtcp(true, msg.mid(5));
         }
         return;
     }
     if (t == MsgType::AudioFec && msg.size() > 5) {
-        if (m_active && m_startedAt) peerRtcp(false, msg.mid(5));
+        if (m_active && m_startedAt && fromTrusted(from)) peerRtcp(false, msg.mid(5));
         return;
     }
     const auto p = unwrapPacket(msg);
     if (!p) return;
-    const Server from{addr.toString(), port, {}};
     const bool initReply = p->msgType == MsgType::ServerReply && (p->cmd == Cmd::InitCallCaller || p->cmd == Cmd::InitCallCallee);
     if (m_ringPingTimer && p->msgType == MsgType::ServerReply && !initReply) m_ringPingReplies++;
     if (initReply) {
@@ -1522,7 +1520,7 @@ void ZrtcMedia::onUdp(const QByteArray& msg, const QHostAddress& addr, quint16 p
         Reply r;
         r.server = server;
         r.token = p->serverToken.value_or(0);
-        r.rttMs = std::round(nowMs() - m_initSentAt);
+        r.rttMs = std::round(mono() - m_initSentAt);
         r.publicAddr = p->publicAddr;
         r.hex = hexOf(msg);
         m_replies.push_back(r);
@@ -1530,7 +1528,7 @@ void ZrtcMedia::onUdp(const QByteArray& msg, const QHostAddress& addr, quint16 p
         return;
     }
     if (m_group && p->msgType == MsgType::ServerReply && (p->cmd == Cmd::EndCall || p->cmd == Cmd::RoomUpdated)) {
-        if (m_active && m_startedAt) onGroupControl(*p);
+        if (m_active && m_startedAt && fromTrusted(from)) onGroupControl(*p);
         return;
     }
     if (p->msgType == MsgType::ServerReply && p->cmd == Cmd::EndCall) {
@@ -1548,11 +1546,11 @@ void ZrtcMedia::onUdp(const QByteArray& msg, const QHostAddress& addr, quint16 p
         }
         return;
     }
-    if (p->isMedia && p->msgType == MsgType::AudioRtpDown) onAudio(p->payload, false);
-    else if (p->isMedia && p->msgType == MsgType::VideoDown) onVideo(p->payload);
+    if (p->isMedia && p->msgType == MsgType::AudioRtpDown) onAudio(p->payload, from, false);
+    else if (p->isMedia && p->msgType == MsgType::VideoDown) onVideo(p->payload, from);
     else if (p->msgType == MsgType::ServerReply && p->cmd == Cmd::ChangeAddress) {
         zlog(QStringLiteral("media: server acknowledged ChangeAddress (cmd 14)"));
-    } else if (!m_group && !p->isMedia && p->cmd == Cmd::ReqForward) {
+    } else if (!m_group && !p->isMedia && p->cmd == Cmd::ReqForward && fromTrusted(from)) {
         if (p->subCmd == 2) {
             stopP2p(false, QStringLiteral("peer-req-forward-stop"));
         } else if (p->subCmd == 3) {

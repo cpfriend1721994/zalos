@@ -11,16 +11,35 @@ Item {
     property bool minimized: false
     property bool splitView: false
     property bool deviceMenuOpen: false
+    property string selectedScreenId: ""
     onDeviceMenuOpenChanged: if (deviceMenuOpen && ZaloClient.calls) ZaloClient.calls.refreshDevicesAsync()
     property real pipX: -1
     property real pipY: 56
     readonly property string phase: ZaloClient.calls ? ZaloClient.calls.phase : ""
     readonly property bool screenShareOn: !!(ZaloClient.calls && ZaloClient.calls.screenShareOn)
+    readonly property bool screenSharePending: !!(ZaloClient.calls && ZaloClient.calls.screenSharePending)
+    readonly property bool screenPickerOpen: !!(ZaloClient.calls && ZaloClient.calls.screenPickerOpen)
+
+    function firstScreenSourceId(): string {
+        if (!ZaloClient.calls || !ZaloClient.calls.screenSources) return "";
+        var list = ZaloClient.calls.screenSources;
+        if (list.length > 0 && list[0] && list[0].id) return String(list[0].id);
+        return "";
+    }
+
+    onScreenPickerOpenChanged: {
+        if (screenPickerOpen) {
+            root.minimized = false;
+            root.deviceMenuOpen = false;
+            root.selectedScreenId = root.firstScreenSourceId();
+        }
+    }
     readonly property bool peerVideoShown: !!(ZaloClient.calls && ZaloClient.calls.peerVideoActive
                                               && (ZaloClient.calls.peerSharing || !ZaloClient.calls.peerCamOff))
     readonly property bool hasLocalVideo: !!(ZaloClient.calls && (ZaloClient.calls.cameraOn || ZaloClient.calls.screenShareOn))
     readonly property bool hasAnyVideo: root.peerVideoShown || root.hasLocalVideo
     readonly property bool isSplitActive: !root.minimized && root.splitView && root.peerVideoShown && root.hasLocalVideo
+    readonly property real controlBarHeight: bar.height
     visible: phase.length > 0
     z: 2000
 
@@ -31,7 +50,10 @@ Item {
             root.deviceMenuOpen = false;
         }
     }
-    onScreenShareOnChanged: if (screenShareOn) root.minimized = true
+    onScreenShareOnChanged: {
+        if (screenShareOn) root.minimized = true;
+        else if (!!(ZaloClient.calls && ZaloClient.calls.cameraError.length > 0)) root.minimized = false;
+    }
     onMinimizedChanged: if (minimized) root.deviceMenuOpen = false
 
     property double now: Date.now()
@@ -85,7 +107,7 @@ Item {
         case "groupDeclined": return I18n.t("Đã từ chối cuộc gọi nhóm", "Group call declined");
         case "groupKicked": return I18n.t("Bạn đã bị mời ra khỏi cuộc gọi", "You were removed from the call");
         case "groupNoAnswer": return I18n.t("Không ai trả lời", "Nobody answered");
-        case "groupCancelled": return I18n.t("Đã huỷ cuộc gọi nhóm", "Group call cancelled");
+        case "groupCancelled": return I18n.t("Đã hủy cuộc gọi nhóm", "Group call cancelled");
         case "groupWaitingOthers": return I18n.t("Đang chờ người khác...", "Waiting for others...");
         case "groupParticipants":
             return I18n.t("%1 người: Bạn, %2", "%1 people: You, %2").arg(Number(p.count || 0)).arg(joinNames(p.names));
@@ -102,6 +124,9 @@ Item {
         case "audioSpeakerFailed":
             return I18n.t("Không phát được âm thanh ra loa. Hãy kiểm tra loa trong cài đặt hệ thống.",
                           "Couldn't play sound on the speaker. Check the speaker in your system settings.");
+        case "screen_capture_unavailable":
+            return I18n.t("Máy này chưa chia sẻ được màn hình, nên không có gì được chia sẻ.",
+                          "Screen sharing isn't available on this computer, so nothing is shared.");
         }
         return "";
     }
@@ -381,6 +406,12 @@ Item {
                 source: active ? "ZVideoView.qml" : ""
                 onLoaded: if (ZaloClient.calls) ZaloClient.calls.setPeerVideoSink(peerVideo.item.videoSink)
             }
+            Connections {
+                target: peerVideo.item
+                function onVideoSinkChanged(): void {
+                    if (ZaloClient.calls && peerVideo.item) ZaloClient.calls.setPeerVideoSink(peerVideo.item.videoSink);
+                }
+            }
 
             Text {
                 visible: !ZaloClient.multimediaAvailable && !!ZaloClient.calls && ZaloClient.calls.peerVideoActive && !root.minimized
@@ -390,8 +421,8 @@ Item {
                 width: Math.min(parent.width - 48, 420)
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                text: I18n.t("Máy thiếu thành phần hiển thị video (Qt Multimedia) nên chỉ nghe được tiếng.",
-                             "This system lacks the video display components (Qt Multimedia), so the call is audio-only.")
+                text: I18n.t("Máy này chưa hiển thị được video nên cuộc gọi chỉ có âm thanh.",
+                             "Video can't be shown on this computer, so the call is audio-only.")
                 font.family: Theme.fontFamily
                 font.pixelSize: 13
                 color: "#FFFFFF"
@@ -634,6 +665,12 @@ Item {
                     if (ZaloClient.calls) ZaloClient.calls.setLocalVideoSink(selfVideo.item.videoSink);
                 }
             }
+            Connections {
+                target: selfVideo.item
+                function onVideoSinkChanged(): void {
+                    if (ZaloClient.calls && selfVideo.item) ZaloClient.calls.setLocalVideoSink(selfVideo.item.videoSink);
+                }
+            }
         }
 
         Rectangle {
@@ -789,9 +826,12 @@ Item {
                         return I18n.t("Không tìm thấy màn hình để chia sẻ.", "No screen found to share.");
                     if (c.isVideo && (c.cameraError === "no_camera" || (!c.cameraAvailable && !c.cameraOn && !c.screenShareOn)))
                         return I18n.t("Không tìm thấy camera: người kia chỉ nghe thấy tiếng.", "No camera found: the other person only hears you.");
+                    if (c.cameraError === "screen_capture_unavailable")
+                        return I18n.t("Máy này chưa chia sẻ được màn hình, nên không có gì được chia sẻ.",
+                                      "Screen sharing isn't available on this computer, so nothing is shared.");
                     if (c.cameraError.length > 0 && c.cameraError !== "no_encoder" && c.cameraError !== "no_camera")
-                        return I18n.t("Không mở được camera (", "Couldn't open the camera (") + c.cameraError
-                               + I18n.t("). Camera có thể đang được ứng dụng khác dùng.", "). Another app may be using it.");
+                        return I18n.t("Không mở được camera. Camera có thể đang được ứng dụng khác dùng.",
+                                      "Couldn't open the camera. Another app may be using it.");
                     return "";
                 }
             color: "#CFD3D8"
@@ -864,12 +904,12 @@ Item {
                 onClicked: ZaloClient.calls.setCamera(!ZaloClient.calls.cameraOn)
             }
             PillButton {
-                visible: !!(ZaloClient.calls && !ZaloClient.calls.isGroup && ZaloClient.calls.videoSupported) && root.phase === "connected"
-                enabled: !!(ZaloClient.calls && (ZaloClient.calls.screenShareAvailable || ZaloClient.calls.screenShareOn))
-                icon: ZaloClient.calls && ZaloClient.calls.screenShareOn ? "stop_screen_share" : "screen_share"
-                on: !!(ZaloClient.calls && ZaloClient.calls.screenShareOn)
-                tip: ZaloClient.calls && ZaloClient.calls.screenShareOn ? I18n.t("Dừng chia sẻ màn hình", "Stop sharing screen") : I18n.t("Chia sẻ màn hình", "Share screen")
-                onClicked: ZaloClient.calls.setScreenShare(!ZaloClient.calls.screenShareOn)
+                visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && !ZaloClient.calls.isGroup && ZaloClient.calls.videoSupported) && root.phase === "connected"
+                enabled: !!(ZaloClient.calls && (ZaloClient.calls.screenShareAvailable || ZaloClient.calls.screenShareOn || ZaloClient.calls.screenSharePending))
+                icon: (root.screenShareOn || root.screenSharePending) ? "stop_screen_share" : "screen_share"
+                on: root.screenShareOn || root.screenSharePending
+                tip: (root.screenShareOn || root.screenSharePending) ? I18n.t("Dừng chia sẻ màn hình", "Stop sharing screen") : I18n.t("Chia sẻ màn hình", "Share screen")
+                onClicked: ZaloClient.calls.requestScreenShare()
             }
             PillButton {
                 objectName: "callSettingsBtn"
@@ -1198,12 +1238,12 @@ Item {
                 onClicked: ZaloClient.calls.setCamera(!ZaloClient.calls.cameraOn)
             }
             MiniButton {
-                visible: !!(ZaloClient.calls && !ZaloClient.calls.isGroup && ZaloClient.calls.videoSupported) && root.phase === "connected"
-                enabled: !!(ZaloClient.calls && (ZaloClient.calls.screenShareAvailable || ZaloClient.calls.screenShareOn))
-                icon: ZaloClient.calls && ZaloClient.calls.screenShareOn ? "stop_screen_share" : "screen_share"
-                on: !!(ZaloClient.calls && ZaloClient.calls.screenShareOn)
-                tip: ZaloClient.calls && ZaloClient.calls.screenShareOn ? I18n.t("Dừng chia sẻ màn hình", "Stop sharing screen") : I18n.t("Chia sẻ màn hình", "Share screen")
-                onClicked: ZaloClient.calls.setScreenShare(!ZaloClient.calls.screenShareOn)
+                visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && !ZaloClient.calls.isGroup && ZaloClient.calls.videoSupported) && root.phase === "connected"
+                enabled: !!(ZaloClient.calls && (ZaloClient.calls.screenShareAvailable || ZaloClient.calls.screenShareOn || ZaloClient.calls.screenSharePending))
+                icon: (root.screenShareOn || root.screenSharePending) ? "stop_screen_share" : "screen_share"
+                on: root.screenShareOn || root.screenSharePending
+                tip: (root.screenShareOn || root.screenSharePending) ? I18n.t("Dừng chia sẻ màn hình", "Stop sharing screen") : I18n.t("Chia sẻ màn hình", "Share screen")
+                onClicked: ZaloClient.calls.requestScreenShare()
             }
             MiniButton {
                 objectName: "callExpandBtn"
@@ -1219,5 +1259,231 @@ Item {
             }
         }
     }
+    }
+
+    Shortcut {
+        sequence: "Esc"
+        enabled: root.screenPickerOpen && root.phase === "connected"
+        onActivated: if (ZaloClient.calls) ZaloClient.calls.closeScreenPicker()
+    }
+
+    MouseArea {
+        z: 8
+        anchors.fill: parent
+        enabled: root.screenPickerOpen && root.phase === "connected"
+        visible: enabled
+        onClicked: if (ZaloClient.calls) ZaloClient.calls.closeScreenPicker()
+
+        Rectangle {
+            anchors.fill: parent
+            color: "#99000000"
+        }
+    }
+
+    Rectangle {
+        id: screenPickerCard
+        objectName: "callScreenPicker"
+        z: 9
+        visible: root.screenPickerOpen && root.phase === "connected"
+        anchors.centerIn: parent
+        width: Math.min(640, root.width - 32)
+        height: Math.min(root.height - 40, Math.max(240, pickerHeader.implicitHeight + pickerGrid.implicitHeight + pickerFooter.implicitHeight + 68))
+        radius: 14
+        color: "#F2151A22"
+        border.color: "#45FFFFFF"
+        border.width: 1
+        clip: true
+
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 18
+            spacing: 14
+
+            RowLayout {
+                id: pickerHeader
+                Layout.fillWidth: true
+                spacing: 8
+
+                Text {
+                    Layout.fillWidth: true
+                    text: I18n.t("Chọn màn hình để chia sẻ", "Choose a screen to share")
+                    color: "#FFFFFF"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 16
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    width: 30
+                    height: 30
+                    radius: 15
+                    color: pickerCloseMouse.containsMouse ? "#28FFFFFF" : "#14FFFFFF"
+                    ZIcon {
+                        anchors.centerIn: parent
+                        name: "close"
+                        size: 16
+                        color: "#FFFFFF"
+                    }
+                    MouseArea {
+                        id: pickerCloseMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: if (ZaloClient.calls) ZaloClient.calls.closeScreenPicker()
+                    }
+                }
+            }
+
+            Flickable {
+                id: pickerFlick
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: width
+                contentHeight: pickerGrid.implicitHeight
+                clip: true
+
+                Grid {
+                    id: pickerGrid
+                    width: pickerFlick.width
+                    columns: screenPickerCard.width >= 480 ? 2 : 1
+                    spacing: 12
+
+                    Repeater {
+                        model: root.screenPickerOpen && ZaloClient.calls ? ZaloClient.calls.screenSources : []
+                        delegate: Rectangle {
+                            id: srcCard
+                            required property var modelData
+                            readonly property string sourceId: String(srcCard.modelData.id || "")
+                            readonly property bool isSelected: root.selectedScreenId === sourceId
+                            readonly property string previewUrl: String(srcCard.modelData.preview || "")
+                            readonly property bool isAll: !!srcCard.modelData.isAll
+                            readonly property int screenIdx: Number(srcCard.modelData.index || 0) + 1
+                            readonly property int screenCount: Number(srcCard.modelData.screenCount || 0)
+                            readonly property int w: Number(srcCard.modelData.width || 0)
+                            readonly property int h: Number(srcCard.modelData.height || 0)
+                            readonly property string monName: String(srcCard.modelData.name || "")
+                            objectName: "screenSourceCard_" + sourceId
+                            width: pickerGrid.columns > 1 ? Math.floor((pickerGrid.width - pickerGrid.spacing) / pickerGrid.columns) : pickerGrid.width
+                            height: Math.round(width * 0.56) + 54
+                            radius: 10
+                            color: srcMouse.containsMouse ? "#24FFFFFF" : "#14FFFFFF"
+                            border.width: isSelected ? 2 : 1
+                            border.color: isSelected ? "#0068FF" : "#30FFFFFF"
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 6
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    radius: 6
+                                    color: "#0C0F14"
+                                    clip: true
+
+                                    Image {
+                                        anchors.fill: parent
+                                        source: srcCard.previewUrl
+                                        fillMode: Image.PreserveAspectFit
+                                        cache: false
+                                        asynchronous: false
+                                        visible: srcCard.previewUrl.length > 0
+                                    }
+
+                                    ZIcon {
+                                        anchors.centerIn: parent
+                                        name: "screen_share"
+                                        size: 32
+                                        color: "#8EA4C2"
+                                        visible: srcCard.previewUrl.length === 0
+                                    }
+
+                                    Rectangle {
+                                        visible: srcCard.isSelected
+                                        anchors.top: parent.top
+                                        anchors.right: parent.right
+                                        anchors.margins: 6
+                                        width: 22
+                                        height: 22
+                                        radius: 11
+                                        color: "#0068FF"
+                                        ZIcon {
+                                            anchors.centerIn: parent
+                                            name: "check"
+                                            size: 14
+                                            color: "#FFFFFF"
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: srcCard.isAll
+                                          ? I18n.t("Tất cả màn hình", "All monitors")
+                                          : (srcCard.modelData.isPrimary
+                                             ? I18n.t("Màn hình %1 (Chính)", "Monitor %1 (Primary)").arg(srcCard.screenIdx)
+                                             : I18n.t("Màn hình %1", "Monitor %1").arg(srcCard.screenIdx))
+                                    color: "#FFFFFF"
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: srcCard.isAll
+                                          ? I18n.t("%1×%2 · %3 màn hình", "%1×%2 · %3 monitors").arg(srcCard.w).arg(srcCard.h).arg(srcCard.screenCount)
+                                          : (srcCard.monName.length > 0
+                                             ? (srcCard.monName + " · " + srcCard.w + "×" + srcCard.h)
+                                             : (srcCard.w + "×" + srcCard.h))
+                                    color: "#9DB2CE"
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 11
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            MouseArea {
+                                id: srcMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.selectedScreenId = srcCard.sourceId
+                                onDoubleClicked: if (ZaloClient.calls) ZaloClient.calls.startScreenShareTarget(srcCard.sourceId)
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                id: pickerFooter
+                Layout.fillWidth: true
+                spacing: 10
+
+                Item { Layout.fillWidth: true }
+
+                ZButton {
+                    variant: "secondary"
+                    text: I18n.t("Hủy", "Cancel")
+                    onClicked: if (ZaloClient.calls) ZaloClient.calls.closeScreenPicker()
+                }
+
+                ZButton {
+                    objectName: "callScreenPickerShareBtn"
+                    variant: "primary"
+                    enabled: root.selectedScreenId.length > 0
+                    text: I18n.t("Chia sẻ", "Share")
+                    onClicked: if (ZaloClient.calls && root.selectedScreenId.length > 0) ZaloClient.calls.startScreenShareTarget(root.selectedScreenId)
+                }
+            }
+        }
     }
 }

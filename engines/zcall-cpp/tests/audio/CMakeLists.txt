@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
 
-foreach(name wire jitter dsp opus)
+foreach(name wire jitter dsp opus worker)
     set(target test_call_audio_${name})
     add_executable(${target} test_call_audio_${name}.cpp fake_decoder.h)
     set_target_properties(${target} PROPERTIES AUTOMOC ON)

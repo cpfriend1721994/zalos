@@ -45,8 +45,8 @@ bool hkdfSha256(const QByteArray& ikm, const QByteArray& salt, const QByteArray&
     return EVP_PKEY_derive(ctx.get(), out, &outLen) > 0 && outLen == kKeySize;
 }
 
-CryptoStatus chacha20Poly1305Decrypt(const unsigned char* key, const QByteArray& nonce,
-                                     const QByteArray& body, const QByteArray& tag,
+CryptoStatus chacha20Poly1305Decrypt(const unsigned char* key, QByteArrayView nonce,
+                                     QByteArrayView body, QByteArrayView tag,
                                      const QByteArray& aad, QByteArray* plaintext) {
     if (nonce.size() != kNonceSize || tag.size() != kTagSize) return CryptoStatus::BadInput;
     CipherCtx ctx(EVP_CIPHER_CTX_new(), &EVP_CIPHER_CTX_free);
@@ -56,7 +56,7 @@ CryptoStatus chacha20Poly1305Decrypt(const unsigned char* key, const QByteArray&
     if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_AEAD_SET_IVLEN, kNonceSize, nullptr) != 1)
         return CryptoStatus::BadInput;
     if (EVP_DecryptInit_ex(ctx.get(), nullptr, nullptr, key,
-                           reinterpret_cast<const unsigned char*>(nonce.constData())) != 1)
+                           reinterpret_cast<const unsigned char*>(nonce.data())) != 1)
         return CryptoStatus::BadInput;
     int outLen = 0;
     if (!aad.isEmpty() &&
@@ -67,12 +67,12 @@ CryptoStatus chacha20Poly1305Decrypt(const unsigned char* key, const QByteArray&
 
     plaintext->resize(body.size());
     if (EVP_DecryptUpdate(ctx.get(), reinterpret_cast<unsigned char*>(plaintext->data()), &outLen,
-                          reinterpret_cast<const unsigned char*>(body.constData()), body.size()) != 1) {
+                          reinterpret_cast<const unsigned char*>(body.data()), body.size()) != 1) {
         plaintext->clear();
         return CryptoStatus::AuthFailed;
     }
     if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_AEAD_SET_TAG, kTagSize,
-                            const_cast<char*>(tag.constData())) != 1) {
+                            const_cast<char*>(tag.data())) != 1) {
         plaintext->clear();
         return CryptoStatus::BadInput;
     }
@@ -198,15 +198,15 @@ QByteArray calculateAgreement(const QByteArray& priv32, const QByteArray& pub32O
     return secret;
 }
 
-CryptoStatus openMessage(const SessionRecord& record, const QByteArray& sealed, QByteArray* plaintext) {
+CryptoStatus openMessage(const SessionRecord& record, QByteArrayView sealed, QByteArray* plaintext) {
     if (record.sessionId.size() != kSessionIdSize || record.key.size() != kRecordKeySize) return CryptoStatus::BadInput;
     if (sealed.size() < kSaltSize + kNonceSize + kTagSize) return CryptoStatus::BadInput;
 
-    const QByteArray salt = sealed.left(kSaltSize);
-    const QByteArray nonce = sealed.mid(kSaltSize, kNonceSize);
+    const QByteArray salt = sealed.left(kSaltSize).toByteArray();
+    const QByteArrayView nonce = sealed.mid(kSaltSize, kNonceSize);
     const int bodyLen = sealed.size() - kSaltSize - kNonceSize - kTagSize;
-    const QByteArray body = sealed.mid(kSaltSize + kNonceSize, bodyLen);
-    const QByteArray tag = sealed.right(kTagSize);
+    const QByteArrayView body = sealed.mid(kSaltSize + kNonceSize, bodyLen);
+    const QByteArrayView tag = sealed.right(kTagSize);
 
     unsigned char key[kKeySize];
     if (!hkdfSha256(record.key, salt, QByteArray(kMessageInfo, sizeof(kMessageInfo) - 1), key))
@@ -222,7 +222,7 @@ CryptoStatus openMessage(const SessionRecord& record, const QByteArray& sealed, 
     return chacha20Poly1305Decrypt(key, nonce, body, tag, aad, plaintext);
 }
 
-CryptoStatus openMetadata(const QByteArray& envelope, const QByteArray& receiverIkPub,
+CryptoStatus openMetadata(QByteArrayView envelope, const QByteArray& receiverIkPub,
                           const QByteArray& receiverIkPriv, const QByteArray& receiverEkPriv,
                           MetadataPlain* out) {
     if (!out) return CryptoStatus::BadInput;
@@ -238,10 +238,10 @@ CryptoStatus openMetadata(const QByteArray& envelope, const QByteArray& receiver
     bool hasVersion = false;
     bool hasRecordId = false;
     for (const auto& f : *fields) {
-        if (f.number == 1 && f.wireType == 2) sessionId = f.bytes;
-        else if (f.number == 2 && f.wireType == 2) ssk = f.bytes;
-        else if (f.number == 4 && f.wireType == 2) senderIkPub = f.bytes;
-        else if (f.number == 5 && f.wireType == 2) encData = f.bytes;
+        if (f.number == 1 && f.wireType == 2) sessionId = f.bytes.toByteArray();
+        else if (f.number == 2 && f.wireType == 2) ssk = f.bytes.toByteArray();
+        else if (f.number == 4 && f.wireType == 2) senderIkPub = f.bytes.toByteArray();
+        else if (f.number == 5 && f.wireType == 2) encData = f.bytes.toByteArray();
         else if (f.number == 6 && f.wireType == 0) { version = f.varint; hasVersion = true; }
         else if (f.number == 7 && f.wireType == 0) { recordId = f.varint; hasRecordId = true; }
     }

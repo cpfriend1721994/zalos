@@ -34,7 +34,7 @@ const QHash<QString, QString>& templates() {
         {QStringLiteral("groupDeclined"), QStringLiteral("Đã từ chối cuộc gọi nhóm")},
         {QStringLiteral("groupKicked"), QStringLiteral("Bạn đã bị mời ra khỏi cuộc gọi")},
         {QStringLiteral("groupNoAnswer"), QStringLiteral("Không ai trả lời")},
-        {QStringLiteral("groupCancelled"), QStringLiteral("Đã huỷ cuộc gọi nhóm")},
+        {QStringLiteral("groupCancelled"), QStringLiteral("Đã hủy cuộc gọi nhóm")},
         {QStringLiteral("groupCalling"), QStringLiteral("Đang gọi nhóm…")},
         {QStringLiteral("groupRinging"), QStringLiteral("Đang đổ chuông…")},
         {QStringLiteral("groupWaitingOthers"), QStringLiteral("Đang chờ người khác…")},
@@ -42,10 +42,10 @@ const QHash<QString, QString>& templates() {
         {QStringLiteral("incomingGroupInvite"), QStringLiteral("{inviter} mời bạn vào cuộc gọi nhóm")},
         {QStringLiteral("incomingGroupUnsupported"),
          QStringLiteral("{inviter} đang gọi nhóm. Gọi nhóm chưa được hỗ trợ trên Linux.")},
-        {QStringLiteral("audioMicSpeakerFailed"), QStringLiteral("Không mở được micro và loa. Kiểm tra PipeWire / PulseAudio.")},
+        {QStringLiteral("audioMicSpeakerFailed"), QStringLiteral("Không mở được micro và loa. Hãy kiểm tra thiết bị âm thanh trong cài đặt hệ thống.")},
         {QStringLiteral("audioMicFailed"),
-         QStringLiteral("Không mở được micro, bên kia không nghe thấy bạn. Kiểm tra PipeWire / PulseAudio.")},
-        {QStringLiteral("audioSpeakerFailed"), QStringLiteral("Không phát được âm thanh ra loa. Kiểm tra PipeWire / PulseAudio.")},
+         QStringLiteral("Không mở được micro, người kia không nghe thấy bạn. Hãy kiểm tra micro trong cài đặt hệ thống.")},
+        {QStringLiteral("audioSpeakerFailed"), QStringLiteral("Không phát được âm thanh ra loa. Hãy kiểm tra loa trong cài đặt hệ thống.")},
     };
     return map;
 }

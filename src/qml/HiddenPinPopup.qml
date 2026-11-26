@@ -128,7 +128,7 @@ Popup {
             return I18n.t("Bạn đã ẩn trò chuyện %1 thành công. Để mở các trò chuyện đã ẩn, bạn có thể nhập mã PIN đã cài đặt hoặc tên trò chuyện ẩn tại khung tìm kiếm. Ngoài ra bạn có thể vào Cài đặt > Bảo mật > Thiết lập ẩn trò chuyện để thay đổi hoặc đặt lại mã PIN.",
                           "You hid %1. To open hidden conversations, type your PIN or the conversation's name in the search box. You can change or reset the PIN in Settings > Security > Hidden conversations.").arg(root.convName);
         case "resetWarn":
-            return I18n.t("Khi đặt lại mã PIN, tất cả trò chuyện đang được ẩn sẽ bị xoá (bao gồm toàn bộ nội dung cuộc trò chuyện). Bạn có muốn tiếp tục?",
+            return I18n.t("Khi đặt lại mã PIN, tất cả trò chuyện đang được ẩn sẽ bị xóa (bao gồm toàn bộ nội dung cuộc trò chuyện). Bạn có muốn tiếp tục?",
                           "Resetting the PIN deletes every hidden conversation, including all of its messages. Continue?");
         }
         return "";

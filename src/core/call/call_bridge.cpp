@@ -3,6 +3,7 @@
 
 #include "h264_codec.h"
 #include "peer_video.h"
+#include "portal_screen_cast.h"
 #include "core/media/media_utils.h"
 #include "network/zalo_crypto.h"
 #include "network/zalo_session.h"
@@ -13,12 +14,15 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMediaDevices>
+#include <QPixmap>
 #include <QProcess>
 #include <QRandomGenerator>
 #include <QRegularExpression>
+#include <QScreen>
 #include <QSettings>
 #include <QUrl>
 #include <QVersionNumber>
@@ -34,6 +38,7 @@
 #include <QVideoSink>
 
 #include <algorithm>
+#include <utility>
 
 namespace Zalos::Core::Call {
 
@@ -53,6 +58,11 @@ CallBridge::CallBridge(Network::ZaloSession* session, QObject* parent)
     m_selectedMicId = settings.value(QStringLiteral("call/micDevice")).toString();
     m_selectedSpeakerId = settings.value(QStringLiteral("call/speakerDevice")).toString();
     m_selectedCameraId = settings.value(QStringLiteral("call/cameraDevice")).toString();
+    if (Platform::MultimediaSupport::available()) {
+        m_mediaDevices = new QMediaDevices(this);
+        connect(m_mediaDevices, &QMediaDevices::audioInputsChanged, this, &CallBridge::refreshDevicesAsync);
+        connect(m_mediaDevices, &QMediaDevices::audioOutputsChanged, this, &CallBridge::refreshDevicesAsync);
+    }
 
     m_idleShutdownTimer = new QTimer(this);
     m_idleShutdownTimer->setSingleShot(true);
@@ -88,11 +98,24 @@ CallBridge::CallBridge(Network::ZaloSession* session, QObject* parent)
             emit callFinished(savedPeer, savedOutgoing, 0, savedVideo);
         }
     });
+    m_micVolumeTimer = new QTimer(this);
+    m_micVolumeTimer->setSingleShot(true);
+    m_micVolumeTimer->setInterval(50);
+    connect(m_micVolumeTimer, &QTimer::timeout, this, &CallBridge::flushMicVolume);
     refreshAvailability();
 }
 
 CallBridge::~CallBridge() {
+    m_queuedStart = nullptr;
     shutdown();
+    const QList<QProcess*> retiring = m_retiringEngines;
+    for (QProcess* p : retiring) {
+        if (p->state() == QProcess::NotRunning) continue;
+        if (!p->waitForFinished(1500)) {
+            p->kill();
+            p->waitForFinished(500);
+        }
+    }
     if (m_videoThread) {
         m_videoThread->quit();
         m_videoThread->wait();
@@ -256,6 +279,7 @@ void CallBridge::setProfileResolver(std::function<QPair<QString, QString>(const 
 bool CallBridge::ensureEngine() {
     if (m_idleShutdownTimer) m_idleShutdownTimer->stop();
     if (m_process) return true;
+    if (!m_retiringEngines.isEmpty()) return false;
     refreshAvailability();
     if (!isAvailable()) return false;
 
@@ -394,23 +418,52 @@ bool CallBridge::ensureEngine() {
     return true;
 }
 
+void CallBridge::retireEngine(QProcess* p) {
+    if (p->state() == QProcess::NotRunning) {
+        p->deleteLater();
+        return;
+    }
+    m_retiringEngines.append(p);
+    connect(p, &QProcess::stateChanged, p, [this, p](QProcess::ProcessState state) {
+        if (state != QProcess::NotRunning) return;
+        m_retiringEngines.removeAll(p);
+        p->deleteLater();
+        runQueuedStart();
+    });
+    p->terminate();
+    auto* killTimer = new QTimer(p);
+    killTimer->setSingleShot(true);
+    killTimer->setInterval(1500);
+    connect(killTimer, &QTimer::timeout, p, [p]() {
+        if (p->state() != QProcess::NotRunning) p->kill();
+    });
+    killTimer->start();
+}
+
+void CallBridge::runQueuedStart() {
+    if (!m_retiringEngines.isEmpty() || !m_queuedStart) return;
+    const std::function<void()> start = std::exchange(m_queuedStart, nullptr);
+    start();
+}
+
+bool CallBridge::deferUntilEngineRetired(std::function<void()> start) {
+    if (m_retiringEngines.isEmpty()) return false;
+    m_queuedStart = std::move(start);
+    return true;
+}
+
 void CallBridge::shutdown() {
     ++m_engineGen;
     if (m_idleShutdownTimer) m_idleShutdownTimer->stop();
     if (m_hangupWatchdog) m_hangupWatchdog->stop();
     if (m_peerVideoIdle) m_peerVideoIdle->stop();
+    if (m_micVolumeTimer) m_micVolumeTimer->stop();
+    m_micVolumeRequested = -1;
     if (m_process) {
         QProcess* p = m_process;
         m_process = nullptr;
         p->disconnect(this);
-        if (p->state() != QProcess::NotRunning) {
-            p->terminate();
-            if (!p->waitForFinished(1500)) {
-                p->kill();
-                p->waitForFinished(500);
-            }
-        }
-        p->deleteLater();
+        retireEngine(p);
     }
     for (QPointer<QTcpSocket>* sock : {&m_recvSocket, &m_sendSocket, &m_uiSocket}) {
         if (*sock) {
@@ -444,6 +497,11 @@ void CallBridge::shutdown() {
     m_cameraOn = false;
     m_prevCameraOn = false;
     m_screenShareOn = false;
+    m_screenSharePending = false;
+    if (m_screenPickerOpen) {
+        m_screenPickerOpen = false;
+        emit screenPickerChanged();
+    }
     m_cameraOffAnnounced = false;
     m_uiSkipBytes = 0;
     if (m_peerSink) m_peerSink->setVideoFrame(QVideoFrame());
@@ -716,7 +774,9 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
 }
 
 void CallBridge::startVoiceCall(const QString& peerId, const QString& peerName, const QString& peerAvatar) {
-    if (!m_activePeer.isEmpty() || !ensureEngine()) return;
+    if (!m_activePeer.isEmpty()) return;
+    if (deferUntilEngineRetired([this, peerId, peerName, peerAvatar]() { startVoiceCall(peerId, peerName, peerAvatar); })) return;
+    if (!ensureEngine()) return;
     m_activePeer = peerId;
     m_activeCallId = QJsonValue();
     m_activeCallType = 0;
@@ -735,7 +795,9 @@ void CallBridge::startVoiceCall(const QString& peerId, const QString& peerName, 
 }
 
 void CallBridge::startVideoCall(const QString& peerId, const QString& peerName, const QString& peerAvatar) {
-    if (!m_activePeer.isEmpty() || !ensureEngine()) return;
+    if (!m_activePeer.isEmpty()) return;
+    if (deferUntilEngineRetired([this, peerId, peerName, peerAvatar]() { startVideoCall(peerId, peerName, peerAvatar); })) return;
+    if (!ensureEngine()) return;
     startVideoPipeline();
     m_activePeer = peerId;
     m_activeCallId = QJsonValue();
@@ -759,7 +821,13 @@ void CallBridge::startVideoCall(const QString& peerId, const QString& peerName, 
 
 void CallBridge::startGroupCall(const QString& groupId, const QString& groupName, const QString& groupAvatar,
                                const QVariantList& members, bool isVideo) {
-    if (!m_activePeer.isEmpty() || !ensureEngine()) return;
+    if (!m_activePeer.isEmpty()) return;
+    if (deferUntilEngineRetired([this, groupId, groupName, groupAvatar, members, isVideo]() {
+            startGroupCall(groupId, groupName, groupAvatar, members, isVideo);
+        })) {
+        return;
+    }
+    if (!ensureEngine()) return;
     if (isVideo) startVideoPipeline();
     m_activePeer = groupId;
     m_activeCallId = QJsonValue();
@@ -838,8 +906,32 @@ CameraSender* CallBridge::cameraSender() {
         connect(m_cameraSender, &CameraSender::failed, this, [this](const QString& reason) {
             m_cameraError = reason;
             if (m_cameraOn) applyCamera(false);
-            if (m_screenShareOn) applyScreenShare(false);
+            if (m_screenShareOn || m_screenSharePending) applyScreenShare(false);
             emit cameraStateChanged();
+        });
+        connect(m_cameraSender, &CameraSender::portalScreenStarted, this, [this]() {
+            m_screenSharePending = false;
+            m_prevCameraOn = m_cameraOn;
+            m_cameraOn = false;
+            m_cameraError.clear();
+            m_screenShareOn = true;
+            emit cameraStateChanged();
+            sendUi({{"action", "screen"}, {"on", true}});
+            sendUi({{"action", "camera"}, {"on", true}});
+        });
+        connect(m_cameraSender, &CameraSender::portalScreenCancelled, this, [this]() {
+            if (!m_screenSharePending) return;
+            m_screenSharePending = false;
+            emit cameraStateChanged();
+        });
+        connect(m_cameraSender, &CameraSender::portalScreenUnavailable, this, [this]() {
+            if (!m_screenSharePending) return;
+            m_screenSharePending = false;
+            emit cameraStateChanged();
+            applyScreenShareTarget(QString());
+        });
+        connect(m_cameraSender, &CameraSender::portalScreenStopped, this, [this]() {
+            if (m_screenShareOn || m_screenSharePending) applyScreenShare(false);
         });
     }
     return m_cameraSender;
@@ -852,8 +944,10 @@ void CallBridge::setLocalVideoSink(QVideoSink* sink) {
 
 void CallBridge::applyCamera(bool on) {
     if (on) {
-        if (m_screenShareOn) {
+        if (m_screenPickerOpen) closeScreenPicker();
+        if (m_screenShareOn || m_screenSharePending) {
             m_screenShareOn = false;
+            m_screenSharePending = false;
             m_prevCameraOn = false;
             sendUi({{"action", "screen"}, {"on", false}});
         }
@@ -881,7 +975,7 @@ void CallBridge::setCamera(bool on) {
 
 void CallBridge::applyScreenShare(bool on) {
     if (on) {
-        if (phase() != QLatin1String("connected") || isGroup()) return;
+        if (phase() != QLatin1String("connected") || isGroup() || !isVideo()) return;
         const bool wasCameraOn = m_cameraOn;
         if (!m_screenShareOn) m_prevCameraOn = wasCameraOn;
         m_cameraOn = false;
@@ -907,10 +1001,13 @@ void CallBridge::applyScreenShare(bool on) {
         return;
     }
 
-    if (!m_screenShareOn) return;
+    if (!m_screenShareOn && !m_screenSharePending) return;
+    const bool wasSharing = m_screenShareOn;
+    m_screenSharePending = false;
     if (m_cameraSender) m_cameraSender->stop();
     m_screenShareOn = false;
     emit cameraStateChanged();
+    if (!wasSharing) return;
     sendUi({{"action", "screen"}, {"on", false}});
     const bool restoreCam = m_prevCameraOn && isVideo() && cameraAvailable() && phase() == QLatin1String("connected");
     m_prevCameraOn = false;
@@ -924,6 +1021,135 @@ void CallBridge::applyScreenShare(bool on) {
 void CallBridge::setScreenShare(bool on) {
     applyScreenShare(on);
 }
+
+QVariantList CallBridge::buildScreenSourcesFromDescriptors(const QList<ScreenSourceDesc>& screens, const QString& allPreview) {
+    QVariantList out;
+    QRect unionRect;
+    for (int i = 0; i < screens.size(); ++i) {
+        const ScreenSourceDesc& s = screens.at(i);
+        unionRect = unionRect.united(s.geometry);
+        out.append(QVariantMap{
+            {QStringLiteral("id"), QStringLiteral("screen:%1").arg(i)},
+            {QStringLiteral("index"), i},
+            {QStringLiteral("name"), s.name},
+            {QStringLiteral("width"), s.geometry.width()},
+            {QStringLiteral("height"), s.geometry.height()},
+            {QStringLiteral("isPrimary"), s.isPrimary},
+            {QStringLiteral("isAll"), false},
+            {QStringLiteral("screenCount"), screens.size()},
+            {QStringLiteral("preview"), s.preview}
+        });
+    }
+    if (screens.size() > 1) {
+        out.append(QVariantMap{
+            {QStringLiteral("id"), QStringLiteral("all")},
+            {QStringLiteral("index"), -1},
+            {QStringLiteral("name"), QString()},
+            {QStringLiteral("width"), unionRect.width()},
+            {QStringLiteral("height"), unionRect.height()},
+            {QStringLiteral("isPrimary"), false},
+            {QStringLiteral("isAll"), true},
+            {QStringLiteral("screenCount"), screens.size()},
+            {QStringLiteral("preview"), allPreview}
+        });
+    }
+    return out;
+}
+
+void CallBridge::requestScreenShare() {
+    if (m_screenShareOn || m_screenSharePending) {
+        applyScreenShare(false);
+        return;
+    }
+    if (phase() != QLatin1String("connected") || isGroup() || !isVideo()) return;
+    closeScreenPicker();
+
+    const bool isWayland = QGuiApplication::platformName().contains(QLatin1String("wayland"));
+    if (isWayland && PortalScreenCast::available()) {
+        applyScreenShareTarget(QStringLiteral("portal"));
+        return;
+    }
+
+    const QList<QScreen*> screens = QGuiApplication::screens();
+    if (screens.size() <= 1) {
+        applyScreenShareTarget(QString());
+        return;
+    }
+    if (isWayland && QStandardPaths::findExecutable(QStringLiteral("grim")).isEmpty()) {
+        applyScreenShareTarget(QString());
+        return;
+    }
+
+    QScreen* primary = QGuiApplication::primaryScreen();
+    QList<ScreenSourceDesc> descs;
+    QList<QPair<QRect, QImage>> stitchParts;
+    descs.reserve(screens.size());
+    for (QScreen* s : screens) {
+        if (!s) continue;
+        QString preview;
+        if (!isWayland) {
+            const QPixmap pix = s->grabWindow(0);
+            if (!pix.isNull()) {
+                const QImage img = pix.toImage();
+                preview = CameraSender::encodePreviewDataUrl(img);
+                stitchParts.append(qMakePair(s->geometry(), img));
+            }
+        }
+        descs.append(ScreenSourceDesc{s->name(), s->geometry(), s == primary, preview});
+    }
+    const QString allPreview = isWayland ? QString() : CameraSender::encodePreviewDataUrl(CameraSender::stitchScreenCaptures(stitchParts));
+    m_screenSources = buildScreenSourcesFromDescriptors(descs, allPreview);
+    emit screenSourcesChanged();
+    m_screenPickerOpen = true;
+    emit screenPickerChanged();
+}
+
+void CallBridge::startScreenShareTarget(const QString& targetId) {
+    closeScreenPicker();
+    applyScreenShareTarget(targetId);
+}
+
+void CallBridge::closeScreenPicker() {
+    if (!m_screenPickerOpen) return;
+    m_screenPickerOpen = false;
+    emit screenPickerChanged();
+}
+
+void CallBridge::applyScreenShareTarget(const QString& targetId) {
+    if (targetId == QLatin1String("portal")) {
+        if (phase() != QLatin1String("connected") || isGroup() || !isVideo()) return;
+        startVideoPipeline();
+        QString error;
+        cameraSender()->setEncodingEnabled(true);
+        if (cameraSender()->startPortalScreen(&error)) {
+            m_screenSharePending = true;
+            m_cameraError.clear();
+            emit cameraStateChanged();
+            return;
+        }
+        if (error == QLatin1String("no_encoder")) {
+            m_cameraError = error;
+            emit cameraStateChanged();
+            return;
+        }
+        cameraSender()->setScreenTarget(QString());
+        applyScreenShare(true);
+        return;
+    }
+    cameraSender()->setScreenTarget(targetId);
+    applyScreenShare(true);
+}
+
+#ifdef ZALOS_TESTING
+void CallBridge::openScreenPickerForTesting(const QVariantList& sources) {
+    m_screenSources = sources;
+    emit screenSourcesChanged();
+    if (!m_screenPickerOpen) {
+        m_screenPickerOpen = true;
+        emit screenPickerChanged();
+    }
+}
+#endif
 
 void CallBridge::handleVoipControl(const QJsonObject& rawContent) {
     QJsonObject content = rawContent;
@@ -1060,6 +1286,11 @@ void CallBridge::onUiLine(const QByteArray& line) {
         m_cameraOn = false;
         m_prevCameraOn = false;
         m_screenShareOn = false;
+        m_screenSharePending = false;
+        if (m_screenPickerOpen) {
+            m_screenPickerOpen = false;
+            emit screenPickerChanged();
+        }
         m_micLevel = 60;
         m_micVolume = 100;
         m_micAutoGain = true;
@@ -1093,6 +1324,11 @@ void CallBridge::resetUi() {
     m_cameraOn = false;
     m_prevCameraOn = false;
     m_screenShareOn = false;
+    m_screenSharePending = false;
+    if (m_screenPickerOpen) {
+        m_screenPickerOpen = false;
+        emit screenPickerChanged();
+    }
     m_micLevel = 60;
     m_micVolume = 100;
     m_micAutoGain = true;
@@ -1194,6 +1430,7 @@ void CallBridge::selectCameraDevice(const QString& id) {
 
 void CallBridge::setMicVolume(int pct) {
     const int clamped = std::clamp(pct, 0, 100);
+    const bool autoGainWasOn = m_micAutoGain;
     bool changed = false;
     if (m_micVolume != clamped) {
         m_micVolume = clamped;
@@ -1204,7 +1441,13 @@ void CallBridge::setMicVolume(int pct) {
         changed = true;
     }
     if (changed) emit micStateChanged();
-    sendUi({{"action", "micVolume"}, {"value", clamped}});
+    if (clamped == m_micVolumeRequested && !autoGainWasOn) return;
+    m_micVolumeRequested = clamped;
+    if (!m_micVolumeTimer->isActive()) m_micVolumeTimer->start();
+}
+
+void CallBridge::flushMicVolume() {
+    sendUi({{"action", "micVolume"}, {"value", m_micVolumeRequested}});
 }
 
 void CallBridge::setMicAutoGain(bool on) {

@@ -29,11 +29,8 @@ Item {
         if (linkField.text.length === 0) linkField.forceActiveFocus();
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#000000"
-        opacity: 0.5
-        MouseArea { anchors.fill: parent; onClicked: root.close() }
+    ZModalScrim {
+        onDismissed: root.close()
     }
 
     Rectangle {

@@ -75,6 +75,11 @@ void ShortcutMap::load(const QString& configDir) {
     }
 }
 
+QString ShortcutMap::primaryText(const QString& cmd) const {
+    const QStringList list = m_keys.value(cmd);
+    return list.isEmpty() ? QString() : list.constFirst();
+}
+
 QVariantList ShortcutMap::all() const {
     QVariantList out;
     for (const QString& command : m_order) {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
+#include "clock.h"
 #include "send_rate.h"
 #include "wire/video.h"
 #include "wire/zrtp_packet.h"
@@ -73,6 +74,7 @@ public:
     virtual void mediaPeerEnd(const QString& why) = 0;
     virtual void mediaEarlyAudio(const QString& phase) = 0;
     virtual void mediaAudioFault(const QString& kind) = 0;
+    virtual void mediaAudioRecovered(const QString& kind) = 0;
     virtual void mediaMicVolume(int pct) = 0;
     virtual void mediaMicAutoGain(bool) {}
     virtual void mediaMicLevel(int level) = 0;
@@ -98,6 +100,7 @@ public:
     virtual std::optional<MediaStats> stats() const { return std::nullopt; }
     virtual bool sendUdp() const { return false; }
     virtual double lastRxAt() const { return 0; }
+    virtual void setClock(const EngineClock&) {}
     virtual bool hasLocalCandidates() const { return false; }
     virtual QJsonArray localCandidates(const std::optional<QByteArray>&) const { return {}; }
     virtual bool hasDeviceControl() const { return false; }

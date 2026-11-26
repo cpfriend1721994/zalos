@@ -49,6 +49,9 @@ public:
     static constexpr int kStartTarget = 5;
     static constexpr int kMaxExpand = 5;
     static constexpr size_t kWindow = 250;
+    static constexpr int64_t kFarIdx = 500;
+    static constexpr int kFarStreakReset = 8;
+    static constexpr size_t kPoolMax = 64;
 
     Stream(std::unique_ptr<Decoder> decoder, int maxTarget, Stats& stats, int minTarget = 0);
 
@@ -66,6 +69,9 @@ public:
 
 private:
     size_t carrySize() const { return m_carry.size() - m_carryPos; }
+    std::vector<uint8_t> takeBuffer();
+    void recycle(std::vector<uint8_t>&& payload);
+    void clearPackets();
     void compactCarry();
     void decodeInto(const std::vector<uint8_t>* payload, bool fec);
     void take(int16_t* out);
@@ -79,6 +85,8 @@ private:
     int m_maxTarget;
     int m_target;
     std::map<int64_t, std::vector<uint8_t>> m_packets;
+    std::vector<std::vector<uint8_t>> m_pool;
+    int m_farStreak{0};
     bool m_hasNext{false};
     int64_t m_next{0};
     bool m_playing{false};

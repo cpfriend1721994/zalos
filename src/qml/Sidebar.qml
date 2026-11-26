@@ -678,40 +678,13 @@ Rectangle {
                     onTapped: (point) => root.openConvMenu(hiddenRow.convId, false, false, false, false, 0, true,
                                                            hiddenRow.mapToItem(root, point.position.x, point.position.y))
                 }
-                RowLayout {
+                SearchHitRow {
                     anchors.fill: parent
-                    anchors.leftMargin: 16
-                    anchors.rightMargin: 12
-                    spacing: 10
-                    ZAvatar {
-                        size: 40
-                        avatarUrl: hiddenRow.avatar
-                        name: hiddenRow.convName
-                        isGroup: hiddenRow.isGroup
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        Text {
-                            Layout.fillWidth: true
-                            text: hiddenRow.convName
-                            elide: Text.ElideRight
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 13
-                            font.weight: Font.DemiBold
-                            color: ThemeManager.textColor
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: hiddenRow.text
-                            textFormat: Text.PlainText
-                            maximumLineCount: 1
-                            elide: Text.ElideRight
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 12
-                            color: ThemeManager.secondaryTextColor
-                        }
-                    }
+                    avatarSize: 40
+                    avatarUrl: hiddenRow.avatar
+                    title: hiddenRow.convName
+                    subtitle: hiddenRow.text
+                    isGroup: hiddenRow.isGroup
                 }
             }
         }
@@ -799,6 +772,10 @@ Rectangle {
                 required property double lastTs
                 required property string timestamp
                 required property int labelId
+                property bool reusing: false
+
+                ListView.onPooled: itemDelegate.reusing = true
+                ListView.onReused: itemDelegate.reusing = false
 
                 width: convList.width
                 height: 72
@@ -814,7 +791,10 @@ Rectangle {
                     color: ZaloClient.currentConversationId === itemDelegate.id ? ThemeManager.selectedColor
                          : mouseArea.containsMouse ? ThemeManager.hoverColor
                          : itemDelegate.isPinned ? ThemeManager.pinnedColor : "transparent"
-                    Behavior on color { ColorAnimation { duration: 130 } }
+                    Behavior on color {
+                        enabled: !itemDelegate.reusing
+                        ColorAnimation { duration: 130 }
+                    }
                 }
 
                 MouseArea {
@@ -963,7 +943,10 @@ Rectangle {
                                 color: Theme.badgeRed
                                 visible: itemDelegate.unreadCount > 0
                                 scale: itemDelegate.unreadCount > 0 ? 1.0 : 0.0
-                                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+                                Behavior on scale {
+                                    enabled: !itemDelegate.reusing
+                                    NumberAnimation { duration: 180; easing.type: Easing.OutBack }
+                                }
 
                                 Text {
                                     id: unreadBadgeText
@@ -1020,38 +1003,12 @@ Rectangle {
                         searchInput.text = "";
                     }
                 }
-                RowLayout {
+                SearchHitRow {
                     anchors.fill: parent
-                    anchors.leftMargin: 16
-                    anchors.rightMargin: 12
-                    spacing: 10
-                    ZAvatar {
-                        size: 36
-                        avatarUrl: personRow.avatar
-                        name: personRow.convName
-                        isGroup: personRow.isGroup
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        Text {
-                            Layout.fillWidth: true
-                            text: personRow.convName
-                            elide: Text.ElideRight
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 13
-                            font.weight: Font.DemiBold
-                            color: ThemeManager.textColor
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: personRow.text
-                            elide: Text.ElideRight
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 12
-                            color: ThemeManager.secondaryTextColor
-                        }
-                    }
+                    avatarUrl: personRow.avatar
+                    title: personRow.convName
+                    subtitle: personRow.text
+                    isGroup: personRow.isGroup
                 }
             }
         }
@@ -1090,49 +1047,13 @@ Rectangle {
                 color: hitHover.hovered ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
                 HoverHandler { id: hitHover }
                 TapHandler { onTapped: ZaloClient.openMessageFromSearch(hitRow.convId, hitRow.msgId) }
-                RowLayout {
+                SearchHitRow {
                     anchors.fill: parent
-                    anchors.leftMargin: 16
-                    anchors.rightMargin: 12
-                    spacing: 10
-                    ZAvatar {
-                        size: 36
-                        avatarUrl: hitRow.avatar
-                        name: hitRow.convName
-                        isGroup: hitRow.isGroup
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Text {
-                                Layout.fillWidth: true
-                                text: hitRow.convName
-                                elide: Text.ElideRight
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 13
-                                font.weight: Font.DemiBold
-                                color: ThemeManager.textColor
-                            }
-                            Text {
-                                text: hitRow.ts >= 946684800000 ? Qt.formatDate(new Date(hitRow.ts), "dd/MM/yy") : ""
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 11
-                                color: ThemeManager.secondaryTextColor
-                            }
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: (hitRow.senderName.length > 0 ? hitRow.senderName + ": " : "") + hitRow.text
-                            textFormat: Text.PlainText
-                            maximumLineCount: 1
-                            elide: Text.ElideRight
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 12
-                            color: ThemeManager.secondaryTextColor
-                        }
-                    }
+                    avatarUrl: hitRow.avatar
+                    title: hitRow.convName
+                    subtitle: (hitRow.senderName.length > 0 ? hitRow.senderName + ": " : "") + hitRow.text
+                    dateText: hitRow.ts >= 946684800000 ? Qt.formatDate(new Date(hitRow.ts), "dd/MM/yy") : ""
+                    isGroup: hitRow.isGroup
                 }
             }
         }
@@ -1308,7 +1229,7 @@ Rectangle {
             ZMenuRow {
                 icon: "trash"
                 danger: true
-                label: I18n.t("Xoá hội thoại", "Delete conversation")
+                label: I18n.t("Xóa hội thoại", "Delete conversation")
                 onTriggered: { convMenu.close(); deleteConfirm.open(); }
             }
             }
@@ -1319,12 +1240,12 @@ Rectangle {
         id: deleteConfirm
         width: 340
         danger: true
-        title: I18n.t("Xoá hội thoại", "Delete conversation")
-        okText: I18n.t("Xoá", "Delete")
+        title: I18n.t("Xóa hội thoại", "Delete conversation")
+        okText: I18n.t("Xóa", "Delete")
         Text {
             Layout.fillWidth: true
             wrapMode: Text.Wrap
-            text: I18n.t("Toàn bộ tin nhắn của hội thoại này sẽ bị xoá ở phía bạn trên mọi thiết bị. Người kia vẫn giữ tin nhắn.",
+            text: I18n.t("Toàn bộ tin nhắn của hội thoại này sẽ bị xóa ở phía bạn trên mọi thiết bị. Người kia vẫn giữ tin nhắn.",
                          "All messages of this conversation will be deleted for you on every device. The other side keeps them.")
             font.family: Theme.fontFamily
             font.pixelSize: 13

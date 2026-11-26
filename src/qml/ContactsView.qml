@@ -248,8 +248,9 @@ Rectangle {
                                     { key: "invites", vi: "Lời mời", en: "Requests" }
                                 ]
                                 Rectangle {
+                                    id: chipItem
                                     required property var modelData
-                                    readonly property bool selected: root.activeCategory === modelData.key
+                                    readonly property bool selected: root.activeCategory === chipItem.modelData.key
                                     width: chipText.implicitWidth + 20
                                     height: 28
                                     radius: 14
@@ -257,7 +258,7 @@ Rectangle {
                                     Text {
                                         id: chipText
                                         anchors.centerIn: parent
-                                        text: I18n.t(modelData.vi, modelData.en)
+                                        text: I18n.t(chipItem.modelData.vi, chipItem.modelData.en)
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
                                         color: parent.selected ? "#FFFFFF" : ThemeManager.textColor
@@ -265,7 +266,7 @@ Rectangle {
                                     MouseArea {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: ZaloClient.contactModel.setCategoryFilter(modelData.key)
+                                        onClicked: ZaloClient.contactModel.setCategoryFilter(chipItem.modelData.key)
                                     }
                                 }
                             }
@@ -623,27 +624,28 @@ Rectangle {
                                         model: [ { accept: false, vi: "Từ chối", en: "Decline" },
                                                  { accept: true, vi: "Đồng ý", en: "Accept" } ]
                                         Rectangle {
+                                            id: inviteBtn
                                             required property var modelData
                                             width: inviteLabel.implicitWidth + 24
                                             height: 30
                                             radius: 6
-                                            color: modelData.accept ? (inviteMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlue)
-                                                                    : (inviteMouse.containsMouse ? root.hoverColor() : (ThemeManager.hoverColor))
+                                            color: inviteBtn.modelData.accept ? (inviteMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlue)
+                                                                              : (inviteMouse.containsMouse ? root.hoverColor() : (ThemeManager.hoverColor))
                                             Text {
                                                 id: inviteLabel
                                                 anchors.centerIn: parent
-                                                text: I18n.t(modelData.vi, modelData.en)
+                                                text: I18n.t(inviteBtn.modelData.vi, inviteBtn.modelData.en)
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 12
                                                 font.weight: Font.DemiBold
-                                                color: modelData.accept ? "#FFFFFF" : ThemeManager.textColor
+                                                color: inviteBtn.modelData.accept ? "#FFFFFF" : ThemeManager.textColor
                                             }
                                             MouseArea {
                                                 id: inviteMouse
                                                 anchors.fill: parent
                                                 hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: modelData.accept ? ZaloClient.acceptFriendRequest(contactRow.id)
+                                                onClicked: inviteBtn.modelData.accept ? ZaloClient.acceptFriendRequest(contactRow.id)
                                                                             : ZaloClient.rejectFriendRequest(contactRow.id)
                                             }
                                         }

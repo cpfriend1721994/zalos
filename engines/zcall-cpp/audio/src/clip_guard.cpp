@@ -3,6 +3,7 @@
 
 #include "log.h"
 #include "pulse_api.h"
+#include "serial_worker.h"
 #include "subprocess.h"
 
 #include <algorithm>
@@ -23,6 +24,8 @@ std::string strip(const std::string& s) {
     const size_t b = s.find_last_not_of(ws);
     return s.substr(a, b - a + 1);
 }
+
+constexpr int kStepKey = 1;
 
 std::string afterLastSlash(const std::string& s) {
     const size_t slash = s.rfind('/');
@@ -105,6 +108,7 @@ ClipGuard::ClipGuard(std::optional<std::string> source, std::shared_ptr<VolumeCo
     m_state->source = std::move(source);
     m_state->control = std::move(control);
     m_state->on.store(computeOn());
+    if (m_async) m_steps = std::make_unique<SerialWorker>();
     const auto src = stateSource(*m_state);
     if (src) {
         const auto d = stateDb(*m_state);
@@ -174,8 +178,8 @@ std::optional<double> ClipGuard::stateDb(State& st) {
 void ClipGuard::announceState(State& st) {
     const auto pct = stateSource(st) && st.control->available() ? statePercent(st) : std::nullopt;
     if (pct) {
-        st.announcedPct = pct;
-        st.announcedAt = monoSeconds();
+        st.announcedPct.store(*pct);
+        st.announcedAt.store(monoSeconds());
         logLine(fmt("mic volume: %d%%", *pct));
     }
 }
@@ -193,8 +197,9 @@ void ClipGuard::setPercent(int pct) {
     pct = std::max(0, std::min(100, pct));
     std::lock_guard<std::recursive_mutex> lock(m_state->volLock);
     const double now = monoSeconds();
-    if (m_state->announcedPct && now - m_state->announcedAt < 0.6 && pct > *m_state->announcedPct + 2) {
-        logLine(fmt("mic volume: ignore %d%% right after %d%%", pct, *m_state->announcedPct));
+    const int announced = m_state->announcedPct.load();
+    if (announced >= 0 && now - m_state->announcedAt.load() < 0.6 && pct > announced + 2) {
+        logLine(fmt("mic volume: ignore %d%% right after %d%%", pct, announced));
         return;
     }
     const auto cur = statePercent(*m_state);
@@ -235,7 +240,7 @@ void ClipGuard::feed(const int16_t* pcm, size_t n) {
         && !m_state->busy.exchange(true)) {
         m_lastStep = now;
         const std::shared_ptr<State> st = m_state;
-        if (m_async) std::thread([st, clipped] { stepState(st, clipped, kStepDb); }).detach();
+        if (m_async) m_steps->post([st, clipped] { stepState(st, clipped, kStepDb); }, kStepKey);
         else stepState(st, clipped, kStepDb);
     }
 }

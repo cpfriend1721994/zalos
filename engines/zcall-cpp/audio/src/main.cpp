@@ -11,6 +11,7 @@
 #include "options.h"
 #include "playout.h"
 #include "pulse_api.h"
+#include "serial_worker.h"
 #include "sink.h"
 #include "wire.h"
 
@@ -22,7 +23,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <mutex>
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif
@@ -33,7 +33,10 @@ using namespace zcall::audio;
 
 namespace {
 
-std::mutex g_outLock;
+constexpr int kVolumeKey = 1;
+constexpr std::chrono::milliseconds kMicRetry{200};
+constexpr int kMicRecoverEvery = 5;
+constexpr double kMixJoinSec = 1.0;
 
 bool envIs(const char* name, const char* value) {
     const char* v = std::getenv(name);
@@ -79,6 +82,7 @@ void encoderLoop(const Options& args, std::atomic<bool>* muted,
     const double start = monoSeconds();
     long n = 0;
     long sent = 0;
+    int misses = 0;
     for (;;) {
         if (stopFlag->load()) break;
         if (args.tone) {
@@ -90,8 +94,12 @@ void encoderLoop(const Options& args, std::atomic<bool>* muted,
             const double delay = start + n * 0.02 - monoSeconds();
             if (delay > 0) std::this_thread::sleep_for(std::chrono::duration<double>(delay));
         } else if (!mic || !mic->nextFrame(raw.data())) {
-            break;
+            if (!mic || stopFlag->load() || mic->closed()) break;
+            if (++misses % kMicRecoverEvery == 0) mic->recover();
+            std::this_thread::sleep_for(kMicRetry);
+            continue;
         }
+        misses = 0;
         const bool isMuted = muted->load();
         if (guard && !isMuted) guard->feed(raw.data(), raw.size());
         const int16_t* processed = raw.data();
@@ -105,10 +113,7 @@ void encoderLoop(const Options& args, std::atomic<bool>* muted,
         if (size <= 0) continue;
         const int level = audioLevel(frame, kFrame);
         const auto out = encodeLevelFrame(static_cast<uint8_t>(level), buf, static_cast<uint16_t>(size));
-        {
-            std::lock_guard<std::mutex> lock(g_outLock);
-            if (!writeAll(1, out.data(), out.size())) return;
-        }
+        if (!writeAll(1, out.data(), out.size())) return;
         if (++sent == 1) logLine("first microphone frame encoded");
     }
 }
@@ -137,6 +142,12 @@ void switchSpeaker(Sink& sink, const MaybeName& name) {
 }
 
 MaybeName orElse(const MaybeName& a, const std::function<MaybeName()>& b) { return a ? a : b(); }
+
+MaybeName fallbackMicSource(const MaybeName& chosen) {
+    if (chosen) return chosen;
+    if (MaybeName pulse = pulseMic()) return pulse;
+    return defaultSource();
+}
 
 }
 
@@ -173,8 +184,9 @@ int main(int argc, char** argv) {
     auto startProcessing = [&]() -> bool {
         return proc ? proc->start(orElse(chosenMic, pulseMic), chosenSpeaker) : false;
     };
+    SerialWorker worker;
     bool processed = startProcessing();
-    if (pulse) std::thread(pipewireRealtime).detach();
+    if (pulse) worker.post(pipewireRealtime);
     const MaybeName speakerName = processed ? MaybeName(proc->sink()) : chosenSpeaker;
 
     std::unique_ptr<Sink> sink;
@@ -203,16 +215,16 @@ int main(int argc, char** argv) {
     if (!args.noMic) {
         if (!args.tone) mic = std::make_unique<Mic>(args.device, processed ? MaybeName(proc->source()) : chosenMic);
         if (pulse && mic) {
-            MaybeName src = chosenMic;
-            if (!src) src = pulseMic();
-            if (!src) src = defaultSource();
-            mic->guard = std::make_shared<ClipGuard>(src, pactlVolumeControl());
+            mic->guard = std::make_shared<ClipGuard>(fallbackMicSource(chosenMic), pactlVolumeControl());
         }
         encThread = std::thread(encoderLoop, std::cref(args), &muted, &stopEnc, mic.get(),
                                 mic ? mic->guard : nullptr,
                                 std::function<bool()>([&playout] { return playout.farActive(); }));
     }
-    if (pulse && envNot("ZCALL_AUDIO_DIAG", "0")) new Diag(playout, mic.get(), proc ? proc->tag() : std::string("zcall_ec_"));
+    std::unique_ptr<Diag> diag;
+    if (pulse && envNot("ZCALL_AUDIO_DIAG", "0")) {
+        diag = std::make_unique<Diag>(playout, mic.get(), proc ? proc->tag() : std::string("zcall_ec_"));
+    }
 
     InParser parser;
     InMessage msg;
@@ -222,12 +234,13 @@ int main(int argc, char** argv) {
         const ssize_t r = ::read(0, buf, sizeof buf);
         if (r < 0 && errno == EINTR) continue;
         if (r <= 0) break;
-        const double now = monoSeconds();
         parser.feed(buf, static_cast<size_t>(r));
-        while (!done && parser.next(msg)) {
+        while (!done) {
+            const double at = monoSeconds();
+            if (!parser.next(msg)) break;
             switch (msg.kind) {
             case InMessage::Kind::Frame:
-                playout.push(msg.idx, msg.payload.data(), msg.payload.size(), msg.src, now);
+                playout.push(msg.idx, msg.payload.data(), msg.payload.size(), msg.src, at);
                 break;
             case InMessage::Kind::Speaker:
                 sink->silent.store(msg.on);
@@ -237,7 +250,7 @@ int main(int argc, char** argv) {
                 if (mic && mic->guard) {
                     auto guard = mic->guard;
                     const int pct = msg.value;
-                    std::thread([guard, pct] { guard->setPercent(pct); }).detach();
+                    worker.post([guard, pct] { guard->setPercent(pct); }, kVolumeKey);
                 } else {
                     logLine("mic volume: no microphone level to set");
                 }
@@ -251,31 +264,31 @@ int main(int argc, char** argv) {
                 logLine(msg.on ? "mute" : "unmute");
                 break;
             case InMessage::Kind::Device: {
-                const MaybeName name = msg.name.empty() ? std::nullopt : MaybeName(msg.name);
                 if (!pulse || (msg.which != 'i' && msg.which != 'o')) break;
-                if (msg.which == 'i') {
-                    chosenMic = present(name, "sources");
-                    if (mic && mic->guard) {
-                        MaybeName src = chosenMic;
-                        if (!src) src = pulseMic();
-                        if (!src) src = defaultSource();
-                        mic->guard->setSource(src);
-                        mic->guard->announce();
-                        mic->guard->announceMode();
+                const char which = msg.which;
+                const MaybeName name = msg.name.empty() ? std::nullopt : MaybeName(msg.name);
+                worker.post([&, which, name] {
+                    if (which == 'i') {
+                        chosenMic = present(name, "sources");
+                        if (mic && mic->guard) {
+                            mic->guard->setSource(fallbackMicSource(chosenMic));
+                            mic->guard->announce();
+                            mic->guard->announceMode();
+                        }
+                    } else {
+                        chosenSpeaker = present(name, "sinks");
                     }
-                } else {
-                    chosenSpeaker = present(name, "sinks");
-                }
-                if (processed) {
-                    processed = startProcessing();
-                    switchSpeaker(*sink, processed ? MaybeName(proc->sink()) : chosenSpeaker);
-                    if (processed && dynamic_cast<PulseOut*>(sink.get())) primePlayback(*sink);
-                    if (mic) mic->switchTo(processed ? MaybeName(proc->source()) : chosenMic);
-                } else if (msg.which == 'i' && mic) {
-                    mic->switchTo(chosenMic);
-                } else if (msg.which == 'o') {
-                    switchSpeaker(*sink, chosenSpeaker);
-                }
+                    if (processed) {
+                        processed = startProcessing();
+                        switchSpeaker(*sink, processed ? MaybeName(proc->sink()) : chosenSpeaker);
+                        if (processed && dynamic_cast<PulseOut*>(sink.get())) primePlayback(*sink);
+                        if (mic) mic->switchTo(processed ? MaybeName(proc->source()) : chosenMic);
+                    } else if (which == 'i' && mic) {
+                        mic->switchTo(chosenMic);
+                    } else if (which == 'o') {
+                        switchSpeaker(*sink, chosenSpeaker);
+                    }
+                });
                 break;
             }
             case InMessage::Kind::Bad:
@@ -286,12 +299,20 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (diag) diag->requestStop();
+    worker.stop();
     stopEnc.store(true);
     if (mic) mic->close();
-    if (encThread.joinable()) encThread.join();
-    playout.flush();
-    sink->close();
     if (proc) proc->stop();
+    if (encThread.joinable()) encThread.join();
+    if (!playout.flush(kMixJoinSec)) {
+        sink->abort();
+        if (!playout.flush(kMixJoinSec)) {
+            std::fflush(stderr);
+            ::_exit(0);
+        }
+    }
+    sink->close();
     std::vector<std::pair<std::string, int64_t>> stats;
     const auto snap = playout.stats().snapshot();
     for (size_t i = 0; i < snap.size(); ++i)

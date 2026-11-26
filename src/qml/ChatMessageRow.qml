@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -81,7 +82,8 @@ Item {
     objectName: "messageRow"
     width: msgRow.listWidth
     visible: !msgRow.inMediaRun
-    height: msgRow.inMediaRun ? 0 : rowCol.implicitHeight + (msgRow.lastInGroup ? 10 : 2)
+    readonly property real rowGap: 14
+    height: msgRow.inMediaRun ? 0 : rowCol.implicitHeight + (msgRow.lastInGroup ? 10 : 2) + msgRow.rowGap
     readonly property bool inViewport: {
         const lv = msgRow.ListView.view;
         return !lv || (msgRow.y + msgRow.height >= lv.contentY && msgRow.y <= lv.contentY + lv.height);
@@ -155,6 +157,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
+        anchors.bottomMargin: msgRow.rowGap
         z: -1
         radius: 6
         color: Theme.zaloBlueLight
@@ -210,7 +213,7 @@ Item {
             Layout.rightMargin: 40
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: systemLinkMouse.enabled ? msgRow.text : ZaloClient.linkifyText(msgRow.text)
+            text: msgRow.isSystem ? (systemLinkMouse.enabled ? msgRow.text : ZaloClient.linkifyText(msgRow.text)) : ""
             textFormat: systemLinkMouse.enabled ? Text.PlainText : Text.StyledText
             linkColor: Theme.linkColor
             onLinkActivated: function(link) { ZaloClient.openLink(link); }
@@ -253,7 +256,10 @@ Item {
                     if (ecardCard.suggest) ZaloClient.stickers.loadBirthdayStickers();
                     else if (ecardCard.stickers.length > 0) ZaloClient.prefetchStickers(ecardCard.stickers);
                 }
+                readonly property string cardMsgId: msgRow.msgId
                 Component.onCompleted: ecardCard.prefetch()
+                onCardMsgIdChanged: ecardCard.prefetch()
+                onSuggestChanged: ecardCard.prefetch()
                 onStickersChanged: if (!ecardCard.suggest && ecardCard.stickers.length > 0) ZaloClient.prefetchStickers(ecardCard.stickers)
 
                 ColumnLayout {
@@ -850,8 +856,8 @@ Item {
                                         cursorShape: Qt.PointingHandCursor
                                         ToolTip.visible: containsMouse
                                         ToolTip.delay: 500
-                                        ToolTip.text: I18n.t("Tải về và mở (lưu trong Tải xuống/Zalos)", "Download and open (saved in Downloads/Zalos)")
-                                        onClicked: ZaloClient.openFileMessage(fileCardBox.fileUrl, msgRow.text)
+                                        ToolTip.text: I18n.t("Tải video về (lưu trong Tải xuống/Zalos)", "Download video (saved in Downloads/Zalos)")
+                                        onClicked: ZaloClient.downloadFileMessage(fileCardBox.fileUrl, msgRow.text)
                                     }
                                 }
                             }
@@ -1445,7 +1451,7 @@ Item {
                             persistentSelection: false
                             textFormat: TextEdit.RichText
                             wrapMode: TextEdit.Wrap
-                            text: "<style>a{color:" + Theme.linkColor + ";text-decoration:none}</style>" + msgRow.richText
+                            text: msgText.visible ? "<style>a{color:" + Theme.linkColor + ";text-decoration:none}</style>" + msgRow.richText : ""
                             font.family: Theme.fontFamily
                             font.pixelSize: 14
                             color: ThemeManager.textColor
@@ -1652,7 +1658,7 @@ Item {
 
                             ToolTip.visible: groupSeenHover.hovered
                             ToolTip.delay: 200
-                            ToolTip.text: msgRow.seenTooltipText(groupSeenRow.uids)
+                            ToolTip.text: groupSeenHover.hovered ? msgRow.seenTooltipText(groupSeenRow.uids) : ""
                         }
                         Text {
                             visible: msgRow.showStatus && (!ZaloClient.currentConversationIsGroup || !msgRow.seenUids || msgRow.seenUids.length === 0)

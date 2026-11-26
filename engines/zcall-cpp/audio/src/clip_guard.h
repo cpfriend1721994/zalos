@@ -27,6 +27,8 @@ public:
 
 std::shared_ptr<VolumeControl> pactlVolumeControl();
 
+class SerialWorker;
+
 class ClipGuard {
 public:
     static constexpr int kWindow = 10;
@@ -67,8 +69,8 @@ private:
         std::atomic<bool> manual{false};
         std::atomic<bool> resetWindow{false};
         std::recursive_mutex volLock;
-        std::optional<int> announcedPct;
-        double announcedAt{0};
+        std::atomic<int> announcedPct{-1};
+        std::atomic<double> announcedAt{0};
         std::optional<double> setDb;
     };
 
@@ -84,6 +86,7 @@ private:
     int m_clipped{0};
     double m_lastStep{-1e9};
     std::shared_ptr<State> m_state;
+    std::unique_ptr<SerialWorker> m_steps;
 };
 
 }

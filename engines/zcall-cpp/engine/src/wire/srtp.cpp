@@ -9,6 +9,7 @@
 #include <openssl/hmac.h>
 #include <openssl/params.h>
 
+#include <algorithm>
 #include <memory>
 
 namespace zcall {
@@ -19,17 +20,48 @@ struct CtxDeleter {
     void operator()(EVP_CIPHER_CTX* c) const { EVP_CIPHER_CTX_free(c); }
 };
 
-EVP_CIPHER_CTX* ctrContext() {
-    thread_local std::unique_ptr<EVP_CIPHER_CTX, CtxDeleter> ctx(EVP_CIPHER_CTX_new());
-    return ctx.get();
+struct AesEcbState {
+    std::unique_ptr<EVP_CIPHER_CTX, CtxDeleter> ctx;
+    QByteArray key;
+};
+
+EVP_CIPHER_CTX* aesEcbFor(const QByteArray& key) {
+    thread_local AesEcbState st;
+    if (!st.ctx) st.ctx.reset(EVP_CIPHER_CTX_new());
+    if (!st.ctx) return nullptr;
+    if (st.key != key) {
+        st.key.clear();
+        if (EVP_EncryptInit_ex(st.ctx.get(), EVP_aes_128_ecb(), nullptr, reinterpret_cast<const unsigned char*>(key.constData()),
+                               nullptr) != 1) {
+            return nullptr;
+        }
+        EVP_CIPHER_CTX_set_padding(st.ctx.get(), 0);
+        st.key = key;
+    }
+    return st.ctx.get();
 }
 
 void ctrXor(const QByteArray& key, const QByteArray& iv16, const char* in, char* out, int n) {
-    EVP_CIPHER_CTX* ctx = ctrContext();
+    if (n <= 0 || key.size() != 16 || iv16.size() != 16) return;
+    EVP_CIPHER_CTX* ctx = aesEcbFor(key);
+    if (!ctx) return;
+    const int blocks = (n + 15) / 16;
+    const uint16_t counter0 = uint16_t((uint8_t(iv16[14]) << 8) | uint8_t(iv16[15]));
+    QByteArray counters(blocks * 16, '\0');
+    for (int b = 0; b < blocks; ++b) {
+        char* blk = counters.data() + b * 16;
+        std::copy_n(iv16.constData(), 14, blk);
+        const uint16_t c = uint16_t(counter0 + b);
+        blk[14] = static_cast<char>(c >> 8);
+        blk[15] = static_cast<char>(c & 0xff);
+    }
+    QByteArray keystream(blocks * 16, '\0');
     int len = 0;
-    EVP_EncryptInit_ex(ctx, EVP_aes_128_ctr(), nullptr, reinterpret_cast<const unsigned char*>(key.constData()),
-                       reinterpret_cast<const unsigned char*>(iv16.constData()));
-    EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char*>(out), &len, reinterpret_cast<const unsigned char*>(in), n);
+    if (EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char*>(keystream.data()), &len,
+                          reinterpret_cast<const unsigned char*>(counters.constData()), int(counters.size())) != 1) {
+        return;
+    }
+    for (int i = 0; i < n; ++i) out[i] = static_cast<char>(in[i] ^ keystream[i]);
 }
 
 QByteArray kdf(const QByteArray& masterKey, const QByteArray& masterSalt, int label, int outLen) {

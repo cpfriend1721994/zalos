@@ -77,6 +77,7 @@ public:
 
     virtual bool rich() const { return false; }
     virtual void notice(const QString&, const QJsonObject& = {}) {}
+    virtual void clearNotice() {}
     virtual void micVolume(int) {}
     virtual void micAutoGain(bool) {}
     virtual void micLevel(int) {}

@@ -5,7 +5,6 @@
 #include "json_cpp.h"
 #include "log.h"
 
-#include <QDateTime>
 #include <QJsonDocument>
 #include <QRandomGenerator>
 #include <QTimer>
@@ -72,13 +71,19 @@ void HeadlessUi::incoming(const UiIncoming&, AcceptFn onAccept, RejectFn) {
 
 EngineCore::EngineCore(EmitFn sendFn, MediaBackend* media, CallUi* ui, bool group, QObject* parent)
     : QObject(parent), m_emit(std::move(sendFn)), m_media(media), m_ui(ui), m_groupEnabled(group) {
-    m_now = [] { return double(QDateTime::currentMSecsSinceEpoch()); };
+    setClock(systemClock());
     m_random = [] { return QRandomGenerator::global()->generateDouble(); };
     m_ui->setListener(this);
     m_media->setListener(this);
 }
 
 EngineCore::~EngineCore() = default;
+
+void EngineCore::setClock(const EngineClock& clock) {
+    m_now = clock.monotonic;
+    m_wall = clock.wall;
+    m_media->setClock(clock);
+}
 
 double EngineCore::newCallId() const { return 1000000000 + std::floor(m_random() * (2147483647.0 - 1000000000.0)); }
 
@@ -437,7 +442,8 @@ void EngineCore::answer(bool camStartOff) {
     if (!c || c->role != QLatin1String("callee") || c->state != QLatin1String("incoming")) return;
     if (camStartOff) c->cameraOff = true;
     c->state = QStringLiteral("connected");
-    c->startedAt = now();
+    c->startedAt = wallNow();
+    c->startedMono = now();
     send(QStringLiteral("request"), QStringLiteral("action"), {{"id", 5}});
     NegotiatedParams p;
     p.muted = c->muted;
@@ -623,7 +629,8 @@ void EngineCore::connectCaller(const QString& rtpSerIp) {
         c->ringTimer = nullptr;
     }
     c->state = QStringLiteral("connected");
-    c->startedAt = now();
+    c->startedAt = wallNow();
+    c->startedMono = now();
     m_media->start(c->role, rtpSerIp);
     send(QStringLiteral("sendSignal"), 408, {{"callId", c->callId}, {"calleeId", c->peerId}});
     if (isNum(c->type, 3)) {
@@ -675,6 +682,22 @@ void EngineCore::audioFault(const QString& kind) {
     log(QStringLiteral("audio fault: %1").arg(faults.join(QLatin1Char(' '))));
     if (m_ui->rich()) m_ui->notice(code);
 }
+
+void EngineCore::audioRecovered(const QString& kind) {
+    const CallPtr c = m_call;
+    if (!c || c->state == QLatin1String("ended")) return;
+    if (!c->audioFaults.contains(kind)) return;
+    c->audioFaults.remove(kind);
+    log(QStringLiteral("audio recovered: %1").arg(kind));
+    if (c->audioFaults.isEmpty()) {
+        c->audioNotice.clear();
+        if (m_ui->rich()) m_ui->clearNotice();
+        return;
+    }
+    audioFault(c->audioFaults.contains(QStringLiteral("mic")) ? QStringLiteral("mic") : QStringLiteral("speaker"));
+}
+
+void EngineCore::mediaAudioRecovered(const QString& kind) { audioRecovered(kind); }
 
 void EngineCore::peerEnded(const QString& why) {
     const CallPtr c = m_call;
@@ -1058,7 +1081,8 @@ void EngineCore::groupRequestAnswered(const QJsonObject& data) {
         }
         m_media->start(QStringLiteral("caller"), QString());
         c->state = QStringLiteral("connected");
-        c->startedAt = now();
+        c->startedAt = wallNow();
+        c->startedMono = now();
         QJsonObject srv = best && !best->server.raw.isEmpty() ? best->server.raw : c->servers.at(0).toObject();
         auto pick = [&srv](const char* a, const char* b) {
             const QJsonValue v = srv.value(QLatin1String(a));
@@ -1206,7 +1230,8 @@ void EngineCore::groupAnswer(bool camStartOff) {
         }
         m_media->start(QStringLiteral("callee"), QString());
         c->state = QStringLiteral("connected");
-        c->startedAt = now();
+        c->startedAt = wallNow();
+        c->startedMono = now();
         groupSendAnswer(*c, 0);
         groupBroadcast();
         c->pingTimer = timer(int(c->pingMs), true, [this] { groupPing(); });
@@ -1472,7 +1497,7 @@ void EngineCore::groupFinish(int status, const QString& closeCode, bool emitSign
     clearCallTimers(*c);
     const MediaStats stats = connected ? m_media->stats().value_or(MediaStats{}) : MediaStats{};
     m_media->stop();
-    const double duration = connected ? double(std::llround((now() - c->startedAt) / 1000.0)) : 0;
+    const double duration = connected ? double(std::llround((now() - c->startedMono) / 1000.0)) : 0;
     if (emitSignals && connected) {
         send(QStringLiteral("sendSignal"), 12438,
              {{"callId", c->callId},
@@ -1504,7 +1529,7 @@ void EngineCore::finish(int status, const QString& closeCode, bool emitSignals) 
     clearCallTimers(*c);
     const MediaStats stats = js::truthy(c->sessId) ? m_media->stats().value_or(MediaStats{}) : MediaStats{};
     m_media->stop();
-    const double duration = connected ? double(std::llround((now() - c->startedAt) / 1000.0)) : 0;
+    const double duration = connected ? double(std::llround((now() - c->startedMono) / 1000.0)) : 0;
     const bool role = c->role == QLatin1String("caller");
     if (emitSignals) {
         send(QStringLiteral("update"), QStringLiteral("bubble"), {{"duration", duration}, {"partnerId", c->peerId}, {"role", role}});

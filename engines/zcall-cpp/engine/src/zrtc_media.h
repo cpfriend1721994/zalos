@@ -16,6 +16,8 @@
 #include <QTimer>
 #include <QUdpSocket>
 
+#include <bitset>
+#include <cstddef>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -28,6 +30,72 @@ struct RocTracker {
     uint32_t roc{0};
     uint32_t guess(uint16_t seq) const;
     void update(uint16_t seq, uint32_t r);
+};
+
+inline constexpr int kMaxTrackedSsrcs = 64;
+
+template <std::size_t N>
+class ReplayWindow {
+public:
+    bool accept(uint64_t index) {
+        if (!m_top) {
+            m_top = index;
+            m_seen.set(0);
+            return true;
+        }
+        if (index > *m_top) {
+            const uint64_t shift = index - *m_top;
+            m_seen = shift >= N ? std::bitset<N>() : std::bitset<N>(m_seen << static_cast<std::size_t>(shift));
+            m_seen.set(0);
+            m_top = index;
+            return true;
+        }
+        const uint64_t back = *m_top - index;
+        if (back >= N || m_seen.test(static_cast<std::size_t>(back))) return false;
+        m_seen.set(static_cast<std::size_t>(back));
+        return true;
+    }
+
+private:
+    std::bitset<N> m_seen;
+    std::optional<uint64_t> m_top;
+};
+
+template <std::size_t N>
+struct RxStream {
+    RocTracker roc;
+    ReplayWindow<N> replay;
+};
+
+template <typename V>
+class SsrcTable {
+public:
+    V* find(uint32_t ssrc) {
+        const auto it = m_items.find(ssrc);
+        return it == m_items.end() ? nullptr : &it.value();
+    }
+
+    V& ensure(uint32_t ssrc) {
+        const auto it = m_items.find(ssrc);
+        if (it != m_items.end()) return it.value();
+        if (m_items.size() >= kMaxTrackedSsrcs && !m_order.empty()) {
+            m_items.remove(m_order.front());
+            m_order.pop_front();
+        }
+        m_order.push_back(ssrc);
+        return m_items[ssrc];
+    }
+
+    void clear() {
+        m_items.clear();
+        m_order.clear();
+    }
+
+    qsizetype size() const { return m_items.size(); }
+
+private:
+    QHash<uint32_t, V> m_items;
+    std::deque<uint32_t> m_order;
 };
 
 class ZrtcMedia : public QObject, public MediaBackend {
@@ -60,9 +128,26 @@ public:
     bool hasVidAsked() const override { return true; }
     QJsonObject paramsConfig() const override { return m_params.config; }
     bool hasParams() const override { return m_hasParams; }
+    void setClock(const EngineClock& clock) override { m_clock = clock; }
 
 private:
     using Server = ServerAddr;
+
+    enum class MediaRx { Dropped, Replayed, Accepted };
+
+    struct Inbound {
+        uint16_t seq{0};
+        uint32_t roc{0};
+        uint32_t ssrc{0};
+        QByteArray payload;
+    };
+
+    double mono() const { return m_clock.monotonic(); }
+    double wall() const { return m_clock.wall(); }
+    bool fromTrusted(const Server& from) const;
+    bool isP2pCandidate(const Server& from) const;
+    template <std::size_t N>
+    MediaRx acceptRtp(const QByteArray& rtp, const Server& from, SsrcTable<RxStream<N>>& table, Inbound& out);
 
     struct Reply {
         Server server;
@@ -127,8 +212,8 @@ private:
     void sendAudioFrame(const QByteArray& opus, int level);
     void noteAudioTx();
     void noteVideoTx(bool key);
-    bool onAudio(const QByteArray& rtp, bool isP2p = false);
-    bool onVideo(const QByteArray& rtp);
+    MediaRx onAudio(const QByteArray& rtp, const Server& from, bool isP2p);
+    MediaRx onVideo(const QByteArray& rtp, const Server& from);
     void onVideoRtcp(const QByteArray& buf);
     void onP2p(const QByteArray& msg, const QHostAddress& addr, quint16 port);
     void p2pUp(const Server& from);
@@ -195,12 +280,11 @@ private:
     QSet<uint32_t> m_vidWanted;
     QHash<uint32_t, uint32_t> m_renderWidth;
     QHash<uint32_t, int> m_vidAsked;
-    RocTracker m_rxRoc;
-    QHash<uint32_t, RocTracker> m_rxRocs;
-    RocTracker m_videoRoc;
-    QHash<uint32_t, RocTracker> m_videoRocs;
-    QHash<uint32_t, int> m_members;
-    QHash<uint32_t, Speak> m_speak;
+    SsrcTable<RxStream<64>> m_audioRx;
+    SsrcTable<RxStream<1024>> m_videoRx;
+    SsrcTable<int> m_members;
+    SsrcTable<Speak> m_speak;
+    EngineClock m_clock{systemClock()};
     QHash<uint32_t, double> m_pliAt;
     double m_lastPliAt{0};
     QVector<Queued> m_vOut;
@@ -220,8 +304,6 @@ private:
     uint32_t m_changeAddrSeq{0};
     QString m_localIpSig;
     double m_lastIpCheckAt{0};
-    QSet<uint64_t> m_seenAudioSeqs;
-    std::deque<uint64_t> m_seenAudioOrder;
     double m_startedAt{0};
     std::optional<Server> m_p2pPath;
     bool m_p2pSeen{false};

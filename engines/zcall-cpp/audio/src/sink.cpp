@@ -5,7 +5,9 @@
 #include "pulse_api.h"
 
 #include <chrono>
+#include <csignal>
 #include <cstring>
+#include <signal.h>
 #include <thread>
 
 namespace zcall::audio {
@@ -94,6 +96,7 @@ std::unique_ptr<PipeSink> PipeSink::start(const std::vector<std::string>& cmd, s
     auto proc = Process::spawn(cmd, o, error);
     if (!proc) return nullptr;
     auto sink = std::unique_ptr<PipeSink>(new PipeSink);
+    sink->m_childPid.store(proc->pid());
     sink->m_proc = std::move(proc);
     sink->m_zero.assign(1920, 0);
     return sink;
@@ -125,6 +128,7 @@ bool PipeSink::replace(const std::vector<std::string>& cmd, std::string* error) 
     {
         std::lock_guard<std::mutex> lock(m_lock);
         old = std::move(m_proc);
+        m_childPid.store(fresh->pid());
         m_proc = std::move(fresh);
     }
     if (old) {
@@ -139,11 +143,17 @@ void PipeSink::close() {
     {
         std::lock_guard<std::mutex> lock(m_lock);
         old = std::move(m_proc);
+        m_childPid.store(-1);
     }
     if (old) {
         old->closeStdin();
         old->wait(-1);
     }
+}
+
+void PipeSink::abort() {
+    const int pid = m_childPid.load();
+    if (pid > 0) ::kill(pid, SIGKILL);
 }
 
 namespace {

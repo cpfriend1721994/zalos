@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Chat Settings & Default Quick Emoji:** Added a dedicated Settings › Chat Settings section holding chat background options and a configurable default quick emoji (default: Like `👍`), updating both the composer quick-send button and the hover quick-react button under each message.
 - **System Tray Notifications Toggle & Settings Shortcut:** Added `Notifications` (toggle) and `Settings` entries to the system tray menu.
 - **Interface Scale:** Added `80%`, `90%`, `100%`, `125%`, and `150%` UI scale options under Settings › Appearance (with restart banner and clean isolation from launched external browsers/file dialogs).
+- **Multi-Monitor & Wayland Portal Screen Sharing:** sharing your screen in a 1-1 video call now starts immediately when only one monitor is connected; with multiple monitors on X11 (or `grim` fallback), a screen picker shows previews, monitor names, resolutions, and an "All monitors" stitched option. On Wayland, Zalos uses the system ScreenCast portal and loads `libpipewire-0.3.so.0` at runtime (falling back to helper tools when unavailable, with no new hard dependency).
 
 ### Changed & Improved
 - **Bundled libopus 1.6.1 for Calls:** the call audio engine (`zalos-call-audio`) now links its own libopus 1.6.1 instead of loading the system copy or a private fallback, so voice calls use the same codec build on every install. `zalos --check-deps` reports `libopus 1.6.1`. Packagers who need the distribution's libopus can configure with `-DZALOS_SYSTEM_OPUS=ON`.
@@ -22,11 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Polls in Chat:** pick an option directly on the poll card and press "Bình chọn" there, without opening details. The vote dialog's confirm button is also "Bình chọn". An empty vote is no longer sent; Zalos asks you to choose an option first.
 - **Less Debug Logging:** debug log files written during poll and call troubleshooting are removed. Phone history sync traces stay in `logs/errors.log` and `mobile-sync.log`.
 - **Sync v2 Decoding:** zstd batches are always decoded by the streaming decoder, so batches with several frames of declared size no longer fail.
+- **Tray Status Updates Live:** the system tray availability follows the tray host as it appears or disappears, and the window no longer waits on the tray host while it is checked.
+- **Toast Above Call Bar:** notifications no longer cover the call control bar while the call overlay is expanded.
+- **Group Link Retry:** when the group link cannot be loaded, the manage panel shows an error with a retry button instead of "link disabled".
+- **Confirmed Changes Only:** profile, friend, group name and forward actions report success only after the server confirms them; while offline they are refused with a message.
+- **Storage Tab Loads in Background:** the storage tab shows a loading state and fills in usage when it is ready.
+- **Faster Startup With Older Cache:** cached chats parsed by an older version are migrated in small steps, so startup no longer freezes.
 
 ### Fixed
 - **Poll Votes Not Recorded:** choosing an option and pressing "Bình chọn" now sends the selected option; options are read by id even when the server uses another field name; a reused poll card no longer keeps selections from another poll.
 - **Poll Vote Button Stays Locked:** after you vote, the "Bình chọn" / "Đổi lựa chọn" button in the poll card and in the poll dialog stays disabled until your selection differs from your saved vote, including after returning to the chat. Changing a selection works again in both places.
-- **Crash When Opening a Poll Chat:** a debug iterator misuse in the poll detail path is removed.
 - **Older Messages Stuck Loading:** a stale history reply no longer leaves the loading flag set, so older messages can load again.
 - **Unread Counts Reset:** unread counts of conversations whose messages are not loaded are kept on read-point sync.
 - **Messages Marked Seen While Hidden:** messages arriving while the window is hidden in the tray are counted as unread; seen is sent once the window is visible again.
@@ -42,12 +48,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sent Friend Requests:** a failed refresh keeps the existing list.
 - **Malformed Packets:** a failed HMAC computation is rejected instead of reading past the buffer; the camera stop path no longer races with its encode thread.
 - **Call Bridge Bounds:** an out-of-range UI frame size from the call engine is rejected instead of stalling the parser.
+- **Photo Grouping Refresh:** when a message text changes, the neighbouring photos and stickers in the open chat regroup right away.
+- **Search After Chat Rename:** renaming a chat re-applies the active search and stranger filter, so the list matches the new name.
+- **Headset Plugged In During Calls:** plugging in or removing a microphone or speaker during a call refreshes the device list without reopening the device menu.
+- **Group Input Lock After Role Change:** the message box lock of a group updates when admin or deputy rights change in group settings.
 - **Storage Cleanup Off the UI Thread:** changing the avatar limit or max age runs cleanup in the background.
 - **Notification Sounds:** starting a new sound waits for the previous player to exit; the "Yours" folder label follows the app language.
 - **Image Decoding Limit:** the image allocation limit is set once at startup instead of from worker threads.
 - **Phone History Worker Safety:** the sync worker hands results to the app thread without holding a raw pointer across threads.
 - **Faster Phone History Import:** message lookups by client message id now use their SQLite partial indexes (the query repeats `cli_msg_id <> ''`), so saving each synced message no longer scans the whole conversation and large phone history imports no longer slow down quadratically (#13, thanks @nguyenphivn).
 - **Phone History Sync from iOS:** Sync v2 batches compressed as zstd frames without a content size (sent by iOS) are now decompressed with a bounded streaming decoder (64 MiB cap, concatenated frames supported, truncated or trailing data rejected) instead of failing (#15 & #16, thanks @nguyenphivn).
+- **Quick Message Form:** the keyword and text fields clear after saving or cancelling, and fill with the right entry when you edit another one.
+- **Unfriended Users Removed:** a user removed from friends stays out of the friend list after restart.
+- **Read Sync Not Starved:** read-point sync runs during a steady stream of incoming messages instead of waiting for a quiet moment.
+- **Composer Lock After Deputy Change:** the "only admins can send" state updates at once when you are made or removed as deputy admin of an open group.
+- **Alias Change in Group Chat:** changing a friend's alias updates sender names in an open group chat at once.
+- **Pinned Poll Edits:** the poll card in a chat refreshes when a pinned poll is edited.
+- **Stranger Name Retry:** a stranger's name lookup that failed is retried the next time the chat is opened.
+- **Blocked List Over 100:** the blocked list loads every page, not only the first 100 entries.
+- **Reminders Stable:** reminders no longer reload when an unrelated conversation changes.
+- **Voice Note Re-record:** recording again right after a voice note no longer loses the first clip.
+- **Mic Recovers After Unplug:** the call microphone recovers after being unplugged and plugged back in, without ending the call.
+- **Call Packets From Unknown Sources:** relay and peer-to-peer call packets from unexpected sources are ignored, and replayed packets are dropped.
+- **Smoother Call Volume:** the call volume slider applies changes without lag or out-of-order values.
+- **Screen Share Unavailable:** when the screen cannot be captured, screen share shows "unavailable" instead of sharing the Zalos window.
+- **Offline Store Warnings:** closing the offline store no longer logs duplicate connection warnings.
+- **Album Spacing:** spacing between items in long media albums is consistent.
+- **Screenshot Keeps Maximized / Fullscreen Window:** capturing a screenshot with the Zalos window visible no longer shrinks a maximized or fullscreen window back to the default size; restoring from minimized and hiding via shortcut also preserve the window state.
+- **Video Calls & Video Playback Without Hardware Acceleration:** local camera preview, remote call video, screen-share preview, and in-app video playback now render via a native software video surface when hardware acceleration is off instead of showing a blank screen.
 
 ## [1.3.1] - 2026-11-25
 

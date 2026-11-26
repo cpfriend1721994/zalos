@@ -41,7 +41,7 @@
   <releases>
     <release version="1.3.2" date="2026-11-26">
       <description>
-        <p>Added a dedicated Chat Settings section with chat background options and a configurable default quick emoji (composer quick-send and message hover quick-react), tray menu toggles for notifications and Settings, and 80%-150% interface scaling in Settings &gt; Appearance. Also fixes faster phone history import, iOS Sync v2 streaming zstd batches, and --force-sync-v2 startup handling. Poll cards keep the vote button disabled once you have voted.</p>
+        <p>Added a dedicated Chat Settings section with chat background options and a configurable default quick emoji (composer quick-send and message hover quick-react), tray menu toggles for notifications and Settings, 80%-150% interface scaling in Settings &gt; Appearance, and multi-monitor X11 / Wayland portal screen sharing. Also fixes faster phone history import, iOS Sync v2 streaming zstd batches, --force-sync-v2 startup handling, poll vote locking, unfriended users reappearing after restart, voice note re-recording, call microphone recovery after unplugging, screenshot window state preservation, and video calls and playback without hardware acceleration.</p>
       </description>
     </release>
     <release version="1.3.1" date="2026-11-25">

@@ -19,6 +19,44 @@ QByteArray bytesOf(std::initializer_list<unsigned char> values) {
     return out;
 }
 
+QByteArray fieldBytes(int fn, const QByteArray& body) {
+    QByteArray out;
+    out.append(static_cast<char>((fn << 3) | 2));
+    int len = body.size();
+    while (len >= 0x80) {
+        out.append(static_cast<char>((len & 0x7f) | 0x80));
+        len >>= 7;
+    }
+    out.append(static_cast<char>(len));
+    out.append(body);
+    return out;
+}
+
+QByteArray fieldVarint(int fn, quint64 v) {
+    QByteArray out;
+    out.append(static_cast<char>(fn << 3));
+    while (v >= 0x80) {
+        out.append(static_cast<char>((v & 0x7f) | 0x80));
+        v >>= 7;
+    }
+    out.append(static_cast<char>(v));
+    return out;
+}
+
+QByteArray singleMessageChunk() {
+    const QByteArray attach = fieldBytes(5, QByteArray("photo.jpg")) + fieldBytes(6, QByteArray("https://example/p.jpg"));
+    const QByteArray meta = fieldBytes(1, attach);
+    const QByteArray msg = fieldBytes(1, QByteArray("oneone/sender1"))
+                         + fieldVarint(2, 1001)
+                         + fieldVarint(4, 3)
+                         + fieldVarint(5, 1700000000000ULL)
+                         + fieldBytes(6, QByteArray("g999"))
+                         + fieldBytes(7, QByteArray("xin chao"))
+                         + fieldBytes(8, meta);
+    const QByteArray part = fieldBytes(1, QByteArray("oneone/peer1")) + fieldBytes(2, msg);
+    return fieldBytes(2, part);
+}
+
 }
 
 class TestSyncV2 : public QObject {
@@ -30,6 +68,8 @@ private slots:
     void framesRejectOversizedLength();
     void protoParsesVarintBytesAndFixed32();
     void protoRejectsTruncatedAndGroups();
+    void protoLengthDelimitedViewPointsIntoInput();
+    void protoRejectsTruncatedLengthDelimited();
     void zstdRawBlockFrame();
     void zstdRejectsGarbage();
     void zstdFrameWithoutContentSize();
@@ -44,26 +84,28 @@ private slots:
     void keyPairAndAgreementRoundTrip();
     void protoSyncV2ChunkParsesPartitionAndMessage();
     void protoSyncV2ConversationAndMetaFields();
+    void protoSyncV2ChunkPinsDecodedFieldDefaults();
+    void protoUtf8NameFieldsRoundTrip();
     void fallbackDecisions();
 };
 
 void TestSyncV2::framesSplitInLittleEndianLength() {
     const QByteArray data = bytesOf({3, 0, 0, 0, 'a', 'b', 'c', 0, 0, 0, 0});
-    QVector<QByteArray> frames;
+    QVector<QByteArrayView> frames;
     QVERIFY(splitFrames(data, &frames));
     QCOMPARE(frames.size(), 2);
-    QCOMPARE(frames.at(0), QByteArray("abc"));
+    QCOMPARE(frames.at(0).toByteArray(), QByteArray("abc"));
     QVERIFY(frames.at(1).isEmpty());
 }
 
 void TestSyncV2::framesRejectTruncatedBody() {
-    QVector<QByteArray> frames;
+    QVector<QByteArrayView> frames;
     QVERIFY(!splitFrames(bytesOf({4, 0, 0, 0, 'a'}), &frames));
     QVERIFY(!splitFrames(bytesOf({1, 0}), &frames));
 }
 
 void TestSyncV2::framesRejectOversizedLength() {
-    QVector<QByteArray> frames;
+    QVector<QByteArrayView> frames;
     QVERIFY(!splitFrames(bytesOf({0xff, 0xff, 0xff, 0x7f, 'a', 'b'}), &frames));
     QVERIFY(!splitFrames(bytesOf({0x01, 0x00, 0x00, 0x04, 'a', 'b'}), &frames));
 }
@@ -77,7 +119,7 @@ void TestSyncV2::protoParsesVarintBytesAndFixed32() {
     QCOMPARE(fields->at(0).wireType, 0);
     QCOMPARE(fields->at(0).varint, quint64(150));
     QCOMPARE(fields->at(1).number, 2);
-    QCOMPARE(fields->at(1).bytes, QByteArray("ab"));
+    QCOMPARE(fields->at(1).bytes.toByteArray(), QByteArray("ab"));
     QCOMPARE(fields->at(2).number, 3);
     QCOMPARE(fields->at(2).wireType, 5);
     QCOMPARE(fields->at(2).bytes.size(), 4);
@@ -88,6 +130,26 @@ void TestSyncV2::protoRejectsTruncatedAndGroups() {
     QVERIFY(!parseProto(bytesOf({0x0b})).has_value());
     QVERIFY(!parseProto(bytesOf({0x08})).has_value());
     QVERIFY(!parseProto(bytesOf({0x00, 0x01})).has_value());
+}
+
+void TestSyncV2::protoLengthDelimitedViewPointsIntoInput() {
+    const QByteArray input = bytesOf({0x12, 0x02, 'a', 'b', 0x1d, 0x01, 0x00, 0x00, 0x00});
+    const auto fields = parseProto(input);
+    QVERIFY(fields.has_value());
+    QCOMPARE(fields->size(), 2);
+    QVERIFY(fields->at(0).bytes.data() == input.constData() + 2);
+    QCOMPARE(fields->at(0).bytes.size(), 2);
+    QVERIFY(fields->at(1).bytes.data() == input.constData() + 5);
+    QCOMPARE(fields->at(1).bytes.size(), 4);
+}
+
+void TestSyncV2::protoRejectsTruncatedLengthDelimited() {
+    QVERIFY(!parseProto(bytesOf({0x12, 0x05, 'a', 'b', 'c'})).has_value());
+    QVERIFY(!parseProto(bytesOf({0x12, 0x02, 'a'})).has_value());
+    QVERIFY(!parseProto(bytesOf({0x12, 0x80})).has_value());
+    QVERIFY(!parseProto(bytesOf({0x12})).has_value());
+    QVector<ParsedSyncV2Partition> parts;
+    QVERIFY(!parseSyncV2Chunk(bytesOf({0x12, 0x05, 'a'}), &parts));
 }
 
 void TestSyncV2::zstdRawBlockFrame() {
@@ -254,40 +316,7 @@ void TestSyncV2::keyPairAndAgreementRoundTrip() {
 }
 
 void TestSyncV2::protoSyncV2ChunkParsesPartitionAndMessage() {
-    auto fieldBytes = [](int fn, const QByteArray& body) {
-        QByteArray out;
-        out.append(static_cast<char>((fn << 3) | 2));
-        int len = body.size();
-        while (len >= 0x80) {
-            out.append(static_cast<char>((len & 0x7f) | 0x80));
-            len >>= 7;
-        }
-        out.append(static_cast<char>(len));
-        out.append(body);
-        return out;
-    };
-    auto fieldVarint = [](int fn, quint64 v) {
-        QByteArray out;
-        out.append(static_cast<char>(fn << 3));
-        while (v >= 0x80) {
-            out.append(static_cast<char>((v & 0x7f) | 0x80));
-            v >>= 7;
-        }
-        out.append(static_cast<char>(v));
-        return out;
-    };
-
-    const QByteArray attach = fieldBytes(5, QByteArray("photo.jpg")) + fieldBytes(6, QByteArray("https://example/p.jpg"));
-    const QByteArray meta = fieldBytes(1, attach);
-    const QByteArray msg = fieldBytes(1, QByteArray("oneone/sender1"))
-                         + fieldVarint(2, 1001)
-                         + fieldVarint(4, 3)
-                         + fieldVarint(5, 1700000000000ULL)
-                         + fieldBytes(6, QByteArray("g999"))
-                         + fieldBytes(7, QByteArray("xin chao"))
-                         + fieldBytes(8, meta);
-    const QByteArray part = fieldBytes(1, QByteArray("oneone/peer1")) + fieldBytes(2, msg);
-    const QByteArray chunk = fieldBytes(2, part);
+    const QByteArray chunk = singleMessageChunk();
 
     QVector<ParsedSyncV2Partition> parts;
     QVERIFY(parseSyncV2Chunk(chunk, &parts));
@@ -307,29 +336,6 @@ void TestSyncV2::protoSyncV2ChunkParsesPartitionAndMessage() {
 }
 
 void TestSyncV2::protoSyncV2ConversationAndMetaFields() {
-    auto fieldBytes = [](int fn, const QByteArray& body) {
-        QByteArray out;
-        out.append(static_cast<char>((fn << 3) | 2));
-        int len = body.size();
-        while (len >= 0x80) {
-            out.append(static_cast<char>((len & 0x7f) | 0x80));
-            len >>= 7;
-        }
-        out.append(static_cast<char>(len));
-        out.append(body);
-        return out;
-    };
-    auto fieldVarint = [](int fn, quint64 v) {
-        QByteArray out;
-        out.append(static_cast<char>(fn << 3));
-        while (v >= 0x80) {
-            out.append(static_cast<char>((v & 0x7f) | 0x80));
-            v >>= 7;
-        }
-        out.append(static_cast<char>(v));
-        return out;
-    };
-
     const QByteArray c1 = fieldBytes(1, QByteArray("CONV1")) + fieldVarint(2, 1) + fieldVarint(3, 1)
                           + fieldVarint(4, 1700000100000ULL) + fieldVarint(5, 55) + fieldVarint(6, 99);
     const QByteArray c2 = fieldBytes(1, QByteArray("GRP2")) + fieldVarint(2, 2) + fieldVarint(4, 1700000200000ULL);
@@ -378,6 +384,63 @@ void TestSyncV2::protoSyncV2ConversationAndMetaFields() {
     QCOMPARE(parsed.quote->msg, QStringLiteral("quoted text"));
     QCOMPARE(parsed.quote->fromD, QStringLiteral("Owner Name"));
     QCOMPARE(parsed.quote->ttl, quint64(1000));
+}
+
+void TestSyncV2::protoSyncV2ChunkPinsDecodedFieldDefaults() {
+    QVector<ParsedSyncV2Partition> parts;
+    {
+        const QByteArray chunk = singleMessageChunk();
+        QVERIFY(parseSyncV2Chunk(chunk, &parts));
+    }
+    QCOMPARE(parts.size(), 1);
+    QCOMPARE(parts.at(0).id, QStringLiteral("oneone/peer1"));
+    QCOMPARE(parts.at(0).messages.size(), 1);
+    const ParsedSyncV2Message& m = parts.at(0).messages.at(0);
+    QCOMPARE(m.senderId, QStringLiteral("oneone/sender1"));
+    QCOMPARE(m.clientId, quint64(1001));
+    QCOMPARE(m.msgStatus, 0);
+    QCOMPARE(m.msgType, 3);
+    QCOMPARE(m.timestamp, quint64(1700000000000ULL));
+    QCOMPARE(m.globalId, QStringLiteral("g999"));
+    QCOMPARE(m.content, QStringLiteral("xin chao"));
+    QVERIFY(m.mentions.isEmpty());
+    QVERIFY(!m.quote.has_value());
+    QCOMPARE(m.ttl, quint64(0));
+    QCOMPARE(m.attaches.size(), 1);
+    const ParsedSyncV2Attach& a = m.attaches.at(0);
+    QCOMPARE(a.title, QStringLiteral("photo.jpg"));
+    QCOMPARE(a.href, QStringLiteral("https://example/p.jpg"));
+    QVERIFY(a.attachType.isEmpty());
+    QVERIFY(a.action.isEmpty());
+    QVERIFY(a.params.isEmpty());
+    QVERIFY(a.thumb.isEmpty());
+    QVERIFY(a.description.isEmpty());
+    QCOMPARE(a.catId, 0);
+    QCOMPARE(a.id, 0);
+}
+
+void TestSyncV2::protoUtf8NameFieldsRoundTrip() {
+    const QString sender = QStringLiteral("oneone/") + QString::fromUtf8("Người dùng thử nghiệm");
+    const QString quoteName = QString::fromUtf8("Tên thử ") + QString::fromUcs4(U"\U0001F44B");
+    const QString content = QString::fromUtf8("Chào bạn, hẹn gặp lại");
+    const QString quoteText = QString::fromUtf8("Nội dung trích dẫn");
+    QVERIFY(quoteName.toUtf8().size() > quoteName.size());
+
+    const QByteArray quote = fieldBytes(4, quoteName.toUtf8()) + fieldBytes(7, quoteText.toUtf8());
+    const QByteArray meta = fieldBytes(4, quote);
+    const QByteArray msg = fieldBytes(1, sender.toUtf8()) + fieldBytes(7, content.toUtf8()) + fieldBytes(8, meta);
+    const QByteArray chunk = fieldBytes(2, fieldBytes(1, QByteArray("oneone/peer1")) + fieldBytes(2, msg));
+
+    QVector<ParsedSyncV2Partition> parts;
+    QVERIFY(parseSyncV2Chunk(chunk, &parts));
+    QCOMPARE(parts.size(), 1);
+    QCOMPARE(parts.at(0).messages.size(), 1);
+    const ParsedSyncV2Message& m = parts.at(0).messages.at(0);
+    QCOMPARE(m.senderId, sender);
+    QCOMPARE(m.content, content);
+    QVERIFY(m.quote.has_value());
+    QCOMPARE(m.quote->fromD, quoteName);
+    QCOMPARE(m.quote->msg, quoteText);
 }
 
 void TestSyncV2::fallbackDecisions() {

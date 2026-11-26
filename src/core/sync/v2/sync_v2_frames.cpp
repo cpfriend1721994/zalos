@@ -9,11 +9,15 @@ namespace Zalos::Core::Sync::V2 {
 
 namespace {
 
-bool readVarint(const QByteArray& data, int* pos, quint64* value) {
+QString utf8(QByteArrayView bytes) {
+    return QString::fromUtf8(bytes.data(), bytes.size());
+}
+
+bool readVarint(QByteArrayView data, int* pos, quint64* value) {
     quint64 result = 0;
     for (int shift = 0; shift < 64; shift += 7) {
         if (*pos >= data.size()) return false;
-        const quint8 byte = static_cast<quint8>(data.at((*pos)++));
+        const quint8 byte = static_cast<quint8>(data[(*pos)++]);
         result |= static_cast<quint64>(byte & 0x7f) << shift;
         if (!(byte & 0x80)) {
             *value = result;
@@ -25,7 +29,7 @@ bool readVarint(const QByteArray& data, int* pos, quint64* value) {
 
 }
 
-bool splitFrames(const QByteArray& data, QVector<QByteArray>* frames) {
+bool splitFrames(const QByteArray& data, QVector<QByteArrayView>* frames) {
     frames->clear();
     int pos = 0;
     while (pos < data.size()) {
@@ -35,13 +39,13 @@ bool splitFrames(const QByteArray& data, QVector<QByteArray>* frames) {
                                (static_cast<quint32>(p[2]) << 16) | (static_cast<quint32>(p[3]) << 24);
         pos += 4;
         if (static_cast<quint64>(data.size() - pos) < length) return false;
-        frames->append(data.mid(pos, static_cast<int>(length)));
+        frames->append(QByteArrayView(data).mid(pos, static_cast<qsizetype>(length)));
         pos += static_cast<int>(length);
     }
     return true;
 }
 
-std::optional<QVector<ProtoField>> parseProto(const QByteArray& data) {
+std::optional<QVector<ProtoField>> parseProto(QByteArrayView data) {
     QVector<ProtoField> fields;
     int pos = 0;
     while (pos < data.size()) {
@@ -57,20 +61,20 @@ std::optional<QVector<ProtoField>> parseProto(const QByteArray& data) {
                 break;
             case 1:
                 if (data.size() - pos < 8) return std::nullopt;
-                field.bytes = data.mid(pos, 8);
+                field.bytes = QByteArrayView(data.data() + pos, 8);
                 pos += 8;
                 break;
             case 2: {
                 quint64 length = 0;
                 if (!readVarint(data, &pos, &length)) return std::nullopt;
                 if (static_cast<quint64>(data.size() - pos) < length) return std::nullopt;
-                field.bytes = data.mid(pos, static_cast<int>(length));
+                field.bytes = QByteArrayView(data.data() + pos, static_cast<qsizetype>(length));
                 pos += static_cast<int>(length);
                 break;
             }
             case 5:
                 if (data.size() - pos < 4) return std::nullopt;
-                field.bytes = data.mid(pos, 4);
+                field.bytes = QByteArrayView(data.data() + pos, 4);
                 pos += 4;
                 break;
             default:
@@ -133,7 +137,7 @@ ZstdStatus zstdDecompress(const QByteArray& compressed, QByteArray* out, QByteAr
 
 namespace {
 
-std::optional<ParsedSyncV2Attach> parseAttach(const QByteArray& data) {
+std::optional<ParsedSyncV2Attach> parseAttach(QByteArrayView data) {
     const auto fields = parseProto(data);
     if (!fields.has_value()) return std::nullopt;
     ParsedSyncV2Attach att;
@@ -142,7 +146,7 @@ std::optional<ParsedSyncV2Attach> parseAttach(const QByteArray& data) {
             if (f.number == 9) att.catId = static_cast<int>(f.varint);
             else if (f.number == 10) att.id = static_cast<int>(f.varint);
         } else if (f.wireType == 2) {
-            const QString s = QString::fromUtf8(f.bytes);
+            const QString s = utf8(f.bytes);
             if (f.number == 1) att.attachType = s;
             else if (f.number == 3) att.action = s;
             else if (f.number == 4) att.params = s;
@@ -155,13 +159,13 @@ std::optional<ParsedSyncV2Attach> parseAttach(const QByteArray& data) {
     return att;
 }
 
-std::optional<ParsedSyncV2Mention> parseMention(const QByteArray& data) {
+std::optional<ParsedSyncV2Mention> parseMention(QByteArrayView data) {
     const auto fields = parseProto(data);
     if (!fields.has_value()) return std::nullopt;
     ParsedSyncV2Mention mention;
     for (const auto& f : *fields) {
         if (f.wireType == 2 && f.number == 1) {
-            mention.uid = QString::fromUtf8(f.bytes);
+            mention.uid = utf8(f.bytes);
         } else if (f.wireType == 0) {
             if (f.number == 2) mention.pos = static_cast<int>(static_cast<qint32>(f.varint));
             else if (f.number == 3) mention.len = static_cast<int>(static_cast<qint32>(f.varint));
@@ -171,16 +175,16 @@ std::optional<ParsedSyncV2Mention> parseMention(const QByteArray& data) {
     return mention;
 }
 
-std::optional<ParsedSyncV2Quote> parseQuote(const QByteArray& data) {
+std::optional<ParsedSyncV2Quote> parseQuote(QByteArrayView data) {
     const auto fields = parseProto(data);
     if (!fields.has_value()) return std::nullopt;
     ParsedSyncV2Quote quote;
     for (const auto& f : *fields) {
         if (f.wireType == 2) {
-            if (f.number == 1) quote.attach = QString::fromUtf8(f.bytes);
-            else if (f.number == 2) quote.ownerId = QString::fromUtf8(f.bytes);
-            else if (f.number == 4) quote.fromD = QString::fromUtf8(f.bytes);
-            else if (f.number == 7) quote.msg = QString::fromUtf8(f.bytes);
+            if (f.number == 1) quote.attach = utf8(f.bytes);
+            else if (f.number == 2) quote.ownerId = utf8(f.bytes);
+            else if (f.number == 4) quote.fromD = utf8(f.bytes);
+            else if (f.number == 7) quote.msg = utf8(f.bytes);
         } else if (f.wireType == 0) {
             if (f.number == 3) quote.ts = f.varint;
             else if (f.number == 5) quote.cliMsgId = f.varint;
@@ -192,14 +196,14 @@ std::optional<ParsedSyncV2Quote> parseQuote(const QByteArray& data) {
     return quote;
 }
 
-std::optional<ParsedSyncV2Conversation> parseConversation(const QByteArray& data) {
+std::optional<ParsedSyncV2Conversation> parseConversation(QByteArrayView data) {
     const auto fields = parseProto(data);
     if (!fields.has_value()) return std::nullopt;
     ParsedSyncV2Conversation conv;
     bool hasConvType = false;
     for (const auto& f : *fields) {
         if (f.wireType == 2 && f.number == 1) {
-            conv.convId = QString::fromUtf8(f.bytes);
+            conv.convId = utf8(f.bytes);
         } else if (f.wireType == 0) {
             if (f.number == 2) {
                 conv.convType = static_cast<int>(static_cast<qint32>(f.varint));
@@ -219,7 +223,7 @@ std::optional<ParsedSyncV2Conversation> parseConversation(const QByteArray& data
     return conv;
 }
 
-std::optional<ParsedSyncV2Message> parseMessage(const QByteArray& data) {
+std::optional<ParsedSyncV2Message> parseMessage(QByteArrayView data) {
     const auto fields = parseProto(data);
     if (!fields.has_value()) return std::nullopt;
     ParsedSyncV2Message msg;
@@ -230,9 +234,9 @@ std::optional<ParsedSyncV2Message> parseMessage(const QByteArray& data) {
             else if (f.number == 4) msg.msgType = static_cast<int>(f.varint);
             else if (f.number == 5) msg.timestamp = f.varint;
         } else if (f.wireType == 2) {
-            if (f.number == 1) msg.senderId = QString::fromUtf8(f.bytes);
-            else if (f.number == 6) msg.globalId = QString::fromUtf8(f.bytes);
-            else if (f.number == 7) msg.content = QString::fromUtf8(f.bytes);
+            if (f.number == 1) msg.senderId = utf8(f.bytes);
+            else if (f.number == 6) msg.globalId = utf8(f.bytes);
+            else if (f.number == 7) msg.content = utf8(f.bytes);
             else if (f.number == 8) {
                 const auto metaFields = parseProto(f.bytes);
                 if (metaFields.has_value()) {
@@ -256,12 +260,12 @@ std::optional<ParsedSyncV2Message> parseMessage(const QByteArray& data) {
     return msg;
 }
 
-std::optional<ParsedSyncV2Partition> parsePartition(const QByteArray& data) {
+std::optional<ParsedSyncV2Partition> parsePartition(QByteArrayView data) {
     const auto fields = parseProto(data);
     if (!fields.has_value()) return std::nullopt;
     ParsedSyncV2Partition part;
     for (const auto& f : *fields) {
-        if (f.number == 1 && f.wireType == 2) part.id = QString::fromUtf8(f.bytes);
+        if (f.number == 1 && f.wireType == 2) part.id = utf8(f.bytes);
         else if (f.number == 2 && f.wireType == 2) {
             if (const auto msg = parseMessage(f.bytes)) part.messages.append(*msg);
         }

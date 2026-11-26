@@ -28,11 +28,8 @@ Item {
         if (root.error.length === 0) root.editingId = 0;
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#000000"
-        opacity: 0.5
-        MouseArea { anchors.fill: parent; onClicked: root.close() }
+    ZModalScrim {
+        onDismissed: root.close()
     }
 
     component Swatches: Row {

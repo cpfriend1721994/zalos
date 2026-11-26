@@ -62,8 +62,6 @@ public:
         TimeRole,
         IsMineRole,
         IsE2EERole,
-        IsForwardedRole,
-        ExpireOnRole,
         ReactionRole,
         MessageTypeRole,
         MediaUrlRole,
@@ -97,14 +95,12 @@ public:
     void setSenderResolver(SenderResolver resolver) { m_senderResolver = std::move(resolver); }
     void refreshSenders();
     void refreshRunsAround(int row);
+    void resetRunStarts(int fromRow);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    void addMessage(const QString& text, bool isMine, const QString& sender = "Tôi");
-    void addAttachmentMessage(const QString& type, const QString& text, const QString& url, bool isMine);
-    void addMessageDirect(const QString& convId, const QString& id, const QString& senderName, const QString& text, const QString& timeStr, bool isMine, bool isE2EE, const QString& reaction = "", const QString& messageType = "text", const QString& mediaUrl = "");
     void mergeMessages(const QString& convId, const QVector<MessageItem>& items);
     void confirmMessage(const QString& convId, const QString& localId, const QString& serverId);
     void removeMessage(const QString& convId, const QString& msgId);
@@ -179,9 +175,11 @@ private:
     bool isRunTile(int row) const;
     bool runPairsWithPrevious(int row) const;
     bool joinsPrevious(int row) const;
+    int runStartOf(int row) const;
     static bool drawsBubble(const MessageItem& item);
 
     QVector<MessageItem> m_items;
+    mutable QVector<int> m_runStarts;
     QHash<QString, int> m_activeRowById;
     QHash<QString, int> m_activeRowByCliId;
     SenderResolver m_senderResolver;
@@ -191,7 +189,6 @@ private:
     int m_pendingUnread{0};
     int m_lastMineRow{-1};
     quint64 m_richTextRev{0};
-    quint64 m_synthSeq{0};
     mutable QCache<QString, QString> m_richTextLru{64};
 };
 

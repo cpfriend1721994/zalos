@@ -5,9 +5,11 @@
 class QQmlEngine;
 class QJSEngine;
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QList>
 #include <QObject>
 #include <functional>
 #include <QPointer>
@@ -47,6 +49,77 @@ namespace Zalos::Core::Platform { class DesktopNotifications; class SystemTrayCo
 namespace Zalos::Core::Sync { class MobileHistorySync; }
 
 namespace Zalos::Core::Network {
+
+constexpr int kMaxTrackedIds = 2000;
+
+struct BoundedUnit {};
+
+template <typename Key, typename T>
+class BoundedHash {
+public:
+    using const_iterator = typename QHash<Key, T>::const_iterator;
+    using iterator = typename QHash<Key, T>::iterator;
+
+    qsizetype size() const { return m_map.size(); }
+    bool isEmpty() const { return m_map.isEmpty(); }
+    bool contains(const Key& key) const { return m_map.contains(key); }
+    T value(const Key& key) const { return m_map.value(key); }
+    T value(const Key& key, const T& fallback) const { return m_map.value(key, fallback); }
+    QList<Key> keys() const { return m_order; }
+
+    void insert(const Key& key, const T& mapped = T()) {
+        if (m_map.contains(key)) {
+            m_map.insert(key, mapped);
+            return;
+        }
+        if (m_map.size() >= kMaxTrackedIds) removeOldest();
+        m_map.insert(key, mapped);
+        m_order.append(key);
+    }
+
+    T& operator[](const Key& key) {
+        if (!m_map.contains(key)) insert(key);
+        return m_map[key];
+    }
+
+    qsizetype remove(const Key& key) {
+        if (!m_map.contains(key)) return 0;
+        m_order.removeOne(key);
+        return m_map.remove(key);
+    }
+
+    T take(const Key& key) {
+        if (!m_map.contains(key)) return T();
+        m_order.removeOne(key);
+        return m_map.take(key);
+    }
+
+    void clear() {
+        m_map.clear();
+        m_order.clear();
+    }
+
+    void removeOldest() {
+        if (m_order.isEmpty()) return;
+        m_map.remove(m_order.takeFirst());
+    }
+
+    const_iterator constFind(const Key& key) const { return m_map.constFind(key); }
+    iterator find(const Key& key) { return m_map.find(key); }
+    const_iterator cbegin() const { return m_map.cbegin(); }
+    const_iterator cend() const { return m_map.cend(); }
+    const_iterator begin() const { return m_map.cbegin(); }
+    const_iterator end() const { return m_map.cend(); }
+    iterator begin() { return m_map.begin(); }
+    iterator end() { return m_map.end(); }
+
+private:
+    QHash<Key, T> m_map;
+    QList<Key> m_order;
+};
+
+template <typename Key>
+using BoundedSet = BoundedHash<Key, BoundedUnit>;
 
 class ZaloClient : public QObject {
     Q_OBJECT
@@ -209,6 +282,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT FINAL)
     Q_PROPERTY(QString qtRuntimeVersion READ qtRuntimeVersion CONSTANT FINAL)
     Q_PROPERTY(QString rendererBackend READ rendererBackend NOTIFY appLanguageChanged FINAL)
+    Q_PROPERTY(bool softwareRenderer READ softwareRenderer CONSTANT FINAL)
     Q_PROPERTY(bool multimediaAvailable READ multimediaAvailable CONSTANT FINAL)
     Q_PROPERTY(bool effectsAvailable READ effectsAvailable CONSTANT FINAL)
     Q_PROPERTY(QString platformName READ platformName CONSTANT FINAL)
@@ -225,7 +299,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool startHiddenInTray READ startHiddenInTray WRITE setStartHiddenInTray NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool startWithSystem READ startWithSystem WRITE setStartWithSystem NOTIFY settingsChanged FINAL)
-    Q_PROPERTY(bool trayAvailable READ trayAvailable NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(bool trayAvailable READ trayAvailable NOTIFY trayAvailableChanged FINAL)
     Q_PROPERTY(bool launchHidden READ launchHidden CONSTANT FINAL)
 
     Q_PROPERTY(bool blockTyping READ blockTyping WRITE setBlockTyping NOTIFY privacySettingsChanged FINAL)
@@ -533,6 +607,7 @@ public:
     QString appVersion() const;
     QString qtRuntimeVersion() const;
     QString rendererBackend() const;
+    bool softwareRenderer() const;
     bool multimediaAvailable() const;
     bool effectsAvailable() const;
     QString platformName() const;
@@ -809,6 +884,7 @@ public:
     Q_INVOKABLE void saveMediaTo(const QString& url, const QString& destinationFileUrl);
     Q_INVOKABLE void copyImage(const QString& url);
     Q_INVOKABLE void openFileMessage(const QString& url, const QString& fileName);
+    Q_INVOKABLE void downloadFileMessage(const QString& url, const QString& fileName);
     Q_INVOKABLE void prepareVideoPlayback(const QString& url);
     Q_INVOKABLE static bool isVideoFileName(const QString& nameOrUrl);
     Q_INVOKABLE QString suggestedMediaFileName(const QString& url) const;
@@ -866,8 +942,6 @@ public:
     Q_INVOKABLE void hideWindowToTray();
     Q_SLOT void onScreenshotResponse(uint response, const QVariantMap& results);
 
-    Q_INVOKABLE QVariantMap getDiskUsage(const QString& path = QString());
-    Q_INVOKABLE QVariantMap getDirectorySize(const QString& path);
     Q_INVOKABLE bool generateThumbnail(const QString& inputPath, const QString& outputPath, int width = 256, int height = 256);
     Q_INVOKABLE bool extractVideoThumbnail(const QString& videoPath, const QString& outputPath);
     Q_INVOKABLE QString recognizeImageText(const QString& imagePath);
@@ -965,6 +1039,7 @@ signals:
     void mobileSyncProgressChanged();
     void navigationTabChanged();
     void settingsChanged();
+    void trayAvailableChanged();
     void updateCheckChanged();
     void restartRequested();
     void memoryTrimRequested();
@@ -1003,6 +1078,15 @@ private:
         int memberCount{0};
     };
 
+    struct ProfileIngestOptions {
+        enum class Conversations { Skip, IfPresent, Always };
+        Conversations conversations{Conversations::Skip};
+        bool stripDeviceSuffix{true};
+        bool requireName{true};
+        bool skipExisting{false};
+        bool myDocumentsAlias{false};
+    };
+
     void notifyIncomingCallDbus(const QString& callerName);
     void executeScreenshotCapture();
     void saveSession();
@@ -1032,7 +1116,7 @@ private:
     void purgeExpiredMessages();
     void migrateCachedParses();
     void noteAccountFlags(const QString& uid, const QJsonObject& profile);
-    void openRemoteFile(const QString& url, const QString& fileName, const QString& goneText);
+    void openRemoteFile(const QString& url, const QString& fileName, const QString& goneText, bool openAfter);
     void downloadToFile(const QString& url, const QString& path, std::function<void(const QString& error)> done);
     void queueUnknownSenders(int first, int last);
     void scheduleExpiry();
@@ -1076,6 +1160,7 @@ private:
     void fetchBytes(const QString& url, std::function<void(const QByteArray& data, const QString& error)> done);
     void applyStrangerRank(const QString& id, const QJsonObject& data);
     void persistProfile(const QString& id, bool isGroup);
+    QSet<QString> ingestProfiles(const QJsonObject& profiles, const ProfileIngestOptions& options);
     void applyReadPoints(const QJsonArray& clearUnreads);
     qulonglong readPointOf(const QString& convId);
     bool advanceReadPoint(const QString& convId, const QString& msgId);
@@ -1096,7 +1181,8 @@ private:
                      const QJsonObject& quoted,
                      const QString& localId, const QString& cliMsgId, const QJsonArray& styles = QJsonArray());
     void loadGroupInfo(const QStringList& groupIds);
-    void sendForward(const QString& targetThreadId, const QString& msgId, bool notifySuccess);
+    void sendForward(const QString& targetThreadId, const QString& msgId, bool notifySuccess,
+                     std::function<void(bool ok)> done = {});
     void updateGroupComposite(const QString& groupId);
     void lookupCompositeMembers();
     void resolveUnknownUsers();
@@ -1114,7 +1200,6 @@ private:
     void setSyncing(bool syncing);
 
     void handleReactions(const QJsonArray& reactions, bool isGroup, bool live = false);
-    int messageOwnership(const QString& convId, const QString& msgId) const;
     QString messageSnippet(const QString& convId, const QString& msgId) const;
     void showReactionNotification(const QString& convId, const QString& msgId, const QString& uid, const QString& icon);
     void refreshUnreadReactions();
@@ -1166,6 +1251,7 @@ private:
     QStringList m_stickerQueue;
     QHash<QString, int> m_stickerAttempts;
     int m_stickerInFlight{0};
+    quint64 m_stickerGen{0};
     int m_stickerRevision{0};
     QSet<QString> m_stickerPrefetching;
     bool m_userLookupInFlight{false};
@@ -1199,7 +1285,7 @@ private:
         QString title;
         QString text;
     };
-    QHash<QString, StrangerRank> m_strangerRanks;
+    BoundedHash<QString, StrangerRank> m_strangerRanks;
     QHash<QString, qint64> m_strangerLocks;
     QTimer* m_strangerUnlockTimer{nullptr};
     bool m_friendsKnown{false};
@@ -1235,11 +1321,14 @@ private:
     mutable QHash<QString, QVariantList> m_groupMembersCache;
     QSet<QString> m_memberLookupInFlight;
     QSet<QString> m_compositeLookups;
-    QSet<QString> m_compositeAsked;
-    QSet<QString> m_unresolvedMembers;
-    QHash<qint64, qint64> m_pollFetchedAt;
-    QHash<qint64, QJsonObject> m_pollDetails;
-    QHash<qint64, QString> m_pollGroups;
+    QTimer* m_compositeLookupTimer{nullptr};
+    bool m_compositeLookupInFlight{false};
+    QHash<QString, int> m_compositeRetries;
+    BoundedSet<QString> m_compositeAsked;
+    BoundedSet<QString> m_unresolvedMembers;
+    BoundedHash<qint64, qint64> m_pollFetchedAt;
+    BoundedHash<qint64, QJsonObject> m_pollDetails;
+    BoundedHash<qint64, QString> m_pollGroups;
     qint64 m_pollDialogId{0};
     QString m_pollDialogGroupId;
     bool m_pollDialogVoters{false};
@@ -1250,15 +1339,18 @@ private:
     QVariantList m_quickMessages;
     QHash<QString, int> m_serverSettings;
     QVariantList m_reminders;
+    QString m_remindersConvId;
     bool m_loadingReminders{false};
     QMediaPlayer* m_voicePlayer{nullptr};
     QString m_playingVoiceId;
     qreal m_voicePlaybackRate{1.0};
-    QSet<QString> m_voiceErrors;
+    BoundedSet<QString> m_voiceErrors;
     QHash<QString, QString> m_aliases;
     bool m_realtimeWasUp{false};
     QTimer* m_labelDebounce{nullptr};
     QTimer* m_readPointSyncTimer{nullptr};
+    bool m_readPointSyncPending{false};
+    QElapsedTimer m_readPointSyncFirstAsk;
     QTimer* m_memoryTrimTimer{nullptr};
     QHash<QString, qulonglong> m_readPoints;
     bool m_readPointsLoaded{false};
@@ -1432,6 +1524,9 @@ private:
     QVariantList m_bankList;
     QVariantList m_bankAccounts;
     QVariantList m_blockedUsers;
+    quint64 m_blockedFetchGen{0};
+    QVariantList m_blockedPending;
+    QSet<QString> m_blockedPendingIds;
     QVariantList m_cachedSystemSounds;
     bool m_systemSoundsLoaded{false};
     bool m_systemSoundsLoading{false};

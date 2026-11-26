@@ -7,6 +7,7 @@
 #include <QDirIterator>
 #include <QMediaPlayer>
 #include <QProcess>
+#include <QSaveFile>
 #include <QSet>
 #include <QSettings>
 #include <QSoundEffect>
@@ -154,9 +155,10 @@ QString SoundEngine::renderToFile(const QString& key) {
     QDir().mkpath(dir);
     const QString path = dir + "/" + key + ".wav";
     if (!QFile::exists(path)) {
-        QFile file(path);
+        QSaveFile file(path);
         if (!file.open(QIODevice::WriteOnly)) return {};
-        file.write(renderWav(*recipe));
+        const QByteArray wav = renderWav(*recipe);
+        if (file.write(wav) != wav.size() || !file.commit()) return {};
     }
     return path;
 }

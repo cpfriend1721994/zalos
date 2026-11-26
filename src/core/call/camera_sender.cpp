@@ -1,20 +1,24 @@
 #include "camera_sender.h"
+#include "portal_screen_cast.h"
 #include "platform/multimedia_support.h"
+#include "core/fs/file_utils.h"
 #include "core/media/media_utils.h"
 
+#include <QBuffer>
 #include <QCamera>
 #include <QCameraDevice>
 #include <QCameraFormat>
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
 #include <QMediaCaptureSession>
 #include <QMediaDevices>
 #include <QMutexLocker>
+#include <QPainter>
 #include <QPixmap>
 #include <QProcess>
-#include <QQuickWindow>
 #include <QScreen>
 #include <QStandardPaths>
 #include <QThread>
@@ -22,7 +26,6 @@
 #include <QVideoFrame>
 #include <QVideoFrameFormat>
 #include <QVideoSink>
-#include <QWindow>
 
 #include <cmath>
 #include <cstdlib>
@@ -32,19 +35,31 @@
 namespace Zalos::Core::Call {
 
 namespace {
-void pushImageToPreview(const QImage& img, QVideoSink* sink) {
-    if (!sink || img.isNull()) return;
-    QImage argb = img.format() == QImage::Format_ARGB32 ? img : img.convertToFormat(QImage::Format_ARGB32);
+QVideoFrame previewFrameFor(const QImage& img) {
+    if (img.isNull()) return {};
+    const QImage argb = img.format() == QImage::Format_ARGB32 ? img : img.convertToFormat(QImage::Format_ARGB32);
     const auto fmt = QVideoFrameFormat::pixelFormatFromImageFormat(argb.format());
-    if (fmt == QVideoFrameFormat::Format_Invalid) return;
+    if (fmt == QVideoFrameFormat::Format_Invalid) return {};
     QVideoFrame previewFrame(QVideoFrameFormat(argb.size(), fmt));
-    if (!previewFrame.map(QVideoFrame::WriteOnly)) return;
+    if (!previewFrame.map(QVideoFrame::WriteOnly)) return {};
     const int bpl = previewFrame.bytesPerLine(0);
     for (int y = 0; y < argb.height(); ++y) {
         std::memcpy(previewFrame.bits(0) + y * bpl, argb.constScanLine(y), size_t(argb.width() * 4));
     }
     previewFrame.unmap();
-    sink->setVideoFrame(previewFrame);
+    return previewFrame;
+}
+
+QImage decodeGrabOutput(bool ppm, const QByteArray& bytes, const QString& file) {
+    if (ppm) {
+        QImage captured;
+        captured.loadFromData(bytes, "PPM");
+        return captured;
+    }
+    if (file.isEmpty() || !QFile::exists(file)) return {};
+    QImage captured(file);
+    QFile::remove(file);
+    return captured;
 }
 }
 
@@ -66,11 +81,37 @@ bool CameraSender::cameraAvailable() {
 }
 
 bool CameraSender::screenAvailable() {
-    if (QGuiApplication::primaryScreen() != nullptr) return true;
-    for (QWindow* win : QGuiApplication::topLevelWindows()) {
-        if (win && win->isVisible()) return true;
+    return QGuiApplication::primaryScreen() != nullptr || PortalScreenCast::available();
+}
+
+QImage CameraSender::stitchScreenCaptures(const QList<QPair<QRect, QImage>>& parts) {
+    QRect bounds;
+    for (const auto& part : parts) {
+        if (!part.first.isEmpty() && !part.second.isNull()) {
+            bounds = bounds.united(part.first);
+        }
     }
-    return false;
+    if (bounds.isEmpty()) return {};
+
+    QImage canvas(bounds.size(), QImage::Format_RGB32);
+    canvas.fill(Qt::black);
+    QPainter painter(&canvas);
+    for (const auto& part : parts) {
+        if (part.first.isEmpty() || part.second.isNull()) continue;
+        const QRect dst(part.first.topLeft() - bounds.topLeft(), part.first.size());
+        painter.drawImage(dst, part.second);
+    }
+    return canvas;
+}
+
+QString CameraSender::encodePreviewDataUrl(const QImage& image) {
+    if (image.isNull()) return {};
+    const QImage thumb = image.scaled(320, 180, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    QByteArray bytes;
+    QBuffer buf(&bytes);
+    if (!buf.open(QIODevice::WriteOnly)) return {};
+    if (!thumb.save(&buf, "JPEG", 75)) return {};
+    return QStringLiteral("data:image/jpeg;base64,") + QString::fromLatin1(bytes.toBase64());
 }
 
 bool CameraSender::encoderAvailable() {
@@ -97,11 +138,13 @@ void CameraSender::stopEncodeThread() {
         m_encodeWorker = nullptr;
     }
     m_encodeBusy.store(false);
+    m_previewBusy.store(false);
+    m_grabDecoding = false;
 }
 
 bool CameraSender::start(QString* error) {
     if (m_camera) return true;
-    if (m_screenTimer) stop();
+    if (m_screenTimer || m_portalCast) stop();
     if (!encoderAvailable()) {
         if (error) *error = QStringLiteral("no_encoder");
         return false;
@@ -234,7 +277,7 @@ bool CameraSender::start(QString* error) {
 }
 
 void CameraSender::startWaylandGrab() {
-    if (m_grabProcess || !m_screenTimer) return;
+    if (m_grabProcess || m_grabDecoding || !m_screenTimer) return;
     if (!m_grabToolsInitialized) {
         m_grabToolsInitialized = true;
         m_grabToolIndex = 0;
@@ -249,6 +292,14 @@ void CameraSender::startWaylandGrab() {
     QStringList args;
     QString outFile;
     if (tool == QLatin1String("grim")) {
+        if (m_screenTarget.startsWith(QLatin1String("screen:"))) {
+            bool okIdx = false;
+            const int idx = m_screenTarget.mid(7).toInt(&okIdx);
+            const QList<QScreen*> screens = QGuiApplication::screens();
+            if (okIdx && idx >= 0 && idx < screens.size() && !screens.at(idx)->name().isEmpty()) {
+                args << QStringLiteral("-o") << screens.at(idx)->name();
+            }
+        }
         args << QStringLiteral("-t") << QStringLiteral("ppm") << QStringLiteral("-");
     } else {
         if (m_grabTempFile.isEmpty()) {
@@ -266,27 +317,42 @@ void CameraSender::startWaylandGrab() {
     }
 
     auto* proc = new QProcess(this);
+    proc->setProcessEnvironment(Fs::FileUtils::launchEnvironment(QProcessEnvironment::systemEnvironment()));
     m_grabProcess = proc;
     const QPointer<CameraSender> self(this);
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
             [this, self, proc, tool, outFile](int exitCode, QProcess::ExitStatus) {
-        QImage captured;
-        if (exitCode == 0) {
-            if (tool == QLatin1String("grim")) {
-                captured.loadFromData(proc->readAllStandardOutput(), "PPM");
-            } else if (!outFile.isEmpty() && QFile::exists(outFile)) {
-                captured.load(outFile);
-                QFile::remove(outFile);
-            }
-        }
+        const bool ppm = tool == QLatin1String("grim");
+        const QByteArray stdoutBytes = exitCode == 0 && ppm ? proc->readAllStandardOutput() : QByteArray();
+        const QString stderrText = QString::fromLocal8Bit(proc->readAllStandardError()).trimmed();
         proc->deleteLater();
         if (!self) return;
         if (m_grabProcess == proc) m_grabProcess = nullptr;
-        if (!captured.isNull()) {
-            m_lastCapturedDesktop = captured;
-        } else {
-            ++m_grabToolIndex;
+        if (exitCode != 0 || !m_encodeWorker) {
+            qWarning().noquote() << "screen capture" << tool << "exit" << exitCode << stderrText.left(300);
+            if (++m_grabFailures >= 3) {
+                m_grabFailures = 0;
+                ++m_grabToolIndex;
+            }
+            return;
         }
+        m_grabDecoding = true;
+        QMetaObject::invokeMethod(m_encodeWorker, [this, ppm, stdoutBytes, outFile, tool]() {
+            const QImage captured = decodeGrabOutput(ppm, stdoutBytes, outFile);
+            QMetaObject::invokeMethod(this, [this, captured, tool]() {
+                m_grabDecoding = false;
+                if (captured.isNull()) {
+                    qWarning().noquote() << "screen capture" << tool << "produced no image";
+                    if (++m_grabFailures >= 3) {
+                        m_grabFailures = 0;
+                        ++m_grabToolIndex;
+                    }
+                } else {
+                    m_grabFailures = 0;
+                    m_lastCapturedDesktop = captured;
+                }
+            }, Qt::QueuedConnection);
+        }, Qt::QueuedConnection);
     });
     connect(proc, &QProcess::errorOccurred, this, [this, self, proc, outFile](QProcess::ProcessError) {
         if (!outFile.isEmpty()) QFile::remove(outFile);
@@ -302,6 +368,28 @@ QImage CameraSender::grabDesktopOrWindow() {
     QScreen* scr = QGuiApplication::primaryScreen();
     const bool isWayland = QGuiApplication::platformName().contains(QLatin1String("wayland"));
     if (scr && !isWayland) {
+        if (m_screenTarget == QLatin1String("all")) {
+            QList<QPair<QRect, QImage>> parts;
+            for (QScreen* s : QGuiApplication::screens()) {
+                if (!s) continue;
+                const QPixmap pix = s->grabWindow(0);
+                if (!pix.isNull()) parts.append(qMakePair(s->geometry(), pix.toImage()));
+            }
+            const QImage stitched = stitchScreenCaptures(parts);
+            if (!stitched.isNull()) return stitched;
+        } else if (m_screenTarget.startsWith(QLatin1String("screen:"))) {
+            bool okIdx = false;
+            const int idx = m_screenTarget.mid(7).toInt(&okIdx);
+            const QList<QScreen*> screens = QGuiApplication::screens();
+            QScreen* target = (okIdx && idx >= 0 && idx < screens.size()) ? screens.at(idx) : scr;
+            if (target) {
+                const QPixmap pix = target->grabWindow(0);
+                if (!pix.isNull()) {
+                    const QImage img = pix.toImage();
+                    if (!img.isNull()) return img;
+                }
+            }
+        }
         const QPixmap pix = scr->grabWindow(0);
         if (!pix.isNull()) {
             const QImage img = pix.toImage();
@@ -312,26 +400,33 @@ QImage CameraSender::grabDesktopOrWindow() {
         startWaylandGrab();
         if (!m_lastCapturedDesktop.isNull()) return m_lastCapturedDesktop;
     }
-    for (QWindow* win : QGuiApplication::topLevelWindows()) {
-        if (!win || !win->isVisible()) continue;
-        if (auto* qw = qobject_cast<QQuickWindow*>(win)) {
-            const QImage frame = qw->grabWindow();
-            if (!frame.isNull()) return frame;
-        }
-        if (scr && !isWayland) {
-            const QPixmap pix = scr->grabWindow(win->winId());
-            if (!pix.isNull()) {
-                const QImage img = pix.toImage();
-                if (!img.isNull()) return img;
-            }
-        }
-    }
     return {};
+}
+
+bool CameraSender::screenCaptureExhausted() const {
+    return m_grabToolsInitialized && m_grabToolIndex >= m_grabTools.size() && !m_grabProcess && !m_grabDecoding;
+}
+
+void CameraSender::showPreview(const QImage& image) {
+    if (!m_preview) return;
+    if (!m_encodeWorker) {
+        const QVideoFrame frame = previewFrameFor(image);
+        if (frame.isValid()) m_preview->setVideoFrame(frame);
+        return;
+    }
+    if (m_previewBusy.exchange(true)) return;
+    QMetaObject::invokeMethod(m_encodeWorker, [this, image]() {
+        const QVideoFrame frame = previewFrameFor(image);
+        QMetaObject::invokeMethod(this, [this, frame]() {
+            m_previewBusy.store(false);
+            if (m_preview && frame.isValid()) m_preview->setVideoFrame(frame);
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
 }
 
 void CameraSender::dispatchScreenImage(const QImage& img) {
     if (img.isNull()) return;
-    pushImageToPreview(img, m_preview);
+    showPreview(img);
     if (!m_encodingEnabled.load()) return;
     const qint64 now = m_clock.elapsed();
     int fps = 10;
@@ -354,9 +449,14 @@ void CameraSender::dispatchScreenImage(const QImage& img) {
 
 void CameraSender::captureScreenFrame() {
     QImage img = grabDesktopOrWindow();
+    if (img.isNull() && screenCaptureExhausted()) {
+        stop();
+        emit failed(QStringLiteral("screen_capture_unavailable"));
+        return;
+    }
     if (!img.isNull()) {
         m_lastScreenImage = img;
-    } else if (!m_lastScreenImage.isNull()) {
+    } else {
         img = m_lastScreenImage;
     }
     dispatchScreenImage(img);
@@ -364,13 +464,14 @@ void CameraSender::captureScreenFrame() {
 
 bool CameraSender::startScreen(QString* error) {
     if (m_screenTimer) return true;
-    if (m_camera) stop();
+    stopPortalCast();
+    if (m_camera) stopLocalCapture();
     if (!encoderAvailable()) {
         if (error) *error = QStringLiteral("no_encoder");
         return false;
     }
     if (!screenAvailable()) {
-        if (error) *error = QStringLiteral("no_screen");
+        if (error) *error = QStringLiteral("screen_capture_unavailable");
         return false;
     }
     ensureEncodeThread();
@@ -400,6 +501,97 @@ bool CameraSender::startScreen(QString* error) {
     return true;
 }
 
+bool CameraSender::startPortalScreen(QString* error) {
+    if (m_portalCast) return true;
+    if (!encoderAvailable()) {
+        if (error) *error = QStringLiteral("no_encoder");
+        return false;
+    }
+    if (!PortalScreenCast::available()) {
+        if (error) *error = QStringLiteral("portal_unavailable");
+        return false;
+    }
+
+    auto* cast = new PortalScreenCast(this);
+    m_portalCast = cast;
+    m_portalPending = true;
+    m_portalStreaming = false;
+    const QPointer<CameraSender> self(this);
+
+    connect(cast, &PortalScreenCast::started, this, [this, self, cast]() {
+        if (!self || m_portalCast != cast) return;
+        m_portalPending = false;
+        m_portalStreaming = true;
+        stopLocalCapture();
+        ensureEncodeThread();
+        {
+            QMutexLocker lock(&m_stateMutex);
+            m_screenContent = true;
+            m_screenEncodedSize = QSize();
+            m_reopen = true;
+        }
+        m_forceKey.store(true);
+        m_lastFrameMs = -1;
+        emit portalScreenStarted();
+    });
+
+    connect(cast, &PortalScreenCast::frameReady, this, [this, self, cast](const QImage& img) {
+        if (!self || m_portalCast != cast || !m_portalStreaming) return;
+        dispatchScreenImage(img);
+    });
+
+    connect(cast, &PortalScreenCast::cancelled, this, [this, self, cast]() {
+        if (!self || m_portalCast != cast) return;
+        m_portalCast = nullptr;
+        m_portalPending = false;
+        m_portalStreaming = false;
+        cast->disconnect(this);
+        cast->deleteLater();
+        emit portalScreenCancelled();
+    });
+
+    connect(cast, &PortalScreenCast::failed, this, [this, self, cast](const QString&) {
+        if (!self || m_portalCast != cast) return;
+        const bool wasStreaming = m_portalStreaming;
+        m_portalCast = nullptr;
+        m_portalPending = false;
+        m_portalStreaming = false;
+        cast->disconnect(this);
+        cast->deleteLater();
+        if (wasStreaming) emit portalScreenStopped();
+        else emit portalScreenUnavailable();
+    });
+
+    connect(cast, &PortalScreenCast::stoppedBySystem, this, [this, self, cast]() {
+        if (!self || m_portalCast != cast) return;
+        m_portalCast = nullptr;
+        m_portalPending = false;
+        m_portalStreaming = false;
+        cast->disconnect(this);
+        cast->deleteLater();
+        emit portalScreenStopped();
+    });
+
+    if (!cast->start()) {
+        stopPortalCast();
+        if (error) *error = QStringLiteral("portal_unavailable");
+        return false;
+    }
+    return true;
+}
+
+void CameraSender::stopPortalCast() {
+    m_portalPending = false;
+    m_portalStreaming = false;
+    if (m_portalCast) {
+        PortalScreenCast* cast = m_portalCast;
+        m_portalCast = nullptr;
+        cast->disconnect(this);
+        cast->stop();
+        cast->deleteLater();
+    }
+}
+
 void CameraSender::setPreferredCameraId(const QString& id) {
     if (m_preferredCameraId == id) return;
     m_preferredCameraId = id;
@@ -409,7 +601,7 @@ void CameraSender::setPreferredCameraId(const QString& id) {
     }
 }
 
-void CameraSender::stop() {
+void CameraSender::stopLocalCapture() {
     if (m_repeatTimer) {
         m_repeatTimer->stop();
         m_repeatTimer->deleteLater();
@@ -422,13 +614,17 @@ void CameraSender::stop() {
         m_screenTimer = nullptr;
     }
     if (m_grabProcess) {
-        disconnect(m_grabProcess, nullptr, this, nullptr);
-        if (m_grabProcess->state() != QProcess::NotRunning) {
-            m_grabProcess->kill();
-            m_grabProcess->waitForFinished(300);
-        }
-        m_grabProcess->deleteLater();
+        QProcess* proc = m_grabProcess;
         m_grabProcess = nullptr;
+        disconnect(proc, nullptr, this, nullptr);
+        if (proc->state() == QProcess::NotRunning) {
+            proc->deleteLater();
+        } else {
+            connect(proc, &QProcess::stateChanged, proc, [proc](QProcess::ProcessState state) {
+                if (state == QProcess::NotRunning) proc->deleteLater();
+            });
+            proc->kill();
+        }
     }
     if (!m_grabTempFile.isEmpty()) {
         QFile::remove(m_grabTempFile);
@@ -455,6 +651,11 @@ void CameraSender::stop() {
     m_sink = nullptr;
     m_encoder.close();
     if (m_preview) m_preview->setVideoFrame(QVideoFrame());
+}
+
+void CameraSender::stop() {
+    stopPortalCast();
+    stopLocalCapture();
 }
 
 void CameraSender::setProfile(QSize size, int fps, int bitrate) {
@@ -535,7 +736,7 @@ void CameraSender::processFrame(const QVideoFrame& frame) {
 
 void CameraSender::processScreenImage(const QImage& image) {
     if (image.isNull()) return;
-    pushImageToPreview(image, m_preview);
+    showPreview(image);
     if (!m_encodingEnabled.load()) return;
     const qint64 now = m_clock.elapsed();
     int fps = 10;

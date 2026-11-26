@@ -73,6 +73,7 @@ struct Call {
     QJsonObject config;
     QJsonArray p2p;
     double startedAt{0};
+    double startedMono{0};
     QPointer<QTimer> ringTimer;
     QPointer<QTimer> pingTimer;
     bool muted{false};
@@ -132,7 +133,7 @@ public:
     EngineCore(EmitFn sendFn, MediaBackend* media, CallUi* ui, bool group, QObject* parent = nullptr);
     ~EngineCore() override;
 
-    void setClock(std::function<double()> now) { m_now = std::move(now); }
+    void setClock(const EngineClock& clock);
     void setRandom(std::function<double()> random) { m_random = std::move(random); }
 
     void start();
@@ -147,6 +148,7 @@ public:
     void mediaPeerEnd(const QString& why) override;
     void mediaEarlyAudio(const QString& phase) override;
     void mediaAudioFault(const QString& kind) override;
+    void mediaAudioRecovered(const QString& kind) override;
     void mediaMicVolume(int pct) override;
     void mediaMicAutoGain(bool on) override;
     void mediaMicLevel(int level) override;
@@ -174,6 +176,7 @@ private:
     using CallPtr = std::shared_ptr<Call>;
 
     double now() const { return m_now(); }
+    double wallNow() const { return m_wall(); }
     double newCallId() const;
     void send(const QString& type, const QJsonValue& command, const QJsonObject& data);
     void log(const QString& line) const;
@@ -204,6 +207,7 @@ private:
     void connectCaller(const QString& rtpSerIp);
     void earlyAudio(const QString& phase);
     void audioFault(const QString& kind);
+    void audioRecovered(const QString& kind);
     void peerEnded(const QString& why);
     void onRecvSignal(const QString& command, const QJsonObject& data);
     QJsonObject extendData(const Call& c, const QJsonObject& server, const std::optional<QByteArray>& publicAddr,
@@ -245,6 +249,7 @@ private:
     QJsonObject m_local;
     std::shared_ptr<int> m_groupNotice;
     std::function<double()> m_now;
+    std::function<double()> m_wall;
     std::function<double()> m_random;
 };
 

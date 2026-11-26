@@ -4,7 +4,9 @@
 #include "jitter.h"
 
 #include <array>
+#include <condition_variable>
 #include <map>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -31,10 +33,14 @@ public:
 
     Diag(Playout& playout, Mic* mic, std::string tag);
     ~Diag();
+    Diag(const Diag&) = delete;
+    Diag& operator=(const Diag&) = delete;
+    void requestStop();
     std::string line(const std::vector<std::pair<std::string, PwNode>>* nodes, int resyncs, const std::string& rt);
 
 private:
     void loop();
+    bool stopRequested();
 
     Playout& m_playout;
     Mic* m_mic;
@@ -44,6 +50,9 @@ private:
     double m_since;
     bool m_pw;
     bool m_journal;
+    std::mutex m_stopLock;
+    std::condition_variable m_stopCv;
+    bool m_stop{false};
     std::thread m_thread;
 };
 

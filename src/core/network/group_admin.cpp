@@ -53,6 +53,11 @@ bool GroupAdmin::canAdminister() const {
     return role == QLatin1String("owner") || role == QLatin1String("admin");
 }
 
+bool GroupAdmin::isOwner() const {
+    if (m_groupId.isEmpty() || !m_hooks.myRole) return false;
+    return m_hooks.myRole(m_groupId) == QLatin1String("owner");
+}
+
 QVariantMap GroupAdmin::settings() const {
     QVariantMap out;
     const auto it = m_settings.constFind(m_groupId);
@@ -111,21 +116,38 @@ void GroupAdmin::reload() {
     }
 }
 
+void GroupAdmin::retryLink() {
+    if (m_groupId.isEmpty()) return;
+    m_link = {};
+    emit linkChanged();
+    loadLink();
+}
+
 void GroupAdmin::loadLink() {
     ZaloSession* s = session();
-    if (!s) return;
+    if (!s) {
+        applyLinkError();
+        return;
+    }
     const quint64 gen = m_generation;
     QPointer<GroupAdmin> self(this);
     s->fetchGroupLink(m_groupId, [self, gen](bool ok, const QJsonValue& data, const QString&, int) {
         if (!self || gen != self->m_generation) return;
-        self->applyLink(ok ? data.toObject() : QJsonObject{{"enabled", 0}});
+        if (ok) self->applyLink(data.toObject());
+        else self->applyLinkError();
     });
+}
+
+void GroupAdmin::applyLinkError() {
+    m_link = {{"loaded", true}, {"error", true}};
+    emit linkChanged();
 }
 
 void GroupAdmin::applyLink(const QJsonObject& data) {
     const QString link = data.value("link").toString();
     const bool enabled = data.value("enabled").toInt() == 1 && !link.isEmpty();
     m_link = {{"loaded", true},
+              {"error", false},
               {"enabled", enabled},
               {"link", enabled ? link : QString()},
               {"expiration", enabled ? toMs(data.value("expiration_date")) : 0}};
@@ -135,6 +157,11 @@ void GroupAdmin::applyLink(const QJsonObject& data) {
 void GroupAdmin::createLink() {
     ZaloSession* s = session();
     if (!s || !canAdminister()) return;
+    if (m_link.value("error").toBool()) {
+        notice(t("Chưa tải được link nhóm, hãy thử lại trước khi tạo link mới",
+                 "The group link did not load. Retry before creating a new one"));
+        return;
+    }
     const quint64 gen = m_generation;
     QPointer<GroupAdmin> self(this);
     s->newGroupLink(m_groupId, [self, gen](bool ok, const QJsonValue& data, const QString& e, int code) {

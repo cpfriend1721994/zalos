@@ -77,6 +77,8 @@ set(ZALOS_SOURCES
     src/core/call/h264_codec.cpp
     src/core/call/peer_video.h
     src/core/call/peer_video.cpp
+    src/core/call/portal_screen_cast.h
+    src/core/call/portal_screen_cast.cpp
     src/core/platform/desktop_notifications.h
     src/core/platform/desktop_notifications.cpp
     src/core/platform/single_instance.h
@@ -85,6 +87,8 @@ set(ZALOS_SOURCES
     src/core/network/message_scheduler.cpp
     src/core/media/voice_recorder.h
     src/core/media/voice_recorder.cpp
+    src/core/media/software_video_item.h
+    src/core/media/software_video_item.cpp
     src/core/platform/shortcut_map.h
     src/core/platform/shortcut_map.cpp
     src/core/platform/wheel_boost.h
@@ -198,6 +202,9 @@ qt_add_qml_module(zalos
         src/qml/ChatPollBlock.qml
         src/qml/LockScreen.qml
         src/qml/ZButton.qml
+        src/qml/ZIconButton.qml
+        src/qml/SearchHitRow.qml
+        src/qml/ZModalScrim.qml
         src/qml/ZTextField.qml
         src/qml/ZComboBox.qml
         src/qml/SyncPromptDialog.qml
@@ -384,10 +391,12 @@ if(BUILD_TESTING)
         src/core/call/camera_sender.cpp
         src/core/call/h264_codec.cpp
         src/core/call/peer_video.cpp
+        src/core/call/portal_screen_cast.cpp
         src/core/platform/desktop_notifications.cpp
         src/core/platform/single_instance.cpp
         src/core/network/message_scheduler.cpp
         src/core/media/voice_recorder.cpp
+        src/core/media/software_video_item.cpp
         src/core/platform/shortcut_map.cpp
         src/core/platform/wheel_boost.cpp
         src/core/platform/middle_autoscroll.cpp

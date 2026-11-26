@@ -125,7 +125,7 @@ Message transportError(const QString& raw) {
         case 401:
         case 403: m = make("Bạn không có quyền thực hiện thao tác này.",
                            "You don't have permission for this action.", true); break;
-        case 404: m = make("Không tìm thấy nội dung này trên máy chủ Zalo. Có thể nó đã bị xoá hoặc hết hạn.",
+        case 404: m = make("Không tìm thấy nội dung này trên máy chủ Zalo. Có thể nó đã bị xóa hoặc hết hạn.",
                            "This content was not found on Zalo's servers. It may have been deleted or expired.", true);
             break;
         case 413: m = make("Tệp quá lớn để gửi.", "The file is too large to send.", true); break;
@@ -158,7 +158,7 @@ Message transportError(const QString& raw) {
     const QString lower = raw.toLower();
     if (lower.contains(QLatin1String("canceled")) || lower.contains(QLatin1String("cancelled"))
         || lower.contains(QLatin1String("aborted"))) {
-        return make("yêu cầu đã bị huỷ", "the request was cancelled");
+        return make("yêu cầu đã bị hủy", "the request was cancelled");
     }
     if (lower.contains(QLatin1String("host")) || lower.contains(QLatin1String("refused"))
         || lower.contains(QLatin1String("timed out")) || lower.contains(QLatin1String("timeout"))

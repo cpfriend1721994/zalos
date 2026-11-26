@@ -25,6 +25,7 @@ public:
     void status(const QString& code, double since = 0, const QJsonObject& params = {}) override;
     void close(const QString& code, const QJsonObject& params = {}) override;
     void notice(const QString& code, const QJsonObject& params = {}) override;
+    void clearNotice() override;
     void micVolume(int pct) override;
     void micAutoGain(bool on) override;
     void micLevel(int level) override;

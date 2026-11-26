@@ -183,6 +183,9 @@ public:
     static bool isSystemTrayAvailable();
     static QByteArray toSniArgb32(const QImage& image);
 
+    bool cachedAvailable() const { return m_hostAvailable; }
+    void seedAvailabilitySync();
+
     void setUnreadCount(int count, bool hasMentions = false);
     void setHasMentions(bool hasMentions);
     void setAntiPeeking(bool on);
@@ -217,6 +220,7 @@ public:
     QAction* callHangupAction() const { return m_callHangupAction; }
 
 signals:
+    void availabilityChanged();
     void toggleWindowRequested();
     void quitRequested();
     void toggleDarkModeRequested();
@@ -241,6 +245,8 @@ private slots:
 private:
     void setupMenu();
     void setupDbus();
+    void refreshAvailabilityAsync();
+    void setAvailable(bool available);
     QImage createBadgeImage(int count, bool hasMentions);
     QVariantMap actionProperties(const QAction* action, const QStringList& filter) const;
     void notifyMenuChanged();
@@ -255,6 +261,7 @@ private:
     bool m_busObjectsRegistered{false};
     bool m_registered{false};
     bool m_hostAvailable{false};
+    quint64 m_probeGen{0};
     QImage m_badgeImage;
     QString m_toolTip;
     uint m_menuRevision{1};

@@ -6,8 +6,10 @@
 #include "playout.h"
 #include "subprocess.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <mutex>
 #include <sstream>
 
 namespace zcall::audio {
@@ -103,10 +105,25 @@ Diag::Diag(Playout& playout, Mic* mic, std::string tag)
     m_pw = which("pw-top").has_value();
     m_journal = which("journalctl").has_value();
     m_thread = std::thread([this] { loop(); });
-    m_thread.detach();
 }
 
-Diag::~Diag() = default;
+Diag::~Diag() {
+    requestStop();
+    if (m_thread.joinable()) m_thread.join();
+}
+
+void Diag::requestStop() {
+    {
+        std::lock_guard<std::mutex> lock(m_stopLock);
+        m_stop = true;
+    }
+    m_stopCv.notify_all();
+}
+
+bool Diag::stopRequested() {
+    std::lock_guard<std::mutex> lock(m_stopLock);
+    return m_stop;
+}
 
 std::string Diag::line(const std::vector<std::pair<std::string, PwNode>>* nodes, int resyncs, const std::string& rt) {
     const auto st = m_playout.stats().snapshot();
@@ -150,7 +167,10 @@ std::string Diag::line(const std::vector<std::pair<std::string, PwNode>>* nodes,
 
 void Diag::loop() {
     for (;;) {
-        if (m_playout.waitStop(kDiagSec)) return;
+        {
+            std::unique_lock<std::mutex> lock(m_stopLock);
+            if (m_stopCv.wait_for(lock, std::chrono::seconds(kDiagSec), [this] { return m_stop; })) return;
+        }
         std::vector<std::pair<std::string, PwNode>> nodes;
         if (m_pw) {
             const RunResult r = run({"pw-top", "-b", "-n", "2"}, 5000);
@@ -165,6 +185,7 @@ void Diag::loop() {
             rs = r.ok() ? countResyncs(r.out) : -1;
         }
         m_since = now;
+        if (stopRequested()) return;
         logLine(line(m_pw ? &nodes : nullptr, rs, rtSummary()));
     }
 }

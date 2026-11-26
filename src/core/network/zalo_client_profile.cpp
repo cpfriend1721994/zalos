@@ -1,5 +1,7 @@
 #include "zalo_client_internal.h"
 
+#include <QCollator>
+
 namespace Zalos::Core::Network {
 
 using namespace Detail;
@@ -208,31 +210,53 @@ void ZaloClient::updateMyProfile(const QString& name, int gender, const QString&
         emit notice(L("Tên hiển thị không được để trống", "Display name cannot be empty"));
         return;
     }
+    if (!m_isLoggedIn || !m_apiClient->session()) {
+        emit notice(L("Không thể cập nhật hồ sơ: ", "Failed to update profile: ") + friendlyError(QStringLiteral("not_logged_in")));
+        return;
+    }
     const QString cleanName = name.trimmed();
     const QString cleanBio = bio.trimmed();
     const bool bioChanged = cleanBio != m_myProfile.status;
+    auto left = std::make_shared<int>(bioChanged ? 2 : 1);
+    auto failed = std::make_shared<bool>(false);
+    const auto settle = [this, left, failed]() {
+        if (!m_isLoggedIn || --*left > 0 || *failed) return;
+        emit notice(L("Đã cập nhật thông tin cá nhân", "Profile updated successfully"));
+    };
 
-    m_myProfile.displayName = cleanName;
-    m_myProfile.gender = gender;
-    m_myProfile.sdob = dob;
-    m_myProfile.status = cleanBio;
-    m_userName = cleanName;
-    m_activeProfile = m_myProfile;
-
-    emit userProfileChanged();
-    emit currentProfileChanged();
-    saveSession();
-    emit notice(L("Đã cập nhật thông tin cá nhân", "Profile updated successfully"));
-
-    if (m_isLoggedIn && m_apiClient->session()) {
-        m_apiClient->session()->updateProfile(cleanName, gender, dob, [this](bool ok, const QJsonValue&, const QString& err, int) {
-            if (!ok) emit notice(L("Không thể cập nhật hồ sơ: ", "Failed to update profile: ") + friendlyError(err));
-        });
-        if (bioChanged) {
-            m_apiClient->session()->updateProfileBio(cleanBio, [this](bool ok, const QJsonValue&, const QString& err, int) {
-                if (!ok) emit notice(L("Không thể cập nhật trạng thái: ", "Failed to update status: ") + friendlyError(err));
-            });
+    auto* session = m_apiClient->session();
+    session->updateProfile(cleanName, gender, dob, [this, left, failed, settle, cleanName, gender, dob](bool ok, const QJsonValue&, const QString& err, int) {
+        if (!m_isLoggedIn) return;
+        if (ok) {
+            m_myProfile.displayName = cleanName;
+            m_myProfile.gender = gender;
+            m_myProfile.sdob = dob;
+            m_userName = cleanName;
+            m_activeProfile = m_myProfile;
+            emit userProfileChanged();
+            emit currentProfileChanged();
+            saveSession();
+        } else {
+            *failed = true;
+            emit notice(L("Không thể cập nhật hồ sơ: ", "Failed to update profile: ") + friendlyError(err));
         }
+        settle();
+    });
+    if (bioChanged) {
+        session->updateProfileBio(cleanBio, [this, left, failed, settle, cleanBio](bool ok, const QJsonValue&, const QString& err, int) {
+            if (!m_isLoggedIn) return;
+            if (ok) {
+                m_myProfile.status = cleanBio;
+                if (m_activeProfile.userId == m_myUid || m_activeProfile.userId.isEmpty()) m_activeProfile.status = cleanBio;
+                emit userProfileChanged();
+                emit currentProfileChanged();
+                saveSession();
+            } else {
+                *failed = true;
+                emit notice(L("Không thể cập nhật trạng thái: ", "Failed to update status: ") + friendlyError(err));
+            }
+            settle();
+        });
     }
 }
 
@@ -307,55 +331,81 @@ void ZaloClient::unblockUser(const QString& userId) {
 
 void ZaloClient::refreshBlockedUsers() {
     if (!m_isLoggedIn || !m_apiClient->session()) return;
-    m_apiClient->session()->fetchBlockedUsers(1, 100, [this](bool ok, const QJsonValue& data, const QString&, int) {
-        if (!ok) return;
-        const QJsonObject obj = data.toObject();
-        const QJsonArray arr = obj.contains("profiles") ? obj.value("profiles").toArray()
-                             : (data.isArray() ? data.toArray() : QJsonArray{});
-        QSet<QString> nextIds;
-        QVariantList nextList;
-        for (const QJsonValue& v : arr) {
-            const QJsonObject u = v.toObject();
-            const QString uid = idOf(u.value("userId"));
-            if (uid.isEmpty()) continue;
-            nextIds.insert(uid);
-            const QString name = pickName(u);
-            const QString avatar = pickAvatar(u);
-            if (!name.isEmpty() || !avatar.isEmpty()) {
-                Profile p = m_users.value(uid);
-                if (!name.isEmpty()) p.name = name;
-                if (!avatar.isEmpty()) p.avatar = avatar;
-                m_users.insert(uid, p);
+    constexpr int kCount = 100;
+    constexpr int kMaxPages = 100;
+    const quint64 gen = ++m_blockedFetchGen;
+    m_blockedPending.clear();
+    m_blockedPendingIds.clear();
+    auto requestPage = std::make_shared<std::function<void(int)>>();
+    const std::weak_ptr<std::function<void(int)>> weakRequest = requestPage;
+    *requestPage = [this, gen, weakRequest](int page) {
+        if (!m_isLoggedIn || !m_apiClient->session()) return;
+        m_apiClient->session()->fetchBlockedUsers(page, kCount, [this, gen, page, keep = weakRequest.lock()](bool ok, const QJsonValue& data, const QString&, int) {
+            if (!m_isLoggedIn || gen != m_blockedFetchGen) return;
+            const QJsonObject obj = data.toObject();
+            const bool wellFormed = ok && (obj.contains("profiles") || data.isArray());
+            if (!wellFormed) {
+                m_blockedPending.clear();
+                m_blockedPendingIds.clear();
+                return;
             }
-            nextList.append(QVariantMap{
-                {"userId", uid},
-                {"name", !name.isEmpty() ? name : displayNameOf(uid)},
-                {"avatar", !avatar.isEmpty() ? avatar : avatarOf(uid)},
-            });
-        }
-        if (m_blockedIds != nextIds) {
-            m_blockedIds = nextIds;
-            emit composerStateChanged();
-            emit currentProfileChanged();
-        }
-        m_blockedUsers = nextList;
-        emit blockedUsersChanged();
-    });
+            const QJsonArray arr = obj.contains("profiles") ? obj.value("profiles").toArray() : data.toArray();
+            for (const QJsonValue& v : arr) {
+                const QJsonObject u = v.toObject();
+                const QString uid = idOf(u.value("userId"));
+                if (uid.isEmpty() || m_blockedPendingIds.contains(uid)) continue;
+                m_blockedPendingIds.insert(uid);
+                const QString name = pickName(u);
+                const QString avatar = pickAvatar(u);
+                if (!name.isEmpty() || !avatar.isEmpty()) {
+                    Profile p = m_users.value(uid);
+                    if (!name.isEmpty()) p.name = name;
+                    if (!avatar.isEmpty()) p.avatar = avatar;
+                    m_users.insert(uid, p);
+                }
+                m_blockedPending.append(QVariantMap{
+                    {"userId", uid},
+                    {"name", !name.isEmpty() ? name : displayNameOf(uid)},
+                    {"avatar", !avatar.isEmpty() ? avatar : avatarOf(uid)},
+                });
+            }
+            if (arr.size() >= kCount && page < kMaxPages && keep) {
+                (*keep)(page + 1);
+                return;
+            }
+            if (m_blockedIds != m_blockedPendingIds) {
+                m_blockedIds = m_blockedPendingIds;
+                emit composerStateChanged();
+                emit currentProfileChanged();
+            }
+            m_blockedUsers = m_blockedPending;
+            m_blockedPending.clear();
+            m_blockedPendingIds.clear();
+            emit blockedUsersChanged();
+        });
+    };
+    (*requestPage)(1);
 }
 
 void ZaloClient::removeFriend(const QString& userId) {
     if (userId.isEmpty() || userId == m_myUid) return;
-    m_friendIds.remove(userId);
-    m_activeProfile.isFriend = false;
-    rebuildContacts();
-    emit currentProfileChanged();
-    emit notice(L("Đã xóa khỏi danh sách bạn bè", "Removed from friends list"));
-
-    if (m_isLoggedIn && m_apiClient->session()) {
-        m_apiClient->session()->removeFriend(userId, [this](bool ok, const QJsonValue&, const QString& err, int) {
-            if (!ok) emit notice(L("Không thể xóa bạn bè: ", "Failed to remove friend: ") + friendlyError(err));
-        });
+    if (!m_isLoggedIn || !m_apiClient->session()) {
+        emit notice(L("Không thể xóa bạn bè: ", "Failed to remove friend: ") + friendlyError(QStringLiteral("not_logged_in")));
+        return;
     }
+    m_apiClient->session()->removeFriend(userId, [this, userId](bool ok, const QJsonValue&, const QString& err, int) {
+        if (!m_isLoggedIn) return;
+        if (!ok) {
+            emit notice(L("Không thể xóa bạn bè: ", "Failed to remove friend: ") + friendlyError(err));
+            return;
+        }
+        m_friendIds.remove(userId);
+        persistProfile(userId, false);
+        if (m_activeProfile.userId == userId) m_activeProfile.isFriend = false;
+        rebuildContacts();
+        emit currentProfileChanged();
+        emit notice(L("Đã xóa khỏi danh sách bạn bè", "Removed from friends list"));
+    });
 }
 
 void ZaloClient::setShowAddFriendModal(bool show) {
@@ -434,15 +484,22 @@ void ZaloClient::openSendCardPicker() {
 }
 
 QVariantList ZaloClient::friendsForCard() const {
-    QVariantList out;
+    struct Row {
+        QCollatorSortKey key;
+        QVariantMap map;
+    };
+    QCollator collator;
+    QVector<Row> rows;
+    rows.reserve(m_friendIds.size());
     for (const QString& id : m_friendIds) {
         const QString name = displayNameOf(id);
         if (name.isEmpty()) continue;
-        out.append(QVariantMap{{"id", id}, {"name", name}, {"avatar", m_users.value(id).avatar}});
+        rows.append(Row{collator.sortKey(name), QVariantMap{{"id", id}, {"name", name}, {"avatar", m_users.value(id).avatar}}});
     }
-    std::sort(out.begin(), out.end(), [](const QVariant& a, const QVariant& b) {
-        return QString::localeAwareCompare(a.toMap().value("name").toString(), b.toMap().value("name").toString()) < 0;
-    });
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.key < b.key; });
+    QVariantList out;
+    out.reserve(rows.size());
+    for (const Row& row : rows) out.append(row.map);
     return out;
 }
 
@@ -679,20 +736,28 @@ void ZaloClient::lockPoll(qint64 pollId) {
 void ZaloClient::changeGroupName(const QString& groupId, const QString& newName) {
     if (groupId.isEmpty() || newName.trimmed().isEmpty()) return;
     const QString cleanName = newName.trimmed();
-    if (m_currentConvId == groupId) {
-        m_currentConvName = cleanName;
-        emit currentConversationChanged();
+    if (!m_isLoggedIn || !m_apiClient->session()) {
+        emit notice(L("Không đổi được tên nhóm: ", "Failed to rename group: ") + friendlyError(QStringLiteral("not_logged_in")));
+        return;
     }
-    m_conversationModel->updateProfile(groupId, cleanName, QString());
-    if (m_isLoggedIn && m_apiClient->session()) {
-        m_apiClient->session()->changeGroupName(groupId, cleanName, [this](bool ok, const QJsonValue&, const QString& err, int) {
-            if (!ok) {
-                emit notice(L("Không đổi được tên nhóm: ", "Failed to rename group: ") + friendlyError(err));
-            } else {
-                emit notice(L("Đã đổi tên nhóm thành công", "Group name updated successfully"));
-            }
-        });
-    }
+    m_apiClient->session()->changeGroupName(groupId, cleanName, [this, groupId, cleanName](bool ok, const QJsonValue&, const QString& err, int) {
+        if (!m_isLoggedIn) return;
+        if (!ok) {
+            emit notice(L("Không đổi được tên nhóm: ", "Failed to rename group: ") + friendlyError(err));
+            return;
+        }
+        if (m_currentConvId == groupId) {
+            m_currentConvName = cleanName;
+            emit currentConversationChanged();
+        }
+        m_conversationModel->updateProfile(groupId, cleanName, QString());
+        if (m_groups.contains(groupId)) {
+            m_groups[groupId].name = cleanName;
+            persistProfile(groupId, true);
+        }
+        if (m_offlineStore) m_offlineStore->saveConversation(m_conversationModel->conversation(groupId));
+        emit notice(L("Đã đổi tên nhóm thành công", "Group name updated successfully"));
+    });
 }
 
 void ZaloClient::addMemberToGroup(const QString& groupId, const QString& memberId) {
@@ -812,7 +877,7 @@ bool ZaloClient::pasteClipboardToDraft() {
                 QMetaObject::invokeMethod(context, [self, tempPath, convId]() {
                     if (!self || self->m_currentConvId != convId) {
                         QFile::remove(tempPath);
-                        if (self) emit self->notice(self->L("Đã huỷ dán ảnh vì bạn đã chuyển cuộc trò chuyện",
+                        if (self) emit self->notice(self->L("Đã hủy dán ảnh vì bạn đã chuyển cuộc trò chuyện",
                                                             "Paste cancelled because you switched conversations"));
                         return;
                     }
@@ -865,7 +930,7 @@ bool ZaloClient::tryPasteClipboardImage() {
                 QMetaObject::invokeMethod(context, [self, tempPath, convId]() {
                     if (!self || self->m_currentConvId != convId) {
                         QFile::remove(tempPath);
-                        if (self) emit self->notice(self->L("Đã huỷ dán ảnh vì bạn đã chuyển cuộc trò chuyện",
+                        if (self) emit self->notice(self->L("Đã hủy dán ảnh vì bạn đã chuyển cuộc trò chuyện",
                                                             "Paste cancelled because you switched conversations"));
                         return;
                     }
@@ -915,7 +980,11 @@ void ZaloClient::unpinMessage() {
 }
 
 void ZaloClient::changeFriendAlias(const QString& friendId, const QString& newAlias) {
-    if (friendId.isEmpty() || !m_isLoggedIn) return;
+    if (friendId.isEmpty()) return;
+    if (!m_isLoggedIn) {
+        emit notice(L("Không đổi được biệt danh: ", "Failed to change alias: ") + friendlyError(QStringLiteral("not_logged_in")));
+        return;
+    }
     const QString clean = newAlias.trimmed();
     if (clean.isEmpty()) {
         if (!m_aliases.contains(friendId)) return;
@@ -925,10 +994,10 @@ void ZaloClient::changeFriendAlias(const QString& friendId, const QString& newAl
                 emit notice(L("Không xóa được biệt danh: ", "Failed to remove alias: ") + friendlyError(err, code));
                 return;
             }
-            m_aliases.remove(friendId);
+            QHash<QString, QString> next = m_aliases;
+            next.remove(friendId);
             m_groupMembersCache.clear();
-            applyProfileToConversation(friendId);
-            rebuildContacts();
+            applyAliases(next);
             emit notice(L("Đã xóa biệt danh", "Alias removed"));
         });
         return;
@@ -939,10 +1008,10 @@ void ZaloClient::changeFriendAlias(const QString& friendId, const QString& newAl
             emit notice(L("Không đổi được biệt danh: ", "Failed to change alias: ") + friendlyError(err, code));
             return;
         }
-        m_aliases.insert(friendId, clean);
+        QHash<QString, QString> next = m_aliases;
+        next.insert(friendId, clean);
         m_groupMembersCache.clear();
-        applyProfileToConversation(friendId);
-        rebuildContacts();
+        applyAliases(next);
         emit notice(L("Đã cập nhật biệt danh bạn bè", "Friend alias updated"));
     });
 }
@@ -1012,11 +1081,16 @@ void ZaloClient::forwardMessage(const QString& targetThreadId, const QString& ms
     sendForward(targetThreadId, msgId, true);
 }
 
-void ZaloClient::sendForward(const QString& targetThreadId, const QString& msgId, bool notifySuccess) {
-    if (targetThreadId.isEmpty() || msgId.isEmpty()) return;
+void ZaloClient::sendForward(const QString& targetThreadId, const QString& msgId, bool notifySuccess,
+                             std::function<void(bool ok)> done) {
+    if (targetThreadId.isEmpty() || msgId.isEmpty()) {
+        if (done) done(false);
+        return;
+    }
     const QVariantMap item = m_messageModel->getMessageById(msgId);
     if (item.isEmpty()) {
         emit notice(L("Không tìm thấy tin nhắn cần chuyển tiếp", "Message to forward not found"));
+        if (done) done(false);
         return;
     }
 
@@ -1054,13 +1128,17 @@ void ZaloClient::sendForward(const QString& targetThreadId, const QString& msgId
     if (!m_isLoggedIn || !m_apiClient->session()) {
         m_messageModel->setStatus(targetThreadId, local.id, QStringLiteral("failed"));
         emit notice(L("Không chuyển tiếp được tin nhắn: chưa đăng nhập", "Couldn't forward message: not logged in"));
+        if (done) done(false);
         return;
     }
 
     const QString localId = local.id;
     QPointer<ZaloClient> guard(this);
-    auto finish = [guard, targetThreadId, localId, notifySuccess](bool ok, const QJsonValue& res, const QString& err) {
-        if (!guard) return;
+    auto finish = [guard, targetThreadId, localId, notifySuccess, done](bool ok, const QJsonValue& res, const QString& err) {
+        if (!guard) {
+            if (done) done(false);
+            return;
+        }
         guard->m_messageModel->setStatus(targetThreadId, localId, ok ? QStringLiteral("sent") : QStringLiteral("failed"));
         if (ok) {
             const QString serverId = idOf(res.toObject().value("msgId"));
@@ -1069,6 +1147,7 @@ void ZaloClient::sendForward(const QString& targetThreadId, const QString& msgId
         } else {
             emit guard->notice(guard->L("Không chuyển tiếp được tin nhắn: ", "Couldn't forward message: ") + guard->friendlyError(err));
         }
+        if (done) done(ok);
     };
 
     if (msgType == "image" || msgType == "file" || msgType == "video") {
@@ -1435,10 +1514,16 @@ QString ZaloClient::rendererBackend() const {
     case QSGRendererInterface::OpenGL:
         return QStringLiteral("OpenGL");
     case QSGRendererInterface::Software:
-        return L("Phần mềm (Software)", "Software");
+        return L("Phần mềm", "Software");
     default:
-        return L("Mặc định (OpenGL/Qt)", "Default (OpenGL/Qt)");
+        return L("Mặc định", "Default");
     }
+}
+
+bool ZaloClient::softwareRenderer() const {
+    return QQuickWindow::graphicsApi() == QSGRendererInterface::Software
+        || QQuickWindow::sceneGraphBackend().compare(QLatin1String("software"), Qt::CaseInsensitive) == 0
+        || qEnvironmentVariable("QT_QUICK_BACKEND").compare(QLatin1String("software"), Qt::CaseInsensitive) == 0;
 }
 
 QString ZaloClient::platformName() const {
@@ -1487,7 +1572,7 @@ QString ZaloClient::updateStatus() const {
         return L("Đang tải bản cập nhật (%1%)...", "Downloading update (%1%)...")
             .arg(qRound(m_updateProgress * 100.0));
     case UpdateCheckState::Verifying:
-        return L("Đang kiểm tra toàn vẹn SHA-256...", "Verifying SHA-256 checksum...");
+        return L("Đang kiểm tra tệp cập nhật...", "Checking the update file...");
     case UpdateCheckState::Installing:
         return L("Đang cài đặt bản cập nhật...", "Installing update...");
     case UpdateCheckState::InstalledRestartRequired:
@@ -1497,14 +1582,14 @@ QString ZaloClient::updateStatus() const {
         return L("Tải bản cập nhật thất bại. Vui lòng thử lại hoặc tải từ GitHub.",
                  "Update download failed. Please retry or download from GitHub.");
     case UpdateCheckState::VerifyFailed:
-        return L("Kiểm tra SHA-256 không khớp. Đã hủy cập nhật để đảm bảo an toàn.",
-                 "SHA-256 verification failed. Update aborted for safety.");
+        return L("Tệp cập nhật không khớp với bản phát hành gốc. Đã hủy cập nhật để đảm bảo an toàn.",
+                 "The update file doesn't match the official release. Update cancelled for safety.");
     case UpdateCheckState::InstallFailed:
         return L("Không thể tự cài đặt gói cập nhật. File đã tải tại: ",
                  "Could not install automatically. Downloaded file: ") + m_updateSavedPath;
     case UpdateCheckState::SavedToDownloads:
-        return L("Thư mục AppImage không có quyền ghi. Đã tải bản mới về: ",
-                 "AppImage folder is read-only. Downloaded update to: ") + m_updateSavedPath;
+        return L("Không ghi được vào thư mục chứa Zalos. Đã tải bản mới về: ",
+                 "Zalos's folder is read-only. Downloaded update to: ") + m_updateSavedPath;
     case UpdateCheckState::Idle:
     default:
         return QString();
@@ -1847,7 +1932,8 @@ void ZaloClient::setCloseToTray(bool val) {
 
 bool ZaloClient::trayAvailable() const {
     if (m_trayAvailableOverride >= 0) return m_trayAvailableOverride != 0;
-    return Platform::SystemTrayController::isSystemTrayAvailable();
+    const auto* tray = Platform::SystemTrayController::s_instance;
+    return tray && tray->cachedAvailable();
 }
 
 QString ZaloClient::autostartFilePath() {
@@ -1946,26 +2032,6 @@ void ZaloClient::declineCall() {
     m_callEngine->declineCall();
     if (m_calls) m_calls->reject();
     emit incomingCallStateChanged(false);
-}
-
-QVariantMap ZaloClient::getDiskUsage(const QString& path) {
-    auto usage = Fs::FileUtils::getDiskUsage(path);
-    QVariantMap map;
-    map["available"] = usage.available;
-    map["free"] = usage.free;
-    map["total"] = usage.total;
-    return map;
-}
-
-QVariantMap ZaloClient::getDirectorySize(const QString& path) {
-    auto res = Fs::FileUtils::getDirectorySize(path);
-    QVariantMap map;
-    map["path"] = res.path;
-    map["totalSize"] = res.totalSize;
-    map["fileCount"] = res.fileCount;
-    map["dirCount"] = res.dirCount;
-    map["durationMs"] = res.durationMs;
-    return map;
 }
 
 bool ZaloClient::generateThumbnail(const QString& inputPath, const QString& outputPath, int width, int height) {
@@ -2097,6 +2163,7 @@ void ZaloClient::executeScreenshotCapture() {
 
     auto runCapture = [this, onFinishedCapture](const QString& program, const QStringList& args) {
         auto* proc = new QProcess(this);
+        proc->setProcessEnvironment(Fs::FileUtils::launchEnvironment(QProcessEnvironment::systemEnvironment()));
         auto settled = std::make_shared<bool>(false);
         connect(proc, &QProcess::errorOccurred, this, [proc, onFinishedCapture, settled](QProcess::ProcessError) {
             if (*settled) return;

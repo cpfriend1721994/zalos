@@ -43,22 +43,32 @@ signals:
     void durationChanged();
     void finished(const QString& filePath, int durationMs);
     void failed(const QString& message);
+    void startRefused();
 
 private:
+    struct Clip {
+        quint64 id{0};
+        QString path;
+        int durationMs{0};
+        bool keep{false};
+    };
+
     void finish(bool keep);
+    void settleStopped();
     void ensurePassiveProbe() const;
 
     QMediaCaptureSession* m_session{nullptr};
     QAudioInput* m_input{nullptr};
     QMediaRecorder* m_recorder{nullptr};
     QTimer m_tick;
-    QString m_path;
+    Clip m_active;
+    Clip m_stopping;
+    quint64 m_clipSeq{0};
     mutable QString m_unavailableReason;
     mutable bool m_probed{false};
     qint64 m_startedAt{0};
     int m_durationMs{0};
     bool m_recording{false};
-    bool m_keepOnStop{true};
 };
 
 }

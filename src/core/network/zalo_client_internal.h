@@ -78,11 +78,10 @@
 namespace Zalos::Core::Network::Detail {
 
 constexpr int kQrLifetimeSeconds = 120;
-constexpr int kMaxTrackedIds = 2000;
 
-template <typename Container>
-void dropOldestIfFull(Container& c) {
-    if (c.size() >= kMaxTrackedIds) c.erase(c.begin());
+template <typename Key, typename T>
+void dropOldestIfFull(BoundedHash<Key, T>& c) {
+    if (c.size() >= kMaxTrackedIds) c.removeOldest();
 }
 constexpr int kGroupInfoBatch = 50;
 constexpr int kProfileInfoBatch = 100;

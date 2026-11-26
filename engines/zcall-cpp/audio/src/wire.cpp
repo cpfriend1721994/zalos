@@ -10,6 +10,18 @@ uint32_t be32(const uint8_t* p) {
     return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
 }
 uint16_t be16(const uint8_t* p) { return uint16_t((p[0] << 8) | p[1]); }
+
+void resetMessage(InMessage& m, InMessage::Kind kind) {
+    m.kind = kind;
+    m.idx = 0;
+    m.src = 0;
+    m.payload.clear();
+    m.on = false;
+    m.value = 0;
+    m.which = 0;
+    m.name.clear();
+    m.badKind = 0;
+}
 }
 
 void InParser::feed(const uint8_t* data, size_t n) {
@@ -34,8 +46,7 @@ bool InParser::next(InMessage& out) {
         if (avail < 11) return false;
         const uint16_t n = be16(p + 9);
         if (avail < 11u + n) return false;
-        out = InMessage{};
-        out.kind = InMessage::Kind::Frame;
+        resetMessage(out, InMessage::Kind::Frame);
         out.idx = be32(p + 1);
         out.src = be32(p + 5);
         out.payload.assign(p + 11, p + 11 + n);
@@ -47,11 +58,10 @@ bool InParser::next(InMessage& out) {
     case 'M':
     case 'V': {
         if (avail < 2) return false;
-        out = InMessage{};
-        out.kind = kind == 'A' ? InMessage::Kind::AutoGain
-                 : kind == 'S' ? InMessage::Kind::Speaker
-                 : kind == 'M' ? InMessage::Kind::Mute
-                               : InMessage::Kind::Volume;
+        resetMessage(out, kind == 'A' ? InMessage::Kind::AutoGain
+                        : kind == 'S' ? InMessage::Kind::Speaker
+                        : kind == 'M' ? InMessage::Kind::Mute
+                                      : InMessage::Kind::Volume);
         out.value = p[1];
         out.on = p[1] != 0;
         m_pos += 2;
@@ -61,16 +71,14 @@ bool InParser::next(InMessage& out) {
         if (avail < 4) return false;
         const uint16_t n = be16(p + 2);
         if (avail < 4u + n) return false;
-        out = InMessage{};
-        out.kind = InMessage::Kind::Device;
+        resetMessage(out, InMessage::Kind::Device);
         out.which = static_cast<char>(p[1]);
         out.name.assign(reinterpret_cast<const char*>(p + 4), n);
         m_pos += 4u + n;
         return true;
     }
     default:
-        out = InMessage{};
-        out.kind = InMessage::Kind::Bad;
+        resetMessage(out, InMessage::Kind::Bad);
         out.badKind = kind;
         m_failed = true;
         return true;

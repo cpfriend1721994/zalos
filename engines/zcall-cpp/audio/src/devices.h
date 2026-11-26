@@ -32,6 +32,8 @@ public:
     ~Mic();
     void switchTo(const MaybeName& source);
     void close();
+    bool closed();
+    void recover();
     bool nextFrame(int16_t* out);
 
     std::atomic<double> gapMax{0.0};
@@ -40,7 +42,9 @@ public:
 
 private:
     std::shared_ptr<Process> current();
+    void markFault(const std::string& why);
     MaybeName m_device;
+    MaybeName m_source;
     std::mutex m_lock;
     std::mutex m_ioLock;
     std::shared_ptr<Process> m_proc;
@@ -48,6 +52,7 @@ private:
     void* m_pulseStream{nullptr};
     bool m_closed{false};
     double m_lastFrame{-1};
+    std::atomic<bool> m_faulted{false};
 };
 
 std::string ecConfig(const std::string& tag, const MaybeName& mic, const MaybeName& speaker, bool highPass,
@@ -68,6 +73,7 @@ private:
     bool m_highPass, m_noiseSuppression, m_voiceDetection;
     std::unique_ptr<Process> m_proc;
     std::string m_conf;
+    void removeConfig();
 };
 
 struct LoopThread {

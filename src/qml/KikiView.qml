@@ -49,8 +49,8 @@ Rectangle {
             reply = I18n.t("Dịch vụ Trợ lý Kiki trực tuyến của Zalo khả dụng tại:\n%1\n\nBạn có thể bấm vào liên kết trên để mở phiên làm việc trên trình duyệt.",
                            "Zalo Kiki Assistant web service is available at:\n%1\n\nClick the link to open the online assistant.").arg(ZaloClient.kikiUrl);
         } else {
-            reply = I18n.t("Máy chủ Zalo hiện chưa kích hoạt API Trợ lý Kiki cho tài khoản này (tính năng Kiki được Zalo triển khai dưới dạng dịch vụ web thử nghiệm theo đợt cho nhóm tài khoản giới hạn).\n\n💡 Bạn có thể chọn 4 thẻ chức năng mẫu ở trên để tạo nhanh văn bản và chèn vào cuộc trò chuyện.",
-                           "The Zalo server has not enabled the Kiki Assistant API for this account yet (Kiki is rolled out by Zalo as an experimental web service for select accounts).\n\n💡 You can use the 4 template cards above to draft emails, meeting summaries, and sales notes.");
+            reply = I18n.t("Zalo hiện chưa bật Trợ lý Kiki cho tài khoản này (tính năng Kiki được Zalo triển khai dưới dạng dịch vụ web thử nghiệm theo đợt cho nhóm tài khoản giới hạn).\n\n💡 Bạn có thể chọn 4 thẻ chức năng mẫu ở trên để tạo nhanh văn bản và chèn vào cuộc trò chuyện.",
+                           "Zalo hasn't enabled the Kiki Assistant for this account yet (Kiki is rolled out by Zalo as an experimental web service for select accounts).\n\n💡 You can use the 4 template cards above to draft emails, meeting summaries, and sales notes.");
         }
 
         kikiChatModel.append({

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QByteArrayView>
 #include <QString>
 #include <QVector>
 
@@ -12,7 +13,7 @@ struct ProtoField {
     int number{0};
     int wireType{0};
     quint64 varint{0};
-    QByteArray bytes;
+    QByteArrayView bytes;
 };
 
 struct ParsedSyncV2Attach {
@@ -74,9 +75,9 @@ struct ParsedSyncV2Conversation {
     quint64 lastClientId{0};
 };
 
-bool splitFrames(const QByteArray& data, QVector<QByteArray>* frames);
+bool splitFrames(const QByteArray& data, QVector<QByteArrayView>* frames);
 
-std::optional<QVector<ProtoField>> parseProto(const QByteArray& data);
+std::optional<QVector<ProtoField>> parseProto(QByteArrayView data);
 
 bool parseSyncV2Chunk(const QByteArray& data, QVector<ParsedSyncV2Partition>* partitions);
 

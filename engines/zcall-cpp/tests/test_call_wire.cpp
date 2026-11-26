@@ -4,6 +4,7 @@
 #include "send_rate.h"
 #include "vectors.h"
 #include "zrtc_media.h"
+#include "wire/bytes.h"
 #include "wire/ipc_crypto.h"
 #include "wire/rtcp.h"
 #include "wire/rtp.h"
@@ -17,6 +18,16 @@ using namespace zcall;
 using namespace zcall::test;
 
 namespace {
+
+QByteArray rtpHeader(uint16_t seq, uint32_t ts, uint32_t ssrc) {
+    QByteArray h(12, '\0');
+    h[0] = char(0x80);
+    h[1] = char(111);
+    wr16be(h, 2, seq);
+    wr32be(h, 4, ts);
+    wr32be(h, 8, ssrc);
+    return h;
+}
 
 QJsonObject layerJson(const VidLayer& l) {
     return QJsonObject{{"id", l.id}, {"a", double(l.a)}, {"b", double(l.b)}, {"c", double(l.c)}};
@@ -572,6 +583,129 @@ private Q_SLOTS:
         rt.update(5, 0);
         QCOMPARE(rt.roc, 0u);
         QCOMPARE(*rt.last, int64_t(5));
+    }
+
+    void replayWindowAudioRejectsDuplicatesAndAgesOut() {
+        ReplayWindow<64> w;
+        QVERIFY(w.accept(1000));
+        QVERIFY(!w.accept(1000));
+        QVERIFY(w.accept(1000 - 63));
+        QVERIFY(!w.accept(1000 - 63));
+        QVERIFY(!w.accept(1000 - 64));
+        QVERIFY(w.accept(999));
+        QVERIFY(!w.accept(999));
+        QVERIFY(w.accept(1001));
+        QVERIFY(!w.accept(1000 - 63));
+    }
+
+    void replayWindowAcceptsReorderedPacketsOnce() {
+        ReplayWindow<64> w;
+        const uint64_t arrival[] = {10, 12, 11, 15, 13, 14};
+        for (uint64_t i : arrival) QVERIFY(w.accept(i));
+        for (uint64_t i = 10; i <= 15; ++i) QVERIFY(!w.accept(i));
+    }
+
+    void replayWindowVideoKeeps1024() {
+        ReplayWindow<1024> w;
+        QVERIFY(w.accept(5000));
+        QVERIFY(w.accept(5000 - 1023));
+        QVERIFY(!w.accept(5000 - 1023));
+        QVERIFY(!w.accept(5000 - 1024));
+        QVERIFY(w.accept(5001));
+        QVERIFY(!w.accept(5000 - 1023));
+        QVERIFY(w.accept(5000 + 2000));
+        QVERIFY(!w.accept(5000));
+    }
+
+    void ssrcTableCapsAndEvictsOldest() {
+        SsrcTable<int> t;
+        for (uint32_t i = 1; i <= 65; ++i) t.ensure(0x1000u + i) = int(i);
+        QCOMPARE(t.size(), qsizetype(kMaxTrackedSsrcs));
+        QVERIFY(t.find(0x1001u) == nullptr);
+        QCOMPARE(*t.find(0x1002u), 2);
+        QCOMPARE(*t.find(0x1000u + 65), 65);
+        t.ensure(0x1000u + 65) = 99;
+        QCOMPARE(t.size(), qsizetype(kMaxTrackedSsrcs));
+        QCOMPARE(*t.find(0x1000u + 65), 99);
+        QCOMPARE(*t.find(0x1002u), 2);
+    }
+
+    void srtpRoundTripAcrossPayloadSizes() {
+        const QJsonObject v = loadVectors("srtp.json").toObject();
+        const auto keys = sessionKeys(*masterFromSessId(v["sessId"].toString().toUtf8()));
+        const auto other = sessionKeys(*masterFromSessId(QByteArray(30, 'Q')));
+        QVERIFY(keys);
+        QVERIFY(other);
+        for (int n : {0, 1, 15, 16, 17, 1200}) {
+            QByteArray payload(n, '\0');
+            for (int i = 0; i < n; ++i) payload[i] = char((i * 37 + n) & 0xff);
+            const uint16_t seq = uint16_t(100 + n);
+            const QByteArray hdr = rtpHeader(seq, 5000, 0xA0B0C0D0u);
+            const QByteArray out = protectRtp(hdr, payload, *keys, seq, 0xA0B0C0D0u, 2);
+            QCOMPARE(out.size(), hdr.size() + n + 10);
+            const auto back = unprotectRtp(out, *keys, 2);
+            QVERIFY(back);
+            QCOMPARE(back->payload, payload);
+            QCOMPARE(back->seq, seq);
+            QCOMPARE(back->ssrc, 0xA0B0C0D0u);
+            QVERIFY(!unprotectRtp(out, *other, 2));
+            QVERIFY(!unprotectRtp(out, *keys, 3));
+        }
+    }
+
+    void srtpInterleavedKeysStayIndependent() {
+        const QJsonObject v = loadVectors("srtp.json").toObject();
+        const auto keysA = sessionKeys(*masterFromSessId(v["sessId"].toString().toUtf8()));
+        const auto keysB = sessionKeys(*masterFromSessId(QByteArray(30, 'Q')));
+        QVERIFY(keysA);
+        QVERIFY(keysB);
+        for (uint16_t seq = 1; seq <= 6; ++seq) {
+            const QByteArray payload(20 + seq, char('a' + seq));
+            const QByteArray a = protectRtp(rtpHeader(seq, 0, 0x11u), payload, *keysA, seq, 0x11u, 0);
+            const QByteArray b = protectRtp(rtpHeader(seq, 0, 0x22u), payload, *keysB, seq, 0x22u, 0);
+            const auto ua = unprotectRtp(a, *keysA, 0);
+            const auto ub = unprotectRtp(b, *keysB, 0);
+            QVERIFY(ua);
+            QVERIFY(ub);
+            QCOMPARE(ua->payload, payload);
+            QCOMPARE(ub->payload, payload);
+            QVERIFY(!unprotectRtp(a, *keysB, 0));
+            QVERIFY(!unprotectRtp(b, *keysA, 0));
+        }
+    }
+
+    void rtcpGroupSameSeqTracksEachSsrc() {
+        RtcpFeedback fb(4242);
+        for (uint16_t seq = 100; seq < 110; ++seq) {
+            fb.onRtp(false, rtpHeader(seq, 0, 0x0A0A0A0Au), 1000.0 + seq);
+            fb.onRtp(false, rtpHeader(seq, 0, 0x0B0B0B0Bu), 1000.0 + seq);
+        }
+        QCOMPARE(fb.audio().ssrc(), 0x0A0A0A0Au);
+        QCOMPARE(fb.audio().received(), int64_t(10));
+        const auto blk = fb.audio().block(2000.0);
+        QVERIFY(blk);
+        QCOMPARE(blk->fractionLost, 0);
+        QVERIFY(blk->cumLost <= 0);
+    }
+
+    void rtcpAudioReportWallClockOnlyChangesNtp() {
+        auto report = [](std::optional<double> wall) {
+            RtcpFeedback fb(7);
+            fb.onRtp(false, rtpHeader(1, 960, 0x42u), 1000.0);
+            return fb.audioReport(5000.0, 960, 3, 320, wall);
+        };
+        const QByteArray mono = report(std::nullopt);
+        const double wall = 1700000000123.0;
+        const QByteArray jumped = report(wall);
+        QCOMPARE(mono.size(), jumped.size());
+        QCOMPARE(hexs(mono.mid(0, 8)), hexs(jumped.mid(0, 8)));
+        QCOMPARE(hexs(mono.mid(16)), hexs(jumped.mid(16)));
+        const NtpTime expected = ntpNow(wall);
+        QCOMPARE(rd32be(jumped, 8), expected.msw);
+        QCOMPARE(rd32be(jumped, 12), expected.lsw);
+        const NtpTime monoNtp = ntpNow(5000.0);
+        QCOMPARE(rd32be(mono, 8), monoNtp.msw);
+        QCOMPARE(rd32be(mono, 12), monoNtp.lsw);
     }
 
     void sendRateUsesDefaultFallbackLadder() {
