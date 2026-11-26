@@ -13,6 +13,10 @@ else()
     set(ZALOS_OPUS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/opus")
     set(ZALOS_OPUS_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/opus-build")
     set(ZALOS_OPUS_LIBRARY "${ZALOS_OPUS_BUILD_DIR}/libopus.a")
+    set(ZALOS_OPUS_EXTRA_ARGS)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^arm")
+        list(APPEND ZALOS_OPUS_EXTRA_ARGS -DOPUS_DISABLE_INTRINSICS=ON)
+    endif()
     ExternalProject_Add(zalos_opus_bundled
         SOURCE_DIR "${ZALOS_OPUS_SOURCE_DIR}"
         BINARY_DIR "${ZALOS_OPUS_BUILD_DIR}"
@@ -28,6 +32,7 @@ else()
             -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF
             -DOPUS_DRED=OFF
             -DOPUS_OSCE=OFF
+            ${ZALOS_OPUS_EXTRA_ARGS}
         BUILD_BYPRODUCTS "${ZALOS_OPUS_LIBRARY}")
     add_library(zalos_opus_static STATIC IMPORTED GLOBAL)
     set_target_properties(zalos_opus_static PROPERTIES
