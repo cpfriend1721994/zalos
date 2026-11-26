@@ -3,7 +3,6 @@
 #include <openssl/evp.h>
 #include <openssl/aes.h>
 #include <lzma.h>
-#include <sqlite3.h>
 
 #include <algorithm>
 #include <cctype>

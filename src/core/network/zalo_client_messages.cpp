@@ -450,6 +450,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         if (pollId <= 0) pollId = params.value("pollId").toVariant().toLongLong();
         if (pollId <= 0) pollId = params.value("poll_id").toVariant().toLongLong();
         item.pollData = QVariantMap{{"poll_id", pollId}, {"question", item.text}, {"loaded", false}};
+        if (pollId > 0 && m_pollDetails.contains(pollId)) item.pollData = pollView(pollId);
         const bool created = action.isEmpty() || action == QLatin1String("create");
         const QJsonObject templates = params.value("msg").toObject();
         QString vi = templates.value("vi").toString();
@@ -656,7 +657,7 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
         bool numericId = false;
         const qulonglong numericMsgId = item.id.toULongLong(&numericId);
         const bool alreadyRead = numericId && numericMsgId > 0 && numericMsgId <= readPointOf(threadId);
-        const bool unread = fresh && !quiet && threadId != m_currentConvId && !alreadyRead;
+        const bool unread = fresh && !quiet && (threadId != m_currentConvId || !m_windowVisible) && !alreadyRead;
         bool hasMention = false;
         if (unread && !m_myUid.isEmpty()) {
             for (const auto& men : item.mentions) {
@@ -717,7 +718,7 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
     if (!byThread.isEmpty()) evictColdThreads();
     trimMessageCaches();
     sendDeliveredReceipts(receiptCandidates, isGroup);
-    if (byThread.contains(m_currentConvId)) {
+    if (m_windowVisible && byThread.contains(m_currentConvId)) {
         sendSeenForCurrent();
         emit conversationStatusChanged();
     }
@@ -797,7 +798,12 @@ void ZaloClient::fetchCloudHistoryPage(const QString& convId, bool isGroup, bool
     session->fetchCloudHistory(convId, isMyCloud, cursor, 50,
         [guard, this, convId, isGroup, isMyCloud, session, cursor, useOld, initialOpen, allowOldFollowup, gen](
             bool ok, const QJsonValue& data, const QString&, int errorCode) {
-            if (!guard || gen != guard->m_accountLoadGen) return;
+            if (!guard) return;
+            if (gen != guard->m_accountLoadGen) {
+                guard->m_loadingHistory = false;
+                emit guard->historyLoadingChanged();
+                return;
+            }
             if (!ok) {
                 if (errorCode == -69) {
                     m_historyExhausted.insert(convId);
@@ -1570,7 +1576,8 @@ void ZaloClient::mergeCacheRows(const QString& convId, QVector<Models::MessageIt
                 if (!u.isEmpty() && u != QLatin1String("0") && !row.seenUids.contains(u)) row.seenUids.append(u);
             }
             const QString type = raw.value("msgType").toString();
-            if (raw.contains("mentions") || raw.contains("quote") || isReparsedOnLoad(type)) {
+            if (raw.contains("mentions") || raw.contains("quote") || raw.contains("textProperties")
+                || raw.contains("propertyExt") || isReparsedOnLoad(type)) {
                 QString thread, preview;
                 Models::MessageItem rebuilt = toMessageItem(raw, isGroup, &thread, &preview);
                 if (rebuilt.messageType == QLatin1String("poll_update")) continue;
@@ -1689,6 +1696,7 @@ void ZaloClient::setWindowVisible(bool visible) {
     m_windowVisible = visible;
     if (!m_presenceTimer) return;
     if (visible && m_isLoggedIn) {
+        if (!m_currentConvId.isEmpty()) sendSeenForCurrent();
         scheduleReadPointSync(1000);
         refreshPresence();
         if (!m_presenceTimer->isActive()) m_presenceTimer->start();
@@ -1753,7 +1761,6 @@ void ZaloClient::fetchBytes(const QString& url, std::function<void(const QByteAr
     if (u.isLocalFile()) {
         QFile f(u.toLocalFile());
         if (!f.open(QIODevice::ReadOnly)) {
-            ErrorCatalog::trace("file", QStringLiteral("open failed error=%1").arg(f.errorString()));
             done({}, QStringLiteral("local_file_error"));
             return;
         }
@@ -2245,7 +2252,13 @@ void ZaloClient::handleGroupControl(const QString& act, const QJsonObject& data)
         }
         addSystemNotice(gid, true, L("%1 đã đổi ảnh đại diện nhóm", "%1 changed the group photo").arg(actorName), ts);
     } else if (act == "join") {
-        if (meAffected) ensureConversation(gid, true);
+        if (meAffected) {
+            ensureConversation(gid, true);
+            if (m_readOnlyThreads.remove(gid) > 0) {
+                saveReadOnlyThreads();
+                if (gid == m_currentConvId) emit composerStateChanged();
+            }
+        }
         loadGroupInfo({gid});
         addSystemNotice(gid, true, actor.isEmpty() || names.contains(actorName)
                                        ? L("%1 đã tham gia nhóm", "%1 joined the group").arg(who)
@@ -2605,6 +2618,7 @@ void ZaloClient::applyReadPoints(const QJsonArray& clearUnreads) {
             continue;
         }
 
+        if (m_messageModel->threadSize(id) == 0) continue;
         const int unread = m_messageModel->countIncomingAfter(id, QString::number(readPointOf(id)));
         if (unread == conv.unreadCount) continue;
         m_conversationModel->setUnreadCount(id, unread);

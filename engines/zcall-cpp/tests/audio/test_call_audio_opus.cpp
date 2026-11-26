@@ -4,6 +4,8 @@
 #include "opus_api.h"
 #include "wire.h"
 
+#include <opus.h>
+
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -30,32 +32,33 @@ class TestCallAudioOpus : public QObject {
     Q_OBJECT
 
 private:
-    std::shared_ptr<OpusApi> m_api;
-    void* m_enc{nullptr};
+    ::OpusEncoder* m_enc{nullptr};
 
     std::vector<uint8_t> encode(const std::vector<int16_t>& pcm) {
         unsigned char buf[1500];
-        const int n = m_api->encode(m_enc, pcm.data(), kFrame, buf, sizeof buf);
+        const int n = opus_encode(m_enc, pcm.data(), kFrame, buf, sizeof buf);
         return n > 0 ? std::vector<uint8_t>(buf, buf + n) : std::vector<uint8_t>{};
     }
 
 private slots:
     void initTestCase() {
-        std::string error;
-        m_api = OpusApi::load(&error);
-        if (!m_api) QSKIP(qPrintable(QStringLiteral("libopus.so.0 not loadable: %1").arg(QString::fromStdString(error))));
         int err = 0;
-        m_enc = m_api->encoderCreate(16000, 1, OpusApi::kApplicationVoip, &err);
-        QCOMPARE(err, 0);
-        m_api->encoderCtl(m_enc, OpusApi::kSetBitrate, 32000);
-        m_api->encoderCtl(m_enc, OpusApi::kSetComplexity, 10);
-        m_api->encoderCtl(m_enc, OpusApi::kSetSignal, OpusApi::kSignalVoice);
-        m_api->encoderCtl(m_enc, OpusApi::kSetInbandFec, 1);
-        m_api->encoderCtl(m_enc, OpusApi::kSetPacketLossPerc, 5);
+        m_enc = opus_encoder_create(16000, 1, OPUS_APPLICATION_VOIP, &err);
+        QCOMPARE(err, OPUS_OK);
+        opus_encoder_ctl(m_enc, OPUS_SET_BITRATE(32000));
+        opus_encoder_ctl(m_enc, OPUS_SET_COMPLEXITY(10));
+        opus_encoder_ctl(m_enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
+        opus_encoder_ctl(m_enc, OPUS_SET_INBAND_FEC(1));
+        opus_encoder_ctl(m_enc, OPUS_SET_PACKET_LOSS_PERC(5));
+    }
+
+    void cleanupTestCase() {
+        if (m_enc) opus_encoder_destroy(m_enc);
+        m_enc = nullptr;
     }
 
     void roundTripKeepsTheTone() {
-        auto dec = OpusDecoder::create(m_api);
+        auto dec = OpusVoiceDecoder::create();
         QVERIFY(dec);
         std::vector<int16_t> out(kMaxDecodeSamples);
         double inEnergy = 0, outEnergy = 0;
@@ -75,7 +78,7 @@ private slots:
     }
 
     void fecAndPlcGiveOneFrame() {
-        auto dec = OpusDecoder::create(m_api);
+        auto dec = OpusVoiceDecoder::create();
         std::vector<int16_t> out(kMaxDecodeSamples);
         std::vector<std::vector<uint8_t>> pkts;
         for (int f = 0; f < 10; ++f) pkts.push_back(encode(toneFrame(f, 300, 6000)));

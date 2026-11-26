@@ -191,9 +191,6 @@ private slots:
     }
 
     void testCliMsgIdLookupsUseIndex() {
-        // idx_messages_conv_cli and idx_messages_cli are partial (WHERE cli_msg_id <> ''). SQLite only uses a
-        // partial index when the query repeats that condition; otherwise every saved message scans the whole
-        // conversation, which makes phone history import quadratic.
         ZaloOfflineStore store;
         store.clearCache();
         QSqlDatabase db = QSqlDatabase::database(store.connectionNameForTesting());
@@ -5306,8 +5303,8 @@ private slots:
         QCOMPARE(ZaloSession::classifyLoginHttp(429, false), Step::Unavailable);
         QCOMPARE(ZaloSession::classifyLoginHttp(503, false), Step::Unavailable);
         QCOMPARE(ZaloSession::classifyLoginHttp(0, true), Step::Unavailable);
-        QCOMPARE(ZaloSession::classifyLoginHttp(400, true), Step::Failed);
-        QCOMPARE(ZaloSession::classifyLoginHttp(401, true), Step::Failed);
+        QCOMPARE(ZaloSession::classifyLoginHttp(400, true), Step::Unavailable);
+        QCOMPARE(ZaloSession::classifyLoginHttp(403, true), Step::Unavailable);
         QCOMPARE(ZaloSession::classifyLoginHttp(200, false), Step::Proceed);
 
         QCOMPARE(ZaloSession::classifyLoginBody(true, false, -1, false), Step::Unavailable);
@@ -8206,6 +8203,12 @@ private slots:
         tray.setAntiPeeking(false);
         QCOMPARE(findByLabel(QStringLiteral("Anti-peeking")).value(QStringLiteral("toggle-state")).toInt(), 0);
 
+        QCOMPARE(findByLabel(QStringLiteral("Notifications")).value(QStringLiteral("toggle-state")).toInt(), 1);
+        tray.setNotificationsEnabled(false);
+        QCOMPARE(findByLabel(QStringLiteral("Notifications")).value(QStringLiteral("toggle-state")).toInt(), 0);
+        tray.setNotificationsEnabled(true);
+        QCOMPARE(findByLabel(QStringLiteral("Notifications")).value(QStringLiteral("toggle-state")).toInt(), 1);
+
         tray.setCallState(QStringLiteral("incoming"), QStringLiteral("Peer A"), true, false, false, false, false);
         QVERIFY(findByLabel(QStringLiteral("Incoming call: Peer A")).value(QStringLiteral("visible")).toBool());
         QVERIFY(findByLabel(QStringLiteral("Answer with video")).value(QStringLiteral("visible")).toBool());
@@ -8234,6 +8237,8 @@ private slots:
         QSignalSpy toggleWinSpy(&tray, &SystemTrayController::toggleWindowRequested);
         QSignalSpy darkSpy(&tray, &SystemTrayController::toggleDarkModeRequested);
         QSignalSpy quitSpy(&tray, &SystemTrayController::quitRequested);
+        QSignalSpy settingsSpy(&tray, &SystemTrayController::openSettingsRequested);
+        QSignalSpy notiSpy(&tray, &SystemTrayController::notificationsToggled);
         QSignalSpy showCallSpy(&tray, &SystemTrayController::showCallWindowRequested);
         QSignalSpy muteSpy(&tray, &SystemTrayController::toggleCallMuteRequested);
         QSignalSpy speakerSpy(&tray, &SystemTrayController::toggleCallSpeakerRequested);
@@ -8244,6 +8249,8 @@ private slots:
 
         tray.activateFromHost();
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Hide Zalos")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Settings")).value(QStringLiteral("id")).toInt()));
+        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Notifications")).value(QStringLiteral("id")).toInt()));
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Toggle light / dark mode")).value(QStringLiteral("id")).toInt()));
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Anti-peeking")).value(QStringLiteral("id")).toInt()));
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Quit")).value(QStringLiteral("id")).toInt()));
@@ -8256,6 +8263,8 @@ private slots:
         QVERIFY(!tray.triggerMenuItem(99999));
 
         QCOMPARE(toggleWinSpy.count(), 2);
+        QCOMPARE(settingsSpy.count(), 1);
+        QCOMPARE(notiSpy.count(), 1);
         QCOMPARE(darkSpy.count(), 1);
         QCOMPARE(peekSpy.count(), 1);
         QCOMPARE(quitSpy.count(), 1);
@@ -8276,6 +8285,47 @@ private slots:
         QVERIFY(!tray.isVisible());
         tray.shutdown();
         QVERIFY(!tray.isVisible());
+    }
+
+    void testDefaultReactionAndInterfaceScale() {
+        QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+        settings.remove(QStringLiteral("settings/defaultReaction"));
+        settings.remove(QStringLiteral("appearance/interfaceScale"));
+
+        ZaloClient client;
+        QCOMPARE(client.defaultReaction(), QStringLiteral("like"));
+        QCOMPARE(client.defaultReactionEmoji(), QStringLiteral("👍"));
+        QCOMPARE(client.defaultReactionOptions().size(), 12);
+
+        QSignalSpy spy(&client, &ZaloClient::settingsChanged);
+        client.setDefaultReaction(QStringLiteral("heart"));
+        QCOMPARE(client.defaultReaction(), QStringLiteral("heart"));
+        QCOMPARE(client.defaultReactionEmoji(), QStringLiteral("❤️"));
+        QCOMPARE(spy.count(), 1);
+
+        client.setDefaultReaction(QStringLiteral("not_a_real_key"));
+        QCOMPARE(client.defaultReaction(), QStringLiteral("heart"));
+        QCOMPARE(spy.count(), 1);
+
+        QCOMPARE(client.interfaceScale(), 100);
+        QCOMPARE(client.interfaceScaleRestartRequired(), false);
+        client.setInterfaceScale(150);
+        QCOMPARE(client.interfaceScale(), 150);
+        QCOMPARE(client.interfaceScaleRestartRequired(), true);
+        QCOMPARE(settings.value(QStringLiteral("appearance/interfaceScale")).toInt(), 150);
+
+        client.setInterfaceScale(115);
+        QCOMPARE(client.interfaceScale(), 100);
+        QCOMPARE(client.interfaceScaleRestartRequired(), false);
+
+        QCOMPARE(ZaloClient::normalizeInterfaceScale(80), 80);
+        QCOMPARE(ZaloClient::normalizeInterfaceScale(90), 90);
+        QCOMPARE(ZaloClient::normalizeInterfaceScale(125), 125);
+        QCOMPARE(ZaloClient::normalizeInterfaceScale(150), 150);
+        QCOMPARE(ZaloClient::normalizeInterfaceScale(200), 100);
+
+        settings.remove(QStringLiteral("settings/defaultReaction"));
+        settings.remove(QStringLiteral("appearance/interfaceScale"));
     }
 };
 

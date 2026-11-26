@@ -2,7 +2,7 @@
 
 pkgs.stdenv.mkDerivation rec {
   pname = "zalos";
-  version = "1.3.1";
+  version = "1.3.2";
 
   src = pkgs.lib.cleanSourceWith {
     src = ./.;
@@ -40,14 +40,13 @@ pkgs.stdenv.mkDerivation rec {
     zlib
     openssl
     xz
-    sqlite
     openh264
   ];
 
   qtWrapperArgs = [
     "--set-default ZALOS_OPENH264 ${pkgs.openh264}/lib/libopenh264.so"
     "--prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.pulseaudio ]}"
-    "--prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.libopus pkgs.libpulseaudio ]}"
+    "--prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.libpulseaudio ]}"
   ];
 
   cmakeFlags = [

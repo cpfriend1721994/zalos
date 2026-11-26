@@ -437,13 +437,6 @@ private slots:
         QVariantMap dataBefore = model.data(model.index(0), MessageModel::PollDataRole).toMap();
         QCOMPARE(dataBefore.value("poll_id").toLongLong(), 12345LL);
         QCOMPARE(dataBefore.value("num_vote").toInt(), 0);
-
-        model.updatePollVote("g1", 12345LL, 1, true);
-        QVariantMap dataAfter = model.data(model.index(0), MessageModel::PollDataRole).toMap();
-        QCOMPARE(dataAfter.value("num_vote").toInt(), 1);
-        QVariantList optsAfter = dataAfter.value("options").toList();
-        QCOMPARE(optsAfter.at(0).toMap().value("voted").toBool(), true);
-        QCOMPARE(optsAfter.at(0).toMap().value("votes").toInt(), 1);
     }
 
     void testSingleBufferActiveConversation() {

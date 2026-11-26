@@ -186,6 +186,7 @@ public:
     void setUnreadCount(int count, bool hasMentions = false);
     void setHasMentions(bool hasMentions);
     void setAntiPeeking(bool on);
+    void setNotificationsEnabled(bool on);
     void setLanguage(const QString& lang);
     void setWindowVisible(bool visible);
     void setCallState(const QString& phase, const QString& peerName, bool isVideo,
@@ -220,6 +221,8 @@ signals:
     void quitRequested();
     void toggleDarkModeRequested();
     void antiPeekingToggled(bool on);
+    void notificationsToggled(bool on);
+    void openSettingsRequested();
     void showCallWindowRequested();
     void acceptCallRequested(bool withoutCamera);
     void rejectCallRequested();
@@ -260,6 +263,7 @@ private:
     int m_unreadCount{0};
     bool m_hasMentions{false};
     bool m_antiPeeking{false};
+    bool m_notificationsEnabled{true};
     QString m_callPhase;
     QString m_callPeerName;
     bool m_callIsVideo{false};
@@ -279,6 +283,8 @@ private:
     QAction* m_callSeparator{nullptr};
     QAction* m_antiPeekAction{nullptr};
     QAction* m_openAction{nullptr};
+    QAction* m_settingsAction{nullptr};
+    QAction* m_notificationsAction{nullptr};
     QAction* m_themeAction{nullptr};
     QAction* m_separator2{nullptr};
     QAction* m_quitAction{nullptr};

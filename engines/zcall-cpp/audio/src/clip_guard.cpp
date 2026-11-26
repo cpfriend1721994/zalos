@@ -231,14 +231,12 @@ void ClipGuard::feed(const int16_t* pcm, size_t n) {
     const int clipped = m_clipped;
     m_frames = m_clipped = 0;
     const double now = monoSeconds();
-    if (m_state->on.load() && !m_state->manual.load() && !m_state->busy.exchange(true) && clipped >= kMinClipped
-        && now - m_lastStep >= kStepSec) {
+    if (m_state->on.load() && !m_state->manual.load() && clipped >= kMinClipped && now - m_lastStep >= kStepSec
+        && !m_state->busy.exchange(true)) {
         m_lastStep = now;
         const std::shared_ptr<State> st = m_state;
         if (m_async) std::thread([st, clipped] { stepState(st, clipped, kStepDb); }).detach();
         else stepState(st, clipped, kStepDb);
-    } else if (m_state->busy.load() && (clipped < kMinClipped || now - m_lastStep < kStepSec || !m_state->on.load()
-               || m_state->manual.load())) {
     }
 }
 

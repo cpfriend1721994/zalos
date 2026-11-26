@@ -610,22 +610,40 @@ void ZaloClient::submitPollChoices(qint64 pollId, const QVariantList& selectedId
         emit notice(L("Bình chọn này chỉ cho chọn một phương án.", "This poll allows only one choice."));
         return;
     }
-    auto done = [this, pollId](bool ok, const QJsonValue& data, const QString& err, int code) {
+    const bool wasJoined = detail.value("joined").toBool();
+    if (ids.isEmpty() && added.isEmpty() && !wasJoined) {
+        emit notice(selectedIds.isEmpty()
+                        ? L("Hãy chọn một phương án trước khi bình chọn", "Choose an option before voting")
+                        : L("Không xác định được phương án đã chọn, vui lòng thử lại", "Couldn't identify the selected option, please try again"));
+        return;
+    }
+    auto done = [this, pollId, ids](bool ok, const QJsonValue& data, const QString& err, int code) {
         if (!ok) {
             emit notice(pollErrorText(L("Bình chọn thất bại: ", "Vote failed: "), err, code));
             refreshPoll(pollId, true);
             return;
         }
         const QJsonArray options = data.toObject().value("options").toArray();
-        if (!options.isEmpty() && m_pollDetails.contains(pollId)) {
+        if (m_pollDetails.contains(pollId)) {
             QJsonObject merged = m_pollDetails.value(pollId);
-            merged["options"] = options;
+            if (!options.isEmpty()) {
+                merged["options"] = options;
+            } else {
+                QJsonArray marked;
+                for (const QJsonValue& v : merged.value("options").toArray()) {
+                    QJsonObject o = v.toObject();
+                    o["voted"] = ids.contains(o.value("option_id").toInt());
+                    marked.append(o);
+                }
+                merged["options"] = marked;
+            }
             bool joined = false;
-            for (const QJsonValue& v : options) joined = joined || v.toObject().value("voted").toBool();
+            for (const QJsonValue& v : merged.value("options").toArray()) joined = joined || v.toObject().value("voted").toBool();
             merged["joined"] = joined;
             storePollDetail(pollId, merged);
         }
         refreshPoll(pollId, true);
+        QTimer::singleShot(2000, this, [this, pollId]() { refreshPoll(pollId, true); });
     };
     if (!added.isEmpty()) m_apiClient->session()->addPollOptions(pollId, added, ids, done);
     else m_apiClient->session()->votePoll(pollId, ids, done);
@@ -1316,6 +1334,69 @@ void ZaloClient::setHardwareAcceleration(bool val) {
     m_hardwareAcceleration = val;
     if (val) m_hardwareAccelerationFailed = false;
     Platform::RenderGuard::setHardwareAccelerationEnabled(val);
+    emit settingsChanged();
+}
+
+QString ZaloClient::defaultReactionEmoji() const {
+    for (const auto& r : kReactions) {
+        if (m_defaultReaction == QLatin1String(r.key)) return QString::fromUtf8(r.emoji);
+    }
+    return QStringLiteral("👍");
+}
+
+void ZaloClient::setDefaultReaction(const QString& key) {
+    bool valid = false;
+    for (const auto& r : kReactions) {
+        if (key == QLatin1String(r.key)) {
+            valid = true;
+            break;
+        }
+    }
+    if (!valid || m_defaultReaction == key) return;
+    m_defaultReaction = key;
+    saveSession();
+    emit settingsChanged();
+}
+
+QVariantList ZaloClient::defaultReactionOptions() const {
+    static constexpr const char* kCuratedKeys[] = {
+        "like", "heart", "haha", "wow", "cry", "angry",
+        "ok", "thanks", "love", "kiss", "handclap", "peace"
+    };
+    QVariantList list;
+    for (const char* k : kCuratedKeys) {
+        for (const auto& r : kReactions) {
+            if (QLatin1String(r.key) == QLatin1String(k)) {
+                list.append(QVariantMap{
+                    {QStringLiteral("key"), QString::fromLatin1(r.key)},
+                    {QStringLiteral("emoji"), QString::fromUtf8(r.emoji)}
+                });
+                break;
+            }
+        }
+    }
+    return list;
+}
+
+int ZaloClient::normalizeInterfaceScale(int pct) {
+    switch (pct) {
+    case 80:
+    case 90:
+    case 100:
+    case 125:
+    case 150:
+        return pct;
+    default:
+        return 100;
+    }
+}
+
+void ZaloClient::setInterfaceScale(int pct) {
+    const int normalized = normalizeInterfaceScale(pct);
+    if (m_interfaceScale == normalized) return;
+    m_interfaceScale = normalized;
+    QSettings settings("Zalos", "ZalosApp");
+    settings.setValue("appearance/interfaceScale", m_interfaceScale);
     emit settingsChanged();
 }
 

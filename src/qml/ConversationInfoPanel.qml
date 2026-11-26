@@ -115,6 +115,11 @@ Rectangle {
         id: confirmDialog
         width: 340
         danger: root.confirmAction !== "owner"
+        okText: root.confirmAction === "disperse" ? I18n.t("Giải tán", "Disband")
+              : root.confirmAction === "owner" ? I18n.t("Chuyển quyền", "Transfer")
+              : root.confirmAction === "block" ? I18n.t("Chặn", "Block")
+              : root.confirmAction === "leave" ? I18n.t("Rời nhóm", "Leave")
+              : I18n.t("Xóa khỏi nhóm", "Remove")
         onAboutToShow: leaveSilentCheck.checked = false
         title: root.confirmAction === "disperse" ? I18n.t("Giải tán nhóm?", "Disband group?")
              : root.confirmAction === "owner" ? I18n.t("Chuyển quyền trưởng nhóm?", "Transfer ownership?")

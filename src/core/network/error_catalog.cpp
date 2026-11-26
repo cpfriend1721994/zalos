@@ -11,7 +11,7 @@ namespace Zalos::Core::Network::ErrorCatalog {
 namespace {
 
 Message make(const char* vi, const char* en, bool showCode = false) {
-    return Message{QString::fromUtf8(vi), QString::fromUtf8(en), showCode, false};
+    return Message{QString::fromUtf8(vi), QString::fromUtf8(en), showCode};
 }
 
 struct PhoneEntry {
@@ -68,7 +68,6 @@ Message phoneDefault() {
 
 Message fallbackServer() {
     Message m = make("lỗi từ máy chủ Zalo", "an error from Zalo's servers", true);
-    m.traceRaw = true;
     return m;
 }
 
@@ -140,7 +139,6 @@ Message transportError(const QString& raw) {
                 m = make("Lỗi kết nối tới máy chủ Zalo.", "Connection to Zalo's servers failed.", true);
             }
         }
-        m.traceRaw = true;
         return m;
     }
     if (raw == QLatin1String("local_file_error")) {
@@ -177,14 +175,12 @@ Message transportError(const QString& raw) {
         } else {
             m = make("lỗi kết nối mạng", "network error");
         }
-        m.traceRaw = true;
         return m;
     }
     if (lower.contains(QLatin1String("ssl")) || lower.contains(QLatin1String("tls"))
         || lower.contains(QLatin1String("certificate"))) {
         Message m = make("không thiết lập được kết nối an toàn tới máy chủ Zalo",
                          "a secure connection to Zalo's servers couldn't be established");
-        m.traceRaw = true;
         return m;
     }
     return {};

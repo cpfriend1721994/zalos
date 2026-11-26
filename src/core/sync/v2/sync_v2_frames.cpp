@@ -1,12 +1,9 @@
 #include "sync/v2/sync_v2_frames.h"
 
-#ifdef ZALOS_HAVE_SYSTEM_ZSTD
 #include <zstd.h>
-#else
-#include <QLibrary>
-#endif
 
 #include <cstring>
+#include <memory>
 
 namespace Zalos::Core::Sync::V2 {
 
@@ -24,83 +21,6 @@ bool readVarint(const QByteArray& data, int* pos, quint64* value) {
         }
     }
     return false;
-}
-
-// Same layout as ZSTD_inBuffer / ZSTD_outBuffer (stable since zstd 1.0), so the dlopen path needs no header.
-struct ZstdInBuffer {
-    const void* src;
-    size_t size;
-    size_t pos;
-};
-struct ZstdOutBuffer {
-    void* dst;
-    size_t size;
-    size_t pos;
-};
-
-struct ZstdApi {
-    using DecompressFn = size_t (*)(void*, size_t, const void*, size_t);
-    using ContentSizeFn = unsigned long long (*)(const void*, size_t);
-    using IsErrorFn = unsigned (*)(size_t);
-    using ErrorNameFn = const char* (*)(size_t);
-    using CreateStreamFn = void* (*)();
-    using FreeStreamFn = size_t (*)(void*);
-    using StreamFn = size_t (*)(void*, ZstdOutBuffer*, ZstdInBuffer*);
-
-    DecompressFn decompress{nullptr};
-    ContentSizeFn contentSize{nullptr};
-    IsErrorFn isError{nullptr};
-    ErrorNameFn errorName{nullptr};
-    CreateStreamFn createStream{nullptr};
-    FreeStreamFn freeStream{nullptr};
-    StreamFn decompressStream{nullptr};
-};
-
-const ZstdApi* loadZstd() {
-#ifdef ZALOS_HAVE_SYSTEM_ZSTD
-    static_assert(sizeof(ZstdInBuffer) == sizeof(ZSTD_inBuffer) && sizeof(ZstdOutBuffer) == sizeof(ZSTD_outBuffer));
-    static const ZstdApi api{
-        &ZSTD_decompress,
-        &ZSTD_getFrameContentSize,
-        &ZSTD_isError,
-        &ZSTD_getErrorName,
-        [] { return static_cast<void*>(ZSTD_createDStream()); },
-        [](void* ds) { return ZSTD_freeDStream(static_cast<ZSTD_DStream*>(ds)); },
-        [](void* ds, ZstdOutBuffer* out, ZstdInBuffer* in) {
-            return ZSTD_decompressStream(static_cast<ZSTD_DStream*>(ds), reinterpret_cast<ZSTD_outBuffer*>(out),
-                                         reinterpret_cast<ZSTD_inBuffer*>(in));
-        },
-    };
-    return &api;
-#else
-    static const ZstdApi api = [] {
-        ZstdApi a;
-        auto tryLoad = [&](QLibrary& lib) {
-            lib.setLoadHints(QLibrary::ExportExternalSymbolsHint);
-            if (!lib.load()) return false;
-            a.decompress = reinterpret_cast<ZstdApi::DecompressFn>(lib.resolve("ZSTD_decompress"));
-            a.contentSize = reinterpret_cast<ZstdApi::ContentSizeFn>(lib.resolve("ZSTD_getFrameContentSize"));
-            a.isError = reinterpret_cast<ZstdApi::IsErrorFn>(lib.resolve("ZSTD_isError"));
-            a.errorName = reinterpret_cast<ZstdApi::ErrorNameFn>(lib.resolve("ZSTD_getErrorName"));
-            a.createStream = reinterpret_cast<ZstdApi::CreateStreamFn>(lib.resolve("ZSTD_createDStream"));
-            a.freeStream = reinterpret_cast<ZstdApi::FreeStreamFn>(lib.resolve("ZSTD_freeDStream"));
-            a.decompressStream = reinterpret_cast<ZstdApi::StreamFn>(lib.resolve("ZSTD_decompressStream"));
-            if (!a.decompress || !a.contentSize || !a.isError || !a.errorName || !a.createStream || !a.freeStream ||
-                !a.decompressStream) {
-                a = ZstdApi{};
-                return false;
-            }
-            return true;
-        };
-        QLibrary versioned(QStringLiteral("zstd"), 1);
-        if (!tryLoad(versioned)) {
-            QLibrary unversioned(QStringLiteral("zstd"));
-            tryLoad(unversioned);
-        }
-        return a;
-    }();
-    return api.decompress ? &api : nullptr;
-#endif
 }
 
 }
@@ -163,75 +83,52 @@ std::optional<QVector<ProtoField>> parseProto(const QByteArray& data) {
 
 namespace {
 
-// Frames written by a streaming encoder carry no content size, so grow the output until the frame ends.
-ZstdStatus zstdDecompressStreaming(const ZstdApi& api, const QByteArray& compressed, unsigned long long maxSize,
-                                   QByteArray* out, QByteArray* detail) {
-    void* stream = api.createStream();
-    if (!stream) {
-        if (detail) *detail = QByteArrayLiteral("zstd stream allocation failed");
+ZstdStatus zstdDecompressStreaming(const QByteArray& compressed, unsigned long long maxSize, QByteArray* out,
+                                   QByteArray* detail) {
+    std::unique_ptr<ZSTD_DStream, decltype(&ZSTD_freeDStream)> stream(ZSTD_createDStream(), &ZSTD_freeDStream);
+    auto fail = [out, detail](const QByteArray& why) {
+        if (detail) *detail = why;
+        out->clear();
         return ZstdStatus::Error;
-    }
-    ZstdInBuffer in{compressed.constData(), static_cast<size_t>(compressed.size()), 0};
-    out->resize(qMax<qsizetype>(compressed.size() * 4, 64 * 1024));
+    };
+    if (!stream) return fail(QByteArrayLiteral("zstd stream allocation failed"));
+    ZSTD_inBuffer in{compressed.constData(), static_cast<size_t>(compressed.size()), 0};
+    const unsigned long long initial =
+        qMax<unsigned long long>(static_cast<unsigned long long>(compressed.size()) * 4ULL, 64ULL * 1024ULL);
+    out->resize(static_cast<qsizetype>(qMin<unsigned long long>(initial, maxSize)));
     size_t produced = 0;
     size_t remaining = 1;
-    while (remaining != 0) {
+    while (remaining != 0 || in.pos < in.size) {
         if (produced == static_cast<size_t>(out->size())) {
             if (static_cast<unsigned long long>(out->size()) >= maxSize) {
-                if (detail) *detail = QByteArrayLiteral("zstd frame too large");
-                out->clear();
-                api.freeStream(stream);
-                return ZstdStatus::Error;
+                return fail(QByteArrayLiteral("zstd frame too large"));
             }
-            out->resize(static_cast<qsizetype>(qMin<unsigned long long>(out->size() * 2ULL, maxSize)));
+            out->resize(static_cast<qsizetype>(
+                qMin<unsigned long long>(static_cast<unsigned long long>(out->size()) * 2ULL, maxSize)));
         }
-        ZstdOutBuffer outBuf{out->data(), static_cast<size_t>(out->size()), produced};
+        ZSTD_outBuffer outBuf{out->data(), static_cast<size_t>(out->size()), produced};
         const size_t inBefore = in.pos;
-        remaining = api.decompressStream(stream, &outBuf, &in);
-        if (api.isError(remaining)) {
-            if (detail) *detail = QByteArray(api.errorName(remaining));
-            out->clear();
-            api.freeStream(stream);
-            return ZstdStatus::Error;
-        }
+        remaining = ZSTD_decompressStream(stream.get(), &outBuf, &in);
+        if (ZSTD_isError(remaining)) return fail(QByteArray(ZSTD_getErrorName(remaining)));
         const bool progressed = outBuf.pos != produced || in.pos != inBefore;
         produced = outBuf.pos;
-        if (remaining != 0 && in.pos == in.size && !progressed) {
-            if (detail) *detail = QByteArrayLiteral("truncated zstd frame");
-            out->clear();
-            api.freeStream(stream);
-            return ZstdStatus::Error;
+        if (!progressed && in.pos == in.size && remaining != 0) {
+            return fail(QByteArrayLiteral("truncated zstd frame"));
+        }
+        if (!progressed && in.pos < in.size && produced < static_cast<size_t>(out->size())) {
+            return fail(QByteArrayLiteral("stalled zstd stream"));
         }
     }
-    api.freeStream(stream);
     out->resize(static_cast<qsizetype>(produced));
     return ZstdStatus::Ok;
 }
 
-}  // namespace
+}
 
 ZstdStatus zstdDecompress(const QByteArray& compressed, QByteArray* out, QByteArray* detail) {
     if (!out) return ZstdStatus::Error;
-    const ZstdApi* api = loadZstd();
-    if (!api) return ZstdStatus::Unavailable;
-    const unsigned long long size = api->contentSize(compressed.constData(), static_cast<size_t>(compressed.size()));
-    constexpr unsigned long long kUnknownSize = 0ULL - 1ULL;
-    constexpr unsigned long long kError = 0ULL - 2ULL;
     constexpr unsigned long long kMaxZstdSize = 64ULL * 1024 * 1024;
-    if (size == kUnknownSize) return zstdDecompressStreaming(*api, compressed, kMaxZstdSize, out, detail);
-    if (size == kError || size > kMaxZstdSize) {
-        if (detail) *detail = size > kMaxZstdSize ? QByteArrayLiteral("zstd frame too large") : QByteArrayLiteral("invalid zstd frame");
-        return ZstdStatus::Error;
-    }
-    out->resize(static_cast<qsizetype>(size));
-    const size_t written = api->decompress(out->data(), static_cast<size_t>(size), compressed.constData(),
-                                           static_cast<size_t>(compressed.size()));
-    if (api->isError(written) || written != static_cast<size_t>(size)) {
-        if (detail) *detail = QByteArray(api->errorName(written));
-        out->clear();
-        return ZstdStatus::Error;
-    }
-    return ZstdStatus::Ok;
+    return zstdDecompressStreaming(compressed, kMaxZstdSize, out, detail);
 }
 
 namespace {

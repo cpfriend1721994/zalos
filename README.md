@@ -1,6 +1,8 @@
-# Zalos 🚀
-
 <div align="center">
+
+<img src="assets/icons/zalos.svg" width="128" alt="Zalos logo">
+
+# Zalos
 
 **High-performance, ultra-lightweight native Qt 6 client for Zalo on Linux**
 
@@ -104,13 +106,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (`.deb` single file)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.1-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.3.1-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.2-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.3.2-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (`.rpm` single file)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.1-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.2-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -138,9 +140,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.1-${ARCH}.AppImage"
-chmod +x "Zalos-1.3.1-${ARCH}.AppImage"
-"./Zalos-1.3.1-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.2-${ARCH}.AppImage"
+chmod +x "Zalos-1.3.2-${ARCH}.AppImage"
+"./Zalos-1.3.2-${ARCH}.AppImage"
 ```
 The AppImage (~27 MB) bundles its own Qt 6.8.3 LTS runtime with QML AOT compilation, color emoji fallback, and slim FFmpeg 7.1.5 LGPL playback — zero system Qt packages required (works cleanly across Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, and Arch; requires `glibc ≥ 2.35`).
 
@@ -148,15 +150,23 @@ The AppImage (~27 MB) bundles its own Qt 6.8.3 LTS runtime with QML AOT compilat
 No prebuilt native package is published for Arch Linux. Use **Flatpak**, **Snap**, the portable **AppImage** above, or build from source — clone this repository and
 follow [Building from source](#️-building-from-source).
 
-### Optional: calls
-Voice and video calls run on Zalos's own C++ call engine (`zalos-call` and `zalos-call-audio`, in `libexec/zalos`;
-see `engines/zcall-cpp/LICENSE` for third-party BSD-3-Clause notices).
-Zalos has no Python or Node.js dependency at all:
 
-- **Voice calls work out of the box** on `.deb`, `.rpm`, `Nix`, and the **AppImage**: Zalos uses your system's `libopus` and falls back to its own private copy when the system has none, and talks to PulseAudio / PipeWire through `libpulse-simple.so.0`, which every standard desktop already has (only minimal systems need `libpulse0` on Ubuntu/Debian or `pulseaudio-libs` on Fedora).
-- **Video calls** (seeing the other person's camera) additionally need **OpenH264** from your distribution (never bundled, for patent-licensing reasons): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`. The `.deb`/`.rpm` recommend it, so `apt`/`dnf` install it by default.
-- **Playing voice messages and videos** runs on Qt Multimedia with Qt 6.8.3's bundled FFmpeg backend (works out of the box across `.deb`, `.rpm`, and AppImage; if system codecs/devices are unavailable, Zalos keeps working and reports the status).
-- **Check what Zalos found:** `zalos --check-deps` (or `./Zalos-*.AppImage --check-deps`) prints which Qt, codecs, OpenH264 and audio libraries are in use — handy for bug reports.
+---
+
+## 🧩 Third-party
+
+* Qt 6.8.3 LTS ([LGPLv3](https://www.gnu.org/licenses/lgpl-3.0.html)): bundled in the AppImage, `.deb` and `.rpm`
+* FFmpeg 7.1.5, slim LGPL build ([LGPL](https://ffmpeg.org/legal.html)): media playback, bundled with Qt Multimedia
+* OpenSSL 3 ([Apache License 2.0](https://www.openssl.org/source/license.html))
+* zlib ([zlib License](https://zlib.net/zlib_license.html))
+* SQLite 3.54.1 ([public domain](https://sqlite.org/copyright.html)): local message database, built into Qt's `QSQLITE` driver with FTS5 search
+* XZ Utils / liblzma ([public domain](https://tukaani.org/xz/))
+* Zstandard ([BSD 3-Clause](https://github.com/facebook/zstd/blob/dev/LICENSE)): decompresses phone history sync batches
+* Opus 1.6.1 ([BSD 3-Clause](https://opus-codec.org/license/)): call audio, bundled in `zalos-call-audio` (`engines/zcall-cpp/third_party/opus`)
+* OpenH264 ([BSD 2-Clause](https://github.com/cisco/openh264/blob/master/LICENSE)): video calls, never bundled; the system copy is used when installed
+* libpulse ([LGPL 2.1 or later](https://gitlab.freedesktop.org/pulseaudio/pulseaudio/-/blob/master/LICENSE)): audio I/O, loaded at runtime
+* Noto Sans ([SIL Open Font License 1.1](https://openfontlicense.org/)): interface font, `assets/fonts/`
+* QR Code generator by Project Nayuki ([MIT](https://github.com/nayuki/QR-Code-generator)): `src/core/network/qrcodegen.*`
 
 ---
 
@@ -178,7 +188,7 @@ docker compose run --rm package-rpm      # dist/*.deb + dist/*.x86_64.rpm (.rpm 
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.3.1 && git push origin v1.3.1`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.3.2 && git push origin v1.3.2`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.

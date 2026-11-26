@@ -2,8 +2,8 @@
 %global _binary_payload w9.xzdio
 %global __os_install_post %{nil}
 %global _build_id_links none
-%global __provides_exclude_from ^/usr/lib/zalos/(fallback|qt6)/.*$
-%global __requires_exclude_from ^/usr/lib/zalos/(fallback|qt6)/.*$
+%global __provides_exclude_from ^/usr/lib/zalos/(qt6)/.*$
+%global __requires_exclude_from ^/usr/lib/zalos/(qt6)/.*$
 %global __requires_exclude ^libQt6.*$|^libicu.*$
 
 Name:           zalos
@@ -25,7 +25,6 @@ Requires:       libwayland-cursor
 Requires:       libwayland-egl
 Requires:       xcb-util-cursor
 Requires:       openssl-libs
-Requires:       sqlite-libs
 Requires:       xz-libs
 Requires:       zlib
 Requires:       libzstd
@@ -34,7 +33,6 @@ Requires:       libicu
 Requires:       pulseaudio-libs
 Requires:       libXrandr
 Requires:       krb5-libs
-Recommends:     opus
 Recommends:     openh264
 
 %description

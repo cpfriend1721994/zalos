@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.3.1 LANGUAGES CXX)
+project(zalos VERSION 1.3.2 LANGUAGES CXX)
 option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -45,16 +45,9 @@ qt_standard_project_setup()
 
 find_package(OpenSSL REQUIRED)
 find_package(ZLIB REQUIRED)
-find_package(SQLite3 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LZMA REQUIRED liblzma)
-pkg_check_modules(ZSTD QUIET IMPORTED_TARGET libzstd)
-if(ZSTD_FOUND)
-    add_compile_definitions(ZALOS_HAVE_SYSTEM_ZSTD)
-    set(ZALOS_ZSTD_TARGET PkgConfig::ZSTD)
-else()
-    set(ZALOS_ZSTD_TARGET "")
-endif()
+pkg_check_modules(ZSTD REQUIRED IMPORTED_TARGET libzstd)
 
 include(CheckIncludeFileCXX)
 check_include_file_cxx(wels/codec_api.h ZALOS_HAVE_OPENH264)
@@ -272,9 +265,8 @@ target_link_libraries(zalos PRIVATE
     Qt6::Multimedia
     OpenSSL::Crypto
     ZLIB::ZLIB
-    SQLite::SQLite3
     ${LZMA_LIBRARIES}
-    ${ZALOS_ZSTD_TARGET}
+    PkgConfig::ZSTD
     ${CMAKE_DL_LIBS}
 )
 
@@ -323,9 +315,8 @@ if(BUILD_TESTING)
         Qt6::Core
         Qt6::Test
         OpenSSL::Crypto
-        SQLite::SQLite3
-        ${LZMA_LIBRARIES}
-        ${ZALOS_ZSTD_TARGET}
+            ${LZMA_LIBRARIES}
+        PkgConfig::ZSTD
         ${CMAKE_DL_LIBS}
     )
     add_test(NAME test_crypto COMMAND test_crypto)
@@ -380,7 +371,7 @@ if(BUILD_TESTING)
         Qt6::Core
         Qt6::Test
         OpenSSL::Crypto
-        ${ZALOS_ZSTD_TARGET}
+        PkgConfig::ZSTD
     )
     add_test(NAME test_sync_v2 COMMAND test_sync_v2)
 
@@ -457,9 +448,8 @@ if(BUILD_TESTING)
         Qt6::Svg
         OpenSSL::Crypto
         ZLIB::ZLIB
-        SQLite::SQLite3
-        ${LZMA_LIBRARIES}
-        ${ZALOS_ZSTD_TARGET}
+            ${LZMA_LIBRARIES}
+        PkgConfig::ZSTD
         ${CMAKE_DL_LIBS}
     )
 
@@ -504,7 +494,6 @@ if(BUILD_TESTING)
     add_test(NAME cpp_invariants COMMAND test_qml_gates cppInvariants)
     add_test(NAME ui_visual_diff COMMAND test_qml_gates uiVisualDiff)
 
-    # Debug flags read outside main() must still be registered with the parser, or the app exits on start.
     add_test(NAME cli_accepts_force_sync_v2 COMMAND zalos --force-sync-v2 --version)
     set_tests_properties(cli_accepts_force_sync_v2 PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()

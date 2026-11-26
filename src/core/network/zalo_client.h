@@ -192,6 +192,10 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString currentUnreadReactionIcon READ currentUnreadReactionIcon NOTIFY unreadReactionsChanged FINAL)
     Q_PROPERTY(bool notifySound READ notifySound WRITE setNotifySound NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool antiPeeking READ antiPeeking WRITE setAntiPeeking NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(QString defaultReaction READ defaultReaction WRITE setDefaultReaction NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(QString defaultReactionEmoji READ defaultReactionEmoji NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(int interfaceScale READ interfaceScale WRITE setInterfaceScale NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(bool interfaceScaleRestartRequired READ interfaceScaleRestartRequired NOTIFY settingsChanged FINAL)
     Q_PROPERTY(QString chatBackgroundMode READ chatBackgroundMode WRITE setChatBackgroundMode NOTIFY settingsChanged FINAL)
     Q_PROPERTY(qreal chatBackgroundOpacity READ chatBackgroundOpacity WRITE setChatBackgroundOpacity NOTIFY settingsChanged FINAL)
     Q_PROPERTY(QString chatBackgroundImage READ chatBackgroundImage NOTIFY chatBackgroundImageChanged FINAL)
@@ -517,6 +521,14 @@ public:
     bool hardwareAccelerationRestartRequired() const { return m_hardwareAcceleration != m_startupHardwareAcceleration; }
     bool hardwareAccelerationFailed() const { return m_hardwareAccelerationFailed; }
     Q_INVOKABLE void restartApp();
+    QString defaultReaction() const { return m_defaultReaction; }
+    QString defaultReactionEmoji() const;
+    void setDefaultReaction(const QString& key);
+    Q_INVOKABLE QVariantList defaultReactionOptions() const;
+    int interfaceScale() const { return m_interfaceScale; }
+    void setInterfaceScale(int pct);
+    bool interfaceScaleRestartRequired() const { return m_interfaceScale != m_startupInterfaceScale; }
+    static int normalizeInterfaceScale(int pct);
 
     QString appVersion() const;
     QString qtRuntimeVersion() const;
@@ -639,6 +651,9 @@ public:
     Q_INVOKABLE void transferGroupOwner(const QString& groupId, const QString& memberId);
     Q_INVOKABLE void disperseGroup(const QString& groupId);
     Q_INVOKABLE void refreshPoll(qint64 pollId, bool force = false);
+    Q_INVOKABLE bool pollCanPick(qint64 pollId) const;
+    Q_INVOKABLE bool pollJoined(qint64 pollId) const;
+    Q_INVOKABLE bool pollMultiChoice(qint64 pollId) const;
     Q_INVOKABLE void sendMessageWithMentions(const QString& text, const QVariantList& mentions);
     Q_INVOKABLE void sendComposedMessage(const QString& text, const QVariantList& mentions, const QVariantList& styles);
     QVariantList quickMessages() const { return m_quickMessages; }
@@ -1008,7 +1023,7 @@ private:
     void onSessionLoginFailed(const QString& reason);
     void onSessionLoginUnavailable(const QString& reason);
     void watchConnectivity();
-    void scheduleReconnectProbe(const QString& reason);
+    void scheduleReconnectProbe();
     void loadAccountData();
     void preloadRecentThreads();
     void handleSyncControl(const QString& actType, const QString& act, const QJsonValue& data);
@@ -1295,7 +1310,6 @@ private:
     QTimer* m_restoreRetryTimer{nullptr};
     QTimer* m_reconnectProbeTimer{nullptr};
     QSet<QString> m_downloadsInFlight;
-    QString m_reconnectProbeReason;
     bool m_loadingHistory{false};
     bool m_syncing{false};
     quint64 m_accountLoadGen{0};
@@ -1380,6 +1394,9 @@ private:
     bool m_hardwareAcceleration{false};
     bool m_startupHardwareAcceleration{false};
     bool m_hardwareAccelerationFailed{false};
+    QString m_defaultReaction{QStringLiteral("like")};
+    int m_interfaceScale{100};
+    int m_startupInterfaceScale{100};
     bool m_checkingUpdate{false};
     bool m_updateAvailable{false};
     bool m_updatingApp{false};

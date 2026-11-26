@@ -148,6 +148,10 @@ QProcessEnvironment FileUtils::launchEnvironment(const QProcessEnvironment& env)
                             "GLIBC_TUNABLES", "QT_QPA_PLATFORMTHEME", "APPDIR", "APPIMAGE", "ARGV0", "OWD"}) {
         out.remove(QString::fromLatin1(key));
     }
+    if (out.contains(QStringLiteral("ZALOS_OWN_SCALE_FACTOR"))) {
+        out.remove(QStringLiteral("QT_SCALE_FACTOR"));
+        out.remove(QStringLiteral("ZALOS_OWN_SCALE_FACTOR"));
+    }
     if (!out.contains(QStringLiteral("PATH"))) out.insert(QStringLiteral("PATH"), QStringLiteral("/usr/local/bin:/usr/bin:/bin"));
     return out;
 }

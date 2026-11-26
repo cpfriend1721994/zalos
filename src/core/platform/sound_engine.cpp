@@ -182,7 +182,7 @@ QVariantList SoundEngine::systemSounds() {
     };
     for (const QString& root : roots) {
         const QDir rootDir(root);
-        for (const QString& f : rootDir.entryList(extensions, QDir::Files, QDir::Name)) add(rootDir.filePath(f), "Của bạn");
+        for (const QString& f : rootDir.entryList(extensions, QDir::Files, QDir::Name)) add(rootDir.filePath(f), QSettings().value("settings/language", "en").toString() == QLatin1String("en") ? QStringLiteral("Yours") : QStringLiteral("Của bạn"));
         for (const QString& themeName : rootDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
             const QDir themeDir(rootDir.filePath(themeName));
             if (!themeDir.exists("index.theme")) continue;
@@ -300,6 +300,7 @@ void SoundEngine::play(const QString& kind, const QString& key, bool loop) {
         m_externalLoop = false;
         m_externalStopping = true;
         m_process->kill();
+        m_process->waitForFinished(1000);
     }
     QString effective = key;
     if (!findRecipe(effective)) effective = kind == "ringtone" ? QStringLiteral("classic") : QStringLiteral("pop");

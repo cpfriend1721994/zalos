@@ -83,7 +83,7 @@ bool parseSyncV2Chunk(const QByteArray& data, QVector<ParsedSyncV2Partition>* pa
 bool parseSyncV2ConversationChunk(const QByteArray& data,
                                   QVector<ParsedSyncV2Conversation>* conversations);
 
-enum class ZstdStatus { Ok, Unavailable, Error, UnknownSize };
+enum class ZstdStatus { Ok, Error, UnknownSize };
 
 ZstdStatus zstdDecompress(const QByteArray& compressed, QByteArray* out, QByteArray* detail);
 

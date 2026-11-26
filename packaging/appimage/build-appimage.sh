@@ -45,19 +45,6 @@ fi
 rm -rf "${APP_DIR}"
 DESTDIR="${APP_DIR}" cmake --install "${CMAKE_BUILD_DIR}" --strip
 
-OPUS_LIB=""
-for cand in "/usr/lib/${MULTIARCH}/libopus.so.0" "/lib/${MULTIARCH}/libopus.so.0" "/usr/lib64/libopus.so.0" "/usr/lib/libopus.so.0"; do
-    if [ -f "${cand}" ]; then
-        OPUS_LIB="${cand}"
-        break
-    fi
-done
-if [ -n "${OPUS_LIB}" ]; then
-    mkdir -p "${APP_DIR}/usr/lib/zalos/fallback"
-    cp -L "${OPUS_LIB}" "${APP_DIR}/usr/lib/zalos/fallback/libopus.so.0"
-    echo "==> Bundled libopus.so.0"
-fi
-
 echo "==> Bundling matched libxkbcommon + libxkbcommon-x11 (only used when the host lacks libxkbcommon-x11)..."
 XKB_DIR="${APP_DIR}/usr/lib/xkb-fallback"
 mkdir -p "${XKB_DIR}"

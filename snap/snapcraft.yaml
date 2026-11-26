@@ -67,7 +67,6 @@ parts:
       - libssl-dev
       - liblzma-dev
       - zlib1g-dev
-      - libsqlite3-dev
       - libzstd-dev
       - libopenh264-dev
     stage-packages:
@@ -97,7 +96,6 @@ parts:
       - qml6-module-qtmultimedia
       - qml6-module-qtcore
       - libopenh264-7
-      - libopus0
       - libpulse0
       - libzstd1
     parse-info:

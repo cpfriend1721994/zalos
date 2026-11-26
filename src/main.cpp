@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QImageReader>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QIcon>
@@ -332,6 +333,17 @@ int main(int argc, char* argv[]) {
     configureBundledQtEnv();
     QCoreApplication::setOrganizationName("Zalos");
     QCoreApplication::setApplicationName("Zalos");
+    const bool ownScale = qEnvironmentVariableIsSet("ZALOS_OWN_SCALE_FACTOR");
+    if (qEnvironmentVariableIsEmpty("QT_SCALE_FACTOR") || ownScale) {
+        const int uiScale = QSettings("Zalos", "ZalosApp").value("appearance/interfaceScale", 100).toInt();
+        if (uiScale == 80 || uiScale == 90 || uiScale == 125 || uiScale == 150) {
+            qputenv("QT_SCALE_FACTOR", QByteArray::number(uiScale / 100.0, 'f', 2));
+            qputenv("ZALOS_OWN_SCALE_FACTOR", "1");
+        } else if (ownScale) {
+            qunsetenv("QT_SCALE_FACTOR");
+            qunsetenv("ZALOS_OWN_SCALE_FACTOR");
+        }
+    }
     for (int i = 1; i < argc; ++i) {
         if (QByteArray(argv[i]) != "--check-deps") continue;
         if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -382,6 +394,7 @@ int main(int argc, char* argv[]) {
     setupMinimalPluginPath();
 
     QGuiApplication app(argc, argv);
+    QImageReader::setAllocationLimit(64);
     app.setApplicationName("Zalos");
     app.setOrganizationName("Zalos");
     app.setApplicationVersion(QStringLiteral(ZALOS_APP_VERSION));
@@ -412,7 +425,6 @@ int main(int argc, char* argv[]) {
     parser.addOption(autostartOption);
     QCommandLineOption debugOption("debug", "Keep logs on the terminal and let Ctrl+C quit (default: detach, log to file).");
     parser.addOption(debugOption);
-    // Read by MobileHistorySync via QCoreApplication::arguments(); registered so the parser accepts it.
     QCommandLineOption forceSyncV2Option("force-sync-v2", "Debug: use phone history Sync v2 directly (same as ZALOS_FORCE_SYNC_V2=1).");
     parser.addOption(forceSyncV2Option);
     parser.process(app);
@@ -446,9 +458,15 @@ int main(int argc, char* argv[]) {
 
     QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::antiPeekingToggled,
                      zaloClient, &Zalos::Core::Network::ZaloClient::setAntiPeeking);
+    QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::notificationsToggled,
+                     zaloClient, &Zalos::Core::Network::ZaloClient::setNotifyNewMessage);
     QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::settingsChanged, trayController,
-                     [zaloClient, trayController]() { trayController->setAntiPeeking(zaloClient->antiPeeking()); });
+                     [zaloClient, trayController]() {
+        trayController->setAntiPeeking(zaloClient->antiPeeking());
+        trayController->setNotificationsEnabled(zaloClient->notifyNewMessage());
+    });
     trayController->setAntiPeeking(zaloClient->antiPeeking());
+    trayController->setNotificationsEnabled(zaloClient->notifyNewMessage());
     QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::appLanguageChanged, trayController,
                      [zaloClient, trayController]() { trayController->setLanguage(zaloClient->appLanguage()); });
     trayController->setLanguage(zaloClient->appLanguage());
@@ -490,6 +508,11 @@ int main(int argc, char* argv[]) {
             QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::toggleWindowRequested,
                              obj, [obj]() {
                 QMetaObject::invokeMethod(obj, "toggleVisibility");
+            });
+            QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::openSettingsRequested,
+                             obj, [obj, zaloClient]() {
+                QMetaObject::invokeMethod(obj, "showAndActivate");
+                zaloClient->openSettings(QStringLiteral("general"));
             });
             QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::toggleDarkModeRequested,
                              obj, [obj]() {

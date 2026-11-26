@@ -488,7 +488,6 @@ bool AvatarImageProvider::isTooLarge(const QString& url) {
 QImage AvatarImageProvider::decodeScaled(QIODevice* device, const QSize& targetSize, bool circular, QString* errorOut) {
     if (errorOut) errorOut->clear();
     if (!device) return {};
-    QImageReader::setAllocationLimit(64);
     QImageReader reader(device);
     reader.setAutoTransform(true);
     if (!reader.canRead()) {

@@ -5,15 +5,15 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.3.1
+Version:        1.3.2
 Release:        1%{?dist}
 Summary:        Native Qt6 (C++/QML) messaging client for Zalo on Linux
 License:        MIT AND BSD-3-Clause AND OFL-1.1
 URL:            https://github.com/cpfriend1721994/zalos
 Source0:        %{name}-%{version}.tar.gz
 
-%global __provides_exclude_from ^%{_libdir}/%{name}/(fallback|qt6)/.*$
-%global __requires_exclude_from ^%{_libdir}/%{name}/(fallback|qt6)/.*$
+%global __provides_exclude_from ^%{_libdir}/%{name}/(qt6)/.*$
+%global __requires_exclude_from ^%{_libdir}/%{name}/(qt6)/.*$
 %global __requires_exclude ^libQt6.*$|^libicu.*$
 
 BuildRequires:  cmake >= 3.22
@@ -24,9 +24,7 @@ BuildRequires:  openh264-devel
 BuildRequires:  zlib-devel
 BuildRequires:  openssl-devel
 BuildRequires:  xz-devel
-BuildRequires:  sqlite-devel
 BuildRequires:  desktop-file-utils
-BuildRequires:  opus
 
 Requires:       mesa-libGL
 Requires:       mesa-libEGL
@@ -40,7 +38,6 @@ Requires:       libwayland-cursor
 Requires:       libwayland-egl
 Requires:       xcb-util-cursor
 Requires:       openssl-libs
-Requires:       sqlite-libs
 Requires:       xz-libs
 Requires:       zlib
 Requires:       libzstd
@@ -49,7 +46,6 @@ Requires:       libicu
 Requires:       pulseaudio-libs
 Requires:       libXrandr
 Requires:       krb5-libs
-Recommends:     opus
 Recommends:     openh264
 
 %description
@@ -76,8 +72,6 @@ export CXXFLAGS="$(echo %{build_cxxflags} | sed 's/-g[a-z0-9=-]*//g') -g0 -DNDEB
 %install
 %cmake_install
 bash packaging/common/bundle-qt6.sh /opt/qt6 %{buildroot}%{_libdir}/%{name}/qt6 %{buildroot}%{_bindir} %{buildroot}%{_libexecdir}/%{name} --build-icu-shim
-install -d %{buildroot}%{_libdir}/%{name}/fallback
-install -m 0644 "$(readlink -f %{_libdir}/libopus.so.0)" %{buildroot}%{_libdir}/%{name}/fallback/libopus.so.0
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
@@ -86,7 +80,6 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_bindir}/%{name}
 %{_libexecdir}/%{name}/zalos-call
 %{_libexecdir}/%{name}/zalos-call-audio
-%{_libdir}/%{name}/fallback/libopus.so.0
 %{_libdir}/%{name}/qt6
 %license %{_datadir}/licenses/%{name}/zcall-cpp.LICENSE
 %{_datadir}/applications/%{name}.desktop
@@ -97,6 +90,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %license %{_datadir}/%{name}/fonts/NotoSans-OFL.txt
 
 %changelog
+* Thu Nov 26 2026 Zalos Team <dev@zalos.local> - 1.3.2-1
+- Add Settings > Chat Settings (chat background & default quick emoji), tray menu notifications toggle and Settings entry, and 80%-150% interface scale.
+- Use the SQLite partial indexes for client message id lookups so large phone history imports stay fast.
+- Decompress Sync v2 zstd batches without a content size (iOS) with a bounded streaming decoder.
+- Accept the --force-sync-v2 debug flag at startup.
+
 * Wed Nov 25 2026 Zalos Team <dev@zalos.local> - 1.3.1-1
 - Fix app restart (e.g. toggling hardware acceleration) leaving the previous instance running in the system tray and spawning a duplicate app and status bar icon.
 - Import text messages, group polls and recalled messages from phone history sync; reprocessing an existing history no longer duplicates messages.

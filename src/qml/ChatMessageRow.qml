@@ -759,6 +759,24 @@ Item {
                                 implicitHeight: fileCard.implicitHeight
                                 readonly property string fileUrl: msgRow.href.length > 0 ? msgRow.href : msgRow.mediaUrl
                                 readonly property bool isVideoFile: fileCard.ext === "mp4" || fileCard.ext === "mov" || fileCard.ext === "webm" || fileCard.ext === "mkv" || fileCard.ext === "m4v"
+                                MouseArea {
+                                    id: fileOpenMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    ToolTip.visible: containsMouse && !(fileCardBox.isVideoFile && fileDownloadMouse.containsMouse)
+                                    ToolTip.delay: 500
+                                    ToolTip.text: fileCardBox.isVideoFile
+                                        ? I18n.t("Xem video", "Watch video")
+                                        : I18n.t("Tải về và mở (lưu trong Tải xuống/Zalos)", "Download and open (saved in Downloads/Zalos)")
+                                    onClicked: {
+                                        if (fileCardBox.isVideoFile && fileCardBox.fileUrl.length > 0) {
+                                            msgRow.openViewerRequested(msgRow.msgId);
+                                        } else {
+                                            ZaloClient.openFileMessage(fileCardBox.fileUrl, msgRow.text);
+                                        }
+                                    }
+                                }
                             RowLayout {
                                 id: fileCard
                                 anchors.fill: parent
@@ -837,24 +855,6 @@ Item {
                                     }
                                 }
                             }
-                                MouseArea {
-                                    id: fileOpenMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    ToolTip.visible: containsMouse && !(fileCardBox.isVideoFile && fileDownloadMouse.containsMouse)
-                                    ToolTip.delay: 500
-                                    ToolTip.text: fileCardBox.isVideoFile
-                                        ? I18n.t("Xem video", "Watch video")
-                                        : I18n.t("Tải về và mở (lưu trong Tải xuống/Zalos)", "Download and open (saved in Downloads/Zalos)")
-                                    onClicked: {
-                                        if (fileCardBox.isVideoFile && fileCardBox.fileUrl.length > 0) {
-                                            msgRow.openViewerRequested(msgRow.msgId);
-                                        } else {
-                                            ZaloClient.openFileMessage(fileCardBox.fileUrl, msgRow.text);
-                                        }
-                                    }
-                                }
                             }
                         }
 
@@ -1535,19 +1535,20 @@ Item {
                                 border.width: 1
                                 Text {
                                     anchors.centerIn: parent
-                                    text: "👍"
+                                    text: ZaloClient.defaultReactionEmoji
                                     font.pixelSize: 11
+                                    renderType: Text.NativeRendering
                                 }
                                 MouseArea {
                                     id: quickLikeMouse
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: ZaloClient.reactToMessage(msgRow.msgId, "like")
+                                    onClicked: ZaloClient.reactToMessage(msgRow.msgId, ZaloClient.defaultReaction)
                                 }
                                 ToolTip.visible: quickLikeMouse.containsMouse
                                 ToolTip.delay: 400
-                                ToolTip.text: I18n.t("Thích", "Like")
+                                ToolTip.text: I18n.t("Thả nhanh cảm xúc", "Quick react") + " " + ZaloClient.defaultReactionEmoji
                             }
                         }
                     }

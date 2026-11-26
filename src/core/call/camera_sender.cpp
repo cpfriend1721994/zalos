@@ -436,13 +436,16 @@ void CameraSender::stop() {
     }
     m_lastCapturedDesktop = QImage();
     m_lastScreenImage = QImage();
-    m_screenEncodedSize = QSize();
     if (m_sink) disconnect(m_sink, nullptr, this, nullptr);
     if (m_camera) {
         disconnect(m_camera, nullptr, this, nullptr);
         m_camera->stop();
     }
     stopEncodeThread();
+    {
+        QMutexLocker lock(&m_stateMutex);
+        m_screenEncodedSize = QSize();
+    }
     m_i420Buf.clear();
     if (m_capture) m_capture->deleteLater();
     m_capture = nullptr;

@@ -85,18 +85,18 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
         case HrefRole: return item.href;
         case FileSizeRole: return item.fileSize;
         case FirstInGroupRole: {
-            if (index.row() == 0) return true;
+            if (index.row() == 0 || !drawsBubble(item)) return true;
             const auto& prev = m_items.at(index.row() - 1);
-            return prev.senderId != item.senderId || prev.isMine != item.isMine || item.ts - prev.ts > kGroupBreakMs
-                   || localDay(prev) != localDay(item);
+            return !drawsBubble(prev) || item.id == m_unreadMarkerId || prev.senderId != item.senderId
+                   || prev.isMine != item.isMine || item.ts - prev.ts > kGroupBreakMs || localDay(prev) != localDay(item);
         }
         case LastInGroupRole: {
             int last = index.row();
             while (last + 1 < m_items.size() && joinsPrevious(last + 1)) ++last;
-            if (last + 1 >= m_items.size()) return true;
+            if (last + 1 >= m_items.size() || !drawsBubble(m_items.at(last))) return true;
             const auto& next = m_items.at(last + 1);
-            return next.senderId != item.senderId || next.isMine != item.isMine || next.ts - item.ts > kGroupBreakMs
-                   || localDay(next) != localDay(item);
+            return !drawsBubble(next) || next.id == m_unreadMarkerId || next.senderId != item.senderId
+                   || next.isMine != item.isMine || next.ts - item.ts > kGroupBreakMs || localDay(next) != localDay(item);
         }
         case DateSeparatorRole:
             return item.ts > 0 && (index.row() == 0
@@ -189,6 +189,11 @@ bool MessageModel::runPairsWithPrevious(int idx) const {
     const auto& b = m_items.at(idx);
     return a.senderId == b.senderId && a.isMine == b.isMine && b.ts - a.ts <= kMediaRunGapMs && b.ts >= a.ts
            && localDay(a) == localDay(b);
+}
+
+bool MessageModel::drawsBubble(const MessageItem& item) {
+    return item.messageType != QLatin1String("system") && item.messageType != QLatin1String("ecard")
+           && item.messageType != QLatin1String("poll");
 }
 
 bool MessageModel::joinsPrevious(int row) const {
@@ -1331,53 +1336,6 @@ QVariantList MessageModel::sharedItems(const QString& kind, int limit) const {
         out.append(e);
     }
     return out;
-}
-
-void MessageModel::updatePollVote(const QString& convId, qint64 pollId, int optionId, bool voted) {
-    auto updateItem = [pollId, optionId, voted](MessageItem& item) -> bool {
-        if (item.messageType != "poll") return false;
-        qint64 pId = item.pollData.value("poll_id").toLongLong();
-        if (pId != pollId && pollId != 0) return false;
-        QVariantList optList = item.pollData.value("options").toList();
-        bool changed = false;
-        int deltaVote = 0;
-        for (int i = 0; i < optList.size(); ++i) {
-            QVariantMap opt = optList[i].toMap();
-            if (opt.value("option_id").toInt() == optionId) {
-                bool oldVoted = opt.value("voted").toBool();
-                if (oldVoted != voted) {
-                    opt["voted"] = voted;
-                    int curVotes = opt.value("votes").toInt();
-                    opt["votes"] = voted ? (curVotes + 1) : qMax(0, curVotes - 1);
-                    optList[i] = opt;
-                    changed = true;
-                    deltaVote += (voted ? 1 : -1);
-                }
-            }
-        }
-        if (changed) {
-            item.pollData["options"] = optList;
-            int total = item.pollData.value("num_vote").toInt();
-            item.pollData["num_vote"] = qMax(0, total + deltaVote);
-            return true;
-        }
-        return false;
-    };
-
-    if (m_currentConvId == convId || convId.isEmpty()) {
-        for (int i = 0; i < m_items.size(); ++i) {
-            if (updateItem(m_items[i])) {
-                emit dataChanged(index(i), index(i), {PollDataRole});
-            }
-        }
-    }
-
-    if (!convId.isEmpty() && m_store.contains(convId)) {
-        QVector<MessageItem>& thread = m_store[convId];
-        for (MessageItem& it : thread) {
-            updateItem(it);
-        }
-    }
 }
 
 QString MessageModel::internMessageType(QStringView type) {

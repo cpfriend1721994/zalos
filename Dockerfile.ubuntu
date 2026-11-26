@@ -53,12 +53,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libxcb-xinerama0 \
     libxcb-xkb1 \
     libxrandr2 \
-    libopus0 \
     libpulse0 \
     libssl-dev \
     liblzma-dev \
     zlib1g-dev \
-    libsqlite3-dev \
     rpm \
     libzstd-dev \
     libopenh264-dev \
@@ -102,19 +100,24 @@ RUN curl -fsSL https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz -o /tmp/ffmpeg.ta
 
 RUN pip3 install --break-system-packages --no-cache-dir aqtinstall \
     && aqt install-src linux 6.8.3 --archives qtbase -O /tmp/qt-src \
+    && curl -fsSL https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip -o /tmp/sqlite-amalgamation.zip \
+    && python3 -c "import zipfile,hashlib; z=zipfile.ZipFile('/tmp/sqlite-amalgamation.zip'); c=z.read('sqlite-amalgamation-3540100/sqlite3.c'); assert hashlib.sha3_256(c).hexdigest()=='e2b869d3003b33c942b7dd7063604fbc53553e1b66609570df39b9b7b558ee81', 'sqlite3.c SHA3-256 mismatch'; d='/tmp/qt-src/6.8.3/Src/qtbase/src/3rdparty/sqlite/'; open(d+'sqlite3.c','wb').write(c); open(d+'sqlite3.h','wb').write(z.read('sqlite-amalgamation-3540100/sqlite3.h'))" \
+    && sed -i '/SQLITE_OMIT_COMPLETE/d' /tmp/qt-src/6.8.3/Src/qtbase/src/plugins/sqldrivers/sqlite/CMakeLists.txt \
     && LD_LIBRARY_PATH=/opt/qt6/lib /opt/qt6/bin/qt-cmake -G Ninja \
         -S /tmp/qt-src/6.8.3/Src/qtbase/src/plugins/sqldrivers -B /tmp/qsql-build \
-        -DCMAKE_BUILD_TYPE=Release -DFEATURE_system_sqlite=ON \
+        -DCMAKE_BUILD_TYPE=Release -DFEATURE_system_sqlite=OFF \
         -DFEATURE_sql_odbc=OFF -DFEATURE_sql_psql=OFF -DFEATURE_sql_mysql=OFF -DFEATURE_sql_ibase=OFF \
         -DFEATURE_sql_oci=OFF -DFEATURE_sql_db2=OFF -DFEATURE_sql_mimer=OFF \
     && LD_LIBRARY_PATH=/opt/qt6/lib cmake --build /tmp/qsql-build --parallel "$(nproc)" \
     && SQLITE_PLUGIN="$(find /tmp/qsql-build -name libqsqlite.so -type f | head -n 1)" \
     && test -n "${SQLITE_PLUGIN}" \
-    && LD_LIBRARY_PATH=/opt/qt6/lib ldd "${SQLITE_PLUGIN}" | grep -q 'libsqlite3\.so' \
+    && ! LD_LIBRARY_PATH=/opt/qt6/lib ldd "${SQLITE_PLUGIN}" | grep -q 'libsqlite3\.so' \
+    && strings "${SQLITE_PLUGIN}" | grep -qx '3\.54\.1' \
+    && strings "${SQLITE_PLUGIN}" | grep -q 'ENABLE_FTS5' \
     && strip --strip-unneeded "${SQLITE_PLUGIN}" \
     && install -m 0755 "${SQLITE_PLUGIN}" /opt/qt6/plugins/sqldrivers/libqsqlite.so \
     && pip3 uninstall -y --break-system-packages aqtinstall \
-    && rm -rf /tmp/qt-src /tmp/qsql-build
+    && rm -rf /tmp/qt-src /tmp/qsql-build /tmp/sqlite-amalgamation.zip
 
 ENV QT_ROOT=/opt/qt6
 ENV Qt6_DIR=/opt/qt6/lib/cmake/Qt6

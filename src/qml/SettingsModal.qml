@@ -10,7 +10,7 @@ Item {
     z: 998
 
     readonly property var systemSounds: ZaloClient.cachedSystemSounds
-    readonly property list<string> tabKeys: ["general", "language", "appearance", "notifications", "privacy", "security", "storage", "sync", "about"]
+    readonly property list<string> tabKeys: ["general", "language", "appearance", "chat", "notifications", "privacy", "security", "storage", "sync", "about"]
     property string currentTab: normalizeTab(ZaloClient.settingsInitialTab)
 
     readonly property bool compact: dialogCard.width < 560
@@ -543,6 +543,7 @@ Item {
                                     { key: "general", label: I18n.t("Cài đặt chung", "General"), icon: "settings" },
                                     { key: "language", label: I18n.t("Ngôn ngữ", "Language"), icon: "globe" },
                                     { key: "appearance", label: I18n.t("Giao diện", "Appearance"), icon: "palette" },
+                                    { key: "chat", label: I18n.t("Trò chuyện", "Chat Settings"), icon: "chat" },
                                     { key: "notifications", label: I18n.t("Thông báo", "Notifications"), icon: "bell" },
                                     { key: "privacy", label: I18n.t("Quyền riêng tư", "Privacy"), icon: "lock" },
                                     { key: "security", label: I18n.t("Bảo mật", "Security"), icon: "shield" },
@@ -627,6 +628,7 @@ Item {
                             switch (root.currentTab) {
                             case "language": return languageTabLoader.implicitHeight;
                             case "appearance": return appearanceTabLoader.implicitHeight;
+                            case "chat": return chatTabLoader.implicitHeight;
                             case "notifications": return notificationsTabLoader.implicitHeight;
                             case "privacy": return privacyTabLoader.implicitHeight;
                             case "security": return securityTabLoader.implicitHeight;
@@ -949,6 +951,130 @@ Item {
 
                                 Text {
                                     Layout.fillWidth: true
+                                    text: I18n.t("Tỉ lệ giao diện", "Interface scale")
+                                    font.family: Theme.fontFamily
+                                    font.weight: Font.DemiBold
+                                    font.pixelSize: 14
+                                    color: ThemeManager.textColor
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    SegmentedOption {
+                                        label: "80%"
+                                        selected: ZaloClient.interfaceScale === 80
+                                        onChosen: ZaloClient.interfaceScale = 80
+                                    }
+
+                                    SegmentedOption {
+                                        label: "90%"
+                                        selected: ZaloClient.interfaceScale === 90
+                                        onChosen: ZaloClient.interfaceScale = 90
+                                    }
+
+                                    SegmentedOption {
+                                        label: "100%"
+                                        selected: ZaloClient.interfaceScale === 100
+                                        onChosen: ZaloClient.interfaceScale = 100
+                                    }
+
+                                    SegmentedOption {
+                                        label: "125%"
+                                        selected: ZaloClient.interfaceScale === 125
+                                        onChosen: ZaloClient.interfaceScale = 125
+                                    }
+
+                                    SegmentedOption {
+                                        label: "150%"
+                                        selected: ZaloClient.interfaceScale === 150
+                                        onChosen: ZaloClient.interfaceScale = 150
+                                    }
+                                }
+
+                                Rectangle {
+                                    visible: ZaloClient.interfaceScaleRestartRequired
+                                    Layout.fillWidth: true
+                                    implicitHeight: scaleRestartRow.implicitHeight + 16
+                                    radius: Theme.radiusMedium
+                                    color: Theme.zaloBlueLight
+                                    border.color: Theme.zaloBlue
+                                    border.width: 1
+
+                                    RowLayout {
+                                        id: scaleRestartRow
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.margins: 12
+                                        spacing: 10
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            wrapMode: Text.WordWrap
+                                            text: I18n.t("Cần khởi động lại Zalos để áp dụng tỉ lệ giao diện mới.",
+                                                         "Restart Zalos to apply the new interface scale.")
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            color: ThemeManager.textColor
+                                        }
+
+                                        ZButton {
+                                            variant: "primary"
+                                            text: I18n.t("Khởi động lại ngay", "Restart now")
+                                            onClicked: ZaloClient.restartApp()
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: ThemeManager.borderColor
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: I18n.t("Thanh điều hướng", "Navigation bar")
+                                    font.family: Theme.fontFamily
+                                    font.weight: Font.DemiBold
+                                    font.pixelSize: 14
+                                    color: ThemeManager.textColor
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Hiển thị phân loại như thư mục", "Show labels as folders")
+                                    checked: ZaloClient.showLabelFolders
+                                    onToggled: (value) => ZaloClient.showLabelFolders = value
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Hiển thị công cụ zBusiness", "Show zBusiness tools")
+                                    checked: ZaloClient.showBusinessButton
+                                    onToggled: (value) => ZaloClient.showBusinessButton = value
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Hiển thị trợ lý Kiki", "Show Kiki assistant")
+                                    checked: ZaloClient.showKikiButton
+                                    onToggled: (value) => ZaloClient.showKikiButton = value
+                                }
+                            }
+                        }
+
+                        Loader {
+                            id: chatTabLoader
+                            active: root.currentTab === "chat"
+                            x: contentContainer.contentPadding
+                            y: contentContainer.contentPadding
+                            width: contentContainer.width - 2 * contentContainer.contentPadding
+                            sourceComponent: ColumnLayout {
+                                width: parent.width
+                                spacing: 14
+
+                                Text {
+                                    Layout.fillWidth: true
                                     text: I18n.t("Hình nền trò chuyện", "Chat background")
                                     font.family: Theme.fontFamily
                                     font.weight: Font.DemiBold
@@ -1113,29 +1239,60 @@ Item {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: I18n.t("Thanh điều hướng", "Navigation bar")
+                                    text: I18n.t("Biểu tượng cảm xúc mặc định", "Default quick emoji")
                                     font.family: Theme.fontFamily
                                     font.weight: Font.DemiBold
                                     font.pixelSize: 14
                                     color: ThemeManager.textColor
                                 }
 
-                                ToggleRow {
-                                    title: I18n.t("Hiển thị phân loại như thư mục", "Show labels as folders")
-                                    checked: ZaloClient.showLabelFolders
-                                    onToggled: (value) => ZaloClient.showLabelFolders = value
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: I18n.t("Dùng cho nút gửi nhanh cạnh ô nhập và nút thả nhanh trên mỗi tin nhắn",
+                                                 "Used for the composer quick-send button and quick-react button on each message")
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    color: ThemeManager.secondaryTextColor
+                                    wrapMode: Text.WordWrap
                                 }
 
-                                ToggleRow {
-                                    title: I18n.t("Hiển thị công cụ zBusiness", "Show zBusiness tools")
-                                    checked: ZaloClient.showBusinessButton
-                                    onToggled: (value) => ZaloClient.showBusinessButton = value
-                                }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 8
 
-                                ToggleRow {
-                                    title: I18n.t("Hiển thị trợ lý Kiki", "Show Kiki assistant")
-                                    checked: ZaloClient.showKikiButton
-                                    onToggled: (value) => ZaloClient.showKikiButton = value
+                                    Repeater {
+                                        model: ZaloClient.defaultReactionOptions()
+                                        delegate: Rectangle {
+                                            id: reactionOption
+                                            required property var modelData
+                                            readonly property string reactionKey: String(modelData.key || "")
+                                            readonly property string reactionEmoji: String(modelData.emoji || "")
+                                            readonly property bool selected: ZaloClient.defaultReaction === reactionKey
+                                            width: 36
+                                            height: 36
+                                            radius: 10
+                                            color: selected ? Theme.zaloBlueLight
+                                                            : (reactionOptMouse.containsMouse ? ThemeManager.inputFillHoverColor
+                                                                                              : ThemeManager.cardBackgroundColor)
+                                            border.width: selected ? 2 : 1
+                                            border.color: selected ? Theme.zaloBlue : ThemeManager.borderColor
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: reactionOption.reactionEmoji
+                                                font.pixelSize: 18
+                                                renderType: Text.NativeRendering
+                                            }
+
+                                            MouseArea {
+                                                id: reactionOptMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: ZaloClient.defaultReaction = reactionOption.reactionKey
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -1567,8 +1567,7 @@ void MobileHistorySync::processNextV2Download() {
             const QPointer<MobileHistorySync> self(this);
             QThreadPool::globalInstance()->start([self, gen, bytes, session, myNoisedUid, tryConv]() {
                 V2MessageParseResult res = parseV2MessageBatch(bytes, session, myNoisedUid, tryConv);
-                if (!self) return;
-                QMetaObject::invokeMethod(self, [self, gen, res = std::move(res)]() mutable {
+                QMetaObject::invokeMethod(QCoreApplication::instance(), [self, gen, res = std::move(res)]() mutable {
                     if (!self || gen != self->m_generation || !self->m_v2Active) return;
                     self->m_v2InFlightDownload = false;
                     if (res.errorKind != V2MessageParseResult::None) {

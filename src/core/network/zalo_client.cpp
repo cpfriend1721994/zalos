@@ -88,7 +88,6 @@ ZaloClient::ZaloClient(QObject* parent)
         if (!m_isLoggedIn) refreshQrCode();
     });
     connect(m_apiClient, &ZaloApiClient::qrFailed, this, [this](const QString& reason) {
-        ErrorCatalog::trace("qr", reason);
         m_qrImageUrl.clear();
         emit qrCodeChanged();
         setLoginStatus(L("Không tải được mã QR. Vui lòng kiểm tra kết nối mạng rồi bấm \"Lấy mã mới\".",
@@ -357,7 +356,6 @@ ZaloClient::ZaloClient(QObject* parent)
             emit notice(L("Thiếu bộ mã hóa AAC trong Qt Multimedia nên chưa ghi âm được.",
                           "Qt Multimedia has no AAC encoder, so recording is unavailable."));
         else {
-            ErrorCatalog::trace("media", QStringLiteral("recording failed reason=%1").arg(reason));
             emit notice(L("Ghi âm thất bại. Vui lòng thử lại.", "Recording failed. Please try again."));
         }
     });
@@ -552,8 +550,6 @@ ZaloClient::ZaloClient(QObject* parent)
 
 QString ZaloClient::friendlyError(const QString& error, int code) const {
     const bool en = m_appLanguage == QLatin1String("en");
-    const ErrorCatalog::Message m = ErrorCatalog::describe(code, error);
-    if (m.traceRaw) ErrorCatalog::trace("api", QStringLiteral("code=%1 raw=%2").arg(code).arg(error));
     return ErrorCatalog::render(code, error, en);
 }
 
@@ -607,6 +603,16 @@ void ZaloClient::loadSession() {
     m_hardwareAcceleration = Platform::RenderGuard::hardwareAccelerationEnabled();
     m_startupHardwareAcceleration = m_hardwareAcceleration;
     m_hardwareAccelerationFailed = !m_hardwareAcceleration && !Platform::RenderGuard::lastFailure().isEmpty();
+    m_interfaceScale = normalizeInterfaceScale(settings.value("appearance/interfaceScale", 100).toInt());
+    m_startupInterfaceScale = m_interfaceScale;
+    const QString savedReaction = settings.value("settings/defaultReaction", "like").toString();
+    m_defaultReaction = QStringLiteral("like");
+    for (const auto& r : kReactions) {
+        if (savedReaction == QLatin1String(r.key)) {
+            m_defaultReaction = savedReaction;
+            break;
+        }
+    }
     m_hiddenDismissedAt = settings.value("settings/hiddenUnreadDismissedAt", 0).toLongLong();
     m_startHiddenInTray = settings.value("settings/startHiddenInTray", false).toBool();
     m_closeToTray = settings.value("settings/closeToTray", true).toBool();
@@ -637,6 +643,8 @@ void ZaloClient::saveSession() {
     settings.setValue("settings/notifyReactions", m_notifyReactions);
     settings.setValue("settings/notifySound", m_notifySound);
     settings.setValue("settings/antiPeeking", m_antiPeeking);
+    settings.setValue("settings/defaultReaction", m_defaultReaction);
+    settings.setValue("appearance/interfaceScale", m_interfaceScale);
     settings.setValue("settings/chatBackgroundMode", m_chatBackgroundMode);
     settings.setValue("settings/chatBackgroundOpacity", m_chatBackgroundOpacity);
     settings.remove(QLatin1String("settings/useAvatarAsChatBackground"));
@@ -789,7 +797,6 @@ void ZaloClient::onSessionLoggedIn() {
 }
 
 void ZaloClient::onSessionLoginUnavailable(const QString& reason) {
-    ErrorCatalog::trace("login", QStringLiteral("unavailable reason=%1").arg(reason));
     if (!m_restoringSession) {
         m_isLoggingIn = false;
         emit loginStateChanged();
@@ -810,13 +817,12 @@ void ZaloClient::watchConnectivity() {
     m_reconnectProbeTimer->setInterval(2000);
     connect(m_reconnectProbeTimer, &QTimer::timeout, this, [this]() {
         if (!m_isLoggedIn && !m_restoringSession) return;
-        ErrorCatalog::trace("network", QStringLiteral("reconnect probe reason=%1").arg(m_reconnectProbeReason));
         syncOfflineData();
     });
     if (QNetworkInformation::loadBackendByFeatures(QNetworkInformation::Feature::Reachability)) {
         if (QNetworkInformation* info = QNetworkInformation::instance()) {
             connect(info, &QNetworkInformation::reachabilityChanged, this, [this](QNetworkInformation::Reachability r) {
-                if (r == QNetworkInformation::Reachability::Online) scheduleReconnectProbe(QStringLiteral("network-online"));
+                if (r == QNetworkInformation::Reachability::Online) scheduleReconnectProbe();
             });
         }
     }
@@ -826,17 +832,15 @@ void ZaloClient::watchConnectivity() {
 }
 
 void ZaloClient::onPrepareForSleep(bool sleeping) {
-    if (!sleeping) scheduleReconnectProbe(QStringLiteral("resume"));
+    if (!sleeping) scheduleReconnectProbe();
 }
 
-void ZaloClient::scheduleReconnectProbe(const QString& reason) {
+void ZaloClient::scheduleReconnectProbe() {
     if (!m_reconnectProbeTimer || (!m_isLoggedIn && !m_restoringSession)) return;
-    m_reconnectProbeReason = reason;
     m_reconnectProbeTimer->start();
 }
 
 void ZaloClient::onSessionLoginFailed(const QString& reason) {
-    ErrorCatalog::trace("login", QStringLiteral("failed reason=%1").arg(reason));
     m_restoreRetryTimer->stop();
     m_restoreAttempts = 0;
     if (m_isOfflineMode) {
@@ -1514,7 +1518,6 @@ void ZaloClient::watchOpenFailure(const QString& failureFile, const QUrl& url) {
 }
 
 void ZaloClient::reportOpenFailure(const QUrl& url) {
-    ErrorCatalog::trace("open", QStringLiteral("open url failed scheme=%1").arg(url.scheme()));
     copyText(url.toString());
     const QString scheme = url.scheme().toLower();
     if (scheme == QLatin1String("http") || scheme == QLatin1String("https")) {
@@ -1530,7 +1533,6 @@ void ZaloClient::reportOpenFailure(const QUrl& url) {
 
 bool ZaloClient::openLocalFile(const QString& path) {
     if (Fs::FileUtils::openLocalPath(path)) return true;
-    ErrorCatalog::trace("open", QStringLiteral("open local file failed suffix=%1").arg(QFileInfo(path).suffix()));
     emit notice(L("Không có ứng dụng nào mở được tệp này. Tệp vẫn được lưu tại ", "No app could open this file. It is saved at ")
                 + QDir::toNativeSeparators(path));
     return false;
@@ -1581,7 +1583,10 @@ QVariantList ZaloClient::groupsForInvite(const QString& userId) const {
 void ZaloClient::refreshPoll(qint64 pollId, bool force) {
     if (!m_isLoggedIn || pollId <= 0) return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    if (!force && now - m_pollFetchedAt.value(pollId) < 30000) return;
+    if (!force && now - m_pollFetchedAt.value(pollId) < 30000) {
+        if (m_pollDetails.contains(pollId)) m_messageModel->setPollData(pollId, pollView(pollId), m_pollGroups.value(pollId));
+        return;
+    }
     if (!m_pollFetchedAt.contains(pollId)) dropOldestIfFull(m_pollFetchedAt);
     m_pollFetchedAt.insert(pollId, now);
     m_apiClient->session()->fetchPollDetail(pollId, [this, pollId](bool ok, const QJsonValue& data, const QString&, int) {
@@ -1609,6 +1614,19 @@ bool ZaloClient::canManagePoll(qint64 pollId, const QJsonObject& detail) const {
     const QString gid = m_pollGroups.value(pollId, m_pollDialogGroupId);
     const auto roster = m_groupRosters.constFind(gid);
     return roster != m_groupRosters.cend() && (roster->creator == m_myUid || roster->admins.contains(m_myUid));
+}
+
+bool ZaloClient::pollCanPick(qint64 pollId) const {
+    const QVariantMap view = pollView(pollId);
+    return view.value("can_vote").toBool() && view.value("lock_reason").toString().isEmpty();
+}
+
+bool ZaloClient::pollJoined(qint64 pollId) const {
+    return pollView(pollId).value("joined").toBool();
+}
+
+bool ZaloClient::pollMultiChoice(qint64 pollId) const {
+    return pollView(pollId).value("allow_multi_choices").toBool();
 }
 
 QVariantMap ZaloClient::pollView(qint64 pollId) const {
@@ -1657,7 +1675,13 @@ QVariantMap ZaloClient::buildPollView(const QJsonObject& d, const QString& myUid
                                       {"avatar", who.second}, {"isMe", uid == myUid}});
         }
         const double weight = totalVotes > 0 ? double(votes) / totalVotes : 0.0;
-        options.append(QVariantMap{{"option_id", o.value("option_id").toInt()},
+        const int optionId = [&o] {
+            for (const char* key : {"option_id", "optionId", "id"}) {
+                if (const int v = o.value(QLatin1String(key)).toVariant().toInt(); v > 0) return v;
+            }
+            return 0;
+        }();
+        options.append(QVariantMap{{"option_id", optionId},
                                    {"content", o.value("content").toString()},
                                    {"votes", votes},
                                    {"voted", o.value("voted").toBool()},

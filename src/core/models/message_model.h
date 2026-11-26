@@ -164,7 +164,6 @@ public:
     Q_INVOKABLE QVariantList sharedItems(const QString& kind, int limit = 60) const;
 
     Q_INVOKABLE QList<int> searchMessages(const QString& query) const;
-    Q_INVOKABLE void updatePollVote(const QString& convId, qint64 pollId, int optionId, bool voted);
 
 signals:
     void incomingAppended(int count);
@@ -180,6 +179,7 @@ private:
     bool isRunTile(int row) const;
     bool runPairsWithPrevious(int row) const;
     bool joinsPrevious(int row) const;
+    static bool drawsBubble(const MessageItem& item);
 
     QVector<MessageItem> m_items;
     QHash<QString, int> m_activeRowById;

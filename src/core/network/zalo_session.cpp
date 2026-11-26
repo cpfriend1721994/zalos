@@ -80,7 +80,6 @@ ZaloSession::ZaloSession(QNetworkAccessManager* nam, SessionCookieJar* jar, QObj
     : QObject(parent), m_nam(nam), m_jar(jar) {
     m_pongWatchdog.setSingleShot(true);
     connect(&m_pongWatchdog, &QTimer::timeout, this, [this]() {
-        logRealtime(QStringLiteral("no frame after ping or socket open: reconnecting"));
         QMetaObject::invokeMethod(this, [this, ws = QPointer<QWebSocket>(m_ws)]() {
             if (!ws || ws != m_ws) return;
             const bool wasReady = m_realtimeReady;
@@ -93,7 +92,6 @@ ZaloSession::ZaloSession(QNetworkAccessManager* nam, SessionCookieJar* jar, QObj
             ws->disconnect(this);
             ws->abort();
             ws->deleteLater();
-            logRealtime(QStringLiteral("socket never connected: dropping it and retrying"));
             if (wasReady) emit realtimeStateChanged(false);
             if (m_replacedByOtherClient || m_secretKey.isEmpty()) return;
             const QJsonArray all = m_loginInfo.value("zpw_ws").toArray();
@@ -110,15 +108,6 @@ ZaloSession::ZaloSession(QNetworkAccessManager* nam, SessionCookieJar* jar, QObj
 
     m_wsReconnectTimer.setSingleShot(true);
     connect(&m_wsReconnectTimer, &QTimer::timeout, this, &ZaloSession::connectRealtime);
-}
-
-void ZaloSession::logRealtime(const QString& line) const {
-    const QString dir = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath("logs");
-    QDir().mkpath(dir);
-    QFile f(QDir(dir).filePath(QStringLiteral("realtime.log")));
-    if (f.size() > 512 * 1024) f.remove();
-    if (!f.open(QIODevice::Append | QIODevice::Text)) return;
-    f.write((QDateTime::currentDateTime().toString(Qt::ISODateWithMs) + " " + line + "\n").toUtf8());
 }
 
 void ZaloSession::reset() {
@@ -238,8 +227,12 @@ void ZaloSession::login(const QString& imei, const QString& userAgent, const QSt
             emit loginUnavailable(reply->errorString());
             return;
         }
-        if (httpStep == LoginStep::Failed || !reply->isOpen()) {
+        if (httpStep == LoginStep::Failed) {
             emit loginFailed(reply->errorString());
+            return;
+        }
+        if (!reply->isOpen()) {
+            emit loginUnavailable(reply->errorString());
             return;
         }
         const QJsonObject outer = QJsonDocument::fromJson(reply->readAll()).object();
@@ -336,8 +329,7 @@ QString ZaloSession::serviceUrl(const QString& service) const {
 }
 
 ZaloSession::LoginStep ZaloSession::classifyLoginHttp(int httpStatus, bool transportError) {
-    if (httpStatus == 429 || httpStatus >= 500 || (transportError && httpStatus == 0)) return LoginStep::Unavailable;
-    if (transportError) return LoginStep::Failed;
+    if (httpStatus == 429 || httpStatus >= 500 || transportError) return LoginStep::Unavailable;
     return LoginStep::Proceed;
 }
 
@@ -411,7 +403,6 @@ void ZaloSession::sendApi(const QString& service, const QString& path, bool post
         return;
     }
     if (hosts.isEmpty()) {
-        logRealtime(QStringLiteral("no host for service \"%1\" (%2)").arg(service, path));
         cb(false, {}, QStringLiteral("service_unavailable"), -1);
         return;
     }
@@ -446,8 +437,14 @@ void ZaloSession::sendApi(const QString& service, const QString& path, bool post
         }
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const bool transient = isFailoverError(reply->error(), status) || status == 429;
+        const int netError = reply->error();
+        const bool connectPhase = netError == QNetworkReply::ConnectionRefusedError
+            || netError == QNetworkReply::HostNotFoundError
+            || netError == QNetworkReply::ProxyConnectionRefusedError
+            || netError == QNetworkReply::TemporaryNetworkFailureError;
+        const bool mayHaveLanded = post && status == 0 && netError != QNetworkReply::NoError && !connectPhase;
         if ((reply->error() != QNetworkReply::NoError || status == 404 || status == 429)
-            && transient && attempt + 1 < maxAttempts) {
+            && transient && !mayHaveLanded && attempt + 1 < maxAttempts) {
             reply->deleteLater();
             if (attempt + 1 < int(hosts.size())) {
                 sendApi(service, path, post, params, cb, extraQuery, attempt + 1);
@@ -2243,18 +2240,15 @@ void ZaloSession::probeRealtime() {
     m_wsReconnectAttempts = 0;
     m_wsReconnectTimer.stop();
     if (!m_ws) {
-        logRealtime(QStringLiteral("probe: no socket, connecting now"));
         connectRealtime();
         return;
     }
     if (!m_realtimeReady) {
-        logRealtime(QStringLiteral("probe: resetting half-open socket after network change or resume"));
         disconnectRealtime();
     m_pendingWsFrames.clear();
         connectRealtime();
         return;
     }
-    logRealtime(QStringLiteral("probe: ping after network change or resume"));
     sendWs(2, 1, QJsonObject{{"eventId", QDateTime::currentMSecsSinceEpoch()}}, QString());
     m_pongWatchdog.start(15000);
 }
@@ -2269,18 +2263,9 @@ void ZaloSession::connectRealtime() {
     connect(m_ws, &QWebSocket::binaryMessageReceived, this, &ZaloSession::onWsBinary);
     connect(m_ws, &QWebSocket::textMessageReceived, this, [this](const QString&) { m_pongWatchdog.stop(); });
     connect(m_ws, &QWebSocket::pong, this, [this](quint64, const QByteArray&) { m_pongWatchdog.stop(); });
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-    connect(m_ws, &QWebSocket::errorOccurred, this, [this](QAbstractSocket::SocketError e) {
-#else
-    connect(m_ws, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::error), this, [this](QAbstractSocket::SocketError e) {
-#endif
-        logRealtime(QStringLiteral("socket error %1: %2 [%3]").arg(int(e)).arg(m_ws ? m_ws->errorString() : QString(), m_wsAttempt));
-    });
     connect(m_ws, &QWebSocket::disconnected, this, [this]() {
         const bool wasReady = m_realtimeReady;
         const auto closeCode = m_ws ? m_ws->closeCode() : QWebSocketProtocol::CloseCodeNormal;
-        logRealtime(QStringLiteral("disconnected: close code %1 %2").arg(int(closeCode))
-                        .arg(m_ws ? m_ws->closeReason() : QString()));
         m_pingTimer.stop();
         m_pongWatchdog.stop();
         m_realtimeReady = false;
@@ -2593,7 +2578,6 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
     if (cmd == 3000) {
         m_replacedByOtherClient = true;
         emit realtimeReplaced();
-        logRealtime(QStringLiteral("cmd 3000: another client took over"));
         QMetaObject::invokeMethod(this, [this]() {
             if (m_ws) m_ws->close(QWebSocketProtocol::CloseCode(3000));
         }, Qt::QueuedConnection);
@@ -2637,11 +2621,7 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
         const QJsonArray points = decoded
             ? readPointsOf(QJsonDocument::fromJson(raw).object().value("data").toObject()) : QJsonArray();
         if (!points.isEmpty()) {
-            logRealtime(QStringLiteral("read points via cmd %1/%2: %3").arg(cmd).arg(subCmd).arg(points.size()));
             emit readPointsReceived(points);
-        } else if (!m_unhandledCmdsLogged.contains((cmd << 8) | subCmd)) {
-            m_unhandledCmdsLogged.insert((cmd << 8) | subCmd);
-            logRealtime(QStringLiteral("unhandled cmd %1/%2").arg(cmd).arg(subCmd));
         }
         return;
     }
@@ -2674,7 +2654,6 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
     const QJsonArray readPoints = readPointsOf(data);
     const auto flushReadPoints = qScopeGuard([this, &readPoints, cmd, subCmd]() {
         if (readPoints.isEmpty()) return;
-        logRealtime(QStringLiteral("read points via cmd %1/%2: %3").arg(cmd).arg(subCmd).arg(readPoints.size()));
         emit readPointsReceived(readPoints);
     });
 

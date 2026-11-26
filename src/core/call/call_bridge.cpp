@@ -338,9 +338,6 @@ bool CallBridge::ensureEngine() {
     acceptOn(m_sendServer, 1);
     acceptOn(m_uiServer, 2);
 
-    const QString logDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/logs";
-    QDir().mkpath(logDir);
-
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::ForwardedErrorChannel);
     QProcess* proc = m_process;
@@ -391,7 +388,6 @@ bool CallBridge::ensureEngine() {
                                  "--send", QString::number(m_sendServer->serverPort()),
                                  "--media", "zrtc", "--send-udp", "--group",
                                  "--key-file", m_keyFilePath,
-                                 "--log-dir", logDir,
                                  "--ui-port", QString::number(m_uiServer->serverPort()),
                                  "--ui-token", m_uiToken};
     m_process->start(m_enginePath, engineArgs);
@@ -971,7 +967,13 @@ void CallBridge::drainUiBuffer() {
         if (line.trimmed().isEmpty()) continue;
         const QJsonObject head = QJsonDocument::fromJson(line).object();
         if (head.contains("bin")) {
-            m_uiSkipBytes = head.value("bin").toVariant().toLongLong();
+            const qint64 bin = head.value("bin").toVariant().toLongLong();
+            if (bin <= 0 || bin > 4 * 1024 * 1024) {
+                m_uiBuffer.clear();
+                m_uiSkipBytes = 0;
+                return;
+            }
+            m_uiSkipBytes = bin;
             m_lastVideoKey = head.value("key").toBool();
             m_lastVideoCodec = head.value("codec").toString();
             m_lastVideoSrc = head.value("src").toInt();

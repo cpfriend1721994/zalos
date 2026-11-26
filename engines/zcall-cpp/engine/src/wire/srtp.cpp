@@ -156,6 +156,7 @@ std::optional<Unprotected> unprotectRtp(const QByteArray& rtp, const SrtpKeys& k
     authed.append(QByteArray(4, '\0'));
     wr32be(authed, p->headerLen + bodyLen, roc);
     const QByteArray mac = hmac10(keys.auth, authed.constData(), int(authed.size()));
+    if (mac.size() != 10) return std::nullopt;
     if (CRYPTO_memcmp(mac.constData(), rtp.constData() + rtp.size() - 10, 10) != 0) return std::nullopt;
     Unprotected out;
     out.seq = p->seq;
@@ -177,6 +178,7 @@ QByteArray protectRtp(const QByteArray& headerAndExt, const QByteArray& payload,
     if (n > 0) ctrXor(keys.enc, packetIv(keys.salt, ssrc, seq, roc), payload.constData(), out.data() + h, n);
     wr32be(out, h + n, roc);
     const QByteArray mac = hmac10(keys.auth, out.constData(), h + n + 4);
+    if (mac.size() != 10) return QByteArray();
     out.resize(h + n);
     out.append(mac);
     return out;

@@ -1029,7 +1029,7 @@ Rectangle {
 
             Item {
                 anchors.centerIn: parent
-                visible: messageList.count === 0
+                visible: messageList.count === 0 && !ZaloClient.isLoadingHistory
                 width: Math.min(parent.width - 40, 360)
                 height: emptyCol.implicitHeight
 
@@ -1061,7 +1061,7 @@ Rectangle {
 
                     Text {
                         Layout.alignment: Qt.AlignHCenter
-                        text: "Chưa có tin nhắn nào trong cuộc trò chuyện này."
+                        text: I18n.t("Chưa có tin nhắn nào trong cuộc trò chuyện này.", "No messages in this conversation yet.")
                         font.family: Theme.fontFamily
                         font.pixelSize: 12
                         color: ThemeManager.secondaryTextColor
@@ -1079,7 +1079,7 @@ Rectangle {
                             spacing: 6
                             Text { text: "👋"; font.pixelSize: 14 }
                             Text {
-                                text: "Gửi lời chào"
+                                text: I18n.t("Gửi lời chào", "Say hello")
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 12
                                 font.weight: Font.DemiBold
@@ -2611,10 +2611,19 @@ Rectangle {
                             Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
 
                             ZIcon {
+                                visible: ZaloClient.defaultReaction === "like"
                                 anchors.centerIn: parent
                                 name: "thumbs_up"
                                 size: 18
                                 color: Theme.zaloBlue
+                            }
+
+                            Text {
+                                visible: ZaloClient.defaultReaction !== "like"
+                                anchors.centerIn: parent
+                                text: ZaloClient.defaultReactionEmoji
+                                font.pixelSize: 18
+                                renderType: Text.NativeRendering
                             }
 
                             MouseArea {
@@ -2624,8 +2633,8 @@ Rectangle {
                                 hoverEnabled: true
                                 ToolTip.visible: containsMouse
                                 ToolTip.delay: 350
-                                ToolTip.text: I18n.t("Gửi nhanh biểu tượng thích", "Send quick thumbs up")
-                                onClicked: ZaloClient.sendMessage("👍")
+                                ToolTip.text: I18n.t("Gửi nhanh", "Quick send") + " " + ZaloClient.defaultReactionEmoji
+                                onClicked: ZaloClient.sendMessage(ZaloClient.defaultReactionEmoji)
                             }
                         }
 

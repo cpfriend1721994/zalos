@@ -6,6 +6,8 @@
 #include "dump.h"
 #include "log.h"
 #include "opus_api.h"
+
+#include <opus.h>
 #include "options.h"
 #include "playout.h"
 #include "pulse_api.h"
@@ -40,28 +42,27 @@ bool envIs(const char* name, const char* value) {
 
 bool envNot(const char* name, const char* value) { return !envIs(name, value); }
 
-void encoderLoop(const Options& args, std::shared_ptr<OpusApi> opus, std::atomic<bool>* muted,
+void encoderLoop(const Options& args, std::atomic<bool>* muted,
                  std::atomic<bool>* stopFlag, Mic* mic, std::shared_ptr<ClipGuard> guard,
                  std::function<bool()> farActive) {
     int err = 0;
-    void* enc = opus->encoderCreate(16000, 1, OpusApi::kApplicationVoip, &err);
-    if (err != 0 || !enc) {
+    ::OpusEncoder* enc = opus_encoder_create(16000, 1, OPUS_APPLICATION_VOIP, &err);
+    if (err != OPUS_OK || !enc) {
         logLine(fmt("opus_encoder_create failed %d", err));
         return;
     }
     struct EncoderGuard {
-        OpusApi* api{nullptr};
-        void* enc{nullptr};
+        ::OpusEncoder* enc{nullptr};
         ~EncoderGuard() {
-            if (enc && api && api->encoderDestroy) api->encoderDestroy(enc);
+            if (enc) opus_encoder_destroy(enc);
         }
-    } encGuard{opus.get(), enc};
-    opus->encoderCtl(enc, OpusApi::kSetBitrate, args.bitrate);
-    opus->encoderCtl(enc, OpusApi::kSetComplexity, args.complexity);
-    opus->encoderCtl(enc, OpusApi::kSetSignal, OpusApi::kSignalVoice);
+    } encGuard{enc};
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(args.bitrate));
+    opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(args.complexity));
+    opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
     const int fec = args.noFec ? 0 : 1;
-    opus->encoderCtl(enc, OpusApi::kSetInbandFec, fec);
-    opus->encoderCtl(enc, OpusApi::kSetPacketLossPerc, args.noFec ? 0 : args.loss);
+    opus_encoder_ctl(enc, OPUS_SET_INBAND_FEC(fec));
+    opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(args.noFec ? 0 : args.loss));
     logLine(fmt("encode %d bps complexity %d fec %d high-pass %s", args.bitrate, args.complexity, fec,
                 pyBool(!args.noHighPass).c_str()));
 
@@ -100,7 +101,7 @@ void encoderLoop(const Options& args, std::shared_ptr<OpusApi> opus, std::atomic
         }
         const int16_t* frame = isMuted ? silence.data() : processed;
         Dump::instance().mic(frame, kFrame);
-        const int32_t size = opus->encode(enc, frame, kFrame, buf, sizeof buf);
+        const int32_t size = opus_encode(enc, frame, kFrame, buf, sizeof buf);
         if (size <= 0) continue;
         const int level = audioLevel(frame, kFrame);
         const auto out = encodeLevelFrame(static_cast<uint8_t>(level), buf, static_cast<uint16_t>(size));
@@ -140,14 +141,12 @@ MaybeName orElse(const MaybeName& a, const std::function<MaybeName()>& b) { retu
 }
 
 int checkDeps() {
-    std::string error;
-    const auto opus = OpusApi::load(&error);
-    std::printf("opus=%s\n", opus ? opus->origin().c_str() : ("missing (" + error + ")").c_str());
+    std::printf("opus=%s\n", opus_get_version_string());
     std::string simpleError;
     const auto simple = PulseSimpleApi::load(&simpleError);
     std::printf("pulse-simple=%s\n", simple ? "system" : ("missing (" + simpleError + ")").c_str());
     std::printf("pulse=%s\n", PulseApi::available() ? "system" : "missing");
-    return opus ? 0 : 1;
+    return 0;
 }
 
 int main(int argc, char** argv) {
@@ -161,11 +160,6 @@ int main(int argc, char** argv) {
 
     Dump::instance().init();
     std::string error;
-    auto opus = OpusApi::load(&error);
-    if (!opus) {
-        logLine("libopus unavailable: " + error);
-        return 1;
-    }
     const bool pulse = !args.out && !args.device && pulseRunning();
     MaybeName chosenMic = pulse ? present(args.mic, "sources") : std::nullopt;
     MaybeName chosenSpeaker = pulse ? present(args.speaker, "sinks") : std::nullopt;
@@ -199,7 +193,7 @@ int main(int argc, char** argv) {
     }
     if (processed && dynamic_cast<PulseOut*>(sink.get())) primePlayback(*sink);
 
-    Playout playout(sink.get(), [opus]() -> std::unique_ptr<Decoder> { return OpusDecoder::create(opus); }, args.jitter,
+    Playout playout(sink.get(), []() -> std::unique_ptr<Decoder> { return OpusVoiceDecoder::create(); }, args.jitter,
                     args.minDelay, args.maxDelay);
     playout.start();
     std::atomic<bool> muted{false};
@@ -214,7 +208,7 @@ int main(int argc, char** argv) {
             if (!src) src = defaultSource();
             mic->guard = std::make_shared<ClipGuard>(src, pactlVolumeControl());
         }
-        encThread = std::thread(encoderLoop, std::cref(args), opus, &muted, &stopEnc, mic.get(),
+        encThread = std::thread(encoderLoop, std::cref(args), &muted, &stopEnc, mic.get(),
                                 mic ? mic->guard : nullptr,
                                 std::function<bool()>([&playout] { return playout.farActive(); }));
     }

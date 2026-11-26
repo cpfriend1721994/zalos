@@ -31,9 +31,11 @@ private slots:
     void protoParsesVarintBytesAndFixed32();
     void protoRejectsTruncatedAndGroups();
     void zstdRawBlockFrame();
-    void zstdRejectsGarbageOrSkipsWhenMissing();
+    void zstdRejectsGarbage();
     void zstdFrameWithoutContentSize();
     void zstdTruncatedFrameWithoutContentSize();
+    void zstdConcatenatedFramesWithoutContentSize();
+    void zstdTrailingGarbageRejected();
     void messageVectorsDecrypt();
     void messageNegativeVectorRejected();
     void messageBadInputSizes();
@@ -93,41 +95,58 @@ void TestSyncV2::zstdRawBlockFrame() {
     QByteArray out;
     QByteArray detail;
     const ZstdStatus status = zstdDecompress(frame, &out, &detail);
-    if (status == ZstdStatus::Unavailable) QSKIP("libzstd.so.1 is not installed in this environment");
     QCOMPARE(static_cast<int>(status), static_cast<int>(ZstdStatus::Ok));
     QCOMPARE(out, QByteArray("hello"));
 }
 
-void TestSyncV2::zstdRejectsGarbageOrSkipsWhenMissing() {
+void TestSyncV2::zstdRejectsGarbage() {
     QByteArray out;
     QByteArray detail;
     const ZstdStatus status = zstdDecompress(bytesOf({0x01, 0x02, 0x03, 0x04, 0x05, 0x06}), &out, &detail);
-    if (status == ZstdStatus::Unavailable) QSKIP("libzstd.so.1 is not installed in this environment");
     QCOMPARE(static_cast<int>(status), static_cast<int>(ZstdStatus::Error));
     QVERIFY(out.isEmpty());
 }
 
 void TestSyncV2::zstdFrameWithoutContentSize() {
-    // Streaming encoders (e.g. `printf ... | zstd -c`) omit the frame content size; iOS sends batches like this.
     const QByteArray frame = bytesOf({0x28, 0xb5, 0x2f, 0xfd, 0x04, 0x58, 0xe9, 0x00, 0x00, 'h', 'e', 'l', 'l',
                                       'o', ' ', 's', 'y', 'n', 'c', ' ', 'v', '2', ' ', 's', 't', 'r', 'e', 'a',
                                       'm', 'i', 'n', 'g', ' ', 'f', 'r', 'a', 'm', 'e', 0x4e, 0x4b, 0x1c, 0x29});
     QByteArray out;
     QByteArray detail;
     const ZstdStatus status = zstdDecompress(frame, &out, &detail);
-    if (status == ZstdStatus::Unavailable) QSKIP("libzstd.so.1 is not installed in this environment");
     QCOMPARE(static_cast<int>(status), static_cast<int>(ZstdStatus::Ok));
     QCOMPARE(out, QByteArray("hello sync v2 streaming frame"));
 }
 
 void TestSyncV2::zstdTruncatedFrameWithoutContentSize() {
-    // Same frame cut before its checksum: must fail instead of looping or returning partial output.
     const QByteArray frame = bytesOf({0x28, 0xb5, 0x2f, 0xfd, 0x04, 0x58, 0xe9, 0x00, 0x00, 'h', 'e', 'l', 'l',
                                       'o', ' ', 's', 'y', 'n', 'c'});
     QByteArray out;
     QByteArray detail;
     const ZstdStatus status = zstdDecompress(frame, &out, &detail);
-    if (status == ZstdStatus::Unavailable) QSKIP("libzstd.so.1 is not installed in this environment");
+    QCOMPARE(static_cast<int>(status), static_cast<int>(ZstdStatus::Error));
+    QVERIFY(out.isEmpty());
+}
+
+void TestSyncV2::zstdConcatenatedFramesWithoutContentSize() {
+    const QByteArray frame = bytesOf({0x28, 0xb5, 0x2f, 0xfd, 0x04, 0x58, 0xe9, 0x00, 0x00, 'h', 'e', 'l', 'l',
+                                      'o', ' ', 's', 'y', 'n', 'c', ' ', 'v', '2', ' ', 's', 't', 'r', 'e', 'a',
+                                      'm', 'i', 'n', 'g', ' ', 'f', 'r', 'a', 'm', 'e', 0x4e, 0x4b, 0x1c, 0x29});
+    QByteArray out;
+    QByteArray detail;
+    const ZstdStatus status = zstdDecompress(frame + frame, &out, &detail);
+    QCOMPARE(static_cast<int>(status), static_cast<int>(ZstdStatus::Ok));
+    QCOMPARE(out, QByteArray("hello sync v2 streaming framehello sync v2 streaming frame"));
+}
+
+void TestSyncV2::zstdTrailingGarbageRejected() {
+    const QByteArray frame = bytesOf({0x28, 0xb5, 0x2f, 0xfd, 0x04, 0x58, 0xe9, 0x00, 0x00, 'h', 'e', 'l', 'l',
+                                      'o', ' ', 's', 'y', 'n', 'c', ' ', 'v', '2', ' ', 's', 't', 'r', 'e', 'a',
+                                      'm', 'i', 'n', 'g', ' ', 'f', 'r', 'a', 'm', 'e', 0x4e, 0x4b, 0x1c, 0x29});
+    QByteArray out;
+    QByteArray detail;
+    const ZstdStatus status = zstdDecompress(frame + bytesOf({0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}),
+                                             &out, &detail);
     QCOMPARE(static_cast<int>(status), static_cast<int>(ZstdStatus::Error));
     QVERIFY(out.isEmpty());
 }

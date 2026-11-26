@@ -76,7 +76,7 @@ RC=$?
 set -e
 echo "${REPORT}" | grep -v -E 'XDG_RUNTIME|propertyCache'
 [ ${RC} -eq 0 ] || { echo "❌ a required dependency is missing (exit ${RC})"; exit 1; }
-echo "${REPORT}" | grep -E '^audio\.opus +(system|/)' >/dev/null || { echo "❌ libopus neither on the system nor bundled"; exit 1; }
+echo "${REPORT}" | grep -E '^audio\.opus +libopus 1\.6\.1$' >/dev/null || { echo "❌ bundled libopus 1.6.1 missing from the call engine"; exit 1; }
 if [ "${TARGET}" = "appimage" ] || [ "${TARGET}" = "deb" ] || [ "${TARGET}" = "rpm" ]; then
     echo "${REPORT}" | grep -Eq '^qt +6\.8\.3.*\(bundled\)' || { echo "❌ expected bundled Qt 6.8.3"; exit 1; }
 fi

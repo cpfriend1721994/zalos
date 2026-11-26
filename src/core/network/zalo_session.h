@@ -108,7 +108,6 @@ public:
     void fetchCategoryStickers(qint64 cateId, Callback cb);
     void searchStickerIds(const QString& keyword, int limit, Callback cb);
 
-    void logDiagnostic(const QString& line) const { logRealtime(line); }
 
     void fetchFriendOnlines(Callback cb);
     void fetchLastOnline(const QString& userId, Callback cb);
@@ -302,7 +301,6 @@ private:
     void sendApi(const QString& service, const QString& path, bool post, const QJsonObject& params, Callback cb,
                  const QHash<QString, QString>& extraQuery, int hostIndex);
     void pullServerQueues();
-    void logRealtime(const QString& line) const;
     void handleControls(const QJsonArray& controls);
     void emitReactionArrays(const QJsonObject& data, bool users, bool groups, bool live);
     void emitMessageBuckets(const QJsonObject& data, bool isOld);
@@ -364,7 +362,6 @@ private:
     QList<QPair<int, int>> m_serverQueues;
     QList<PendingWsFrame> m_pendingWsFrames;
     QHash<int, int> m_pullPages;
-    QSet<int> m_unhandledCmdsLogged;
     QString m_wsAttempt;
     QHash<QString, int> m_preferredHost;
     QHash<QString, std::function<void(const QJsonObject& fileData)>> m_uploadWaiters;

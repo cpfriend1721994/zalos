@@ -1,6 +1,8 @@
-# Zalos 🚀
-
 <div align="center">
+
+<img src="assets/icons/zalos.svg" width="128" alt="Zalos logo">
+
+# Zalos
 
 **Ứng dụng Zalo Desktop native cho Linux — thuần Qt 6, hiệu năng cao & siêu nhẹ**
 
@@ -103,13 +105,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (file `.deb` lẻ)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.1-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.3.1-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.2-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.3.2-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (file `.rpm` lẻ)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.1-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.2-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -137,9 +139,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (di động, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.1-${ARCH}.AppImage"
-chmod +x "Zalos-1.3.1-${ARCH}.AppImage"
-"./Zalos-1.3.1-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.2-${ARCH}.AppImage"
+chmod +x "Zalos-1.3.2-${ARCH}.AppImage"
+"./Zalos-1.3.2-${ARCH}.AppImage"
 ```
 AppImage (~27 MB) đóng gói sẵn runtime Qt 6.8.3 LTS biên dịch QML AOT, font emoji màu fallback và FFmpeg 7.1.5 LGPL tối giản — hoàn toàn không cần Qt hệ thống (chạy trơn tru trên Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch với `glibc ≥ 2.35`).
 
@@ -147,15 +149,23 @@ AppImage (~27 MB) đóng gói sẵn runtime Qt 6.8.3 LTS biên dịch QML AOT, f
 Dự án không phát hành gói dựng sẵn cho Arch Linux. Bạn có thể dùng **Flatpak**, **Snap**, **AppImage** di động ở trên, hoặc **tự build từ mã nguồn** — clone kho này và làm theo
 [Build từ mã nguồn](#️-build-từ-mã-nguồn).
 
-### Tuỳ chọn: cuộc gọi
-Gọi thoại và video chạy trên engine gọi C++ của chính Zalos (`zalos-call` và `zalos-call-audio`, nằm trong `libexec/zalos`;
-xem `engines/zcall-cpp/LICENSE` cho thông báo giấy phép BSD-3-Clause).
-Zalos không phụ thuộc Python hay Node.js:
 
-- **Gọi thoại hoạt động ngay** trên `.deb`, `.rpm`, `Nix` và **AppImage**: Zalos dùng `libopus` của hệ thống và tự dùng bản dự phòng riêng khi hệ thống không có, kết nối PulseAudio / PipeWire qua `libpulse-simple.so.0` vốn có sẵn trên mọi bản desktop (chỉ hệ thống tối giản mới cần thêm `libpulse0` trên Ubuntu/Debian hoặc `pulseaudio-libs` trên Fedora).
-- **Gọi video** (thấy camera của người bên kia) cần thêm **OpenH264** từ bản phân phối của bạn (không bao giờ đóng gói kèm, vì lý do bản quyền sáng chế): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`. Gói `.deb`/`.rpm` đã đề xuất sẵn nên `apt`/`dnf` mặc định sẽ cài kèm.
-- **Phát tin nhắn thoại và video** chạy qua Qt Multimedia dùng backend FFmpeg tích hợp sẵn trong Qt 6.8.3 (hoạt động ngay trên cả `.deb`, `.rpm` và AppImage; nếu thiếu thiết bị âm thanh hoặc codec bổ sung, Zalos vẫn chạy bình thường và báo rõ trạng thái).
-- **Kiểm tra Zalos đang dùng gì:** `zalos --check-deps` (hoặc `./Zalos-*.AppImage --check-deps`) in ra Qt, codec, OpenH264 và thư viện âm thanh đang được dùng — tiện khi báo lỗi.
+---
+
+## 🧩 Thành phần bên thứ ba
+
+* Qt 6.8.3 LTS ([LGPLv3](https://www.gnu.org/licenses/lgpl-3.0.html)): đóng gói sẵn trong AppImage, `.deb` và `.rpm`
+* FFmpeg 7.1.5 bản rút gọn ([LGPL](https://ffmpeg.org/legal.html)): phát đa phương tiện, đi cùng Qt Multimedia
+* OpenSSL 3 ([Apache License 2.0](https://www.openssl.org/source/license.html))
+* zlib ([zlib License](https://zlib.net/zlib_license.html))
+* SQLite 3.54.1 ([public domain](https://sqlite.org/copyright.html)): cơ sở dữ liệu tin nhắn cục bộ, nhúng trong driver `QSQLITE` của Qt, có FTS5 để tìm kiếm
+* XZ Utils / liblzma ([public domain](https://tukaani.org/xz/))
+* Zstandard ([BSD 3-Clause](https://github.com/facebook/zstd/blob/dev/LICENSE)): giải nén dữ liệu đồng bộ lịch sử từ điện thoại
+* Opus 1.6.1 ([BSD 3-Clause](https://opus-codec.org/license/)): âm thanh cuộc gọi, đóng gói sẵn trong `zalos-call-audio` (`engines/zcall-cpp/third_party/opus`)
+* OpenH264 ([BSD 2-Clause](https://github.com/cisco/openh264/blob/master/LICENSE)): video cuộc gọi, không đóng gói sẵn; dùng bản của hệ thống nếu đã cài
+* libpulse ([LGPL 2.1 trở lên](https://gitlab.freedesktop.org/pulseaudio/pulseaudio/-/blob/master/LICENSE)): thu và phát âm thanh, nạp lúc chạy
+* Noto Sans ([SIL Open Font License 1.1](https://openfontlicense.org/)): font giao diện, `assets/fonts/`
+* Bộ tạo mã QR của Project Nayuki ([MIT](https://github.com/nayuki/QR-Code-generator)): `src/core/network/qrcodegen.*`
 
 ---
 
@@ -177,7 +187,7 @@ docker compose run --rm package-rpm      # dist/*.deb + dist/*.x86_64.rpm (.rpm 
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Đẩy một tag theo chuẩn semantic (`git tag v1.3.1 && git push origin v1.3.1`) sẽ build toàn bộ gói và phát hành
+Đẩy một tag theo chuẩn semantic (`git tag v1.3.2 && git push origin v1.3.2`) sẽ build toàn bộ gói và phát hành
 một GitHub Release.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết quy trình đóng góp.

@@ -37,6 +37,18 @@ Item {
     property list<string> addedTexts: []
     property list<bool> addedVotes: []
     property bool dirty: false
+    readonly property bool hasChange: root.addedTexts.length > 0 || !root.sameAsSaved()
+
+    function sameAsSaved(): bool {
+        const opts = root.options;
+        let savedCount = 0;
+        for (let i = 0; i < opts.length; ++i) {
+            if (opts[i].voted !== true) continue;
+            savedCount++;
+            if (!root.isSelected(Number(opts[i].option_id))) return false;
+        }
+        return savedCount === root.selected.length;
+    }
     property bool votersPage: ZaloClient.pollDialogVoters
 
     function syncFromPoll(): void {
@@ -127,6 +139,7 @@ Item {
         root.dirty = true;
     }
     function submit(): void {
+        if (root.selected.length === 0 && root.addedTexts.length === 0 && !root.joined) return;
         ZaloClient.submitPollChoices(root.pollId, root.selected, root.addedTexts, root.addedVotes);
         root.dirty = false;
         root.addedTexts = [];
@@ -134,7 +147,7 @@ Item {
         ZaloClient.closePollDialog();
     }
     function requestClose(): void {
-        if (root.dirty && root.canVote) discardConfirm.open();
+        if (root.hasChange && root.canVote) discardConfirm.open();
         else ZaloClient.closePollDialog();
     }
     function reasonText(): string {
@@ -657,8 +670,8 @@ Item {
                 ZButton {
                     visible: root.canVote
                     variant: "primary"
-                    text: I18n.t("Xác nhận", "Confirm")
-                    enabled: root.dirty
+                    text: I18n.t("Bình chọn", "Vote")
+                    enabled: root.hasChange
                     onClicked: root.submit()
                 }
             }

@@ -58,7 +58,7 @@ void StorageManager::setAvatarLimitMb(int mb) {
     m_avatarLimitMb = mb;
     QSettings().setValue("storage/avatarLimitMb", mb);
     emit settingsChanged();
-    prune();
+    pruneAsync();
 }
 
 void StorageManager::setMaxAgeDays(int days) {
@@ -67,7 +67,7 @@ void StorageManager::setMaxAgeDays(int days) {
     m_maxAgeDays = days;
     QSettings().setValue("storage/maxAgeDays", days);
     emit settingsChanged();
-    prune();
+    pruneAsync();
 }
 
 QString StorageManager::directory(const QString& key) {

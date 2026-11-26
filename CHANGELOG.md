@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.2] - 2026-11-26
+
+### Added
+- **Chat Settings & Default Quick Emoji:** Added a dedicated Settings › Chat Settings section holding chat background options and a configurable default quick emoji (default: Like `👍`), updating both the composer quick-send button and the hover quick-react button under each message.
+- **System Tray Notifications Toggle & Settings Shortcut:** Added `Notifications` (toggle) and `Settings` entries to the system tray menu.
+- **Interface Scale:** Added `80%`, `90%`, `100%`, `125%`, and `150%` UI scale options under Settings › Appearance (with restart banner and clean isolation from launched external browsers/file dialogs).
+
+### Changed & Improved
+- **Bundled libopus 1.6.1 for Calls:** the call audio engine (`zalos-call-audio`) now links its own libopus 1.6.1 instead of loading the system copy or a private fallback, so voice calls use the same codec build on every install. `zalos --check-deps` reports `libopus 1.6.1`. Packagers who need the distribution's libopus can configure with `-DZALOS_SYSTEM_OPUS=ON`.
+- **No Separate libopus Package:** `.deb`, `.rpm`, AppImage, Snap and Nix builds no longer recommend, bundle or require a libopus package.
+- **Zstandard Linked at Build Time:** Sync v2 phone history decompression links `libzstd` when Zalos is built instead of loading it at runtime, removing the runtime fallback path.
+- **Single SQLite Copy:** the local database uses the SQLite built into Qt's `QSQLITE` driver, upgraded to SQLite 3.54.1 (with FTS5). This includes the WAL-reset corruption fix (3.51.3+) that the previous 3.49.1 driver lacked. Packages no longer ship or depend on a system `libsqlite3`.
+- **Polls in Chat:** pick an option directly on the poll card and press "Bình chọn" there, without opening details. The vote dialog's confirm button is also "Bình chọn". An empty vote is no longer sent; Zalos asks you to choose an option first.
+- **Less Debug Logging:** debug log files written during poll and call troubleshooting are removed. Phone history sync traces stay in `logs/errors.log` and `mobile-sync.log`.
+- **Sync v2 Decoding:** zstd batches are always decoded by the streaming decoder, so batches with several frames of declared size no longer fail.
+
+### Fixed
+- **Poll Votes Not Recorded:** choosing an option and pressing "Bình chọn" now sends the selected option; options are read by id even when the server uses another field name; a reused poll card no longer keeps selections from another poll.
+- **Poll Vote Button Stays Locked:** after you vote, the "Bình chọn" / "Đổi lựa chọn" button in the poll card and in the poll dialog stays disabled until your selection differs from your saved vote, including after returning to the chat. Changing a selection works again in both places.
+- **Crash When Opening a Poll Chat:** a debug iterator misuse in the poll detail path is removed.
+- **Older Messages Stuck Loading:** a stale history reply no longer leaves the loading flag set, so older messages can load again.
+- **Unread Counts Reset:** unread counts of conversations whose messages are not loaded are kept on read-point sync.
+- **Messages Marked Seen While Hidden:** messages arriving while the window is hidden in the tray are counted as unread; seen is sent once the window is visible again.
+- **Group Read-Only After Re-add:** a group locked after you were removed becomes writable again when you are added back.
+- **Duplicate Messages on Timeout:** send requests are not re-sent after a timeout that may have reached the server; connection-level failures still retry.
+- **Session Lost on Proxy Errors:** a proxy or captive-portal error during session restore no longer deletes the saved session.
+- **Auto Gain Stuck in Calls:** the microphone auto-gain no longer stays blocked after the first quiet window.
+- **Grouped Messages After Polls:** a message after a poll, system notice or e-card shows its avatar and name again.
+- **Text Formatting After Restart:** bold, italic, colour and size on plain messages come back after restarting the app.
+- **Empty Chat Shown While Loading:** the "no messages" placeholder no longer appears while history loads, and its text is translated.
+- **Video File Download Button:** the download button on a video file card downloads the file instead of opening the viewer.
+- **Group Confirm Labels:** disband, transfer, block, leave and remove confirmations use specific button labels.
+- **Sent Friend Requests:** a failed refresh keeps the existing list.
+- **Malformed Packets:** a failed HMAC computation is rejected instead of reading past the buffer; the camera stop path no longer races with its encode thread.
+- **Call Bridge Bounds:** an out-of-range UI frame size from the call engine is rejected instead of stalling the parser.
+- **Storage Cleanup Off the UI Thread:** changing the avatar limit or max age runs cleanup in the background.
+- **Notification Sounds:** starting a new sound waits for the previous player to exit; the "Yours" folder label follows the app language.
+- **Image Decoding Limit:** the image allocation limit is set once at startup instead of from worker threads.
+- **Phone History Worker Safety:** the sync worker hands results to the app thread without holding a raw pointer across threads.
+- **Faster Phone History Import:** message lookups by client message id now use their SQLite partial indexes (the query repeats `cli_msg_id <> ''`), so saving each synced message no longer scans the whole conversation and large phone history imports no longer slow down quadratically (#13, thanks @nguyenphivn).
+- **Phone History Sync from iOS:** Sync v2 batches compressed as zstd frames without a content size (sent by iOS) are now decompressed with a bounded streaming decoder (64 MiB cap, concatenated frames supported, truncated or trailing data rejected) instead of failing (#15 & #16, thanks @nguyenphivn).
+
 ## [1.3.1] - 2026-11-25
 
 ### Added

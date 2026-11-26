@@ -19,7 +19,6 @@ private slots:
         const QString text = ErrorCatalog::render(9999, "Some raw English transport text", false);
         QVERIFY(!text.contains("raw English"));
         QVERIFY(text.contains("9999"));
-        QVERIFY(ErrorCatalog::describe(9999, "raw").traceRaw);
 
         const QString en = ErrorCatalog::render(9999, "raw", true);
         QVERIFY(en.contains("9999"));

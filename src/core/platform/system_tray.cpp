@@ -356,6 +356,13 @@ void SystemTrayController::setupMenu() {
     m_openAction = addAct();
     connect(m_openAction, &QAction::triggered, this, &SystemTrayController::toggleWindowRequested);
 
+    m_settingsAction = addAct();
+    connect(m_settingsAction, &QAction::triggered, this, &SystemTrayController::openSettingsRequested);
+
+    m_notificationsAction = addAct(true);
+    m_notificationsAction->setChecked(m_notificationsEnabled);
+    connect(m_notificationsAction, &QAction::triggered, this, &SystemTrayController::notificationsToggled);
+
     m_themeAction = addAct();
     connect(m_themeAction, &QAction::triggered, this, &SystemTrayController::toggleDarkModeRequested);
 
@@ -547,6 +554,8 @@ void SystemTrayController::retranslate() {
         m_openAction->setText(m_windowVisible ? L(QStringLiteral("Ẩn Zalos"), QStringLiteral("Hide Zalos"))
                                               : L(QStringLiteral("Mở Zalos"), QStringLiteral("Open Zalos")));
     }
+    if (m_settingsAction) m_settingsAction->setText(L(QStringLiteral("Cài đặt"), QStringLiteral("Settings")));
+    if (m_notificationsAction) m_notificationsAction->setText(L(QStringLiteral("Thông báo"), QStringLiteral("Notifications")));
     if (m_themeAction) m_themeAction->setText(L(QStringLiteral("Chuyển chế độ Sáng / Tối"), QStringLiteral("Toggle light / dark mode")));
     if (m_antiPeekAction) m_antiPeekAction->setText(L(QStringLiteral("Chống nhìn lén"), QStringLiteral("Anti-peeking")));
     if (m_quitAction) m_quitAction->setText(L(QStringLiteral("Thoát hoàn toàn"), QStringLiteral("Quit")));
@@ -599,6 +608,14 @@ void SystemTrayController::setAntiPeeking(bool on) {
     if (m_antiPeeking == on) return;
     m_antiPeeking = on;
     refreshIconAndTooltip();
+}
+
+void SystemTrayController::setNotificationsEnabled(bool on) {
+    if (m_notificationsAction && m_notificationsAction->isChecked() != on) {
+        m_notificationsAction->setChecked(on);
+        notifyMenuChanged();
+    }
+    m_notificationsEnabled = on;
 }
 
 void SystemTrayController::refreshIconAndTooltip() {

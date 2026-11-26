@@ -259,6 +259,7 @@ void ZaloClient::forwardMessageToMany(const QStringList& targetThreadIds, const 
 void ZaloClient::refreshSentFriendRequests() {
     if (!m_isLoggedIn || !m_apiClient->session()) return;
     m_apiClient->session()->fetchSentFriendRequests([this](bool ok, const QJsonValue& data, const QString&, int) {
+        if (!ok) return;
         m_sentFriendRequests.clear();
         const QJsonObject obj = data.toObject();
         for (auto it = obj.begin(); it != obj.end(); ++it) {

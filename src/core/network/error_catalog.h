@@ -8,7 +8,6 @@ struct Message {
     QString vi;
     QString en;
     bool showCode{false};
-    bool traceRaw{false};
 
     bool isEmpty() const { return vi.isEmpty() && en.isEmpty(); }
 };

@@ -35,6 +35,12 @@ ColumnLayout {
     readonly property string actionText: I18n.t(root.pollTextVi, root.pollTextEn)
     readonly property string shortQuestion: root.question.length > 50 ? root.question.substring(0, 50) + "…" : root.question
     readonly property real cardWidth: Math.min(360, root.availableWidth - 48)
+    readonly property bool canPick: root.loaded && ZaloClient.pollRevision >= 0 && ZaloClient.pollCanPick(root.pollId)
+    readonly property bool multiChoice: ZaloClient.pollRevision >= 0 && ZaloClient.pollMultiChoice(root.pollId)
+    readonly property bool joined: ZaloClient.pollRevision >= 0 && ZaloClient.pollJoined(root.pollId)
+    property list<int> pickedIds
+    property bool pickDirty: false
+    readonly property bool hasChange: !root.sameAsSaved()
 
     spacing: 8
 
@@ -49,10 +55,68 @@ ColumnLayout {
         if (root.action === "view") return I18n.t("Xem lựa chọn", "View options");
         return I18n.t("Bình chọn", "Vote");
     }
+    function syncPicked(): void {
+        if (root.pickDirty || !root.loaded) return;
+        const ids = [];
+        for (let i = 0; i < root.options.length; ++i) {
+            if (root.options[i].voted === true) ids.push(Number(root.options[i].option_id));
+        }
+        root.pickedIds = ids;
+    }
+    function sameAsSaved(): bool {
+        const opts = root.options;
+        let savedCount = 0;
+        for (let i = 0; i < opts.length; ++i) {
+            if (opts[i].voted !== true) continue;
+            savedCount++;
+            if (!root.isPicked(Number(opts[i].option_id))) return false;
+        }
+        return savedCount === root.pickedIds.length;
+    }
+    function isPicked(id: int): bool {
+        for (let i = 0; i < root.pickedIds.length; ++i) {
+            if (root.pickedIds[i] === id) return true;
+        }
+        return false;
+    }
+    function pick(id: int): void {
+        if (!root.canPick || id <= 0) return;
+        if (root.multiChoice) {
+            const next = [];
+            let found = false;
+            for (let i = 0; i < root.pickedIds.length; ++i) {
+                if (root.pickedIds[i] === id) found = true;
+                else next.push(root.pickedIds[i]);
+            }
+            if (!found) next.push(id);
+            root.pickedIds = next;
+        } else {
+            if (root.isPicked(id)) root.pickedIds = [];
+            else root.pickedIds = [id];
+        }
+        root.pickDirty = true;
+    }
+    function submitPicked(): void {
+        if (!root.canPick) {
+            root.openDialog(false);
+            return;
+        }
+        if (root.pickedIds.length === 0 && !root.joined) return;
+        const ids = [];
+        for (let i = 0; i < root.pickedIds.length; ++i) ids.push(root.pickedIds[i]);
+        ZaloClient.submitPollChoices(root.pollId, ids, [], []);
+        root.pickDirty = false;
+    }
 
     Component.onCompleted: root.refresh()
-    onPollIdChanged: root.refresh()
+    onPollIdChanged: {
+        root.pickDirty = false;
+        root.pickedIds = [];
+        root.syncPicked();
+        root.refresh();
+    }
     onShowCardChanged: root.refresh()
+    onOptionsChanged: root.syncPicked()
 
     RowLayout {
         Layout.alignment: Qt.AlignHCenter
@@ -182,6 +246,14 @@ ColumnLayout {
                 }
             }
 
+            Text {
+                visible: !root.loaded
+                text: I18n.t("Đang tải bình chọn…", "Loading poll…")
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: ThemeManager.secondaryTextColor
+            }
+
             Repeater {
                 model: root.loaded ? 0 : 3
                 delegate: Rectangle {
@@ -198,12 +270,12 @@ ColumnLayout {
                 delegate: Rectangle {
                     id: optRow
                     required property var modelData
-                    readonly property bool voted: optRow.modelData.voted === true
+                    readonly property bool picked: root.isPicked(Number(optRow.modelData.option_id))
                     Layout.fillWidth: true
                     Layout.preferredHeight: 36
                     radius: 8
                     color: ThemeManager.inputFillColor
-                    border.color: optRow.voted ? Theme.zaloBlue : ThemeManager.inputFillColor
+                    border.color: optRow.picked ? Theme.zaloBlue : ThemeManager.inputFillColor
                     border.width: 1
                     clip: true
 
@@ -230,7 +302,7 @@ ColumnLayout {
                             color: ThemeManager.textColor
                         }
                         ZIcon {
-                            visible: optRow.voted
+                            visible: optRow.picked
                             name: "check"
                             size: 14
                             color: Theme.zaloBlue
@@ -256,6 +328,14 @@ ColumnLayout {
                             color: ThemeManager.secondaryTextColor
                         }
                     }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: root.canPick
+                        hoverEnabled: true
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: root.pick(Number(optRow.modelData.option_id))
+                    }
                 }
             }
 
@@ -280,9 +360,10 @@ ColumnLayout {
             ZButton {
                 visible: root.loaded
                 Layout.fillWidth: true
-                variant: "tonal"
+                variant: root.hasChange ? "primary" : "tonal"
                 text: root.actionLabel()
-                onClicked: root.openDialog(false)
+                enabled: !root.canPick || root.hasChange
+                onClicked: root.submitPicked()
             }
         }
     }

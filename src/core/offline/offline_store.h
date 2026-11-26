@@ -55,8 +55,6 @@ public:
     bool isDatabaseOpen() const { return m_db.isOpen(); }
     QString connectionNameForTesting() const { return m_db.connectionName(); }
 
-    // cli_msg_id lookups. The redundant "cli_msg_id <> ''" lets SQLite use the partial cli indexes; without
-    // it the bound :cli can't be proven non-empty and SQLite falls back to a scan. Public for plan tests.
     static constexpr const char* kSqlFindCliDuplicates =
         "SELECT id, sender_id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND cli_msg_id <> '' "
         "AND id <> :id;";
