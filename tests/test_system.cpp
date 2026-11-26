@@ -3418,6 +3418,21 @@ private slots:
         QVERIFY(started.isEmpty());
     }
 
+    void testGlobalIdDecryptRequestAndReply() {
+        const QJsonObject params = ZaloSession::globalIdDecryptParams({"g-a", "g-b"});
+        QCOMPARE(params.size(), 1);
+        QVERIFY(params.value("globalUids").isString());
+        QCOMPARE(params.value("globalUids").toString(), QStringLiteral("[\"g-a\",\"g-b\"]"));
+
+        const QHash<QString, QString> nested =
+            ZaloSession::globalIdMapOf(QJsonObject{{"data", QJsonObject{{"g-a", "111"}, {"g-b", ""}, {"g-c", "0"}}}});
+        QCOMPARE(nested.size(), 1);
+        QCOMPARE(nested.value("g-a"), QStringLiteral("111"));
+        const QHash<QString, QString> flat = ZaloSession::globalIdMapOf(QJsonObject{{"g-d", "222"}});
+        QCOMPARE(flat.value("g-d"), QStringLiteral("222"));
+        QVERIFY(ZaloSession::globalIdMapOf(QJsonValue(QStringLiteral("x"))).isEmpty());
+    }
+
     void testSocketQueuesAndFailoverRules() {
         const QJsonObject auth{{"error_code", 0},
             {"data", QJsonObject{

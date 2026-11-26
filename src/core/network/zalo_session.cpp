@@ -1539,6 +1539,30 @@ void ZaloSession::fetchNoisedIds(const QStringList& userIds, const QStringList& 
            {{"fids", QJsonArray::fromStringList(userIds)}, {"gids", QJsonArray::fromStringList(groupIds)}}, cb);
 }
 
+QJsonObject ZaloSession::globalIdDecryptParams(const QStringList& globalIds) {
+    const QByteArray ids = QJsonDocument(QJsonArray::fromStringList(globalIds)).toJson(QJsonDocument::Compact);
+    return {{"globalUids", QString::fromUtf8(ids)}};
+}
+
+QHash<QString, QString> ZaloSession::globalIdMapOf(const QJsonValue& data) {
+    QHash<QString, QString> out;
+    const QJsonObject obj = data.toObject();
+    const QJsonObject map = obj.value("data").isObject() ? obj.value("data").toObject() : obj;
+    for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+        const QString id = it.value().toVariant().toString();
+        if (!id.isEmpty() && id != QLatin1String("0")) out.insert(it.key(), id);
+    }
+    return out;
+}
+
+void ZaloSession::decryptGlobalIds(const QStringList& globalIds, Callback cb) {
+    apiGet("profile", "/api/gid/decrypt", globalIdDecryptParams(globalIds), cb);
+}
+
+void ZaloSession::encryptToGlobalIds(const QStringList& ids, Callback cb) {
+    apiGet("profile", "/api/gid/encrypt", {{"noiseUids", QJsonArray::fromStringList(ids)}}, cb);
+}
+
 static bool isZaloCookieHost(const QString& rawHost) {
     const QString host = rawHost.toLower();
     return host == QLatin1String("zalo.me") || host.endsWith(QLatin1String(".zalo.me"))

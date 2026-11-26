@@ -135,6 +135,8 @@ public:
     void fetchAliasList(int page, int count, Callback cb);
     void fetchUnreadMarks(Callback cb);
     void fetchNoisedIds(const QStringList& userIds, const QStringList& groupIds, Callback cb);
+    void decryptGlobalIds(const QStringList& globalIds, Callback cb);
+    void encryptToGlobalIds(const QStringList& ids, Callback cb);
     QNetworkReply* getWithCookies(const QUrl& url);
 
     void createPoll(const QString& groupId, const QString& question, const QStringList& options,
@@ -260,6 +262,8 @@ public:
     QList<QPair<int, int>> serverQueues() const { return m_serverQueues; }
 
     static QList<QPair<int, int>> queuesFromAuth(const QJsonObject& auth);
+    static QJsonObject globalIdDecryptParams(const QStringList& globalIds);
+    static QHash<QString, QString> globalIdMapOf(const QJsonValue& data);
     static QJsonObject nextPullPage(const QJsonObject& data, int cmd, int subCmd);
     static QJsonArray readPointsOf(const QJsonObject& data);
     static bool isFailoverError(int networkError, int httpStatus);
