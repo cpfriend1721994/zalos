@@ -39,7 +39,7 @@ bool splitFrames(const QByteArray& data, QVector<QByteArrayView>* frames) {
                                (static_cast<quint32>(p[2]) << 16) | (static_cast<quint32>(p[3]) << 24);
         pos += 4;
         if (static_cast<quint64>(data.size() - pos) < length) return false;
-        frames->append(QByteArrayView(data).mid(pos, static_cast<qsizetype>(length)));
+        frames->append(QByteArrayView(data).sliced(pos, static_cast<qsizetype>(length)));
         pos += static_cast<int>(length);
     }
     return true;

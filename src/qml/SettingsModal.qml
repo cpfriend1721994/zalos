@@ -639,7 +639,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: generalTabLoader
                             active: root.currentTab === "general"
                             x: contentContainer.contentPadding
@@ -758,7 +758,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: languageTabLoader
                             active: root.currentTab === "language"
                             x: contentContainer.contentPadding
@@ -784,7 +784,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: appearanceTabLoader
                             active: root.currentTab === "appearance"
                             x: contentContainer.contentPadding
@@ -1063,7 +1063,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: chatTabLoader
                             active: root.currentTab === "chat"
                             x: contentContainer.contentPadding
@@ -1297,7 +1297,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: notificationsTabLoader
                             active: root.currentTab === "notifications"
                             x: contentContainer.contentPadding
@@ -1477,7 +1477,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: privacyTabLoader
                             active: root.currentTab === "privacy"
                             x: contentContainer.contentPadding
@@ -1576,7 +1576,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: securityTabLoader
                             active: root.currentTab === "security"
                             x: contentContainer.contentPadding
@@ -1718,7 +1718,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: storageTabLoader
                             active: root.currentTab === "storage"
                             x: contentContainer.contentPadding
@@ -1876,7 +1876,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: syncTabLoader
                             active: root.currentTab === "sync"
                             x: contentContainer.contentPadding
@@ -2032,7 +2032,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             id: aboutTabLoader
                             active: root.currentTab === "about"
                             x: contentContainer.contentPadding

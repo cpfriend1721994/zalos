@@ -314,7 +314,7 @@ ApplicationWindow {
         id: loginLoader
         active: !ZaloClient.isLoggedIn && !ZaloClient.isRestoringSession && !ZaloClient.isOfflineMode
         anchors.fill: parent
-        sourceComponent: LoginView {}
+        source: active ? Qt.resolvedUrl("LoginView.qml") : ""
         onLoaded: mainWindow.ensureLoginWindowHeight()
     }
 
@@ -356,7 +356,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: 260
-                sourceComponent: WelcomeArea {}
+                source: active ? Qt.resolvedUrl("WelcomeArea.qml") : ""
             }
 
             Loader {
@@ -365,7 +365,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: 260
-                sourceComponent: ChatArea {}
+                source: active ? Qt.resolvedUrl("ChatArea.qml") : ""
             }
         }
 
@@ -374,7 +374,7 @@ ApplicationWindow {
             visible: active
             Layout.fillWidth: true
             Layout.fillHeight: true
-            sourceComponent: ContactsView {}
+            source: active ? Qt.resolvedUrl("ContactsView.qml") : ""
         }
 
         Loader {
@@ -382,7 +382,7 @@ ApplicationWindow {
             visible: active
             Layout.fillWidth: true
             Layout.fillHeight: true
-            sourceComponent: CloudView {}
+            source: active ? Qt.resolvedUrl("CloudView.qml") : ""
         }
 
         Loader {
@@ -390,7 +390,7 @@ ApplicationWindow {
             visible: active
             Layout.fillWidth: true
             Layout.fillHeight: true
-            sourceComponent: KikiView {}
+            source: active ? Qt.resolvedUrl("KikiView.qml") : ""
         }
     }
 
@@ -506,27 +506,27 @@ ApplicationWindow {
         anchors.fill: parent
         z: 900
     }
-    LazyOverlay { active: ZaloClient.showSettingsModal; sourceComponent: SettingsModal {} }
-    LazyOverlay { z: 920; active: ZaloClient.showUserProfileModal; sourceComponent: UserProfileModal {} }
-    LazyOverlay { active: ZaloClient.showAddFriendModal; sourceComponent: AddFriendModal {} }
-    LazyOverlay { active: ZaloClient.showCreateGroupModal; sourceComponent: CreateGroupModal {} }
-    LazyOverlay { active: ZaloClient.showForwardModal; sourceComponent: ForwardMessageModal {} }
-    LazyOverlay { active: ZaloClient.showCreatePollModal; sourceComponent: CreatePollModal {} }
-    LazyOverlay { z: 905; active: ZaloClient.pollDialogId > 0; sourceComponent: PollVoteDialog {} }
-    LazyOverlay { active: ZaloClient.groupAdmin.manageOpen; sourceComponent: GroupManageModal {} }
-    LazyOverlay { active: ZaloClient.groupAdmin.joinOpen; sourceComponent: GroupJoinModal {} }
-    LazyOverlay { active: ZaloClient.labels.manageOpen; sourceComponent: LabelManageModal {} }
-    LazyOverlay { active: ZaloClient.showBusinessToolsModal; sourceComponent: BusinessToolsModal {} }
+    LazyOverlay { active: ZaloClient.showSettingsModal; source: active ? Qt.resolvedUrl("SettingsModal.qml") : "" }
+    LazyOverlay { z: 920; active: ZaloClient.showUserProfileModal; source: active ? Qt.resolvedUrl("UserProfileModal.qml") : "" }
+    LazyOverlay { active: ZaloClient.showAddFriendModal; source: active ? Qt.resolvedUrl("AddFriendModal.qml") : "" }
+    LazyOverlay { active: ZaloClient.showCreateGroupModal; source: active ? Qt.resolvedUrl("CreateGroupModal.qml") : "" }
+    LazyOverlay { active: ZaloClient.showForwardModal; source: active ? Qt.resolvedUrl("ForwardMessageModal.qml") : "" }
+    LazyOverlay { active: ZaloClient.showCreatePollModal; source: active ? Qt.resolvedUrl("CreatePollModal.qml") : "" }
+    LazyOverlay { z: 905; active: ZaloClient.pollDialogId > 0; source: active ? Qt.resolvedUrl("PollVoteDialog.qml") : "" }
+    LazyOverlay { active: ZaloClient.groupAdmin.manageOpen; source: active ? Qt.resolvedUrl("GroupManageModal.qml") : "" }
+    LazyOverlay { active: ZaloClient.groupAdmin.joinOpen; source: active ? Qt.resolvedUrl("GroupJoinModal.qml") : "" }
+    LazyOverlay { active: ZaloClient.labels.manageOpen; source: active ? Qt.resolvedUrl("LabelManageModal.qml") : "" }
+    LazyOverlay { active: ZaloClient.showBusinessToolsModal; source: active ? Qt.resolvedUrl("BusinessToolsModal.qml") : "" }
 
     Loader {
         id: appLinkPopupLoader
         active: false
-        sourceComponent: AppLinkPopup {}
+        source: Qt.resolvedUrl("AppLinkPopup.qml")
     }
     Loader {
         id: hiddenPinPopupLoader
         active: false
-        sourceComponent: HiddenPinPopup {}
+        source: Qt.resolvedUrl("HiddenPinPopup.qml")
     }
     Connections {
         target: ZaloClient
@@ -557,7 +557,7 @@ ApplicationWindow {
     LazyOverlay {
         z: 950
         active: ZaloClient.showSyncPrompt && !ZaloClient.appLock.locked
-        sourceComponent: SyncPromptDialog {}
+        source: active ? Qt.resolvedUrl("SyncPromptDialog.qml") : ""
     }
 
     Connections {
@@ -579,6 +579,6 @@ ApplicationWindow {
     LazyOverlay {
         z: 3000
         active: ZaloClient.appLock.locked
-        sourceComponent: LockScreen {}
+        source: active ? Qt.resolvedUrl("LockScreen.qml") : ""
     }
 }

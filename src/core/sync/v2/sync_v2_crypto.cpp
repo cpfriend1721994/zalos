@@ -202,11 +202,11 @@ CryptoStatus openMessage(const SessionRecord& record, QByteArrayView sealed, QBy
     if (record.sessionId.size() != kSessionIdSize || record.key.size() != kRecordKeySize) return CryptoStatus::BadInput;
     if (sealed.size() < kSaltSize + kNonceSize + kTagSize) return CryptoStatus::BadInput;
 
-    const QByteArray salt = sealed.left(kSaltSize).toByteArray();
-    const QByteArrayView nonce = sealed.mid(kSaltSize, kNonceSize);
+    const QByteArray salt = sealed.first(kSaltSize).toByteArray();
+    const QByteArrayView nonce = sealed.sliced(kSaltSize, kNonceSize);
     const int bodyLen = sealed.size() - kSaltSize - kNonceSize - kTagSize;
-    const QByteArrayView body = sealed.mid(kSaltSize + kNonceSize, bodyLen);
-    const QByteArrayView tag = sealed.right(kTagSize);
+    const QByteArrayView body = sealed.sliced(kSaltSize + kNonceSize, bodyLen);
+    const QByteArrayView tag = sealed.last(kTagSize);
 
     unsigned char key[kKeySize];
     if (!hkdfSha256(record.key, salt, QByteArray(kMessageInfo, sizeof(kMessageInfo) - 1), key))

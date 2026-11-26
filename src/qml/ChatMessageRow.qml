@@ -170,7 +170,7 @@ Item {
         width: parent.width
         spacing: 4
 
-        Loader {
+        ZBoundLoader {
             active: msgRow.dateSeparator
             visible: active
             Layout.fillWidth: true
@@ -196,7 +196,7 @@ Item {
             }
         }
 
-        Loader {
+        ZBoundLoader {
             active: msgRow.unreadMarker
             visible: active
             Layout.fillWidth: true
@@ -233,7 +233,7 @@ Item {
             }
         }
 
-        Loader {
+        ZBoundLoader {
             active: msgRow.isEcard
             visible: active
             Layout.alignment: Qt.AlignHCenter
@@ -344,7 +344,7 @@ Item {
             }
         }
 
-        Loader {
+        ZBoundLoader {
             active: msgRow.isPoll && !msgRow.isRecalled
             visible: active
             Layout.fillWidth: true
@@ -375,7 +375,7 @@ Item {
                 Layout.alignment: Qt.AlignTop
                 implicitWidth: 32
                 implicitHeight: 32
-                Loader {
+                ZBoundLoader {
                     anchors.fill: parent
                     active: msgRow.firstInGroup
                     sourceComponent: Item {
@@ -427,7 +427,7 @@ Item {
                     }
                 }
 
-                Loader {
+                ZBoundLoader {
                     id: mediaLoader
                     active: msgRow.isPhoto && msgRow.mediaUrl.length > 0 && !msgRow.runHead
                     visible: active
@@ -511,7 +511,7 @@ Item {
                     }
                 }
 
-                Loader {
+                ZBoundLoader {
                     id: stickerLoader
                     active: msgRow.isSticker && !msgRow.runHead
                     visible: active
@@ -563,7 +563,7 @@ Item {
                     }
                 }
 
-                Loader {
+                ZBoundLoader {
                     id: runLoader
                     active: msgRow.runHead
                     visible: active
@@ -705,7 +705,7 @@ Item {
                         width: bubbleRect.width - 24
                         spacing: 4
 
-                        Loader {
+                        ZBoundLoader {
                             active: msgRow.quoteMsgId.length > 0 || msgRow.quoteText.length > 0
                             visible: active
                             Layout.fillWidth: true
@@ -756,7 +756,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             active: msgRow.isFile
                             visible: active
                             sourceComponent: Item {
@@ -864,7 +864,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             active: msgRow.isContactCard && !msgRow.isRecalled
                             visible: active
                             Layout.preferredWidth: Math.min(280, bubbleRect.innerMax)
@@ -943,7 +943,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             active: msgRow.isLink && !msgRow.isRecalled
                             visible: active
                             Layout.preferredWidth: Math.min(320, bubbleRect.innerMax)
@@ -1009,7 +1009,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             active: msgRow.isBankCard && !msgRow.isRecalled
                             visible: active
                             Layout.preferredWidth: Math.min(300, bubbleRect.innerMax)
@@ -1142,7 +1142,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             active: msgRow.isLocation && !msgRow.isRecalled
                             visible: active
                             Layout.preferredWidth: Math.min(300, bubbleRect.innerMax)
@@ -1338,7 +1338,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             active: msgRow.isVoice && !msgRow.isRecalled
                             visible: active
                             sourceComponent: RowLayout {
@@ -1378,7 +1378,7 @@ Item {
                             }
                         }
 
-                        Loader {
+                        ZBoundLoader {
                             active: msgRow.isCall
                             visible: active
                             sourceComponent: RowLayout {
@@ -1500,7 +1500,7 @@ Item {
                         x: Math.max(0, reactionRow.contentEdge - width - 6)
                         y: -10
                         spacing: 4
-                        Loader {
+                        ZBoundLoader {
                             active: msgRow.reaction.length > 0
                             visible: active
                             sourceComponent: Rectangle {
@@ -1529,7 +1529,7 @@ Item {
                                 ToolTip.text: I18n.t("Xem ai đã thả cảm xúc", "See who reacted")
                             }
                         }
-                        Loader {
+                        ZBoundLoader {
                             active: reactionRow.canReact && rowHover.hovered
                             visible: active
                             sourceComponent: Rectangle {
@@ -1560,7 +1560,7 @@ Item {
                     }
                 }
 
-                Loader {
+                ZBoundLoader {
                     active: msgRow.lastInGroup || msgRow.showStatus
                     visible: active
                     Layout.alignment: msgRow.mine ? Qt.AlignRight : Qt.AlignLeft
@@ -1677,14 +1677,15 @@ Item {
         }
     }
 
-    Loader {
-        objectName: "messageActions"
+    ZBoundLoader {
         active: rowHover.hovered && !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.isPoll && !msgRow.msgId.startsWith("local-")
+        visible: active
         y: bubbleRow.y + (senderNameText.visible ? (senderNameText.height + 4) : 0) + 2
         x: Math.max(8, Math.min(msgRow.width - width - 8,
                                 msgRow.mine ? contentCol.x + Math.min(reactionRow.contentLeft, contentCol.width) - width - 8
                                             : contentCol.x + Math.max(reactionRow.contentEdge, 0) + 8))
         sourceComponent: Rectangle {
+            objectName: "messageActions"
             width: actionRow.implicitWidth + 8
             height: 28
             radius: 6

@@ -37,6 +37,7 @@
 #include <QVideoFrame>
 #include <QVideoFrameFormat>
 #include "core/media/software_video_item.h"
+#include "core/platform/bound_loader.h"
 #include "core/call/portal_screen_cast.h"
 #include <QPainter>
 #include <QDBusArgument>
@@ -9208,6 +9209,87 @@ private slots:
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, shareCenter);
         QTRY_VERIFY_WITH_TIMEOUT(!calls->screenPickerOpen(), 1000);
         calls->hangup();
+    }
+
+    void testBoundLoaderAndMainQmlQt64Safe() {
+        QTest::failOnWarning(QRegularExpression(QStringLiteral("bound component|Component is not ready")));
+
+        {
+            QQmlEngine engine;
+            engine.addImportPath(QStringLiteral("qrc:/"));
+            engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+            const QByteArray qml =
+                "pragma ComponentBehavior: Bound\n"
+                "import QtQuick\n"
+                "import Zalos\n"
+                "Item {\n"
+                "    id: box\n"
+                "    property bool on: true\n"
+                "    property string outerTag: 'hello'\n"
+                "    ZBoundLoader {\n"
+                "        id: impLoader\n"
+                "        objectName: 'impLoader'\n"
+                "        active: box.on\n"
+                "        sourceComponent: Item {\n"
+                "            implicitWidth: 120\n"
+                "            implicitHeight: 44\n"
+                "            readonly property string echoed: box.outerTag\n"
+                "        }\n"
+                "    }\n"
+                "    ZBoundLoader {\n"
+                "        id: expLoader\n"
+                "        objectName: 'expLoader'\n"
+                "        active: box.on\n"
+                "        sourceComponent: Rectangle {\n"
+                "            width: 96\n"
+                "            height: 28\n"
+                "        }\n"
+                "    }\n"
+                "}\n";
+            QQmlComponent comp(&engine);
+            comp.setData(qml, QUrl(QStringLiteral("qrc:/Zalos/TestBoundLoader.qml")));
+            QVERIFY2(comp.isReady(), qPrintable(comp.errorString()));
+            std::unique_ptr<QObject> root(comp.create());
+            QVERIFY(root != nullptr);
+            auto* impLoader = root->findChild<Zalos::Core::Platform::BoundLoader*>(QStringLiteral("impLoader"));
+            auto* expLoader = root->findChild<Zalos::Core::Platform::BoundLoader*>(QStringLiteral("expLoader"));
+            QVERIFY(impLoader != nullptr && expLoader != nullptr);
+            QVERIFY(impLoader->item() != nullptr);
+            QVERIFY(expLoader->item() != nullptr);
+            QCOMPARE(impLoader->item()->property("echoed").toString(), QStringLiteral("hello"));
+            QCOMPARE(impLoader->implicitWidth(), 120.0);
+            QCOMPARE(impLoader->implicitHeight(), 44.0);
+            QCOMPARE(expLoader->implicitWidth(), 96.0);
+            QCOMPARE(expLoader->implicitHeight(), 28.0);
+
+            root->setProperty("on", false);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QVERIFY(impLoader->item() == nullptr);
+            QVERIFY(expLoader->item() == nullptr);
+            QCOMPARE(impLoader->implicitWidth(), 0.0);
+            QCOMPARE(impLoader->implicitHeight(), 0.0);
+        }
+
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        client.setLoggedInForTesting(false);
+        QQmlApplicationEngine engine;
+        engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
+        engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath(QStringLiteral("qrc:/"));
+        engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        QTest::qWait(150);
+
+        client.setLoggedInForTesting(true);
+        client.setProperty("showSettingsModal", true);
+        QTest::qWait(250);
+        client.setProperty("showSettingsModal", false);
+        QTest::qWait(50);
     }
 };
 

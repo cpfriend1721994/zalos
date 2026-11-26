@@ -89,6 +89,8 @@ set(ZALOS_SOURCES
     src/core/media/voice_recorder.cpp
     src/core/media/software_video_item.h
     src/core/media/software_video_item.cpp
+    src/core/platform/bound_loader.h
+    src/core/platform/bound_loader.cpp
     src/core/platform/shortcut_map.h
     src/core/platform/shortcut_map.cpp
     src/core/platform/wheel_boost.h
@@ -397,6 +399,7 @@ if(BUILD_TESTING)
         src/core/network/message_scheduler.cpp
         src/core/media/voice_recorder.cpp
         src/core/media/software_video_item.cpp
+        src/core/platform/bound_loader.cpp
         src/core/platform/shortcut_map.cpp
         src/core/platform/wheel_boost.cpp
         src/core/platform/middle_autoscroll.cpp

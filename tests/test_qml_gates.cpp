@@ -237,6 +237,11 @@ void TestQmlGates::cppInvariants() {
     const QRegularExpression anonTypedClosureRe(QStringLiteral(R"re(\bfunction\s*\([^)]*:\s*[A-Za-z])re"));
     const QRegularExpression leakedCookieRe(QStringLiteral(R"re(\b(zpw_sek|zpsid)=[A-Za-z0-9._+/=-]{8,})re"));
     const QRegularExpression absHomeRe(QStringLiteral("/home/nnmt"));
+    const QRegularExpression baViewDeclRe(QStringLiteral(R"re(\bQByteArrayView\s+(?:const\s+|&\s*)*([A-Za-z_]\w*)\b)re"));
+    const QRegularExpression baViewTmpRe(QStringLiteral(R"re(\bQByteArrayView\s*\([^)]*\)\s*\.\s*(left|mid|right)\s*\()re"));
+    const QRegularExpression transferTimeoutChronoRe(QStringLiteral(R"re(\bsetTransferTimeout\s*\([^)]*chrono)re"));
+    const QRegularExpression boundLoaderDeclRe(QStringLiteral(R"re(\b(?:Loader|LazyOverlay)\s*\{)re"));
+    const QRegularExpression sourceCompRe(QStringLiteral(R"re(\bsourceComponent\s*:)re"));
 
     QStringList errors;
 
@@ -248,9 +253,29 @@ void TestQmlGates::cppInvariants() {
         const bool allowDesktopOpen = (rel == QLatin1String("src/core/fs/file_utils.cpp")
                                        || rel == QLatin1String("src/core/network/zalo_client.cpp"));
         const QStringList lines = readLines(path);
+        QSet<QString> baViewVars;
         for (int i = 0; i < lines.size(); ++i) {
             const QString& line = lines[i];
             const QString where = QStringLiteral("%1:%2").arg(rel).arg(i + 1);
+            if (line == QLatin1String("}")) baViewVars.clear();
+            for (auto it = baViewDeclRe.globalMatch(line); it.hasNext();) {
+                const QString var = it.next().captured(1);
+                if (var != QLatin1String("const") && var != QLatin1String("volatile")) baViewVars.insert(var);
+            }
+            if (baViewTmpRe.match(line).hasMatch()) {
+                errors << QStringLiteral("%1: C6 QByteArrayView::left/mid/right breaks Qt 6.4 (use first/sliced/last)").arg(where);
+            } else {
+                for (const QString& var : std::as_const(baViewVars)) {
+                    const QRegularExpression varCallRe(
+                        QStringLiteral(R"re(\b%1\s*\.\s*(left|mid|right)\s*\()re").arg(QRegularExpression::escape(var)));
+                    if (varCallRe.match(line).hasMatch()) {
+                        errors << QStringLiteral("%1: C6 QByteArrayView::left/mid/right breaks Qt 6.4 (use first/sliced/last)").arg(where);
+                        break;
+                    }
+                }
+            }
+            if (transferTimeoutChronoRe.match(line).hasMatch())
+                errors << QStringLiteral("%1: C6 setTransferTimeout with chrono breaks Qt 6.4 (pass int ms)").arg(where);
             if (sleepRe.match(line).hasMatch())
                 errors << QStringLiteral("%1: C1 blocking sleep on core thread").arg(where);
             if (hackCommentRe.match(line).hasMatch())
@@ -281,10 +306,34 @@ void TestQmlGates::cppInvariants() {
 
     for (const QString& name : qmlFiles(qmlDir)) {
         const QStringList lines = readLines(qmlDir + QLatin1Char('/') + name);
+        bool isBound = false;
+        int loaderDepth = 0;
         for (int i = 0; i < lines.size(); ++i) {
-            if (anonTypedClosureRe.match(lines[i]).hasMatch())
+            const QString& line = lines[i];
+            if (line.contains(QStringLiteral("pragma ComponentBehavior: Bound"))) isBound = true;
+            if (anonTypedClosureRe.match(line).hasMatch())
                 errors << QStringLiteral("src/qml/%1:%2: C4 typed anonymous inline JS closure (breaks Qt 6.4 qmlcachegen)")
                               .arg(name).arg(i + 1);
+            if (!isBound) continue;
+            if (loaderDepth > 0) {
+                if (loaderDepth == 1 && sourceCompRe.match(line).hasMatch()) {
+                    errors << QStringLiteral("src/qml/%1:%2: C7 Loader { sourceComponent } inside pragma ComponentBehavior: Bound (breaks Qt 6.4; use source: Qt.resolvedUrl(...) or ZBoundLoader)")
+                                  .arg(name).arg(i + 1);
+                }
+                loaderDepth += line.count(QLatin1Char('{')) - line.count(QLatin1Char('}'));
+                if (loaderDepth < 0) loaderDepth = 0;
+            } else {
+                const QRegularExpressionMatch m = boundLoaderDeclRe.match(line);
+                if (m.hasMatch()) {
+                    const QString tail = line.mid(m.capturedStart());
+                    const int delta = tail.count(QLatin1Char('{')) - tail.count(QLatin1Char('}'));
+                    if (sourceCompRe.match(tail).hasMatch()) {
+                        errors << QStringLiteral("src/qml/%1:%2: C7 Loader { sourceComponent } inside pragma ComponentBehavior: Bound (breaks Qt 6.4; use source: Qt.resolvedUrl(...) or ZBoundLoader)")
+                                      .arg(name).arg(i + 1);
+                    }
+                    loaderDepth = delta > 0 ? delta : 0;
+                }
+            }
         }
     }
 
