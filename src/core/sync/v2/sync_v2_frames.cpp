@@ -332,6 +332,8 @@ std::optional<ParsedSyncV2Message> parseMessage(const QByteArray& data) {
             else if (f.number == 3) msg.msgStatus = static_cast<int>(f.varint);
             else if (f.number == 4) msg.msgType = static_cast<int>(f.varint);
             else if (f.number == 5) msg.timestamp = f.varint;
+            // globalId is an int64 on the wire; read it as an unsigned 64-bit integer to keep every digit.
+            else if (f.number == 6) msg.globalId = QString::number(f.varint);
         } else if (f.wireType == 2) {
             if (f.number == 1) msg.senderId = QString::fromUtf8(f.bytes);
             else if (f.number == 6) msg.globalId = QString::fromUtf8(f.bytes);
