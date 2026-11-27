@@ -1153,7 +1153,7 @@ QVector<QPair<QString, QString>> ZaloOfflineStore::purgeExpired(qint64 now) {
 qint64 ZaloOfflineStore::nextExpiry(qint64 now) const {
     if (!m_db.isOpen()) return 0;
     QSqlQuery q(m_db);
-    q.prepare("SELECT MIN(expire_on) FROM messages WHERE expire_on > :now;");
+    q.prepare(kSqlNextExpiry);
     q.bindValue(":now", now);
     return (q.exec() && q.next()) ? q.value(0).toLongLong() : 0;
 }
