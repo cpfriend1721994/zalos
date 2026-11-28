@@ -36,7 +36,8 @@ previous release is acknowledged. When several releases are sent at once, the se
 only the first, and the phone keeps showing the sync until it times out.
 
 Rows without a `globalId` are mostly the user's own old messages, kept only on the phone. They are
-stored as `<cliMsgId>_<thread>`, which stays the same across syncs. The server does not know these
+stored as `<cliMsgId>_<sender>_<thread>`, which stays the same across syncs. A row whose message
+is already stored under a server id is skipped. The server does not know these
 ids, so senders are never corrected through them and server actions (react, recall, reply) are
 hidden for them.
 

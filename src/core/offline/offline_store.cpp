@@ -704,13 +704,18 @@ QHash<QString, QString> ZaloOfflineStore::savedMessageSenders(const QStringList&
     return out;
 }
 
-bool ZaloOfflineStore::hasServerCopy(const QString& convId, const QString& cliMsgId) {
-    if (!m_db.isOpen() || convId.isEmpty() || cliMsgId.isEmpty()) return false;
+QString ZaloOfflineStore::serverCopyOf(const QString& convId, const QString& cliMsgId, const QString& senderId,
+                                       bool mine) {
+    if (!m_db.isOpen() || convId.isEmpty() || cliMsgId.isEmpty()) return {};
     QSqlQuery q(m_db);
-    q.prepare("SELECT 1 FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND cli_msg_id <> '' AND instr(id, '_') = 0 LIMIT 1;");
+    q.prepare("SELECT id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND cli_msg_id <> '' "
+              "AND instr(id, '_') = 0 AND ((:mine = 1 AND is_mine = 1) OR (:mine = 0 AND is_mine = 0 AND sender_id = :sender)) "
+              "LIMIT 1;");
     q.bindValue(":conv", convId);
     q.bindValue(":cli", cliMsgId);
-    return q.exec() && q.next();
+    q.bindValue(":mine", mine ? 1 : 0);
+    q.bindValue(":sender", senderId);
+    return q.exec() && q.next() ? q.value(0).toString() : QString();
 }
 
 int ZaloOfflineStore::correctMessageSenders(const QHash<QString, QString>& senders) {

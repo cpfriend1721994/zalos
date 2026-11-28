@@ -2205,6 +2205,35 @@ private slots:
         emit client.historySyncForTesting()->messagesImported(QJsonArray{msg(local)}, false);
         QVERIFY(client.offlineStore()->existingMessageIds({"7003"}).contains("7003"));
         QVERIFY(!client.offlineStore()->existingMessageIds({local}).contains(local));
+
+        QJsonObject other = msg("7005");
+        other["cliMsgId"] = "6005";
+        other["uidFrom"] = "u-sc-b";
+        other["idTo"] = "g-sc";
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{other}, true, false);
+        QJsonObject mine = other;
+        const QString otherLocal = Zalos::Core::Sync::MobileHistorySync::phoneLocalId("6005", "u-sc-a", "g-sc");
+        mine["msgId"] = otherLocal;
+        mine["uidFrom"] = "u-sc-a";
+        emit client.historySyncForTesting()->messagesImported(QJsonArray{mine}, true);
+        QVERIFY(client.offlineStore()->existingMessageIds({otherLocal}).contains(otherLocal));
+
+        QJsonObject target = msg("7007");
+        target["cliMsgId"] = "6007";
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{target}, false, false);
+        const QString recallLocal = Zalos::Core::Sync::MobileHistorySync::phoneLocalId("6007", "u-sc-a", "u-sc-a");
+        QJsonObject placeholder = msg(recallLocal);
+        placeholder["cliMsgId"] = "6007";
+        placeholder["content"] = QString();
+        const QJsonObject undo{{"msgId", "undo:" + recallLocal}, {"cliMsgId", ""}, {"msgType", "chat.undo"},
+                               {"uidFrom", "u-sc-a"}, {"idTo", "u-sc-owner"}, {"ts", "1700000001000"},
+                               {"content", QJsonObject{{"globalMsgId", recallLocal}, {"cliMsgId", "6007"}, {"deleteMsg", 1}}}};
+        emit client.historySyncForTesting()->messagesImported(QJsonArray{placeholder, undo}, false);
+        bool recalled = false;
+        for (const auto& row : client.offlineStore()->loadMessages("u-sc-a")) {
+            if (row.id == QLatin1String("7007")) recalled = row.isRecalled;
+        }
+        QVERIFY(recalled);
     }
 
     void testPhoneLocalIdsAreNotServerMessages() {

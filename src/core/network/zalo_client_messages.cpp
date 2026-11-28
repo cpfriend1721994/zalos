@@ -1577,15 +1577,31 @@ void ZaloClient::scheduleExpiry() {
 
 QJsonArray ZaloClient::withoutServerCopies(const QJsonArray& messages, bool isGroup, int* dropped) {
     if (!m_offlineStore) return messages;
+    QHash<QString, QString> serverIds;
     QJsonArray out;
     for (const QJsonValue& v : messages) {
-        const QJsonObject msg = v.toObject();
-        if (Sync::MobileHistorySync::isPhoneLocalId(msg.value("msgId").toString())) {
+        QJsonObject msg = v.toObject();
+        const QString id = msg.value("msgId").toString();
+        if (Sync::MobileHistorySync::isPhoneLocalId(id)) {
             const QString from = idOf(msg.value("uidFrom"));
-            const QString to = idOf(msg.value("idTo"));
-            const QString thread = (isGroup || from == QLatin1String("0") || from == m_myUid) ? to : from;
-            if (m_offlineStore->hasServerCopy(thread, msg.value("cliMsgId").toVariant().toString())) {
+            const bool mine = from == QLatin1String("0") || from == m_myUid;
+            const QString thread = (isGroup || mine) ? idOf(msg.value("idTo")) : from;
+            const QString serverId =
+                m_offlineStore->serverCopyOf(thread, msg.value("cliMsgId").toVariant().toString(), from, mine);
+            if (!serverId.isEmpty()) {
+                serverIds.insert(id, serverId);
                 if (dropped) ++*dropped;
+                continue;
+            }
+        }
+        if (msg.value("msgType").toString() == QLatin1String("chat.undo")) {
+            QJsonObject content = msg.value("content").toObject();
+            const QString serverId = serverIds.value(content.value("globalMsgId").toString());
+            if (!serverId.isEmpty()) {
+                content["globalMsgId"] = serverId;
+                msg["content"] = content;
+                msg["msgId"] = QStringLiteral("undo:%1").arg(serverId);
+                out.append(msg);
                 continue;
             }
         }
