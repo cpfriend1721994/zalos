@@ -909,6 +909,7 @@ Rectangle {
                 color: "transparent"
 
                 Rectangle {
+                    id: itemCard
                     anchors.fill: parent
                     anchors.leftMargin: 6
                     anchors.rightMargin: 6
@@ -921,6 +922,66 @@ Rectangle {
                     Behavior on color {
                         enabled: !itemDelegate.reusing
                         ColorAnimation { duration: 130 }
+                    }
+                }
+
+                Rectangle {
+                    id: tagRibbon
+                    objectName: "convTagRibbon"
+                    visible: itemDelegate.tag && itemDelegate.tag.length > 0
+                    anchors.top: itemCard.top
+                    anchors.topMargin: 5
+                    anchors.right: itemCard.right
+                    anchors.rightMargin: -4
+                    height: 18
+                    width: Math.min(tagText.implicitWidth + 14, 110)
+                    radius: 4
+                    color: (itemDelegate.tagColor && itemDelegate.tagColor.length > 0) ? itemDelegate.tagColor : Theme.zaloBlue
+                    z: 2
+
+                    Rectangle {
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        width: 4
+                        height: 4
+                        color: parent.color
+                    }
+
+                    Text {
+                        id: tagText
+                        objectName: "convTagText"
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: 7
+                        anchors.rightMargin: 7
+                        horizontalAlignment: Text.AlignHCenter
+                        text: itemDelegate.tag ? itemDelegate.tag : ""
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontTiny
+                        font.weight: Font.DemiBold
+                        color: "#FFFFFF"
+                    }
+                }
+
+                Item {
+                    visible: tagRibbon.visible
+                    anchors.top: tagRibbon.bottom
+                    anchors.right: tagRibbon.right
+                    width: 4
+                    height: 4
+                    clip: true
+                    z: 2
+
+                    Rectangle {
+                        width: 6
+                        height: 6
+                        x: -3
+                        y: -3
+                        rotation: 45
+                        color: Qt.darker(tagRibbon.color, 1.5)
                     }
                 }
 
@@ -971,6 +1032,7 @@ Rectangle {
                             Layout.preferredHeight: 20
 
                             Text {
+                                objectName: "convNameText"
                                 text: itemDelegate.name && itemDelegate.name.length > 0
                                       ? itemDelegate.name
                                       : (itemDelegate.isGroup ? I18n.t("Nhóm chưa đặt tên", "Unnamed group") : I18n.t("Người dùng Zalo", "Zalo user"))
@@ -981,21 +1043,13 @@ Rectangle {
                                 color: ThemeManager.textColor
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
-                            }
-
-                            Text {
-                                visible: text.length > 0
-                                text: convList.relativeTime(itemDelegate.lastTs, itemDelegate.timestamp)
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontCaption
-                                color: itemDelegate.unreadCount > 0 ? Theme.zaloBlue : ThemeManager.secondaryTextColor
-                                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                Layout.rightMargin: tagRibbon.visible ? Math.max(0, tagRibbon.width - 4) : 0
                             }
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 18
+                            Layout.preferredHeight: 20
                             spacing: 6
 
                             Text {
@@ -1030,31 +1084,16 @@ Rectangle {
                                 font.weight: Font.Normal
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
-                            }
-
-                            Rectangle {
-                                visible: itemDelegate.tag && itemDelegate.tag.length > 0
-                                height: 16
-                                width: tagText.implicitWidth + 8
-                                radius: 3
-                                color: (itemDelegate.tagColor && itemDelegate.tagColor.length > 0) ? itemDelegate.tagColor : Theme.zaloBlue
-
-                                Text {
-                                    id: tagText
-                                    anchors.centerIn: parent
-                                    text: itemDelegate.tag ? itemDelegate.tag : ""
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontMicro
-                                    font.weight: Font.DemiBold
-                                    color: "#FFFFFF"
-                                }
+                                Layout.alignment: Qt.AlignVCenter
                             }
 
                             ZIcon {
+                                objectName: "convMuteIcon"
                                 name: "bell_off"
                                 size: 12
                                 visible: itemDelegate.isMuted
                                 color: ThemeManager.secondaryTextColor
+                                Layout.alignment: Qt.AlignVCenter
                             }
 
                             ZIcon {
@@ -1062,12 +1101,24 @@ Rectangle {
                                 size: 12
                                 visible: itemDelegate.isPinned
                                 color: ThemeManager.secondaryTextColor
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+
+                            Text {
+                                objectName: "convTimestamp"
+                                visible: text.length > 0
+                                text: convList.relativeTime(itemDelegate.lastTs, itemDelegate.timestamp)
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontCaption
+                                color: itemDelegate.unreadCount > 0 ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                                Layout.alignment: Qt.AlignVCenter
                             }
 
                             Rectangle {
                                 objectName: "mentionBadge"
-                                width: 20
-                                height: 20
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                Layout.alignment: Qt.AlignVCenter
                                 radius: 10
                                 color: Theme.zaloBlue
                                 visible: itemDelegate.hasUnreadMention && itemDelegate.unreadCount > 0
@@ -1082,8 +1133,9 @@ Rectangle {
                             }
 
                             Rectangle {
-                                width: Math.max(unreadBadgeText.implicitWidth + 10, 20)
-                                height: 20
+                                Layout.preferredWidth: Math.max(unreadBadgeText.implicitWidth + 10, 20)
+                                Layout.preferredHeight: 20
+                                Layout.alignment: Qt.AlignVCenter
                                 radius: 10
                                 color: Theme.badgeRed
                                 visible: itemDelegate.unreadCount > 0
