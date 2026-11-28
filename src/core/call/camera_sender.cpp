@@ -37,8 +37,15 @@ namespace Zalos::Core::Call {
 namespace {
 QVideoFrame previewFrameFor(const QImage& img) {
     if (img.isNull()) return {};
-    const QImage argb = img.format() == QImage::Format_ARGB32 ? img : img.convertToFormat(QImage::Format_ARGB32);
-    const auto fmt = QVideoFrameFormat::pixelFormatFromImageFormat(argb.format());
+    constexpr int kPreviewMaxSide = 640;
+    QImage argb = (img.width() > kPreviewMaxSide || img.height() > kPreviewMaxSide)
+        ? img.scaled(kPreviewMaxSide, kPreviewMaxSide, Qt::KeepAspectRatio, Qt::FastTransformation)
+        : img;
+    auto fmt = QVideoFrameFormat::pixelFormatFromImageFormat(argb.format());
+    if (fmt == QVideoFrameFormat::Format_Invalid || argb.depth() != 32) {
+        argb = argb.convertToFormat(QImage::Format_ARGB32);
+        fmt = QVideoFrameFormat::pixelFormatFromImageFormat(argb.format());
+    }
     if (fmt == QVideoFrameFormat::Format_Invalid) return {};
     QVideoFrame previewFrame(QVideoFrameFormat(argb.size(), fmt));
     if (!previewFrame.map(QVideoFrame::WriteOnly)) return {};
@@ -448,6 +455,8 @@ void CameraSender::dispatchScreenImage(const QImage& img) {
 }
 
 void CameraSender::captureScreenFrame() {
+    const bool encodeBlocked = !m_encodingEnabled.load() || m_encodeBusy.load();
+    if (encodeBlocked && (m_previewBusy.load() || !m_preview)) return;
     QImage img = grabDesktopOrWindow();
     if (img.isNull() && screenCaptureExhausted()) {
         stop();
@@ -459,6 +468,13 @@ void CameraSender::captureScreenFrame() {
     } else {
         img = m_lastScreenImage;
     }
+    if (img.isNull()) return;
+    constexpr qint64 kUnchangedRefreshMs = 600;
+    if (img.cacheKey() == m_lastDispatchedKey && m_lastFrameMs >= 0
+        && m_clock.elapsed() - m_lastFrameMs < kUnchangedRefreshMs) {
+        return;
+    }
+    m_lastDispatchedKey = img.cacheKey();
     dispatchScreenImage(img);
 }
 
@@ -660,7 +676,7 @@ void CameraSender::stop() {
 
 void CameraSender::setProfile(QSize size, int fps, int bitrate) {
     size = QSize(size.width() & ~1, size.height() & ~1);
-    if (size.width() < 16 || size.height() < 16) return;
+    if (size.width() < 16 || size.height() < 16 || size.width() > kMaxCameraSide || size.height() > kMaxCameraSide) return;
     fps = qBound(1, fps, 30);
     bitrate = qBound(30000, bitrate, 4000000);
     QMutexLocker lock(&m_stateMutex);
@@ -669,10 +685,11 @@ void CameraSender::setProfile(QSize size, int fps, int bitrate) {
     m_camBitrate = bitrate;
     if (!m_screenContent) {
         if (size == m_size && fps == m_fps && bitrate == m_bitrate) return;
+        if (size == m_size) m_retune = true;
+        else m_reopen = true;
         m_size = size;
         m_fps = fps;
         m_bitrate = bitrate;
-        m_reopen = true;
     }
 }
 
@@ -686,11 +703,15 @@ void CameraSender::setScreenProfile(int maxSide, int maxShort, int fps, int bitr
         && fps == m_screenFps && bitrate == m_screenBitrate) {
         return;
     }
+    const bool sameBounds = maxSide == m_screenMaxSide && maxShort == m_screenMaxShort;
     m_screenMaxSide = maxSide;
     m_screenMaxShort = maxShort;
     m_screenFps = fps;
     m_screenBitrate = bitrate;
-    if (m_screenContent) m_reopen = true;
+    if (m_screenContent) {
+        if (sameBounds) m_retune = true;
+        else m_reopen = true;
+    }
     if (m_screenTimer) {
         const int intervalMs = qMax(33, 1000 / fps);
         QMetaObject::invokeMethod(m_screenTimer, [timer = QPointer<QTimer>(m_screenTimer), intervalMs]() {
@@ -751,8 +772,9 @@ void CameraSender::processScreenImage(const QImage& image) {
 }
 
 void CameraSender::encodeI420Buffer(const QByteArray& i420, QSize targetSize, int fps, int bitrate,
-                                    bool needReopen, bool screenContent, qint64 now) {
+                                    bool needReopen, bool screenContent, qint64 now, bool needRetune) {
     if (i420.isEmpty()) return;
+    if (!needReopen && needRetune && m_encoder.isOpen() && !m_encoder.retune(fps, bitrate)) needReopen = true;
     if (needReopen || !m_encoder.isOpen()) {
         if (!m_encoder.open(targetSize, fps, bitrate, screenContent)) {
             emit failed(QStringLiteral("encoder_open"));
@@ -777,6 +799,7 @@ void CameraSender::encodeFrame(const QVideoFrame& frame, qint64 now) {
     int fps = 15;
     int bitrate = 300000;
     bool needReopen = false;
+    bool needRetune = false;
     {
         QMutexLocker lock(&m_stateMutex);
         targetSize = m_camSize;
@@ -785,12 +808,14 @@ void CameraSender::encodeFrame(const QVideoFrame& frame, qint64 now) {
         m_size = targetSize;
         m_fps = fps;
         m_bitrate = bitrate;
+        needReopen = m_reopen || m_screenContent;
+        needRetune = m_retune;
         m_screenContent = false;
-        needReopen = m_reopen;
         m_reopen = false;
+        m_retune = false;
     }
     if (frameToI420Into(frame, targetSize, m_i420Buf)) {
-        encodeI420Buffer(m_i420Buf, targetSize, fps, bitrate, needReopen, false, now);
+        encodeI420Buffer(m_i420Buf, targetSize, fps, bitrate, needReopen, false, now, needRetune);
     }
 }
 
@@ -801,6 +826,7 @@ void CameraSender::encodeImage(const QImage& image, qint64 now) {
     int fps = 10;
     int bitrate = 1500000;
     bool needReopen = false;
+    bool needRetune = false;
     QSize targetSize;
     {
         QMutexLocker lock(&m_stateMutex);
@@ -816,15 +842,17 @@ void CameraSender::encodeImage(const QImage& image, qint64 now) {
         targetSize = QSize(qMax(16, int(std::lround(image.width() * scale)) & ~1),
                            qMax(16, int(std::lround(image.height() * scale)) & ~1));
         needReopen = m_reopen || targetSize != m_screenEncodedSize || !m_screenContent;
+        needRetune = m_retune;
         m_screenContent = true;
         m_screenEncodedSize = targetSize;
         m_size = targetSize;
         m_fps = fps;
         m_bitrate = bitrate;
         m_reopen = false;
+        m_retune = false;
     }
     if (imageToI420Into(image, targetSize, m_i420Buf)) {
-        encodeI420Buffer(m_i420Buf, targetSize, fps, bitrate, needReopen, true, now);
+        encodeI420Buffer(m_i420Buf, targetSize, fps, bitrate, needReopen, true, now, needRetune);
     }
 }
 

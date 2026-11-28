@@ -3,6 +3,7 @@
 
 #include "js.h"
 #include "log.h"
+#include "wire/video.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -212,6 +213,7 @@ void ElectronCallUi::speaking(uint32_t src, bool on) {
 
 void ElectronCallUi::video(const UiVideo& v) {
     if (m_fallback || m_sock->state() != QAbstractSocket::ConnectedState) return;
+    if (v.data.isEmpty() || v.data.size() > kMaxVideoFrameBytes) return;
     QJsonObject head{{"type", "video"}, {"key", v.key}, {"codec", v.codec}, {"bin", v.data.size()}};
     if (v.src) head.insert("src", double(*v.src));
     m_sock->write(QJsonDocument(head).toJson(QJsonDocument::Compact) + '\n');
@@ -221,6 +223,12 @@ void ElectronCallUi::video(const UiVideo& v) {
 void ElectronCallUi::onData() {
     m_buf += m_sock->readAll();
     for (;;) {
+        if (m_uiDiscardBytes > 0) {
+            const qint64 skip = qMin<qint64>(m_uiDiscardBytes, m_buf.size());
+            m_buf.remove(0, int(skip));
+            m_uiDiscardBytes -= skip;
+            if (m_uiDiscardBytes > 0) return;
+        }
         if (m_pendingBinBytes > 0) {
             if (m_buf.size() < m_pendingBinBytes) return;
             const QByteArray payload = m_buf.left(int(m_pendingBinBytes));
@@ -244,9 +252,11 @@ void ElectronCallUi::onData() {
         const QJsonObject obj = d.object();
         if (obj.value("action") == QLatin1String("videoFrame") && obj.contains(QLatin1String("bin"))) {
             const qint64 n = obj.value("bin").toVariant().toLongLong();
-            if (n > 0 && n <= 4 * 1024 * 1024) {
+            if (n > 0 && n <= kMaxVideoFrameBytes) {
                 m_pendingBinBytes = n;
                 m_pendingBinHead = obj;
+            } else if (n > 0) {
+                m_uiDiscardBytes = n;
             }
             continue;
         }

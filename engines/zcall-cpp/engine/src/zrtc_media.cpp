@@ -1480,12 +1480,12 @@ void ZrtcMedia::onGroupControl(const Unwrapped& p) {
 
 void ZrtcMedia::onUdp(const QByteArray& msg, const QHostAddress& addr, quint16 port) {
     if (msg.isEmpty()) return;
-    const Server from{addr.toString(), port, {}};
     const int t = u8at(msg, 0);
     if (t == MsgType::P2pExt) {
         if (m_active && m_hasParams) onP2p(msg, addr, port);
         return;
     }
+    const Server from{addr.toString(), port, {}};
     if (t == MsgType::VideoFec && msg.size() > 5) {
         if (m_active && m_startedAt && fromTrusted(from)) {
             onVideoRtcp(msg.mid(5));

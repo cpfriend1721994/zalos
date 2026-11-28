@@ -57,6 +57,7 @@ static_assert(sizeof(SFrameBSInfo) == sizeof(FrameBSInfo24) || sizeof(SFrameBSIn
               "unknown OpenH264 SFrameBSInfo layout");
 
 constexpr size_t kTailSlack = 256;
+constexpr int kMaxI420Side = 4096;
 
 bool g_layout26 = false;
 
@@ -268,6 +269,20 @@ bool H264Encoder::open(QSize size, int fps, int bitrate, bool screenContent) {
 #endif
 }
 
+bool H264Encoder::retune(int fps, int bitrate) {
+    if (!m_encoder || fps <= 0 || bitrate <= 0) return false;
+    SBitrateInfo target{};
+    target.iLayer = SPATIAL_LAYER_ALL;
+    target.iBitrate = bitrate;
+    if (m_encoder->SetOption(ENCODER_OPTION_BITRATE, &target) != 0) return false;
+    SBitrateInfo ceiling{};
+    ceiling.iLayer = SPATIAL_LAYER_ALL;
+    ceiling.iBitrate = bitrate;
+    m_encoder->SetOption(ENCODER_OPTION_MAX_BITRATE, &ceiling);
+    float frameRate = float(fps);
+    return m_encoder->SetOption(ENCODER_OPTION_FRAME_RATE, &frameRate) == 0;
+}
+
 void H264Encoder::close() {
 #ifdef ZALOS_HAVE_OPENH264
     if (m_encoder) {
@@ -333,7 +348,7 @@ QByteArray H264Encoder::encodeI420(const QByteArray& i420, qint64 timestampMs, b
 bool imageToI420Into(const QImage& source, QSize size, QByteArray& out) {
     const int w = size.width() & ~1;
     const int h = size.height() & ~1;
-    if (w <= 0 || h <= 0 || source.isNull()) return false;
+    if (w <= 0 || h <= 0 || w > kMaxI420Side || h > kMaxI420Side || source.isNull()) return false;
 
     const int srcW = source.width();
     const int srcH = source.height();
@@ -413,7 +428,7 @@ QByteArray imageToI420(const QImage& source, QSize size) {
 bool frameToI420Into(const QVideoFrame& source, QSize size, QByteArray& out) {
     const int w = size.width() & ~1;
     const int h = size.height() & ~1;
-    if (w <= 0 || h <= 0 || !source.isValid()) return false;
+    if (w <= 0 || h <= 0 || w > kMaxI420Side || h > kMaxI420Side || !source.isValid()) return false;
 
     const int srcW = source.width();
     const int srcH = source.height();

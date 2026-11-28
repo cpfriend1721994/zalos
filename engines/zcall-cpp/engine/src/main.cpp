@@ -50,9 +50,15 @@ int main(int argc, char** argv) {
         return i >= 0 && i + 1 < args.size() ? args.at(i + 1) : fallback;
     };
 
-    const QString token = opt(QStringLiteral("token"), QString());
+    auto secret = [&opt](const char* env, const QString& name) {
+        QString value = qEnvironmentVariable(env);
+        qunsetenv(env);
+        return value.isEmpty() ? opt(name, QString()) : value;
+    };
+    const QString token = secret("ZCALL_TOKEN", QStringLiteral("token"));
+    const QString uiToken = secret("ZCALL_UI_TOKEN", QStringLiteral("ui-token"));
     if (token.isEmpty()) {
-        std::fputs("need --token <TK> (the value Zalo passes on the command line)\n", stderr);
+        std::fputs("need ZCALL_TOKEN or --token <TK>\n", stderr);
         return 2;
     }
     const QString keyFile = opt(QStringLiteral("key-file"), QString());
@@ -92,7 +98,6 @@ int main(int argc, char** argv) {
         ui = std::make_unique<HeadlessUi>();
     } else {
         const quint16 uiPort = quint16(opt(QStringLiteral("ui-port"), QStringLiteral("0")).toUInt());
-        const QString uiToken = opt(QStringLiteral("ui-token"), QString());
         if (uiPort && !uiToken.isEmpty()) ui = std::make_unique<ElectronCallUi>(uiPort, uiToken);
         else ui = std::make_unique<CallWindow>();
     }

@@ -51,6 +51,7 @@ private:
     QTcpSocket* m_sock{nullptr};
     QByteArray m_buf;
     qint64 m_pendingBinBytes{0};
+    qint64 m_uiDiscardBytes{0};
     QJsonObject m_pendingBinHead;
     QJsonObject m_state;
     bool m_hasState{false};

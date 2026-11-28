@@ -72,6 +72,7 @@ private:
     QTcpSocket* m_engineSend{nullptr};
     QByteArray m_key;
     QList<QJsonObject> m_frames;
+    QList<QByteArray> m_tokens;
     std::unique_ptr<FrameParser> m_parser;
 
 private Q_SLOTS:
@@ -84,6 +85,7 @@ private Q_SLOTS:
         keyFile.close();
 
         m_parser = std::make_unique<FrameParser>(m_key, true, [this](const IpcFrame& f) {
+            if (f.isToken) m_tokens.append(f.token);
             if (!f.isToken && !f.isError && f.json.isObject()) m_frames.append(f.json.toObject());
         });
         QVERIFY(m_recvSrv.listen(QHostAddress::LocalHost, 0));
@@ -98,9 +100,11 @@ private Q_SLOTS:
         });
 
         m_proc.setProcessChannelMode(QProcess::ForwardedErrorChannel);
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("ZCALL_TOKEN"), QLatin1String(kToken));
+        m_proc.setProcessEnvironment(env);
         m_proc.start(QStringLiteral(ZCALL_ENGINE_BIN),
-                     {QStringLiteral("--token"), QLatin1String(kToken),
-                      QStringLiteral("--key-file"), m_dir.filePath(QStringLiteral("transport.key")),
+                     {QStringLiteral("--key-file"), m_dir.filePath(QStringLiteral("transport.key")),
                       QStringLiteral("--recv"), QString::number(m_recvSrv.serverPort()),
                       QStringLiteral("--send"), QString::number(m_sendSrv.serverPort()),
                       QStringLiteral("--media"), QStringLiteral("stub"),
@@ -112,6 +116,12 @@ private Q_SLOTS:
         for (int i = from; i < m_frames.size(); ++i)
             if (m_frames.at(i).value("type").toString() == type && m_frames.at(i).value("command").toInt() == cmd) return true;
         return false;
+    }
+
+    void tokenFromEnvironmentAuthenticates() {
+        QTRY_VERIFY_WITH_TIMEOUT(!m_tokens.isEmpty(), 5000);
+        QCOMPARE(m_tokens.first(), QByteArray(kToken));
+        QVERIFY(!m_proc.arguments().contains(QLatin1String(kToken)));
     }
 
     void staleSignalReplyIgnored() {

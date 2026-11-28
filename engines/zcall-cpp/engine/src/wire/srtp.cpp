@@ -20,22 +20,21 @@ struct CtxDeleter {
     void operator()(EVP_CIPHER_CTX* c) const { EVP_CIPHER_CTX_free(c); }
 };
 
-struct AesEcbState {
+struct AesCtrState {
     std::unique_ptr<EVP_CIPHER_CTX, CtxDeleter> ctx;
     QByteArray key;
 };
 
-EVP_CIPHER_CTX* aesEcbFor(const QByteArray& key) {
-    thread_local AesEcbState st;
+EVP_CIPHER_CTX* aesCtrFor(const QByteArray& key) {
+    thread_local AesCtrState st;
     if (!st.ctx) st.ctx.reset(EVP_CIPHER_CTX_new());
     if (!st.ctx) return nullptr;
     if (st.key != key) {
         st.key.clear();
-        if (EVP_EncryptInit_ex(st.ctx.get(), EVP_aes_128_ecb(), nullptr, reinterpret_cast<const unsigned char*>(key.constData()),
+        if (EVP_EncryptInit_ex(st.ctx.get(), EVP_aes_128_ctr(), nullptr, reinterpret_cast<const unsigned char*>(key.constData()),
                                nullptr) != 1) {
             return nullptr;
         }
-        EVP_CIPHER_CTX_set_padding(st.ctx.get(), 0);
         st.key = key;
     }
     return st.ctx.get();
@@ -43,25 +42,11 @@ EVP_CIPHER_CTX* aesEcbFor(const QByteArray& key) {
 
 void ctrXor(const QByteArray& key, const QByteArray& iv16, const char* in, char* out, int n) {
     if (n <= 0 || key.size() != 16 || iv16.size() != 16) return;
-    EVP_CIPHER_CTX* ctx = aesEcbFor(key);
+    EVP_CIPHER_CTX* ctx = aesCtrFor(key);
     if (!ctx) return;
-    const int blocks = (n + 15) / 16;
-    const uint16_t counter0 = uint16_t((uint8_t(iv16[14]) << 8) | uint8_t(iv16[15]));
-    QByteArray counters(blocks * 16, '\0');
-    for (int b = 0; b < blocks; ++b) {
-        char* blk = counters.data() + b * 16;
-        std::copy_n(iv16.constData(), 14, blk);
-        const uint16_t c = uint16_t(counter0 + b);
-        blk[14] = static_cast<char>(c >> 8);
-        blk[15] = static_cast<char>(c & 0xff);
-    }
-    QByteArray keystream(blocks * 16, '\0');
+    if (EVP_EncryptInit_ex(ctx, nullptr, nullptr, nullptr, reinterpret_cast<const unsigned char*>(iv16.constData())) != 1) return;
     int len = 0;
-    if (EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char*>(keystream.data()), &len,
-                          reinterpret_cast<const unsigned char*>(counters.constData()), int(counters.size())) != 1) {
-        return;
-    }
-    for (int i = 0; i < n; ++i) out[i] = static_cast<char>(in[i] ^ keystream[i]);
+    EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char*>(out), &len, reinterpret_cast<const unsigned char*>(in), n);
 }
 
 QByteArray kdf(const QByteArray& masterKey, const QByteArray& masterSalt, int label, int outLen) {
@@ -90,11 +75,19 @@ struct HmacState {
     }
 };
 
-QByteArray hmac10(const QByteArray& key, const char* data, int len) {
+QByteArray hmac10Pair(const QByteArray& key, const char* data, int len, const char* tail, int tailLen) {
     thread_local HmacState st;
     if (!st.ctx) {
         unsigned char md[EVP_MAX_MD_SIZE];
         unsigned int mdLen = 0;
+        QByteArray joined;
+        if (tailLen > 0) {
+            joined.reserve(len + tailLen);
+            joined.append(data, len);
+            joined.append(tail, tailLen);
+            data = joined.constData();
+            len = int(joined.size());
+        }
         HMAC(EVP_sha1(), key.constData(), int(key.size()), reinterpret_cast<const unsigned char*>(data), size_t(len),
              md, &mdLen);
         return QByteArray(reinterpret_cast<const char*>(md), 10);
@@ -116,12 +109,18 @@ QByteArray hmac10(const QByteArray& key, const char* data, int len) {
     unsigned char md[EVP_MAX_MD_SIZE];
     size_t mdLen = 0;
     if (initOk != 1 || EVP_MAC_update(st.ctx.get(), reinterpret_cast<const unsigned char*>(data), size_t(len)) != 1
+        || (tailLen > 0
+            && EVP_MAC_update(st.ctx.get(), reinterpret_cast<const unsigned char*>(tail), size_t(tailLen)) != 1)
         || EVP_MAC_final(st.ctx.get(), md, &mdLen, sizeof(md)) != 1 || mdLen < 10) {
         st.initialized = false;
         st.lastKey.clear();
         return QByteArray();
     }
     return QByteArray(reinterpret_cast<const char*>(md), 10);
+}
+
+QByteArray hmac10(const QByteArray& key, const char* data, int len) {
+    return hmac10Pair(key, data, len, nullptr, 0);
 }
 
 }
@@ -182,12 +181,12 @@ std::optional<Unprotected> unprotectRtp(const QByteArray& rtp, const SrtpKeys& k
     const int payloadLen = int(rtp.size()) - p->headerLen;
     if (payloadLen < 10) return std::nullopt;
     const int bodyLen = payloadLen - 10;
-    QByteArray authed;
-    authed.reserve(p->headerLen + bodyLen + 4);
-    authed.append(rtp.constData(), p->headerLen + bodyLen);
-    authed.append(QByteArray(4, '\0'));
-    wr32be(authed, p->headerLen + bodyLen, roc);
-    const QByteArray mac = hmac10(keys.auth, authed.constData(), int(authed.size()));
+    char rocBe[4];
+    rocBe[0] = static_cast<char>(roc >> 24);
+    rocBe[1] = static_cast<char>(roc >> 16);
+    rocBe[2] = static_cast<char>(roc >> 8);
+    rocBe[3] = static_cast<char>(roc);
+    const QByteArray mac = hmac10Pair(keys.auth, rtp.constData(), p->headerLen + bodyLen, rocBe, 4);
     if (mac.size() != 10) return std::nullopt;
     if (CRYPTO_memcmp(mac.constData(), rtp.constData() + rtp.size() - 10, 10) != 0) return std::nullopt;
     Unprotected out;
@@ -205,14 +204,14 @@ QByteArray protectRtp(const QByteArray& headerAndExt, const QByteArray& payload,
     const int h = int(headerAndExt.size());
     const int n = int(payload.size());
     QByteArray out;
-    out.resize(h + n + 4);
+    out.resize(h + n + 10);
     std::copy(headerAndExt.constBegin(), headerAndExt.constEnd(), out.begin());
     if (n > 0) ctrXor(keys.enc, packetIv(keys.salt, ssrc, seq, roc), payload.constData(), out.data() + h, n);
     wr32be(out, h + n, roc);
     const QByteArray mac = hmac10(keys.auth, out.constData(), h + n + 4);
     if (mac.size() != 10) return QByteArray();
-    out.resize(h + n);
-    out.append(mac);
+    std::copy(mac.constBegin(), mac.constEnd(), out.begin() + (h + n));
+    out.resize(h + n + 10);
     return out;
 }
 

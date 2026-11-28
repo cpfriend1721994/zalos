@@ -21,6 +21,7 @@ namespace {
 constexpr double kGroupMediaIdleMs = 10000;
 constexpr double kEndedCallTtlMs = 60000;
 constexpr size_t kMaxEndedCalls = 256;
+constexpr size_t kMaxMemberVideos = 64;
 const QString kCodec = QStringLiteral("[{\"dynamicFptime\":0,\"frmPtime\":20,\"name\":\"opus/16000/1\",\"payload\":112}]\n");
 
 int envMs(const char* name, int fallback) {
@@ -580,6 +581,7 @@ void EngineCore::onVideoPacket(const VideoPacket& pkt) {
         if (double(pkt.ssrc) == c->localUid || (c->shareScreenId != 0 && double(pkt.ssrc) == c->shareScreenId)) return;
         auto it = c->videos.find(pkt.ssrc);
         if (it == c->videos.end()) {
+            if (c->videos.size() >= kMaxMemberVideos) return;
             const uint32_t ssrc = pkt.ssrc;
             MemberVideo& v = c->videos[ssrc];
             MemberVideo* vp = &v;

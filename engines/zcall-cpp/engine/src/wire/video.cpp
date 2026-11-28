@@ -32,7 +32,7 @@ std::vector<std::pair<uint32_t, VideoAssembler::Pending>>::iterator VideoAssembl
 void VideoAssembler::push(const VideoPacket& pkt) {
     if ((!m_group && pkt.pt != 97 && pkt.pt != 98) || pkt.payload.isEmpty()) return;
     const int64_t idx = int64_t(pkt.roc) * 0x10000 + pkt.seq;
-    if (idx <= m_lastIdx) return;
+    if (idx <= m_lastIdx || m_droppedTs == pkt.ts) return;
     auto it = findPending(pkt.ts);
     if (it == m_pending.end()) {
         m_pending.push_back({pkt.ts, Pending{}});
@@ -47,6 +47,16 @@ void VideoAssembler::push(const VideoPacket& pkt) {
         }
     }
     Pending& f = it->second;
+    const auto prev = f.parts.find(idx);
+    const qsizetype bytes = f.bytes - (prev != f.parts.end() ? prev->second.size() : 0) + pkt.payload.size();
+    if (bytes > kMaxVideoFrameBytes || (prev == f.parts.end() && f.parts.size() >= kMaxVideoFrameParts)) {
+        m_droppedTs = pkt.ts;
+        m_pending.erase(it);
+        ++stats.dropped;
+        flush();
+        return;
+    }
+    f.bytes = bytes;
     f.parts[idx] = pkt.payload;
     if (pkt.pt == kKeyPt) f.key = true;
     if (pkt.marker) f.end = idx;
@@ -62,10 +72,14 @@ void VideoAssembler::complete(uint32_t ts, Pending& f) {
     for (size_t i = 1; i < idxs.size(); ++i)
         if (idxs[i] != idxs[i - 1] + 1) return;
     if (idxs.back() != *f.end) return;
+    qsizetype total = 0;
+    for (const auto& part : f.parts) total += part.second.size() - (isFragment(part.second) ? 2 : 0);
     QByteArray data;
+    data.reserve(total);
     for (int64_t i : idxs) {
         const QByteArray& p = f.parts.at(i);
-        data += isFragment(p) ? p.mid(2) : p;
+        const qsizetype off = isFragment(p) ? 2 : 0;
+        data.append(p.constData() + off, p.size() - off);
     }
     bool key = f.key;
     const int64_t last = *f.end;

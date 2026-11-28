@@ -17,6 +17,8 @@ namespace zcall {
 constexpr int kKeyPt = 98;
 constexpr int kDeltaPt = 97;
 constexpr int kMaxChunk = 1068;
+constexpr qsizetype kMaxVideoFrameBytes = 4 * 1024 * 1024;
+constexpr size_t kMaxVideoFrameParts = 4096;
 
 struct VideoPacket {
     uint16_t seq{0};
@@ -60,6 +62,7 @@ public:
 private:
     struct Pending {
         std::map<int64_t, QByteArray> parts;
+        qsizetype bytes{0};
         bool key{false};
         std::optional<int64_t> end;
     };
@@ -76,6 +79,7 @@ private:
     std::vector<std::pair<uint32_t, Pending>>::iterator findPending(uint32_t ts);
 
     std::function<void(const VideoFrame&)> m_onFrame;
+    std::optional<uint32_t> m_droppedTs;
     std::function<double()> m_now;
     bool m_group;
     std::function<void()> m_onGap;

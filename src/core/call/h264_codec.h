@@ -60,6 +60,7 @@ public:
     H264Encoder& operator=(const H264Encoder&) = delete;
 
     bool open(QSize size, int fps, int bitrate, bool screenContent = false);
+    bool retune(int fps, int bitrate);
     void close();
     bool isOpen() const { return m_encoder != nullptr; }
     QSize size() const { return m_size; }

@@ -399,6 +399,40 @@ private Q_SLOTS:
         }
     }
 
+    void videoAssemblerDropsOversizedFrames() {
+        double now = 1000;
+        QList<uint32_t> emitted;
+        qsizetype largest = 0;
+        VideoAssembler asmb(
+            [&](const VideoFrame& f) {
+                emitted.append(f.ts);
+                largest = qMax(largest, f.data.size());
+            },
+            [&now] { return now; }, false, [] {});
+        const QByteArray part(kMaxChunk, char(0x65));
+        const int parts = int(kMaxVideoFrameBytes / kMaxChunk) + 64;
+        VideoPacket pkt;
+        pkt.pt = kKeyPt;
+        pkt.ts = 1000;
+        for (int i = 0; i < parts; ++i) {
+            pkt.seq = uint16_t(i);
+            pkt.marker = i == parts - 1;
+            pkt.payload = part;
+            asmb.push(pkt);
+        }
+        QVERIFY(emitted.isEmpty());
+        QVERIFY(asmb.stats.dropped >= 1);
+
+        pkt.ts = 4000;
+        pkt.seq = uint16_t(parts);
+        pkt.marker = true;
+        pkt.payload = QByteArray::fromHex("65aabbcc");
+        now += 10;
+        asmb.push(pkt);
+        QCOMPARE(emitted, QList<uint32_t>{4000});
+        QVERIFY(largest <= kMaxVideoFrameBytes);
+    }
+
     void sendRate() {
         const QJsonArray scenarios = loadVectors("send-rate.json").toArray();
         QVERIFY(!scenarios.isEmpty());

@@ -8,6 +8,7 @@
 #include <QList>
 #include <QObject>
 #include <QPointer>
+#include <QProcessEnvironment>
 #include <QRect>
 #include <QString>
 #include <QTemporaryFile>
@@ -174,6 +175,9 @@ public:
     static QString findEngine();
     static QString audioEngineFor(const QString& callEnginePath);
     static bool writeKeyFile(QTemporaryFile* file, const QByteArray& key);
+    static bool tokenMatches(const QByteArray& got, const QByteArray& expected);
+    static QStringList engineArguments(quint16 recvPort, quint16 sendPort, quint16 uiPort, const QString& keyFile);
+    static QProcessEnvironment engineEnvironment(QProcessEnvironment base, const QString& token, const QString& uiToken);
 
     static QByteArray encodeFrame(const QJsonObject& frame, const QByteArray& key);
     static QList<QJsonObject> decodeFrames(QByteArray& buffer, const QByteArray& key, QHash<QString, QStringList>* chunks);
@@ -200,6 +204,7 @@ private:
     void onSendSignal(int command, const QJsonObject& data);
     void sendUi(const QJsonObject& action);
     void onUiLine(const QByteArray& line);
+    void onUiMessage(const QJsonObject& msg);
     void drainUiBuffer();
     void resetUi();
     void startVideoPipeline();
@@ -227,6 +232,7 @@ private:
     QByteArray m_recvBuffer;
     QByteArray m_uiBuffer;
     qint64 m_uiSkipBytes{0};
+    qint64 m_uiDiscardBytes{0};
     bool m_lastVideoKey{false};
     QString m_lastVideoCodec;
     int m_lastVideoSrc{0};

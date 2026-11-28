@@ -55,6 +55,10 @@ void quote(QByteArray& out, const QString& s) {
             out += QByteArray::number(c, 16);
             continue;
         }
+        if (c < 0x80) {
+            out += char(c);
+            continue;
+        }
         out += QString(QChar(c)).toUtf8();
     }
     out += '"';

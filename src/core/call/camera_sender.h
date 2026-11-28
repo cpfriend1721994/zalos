@@ -33,6 +33,7 @@ class CameraSender : public QObject {
 public:
     static constexpr int kKeyIntervalMs = 10000;
     static constexpr int kScreenKeyIntervalMs = 2000;
+    static constexpr int kMaxCameraSide = 1920;
 
     explicit CameraSender(QObject* parent = nullptr);
     ~CameraSender() override;
@@ -91,7 +92,7 @@ private:
     void encodeFrame(const QVideoFrame& frame, qint64 now);
     void encodeImage(const QImage& image, qint64 now);
     void encodeI420Buffer(const QByteArray& i420, QSize targetSize, int fps, int bitrate,
-                          bool needReopen, bool screenContent, qint64 now);
+                          bool needReopen, bool screenContent, qint64 now, bool needRetune = false);
 
     QCamera* m_camera{nullptr};
     QMediaCaptureSession* m_capture{nullptr};
@@ -129,11 +130,13 @@ private:
     int m_screenBitrate{1500000};
     QSize m_screenEncodedSize;
     bool m_reopen{true};
+    bool m_retune{false};
     bool m_screenContent{false};
     std::atomic<bool> m_forceKey{true};
     std::atomic<bool> m_encodingEnabled{true};
     QElapsedTimer m_clock;
     qint64 m_lastFrameMs{-1};
+    qint64 m_lastDispatchedKey{0};
     qint64 m_lastKeyMs{-1};
     QString m_screenTarget;
     PortalScreenCast* m_portalCast{nullptr};

@@ -45,6 +45,7 @@ namespace Zalos::Core::Call {
 namespace {
 
 constexpr int kMaxHexPerFrame = 4000;
+constexpr qint64 kMaxUiFrameBytes = 4 * 1024 * 1024;
 
 QString randomToken() {
     return "zcall-" + QUuid::createUuid().toString(QUuid::Id128);
@@ -52,9 +53,31 @@ QString randomToken() {
 
 }
 
+bool CallBridge::tokenMatches(const QByteArray& got, const QByteArray& expected) {
+    if (expected.isEmpty() || got.size() != expected.size()) return false;
+    unsigned char diff = 0;
+    for (qsizetype i = 0; i < expected.size(); ++i)
+        diff |= static_cast<unsigned char>(got.at(i) ^ expected.at(i));
+    return diff == 0;
+}
+
+QStringList CallBridge::engineArguments(quint16 recvPort, quint16 sendPort, quint16 uiPort, const QString& keyFile) {
+    return {QStringLiteral("--recv"), QString::number(recvPort),
+            QStringLiteral("--send"), QString::number(sendPort),
+            QStringLiteral("--media"), QStringLiteral("zrtc"), QStringLiteral("--send-udp"), QStringLiteral("--group"),
+            QStringLiteral("--key-file"), keyFile,
+            QStringLiteral("--ui-port"), QString::number(uiPort)};
+}
+
+QProcessEnvironment CallBridge::engineEnvironment(QProcessEnvironment base, const QString& token, const QString& uiToken) {
+    base.insert(QStringLiteral("ZCALL_TOKEN"), token);
+    base.insert(QStringLiteral("ZCALL_UI_TOKEN"), uiToken);
+    return base;
+}
+
 CallBridge::CallBridge(Network::ZaloSession* session, QObject* parent)
     : QObject(parent), m_session(session) {
-    QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    QSettings settings;
     m_selectedMicId = settings.value(QStringLiteral("call/micDevice")).toString();
     m_selectedSpeakerId = settings.value(QStringLiteral("call/speakerDevice")).toString();
     m_selectedCameraId = settings.value(QStringLiteral("call/cameraDevice")).toString();
@@ -289,6 +312,7 @@ bool CallBridge::ensureEngine() {
     m_recvBuffer.clear();
     m_uiBuffer.clear();
     m_uiSkipBytes = 0;
+    m_uiDiscardBytes = 0;
     m_chunks.clear();
 
     m_recvServer = new QTcpServer(this);
@@ -319,9 +343,11 @@ bool CallBridge::ensureEngine() {
                         if (nl < 0) return;
                         const QByteArray tok = pending->left(nl);
                         const QByteArray rest = pending->mid(nl + 1);
-                        const QString expected = role == 2 ? m_uiToken : m_token;
-                        if (tok != expected.toLatin1()) {
-                            sock->disconnectFromHost();
+                        const QByteArray expected = (role == 2 ? m_uiToken : m_token).toLatin1();
+                        const QPointer<QTcpSocket>& bound = role == 0 ? m_recvSocket : role == 1 ? m_sendSocket : m_uiSocket;
+                        if (!tokenMatches(tok, expected)
+                            || (bound && bound != sock && bound->state() == QAbstractSocket::ConnectedState)) {
+                            sock->abort();
                             return;
                         }
                         sock->setProperty("authed", true);
@@ -407,14 +433,9 @@ bool CallBridge::ensureEngine() {
         m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}, {"statusCode", "disconnected"}};
         emit stateChanged();
     });
-    const QStringList engineArgs{"--token", m_token,
-                                 "--recv", QString::number(m_recvServer->serverPort()),
-                                 "--send", QString::number(m_sendServer->serverPort()),
-                                 "--media", "zrtc", "--send-udp", "--group",
-                                 "--key-file", m_keyFilePath,
-                                 "--ui-port", QString::number(m_uiServer->serverPort()),
-                                 "--ui-token", m_uiToken};
-    m_process->start(m_enginePath, engineArgs);
+    m_process->setProcessEnvironment(engineEnvironment(QProcessEnvironment::systemEnvironment(), m_token, m_uiToken));
+    m_process->start(m_enginePath, engineArguments(m_recvServer->serverPort(), m_sendServer->serverPort(),
+                                                   m_uiServer->serverPort(), m_keyFilePath));
     return true;
 }
 
@@ -504,6 +525,7 @@ void CallBridge::shutdown() {
     }
     m_cameraOffAnnounced = false;
     m_uiSkipBytes = 0;
+    m_uiDiscardBytes = 0;
     if (m_peerSink) m_peerSink->setVideoFrame(QVideoFrame());
     m_pendingVideoFrames.store(0, std::memory_order_relaxed);
     if (m_peerVideoActive) {
@@ -898,10 +920,10 @@ CameraSender* CallBridge::cameraSender() {
             if (au.isEmpty() || au.size() > 4 * 1024 * 1024) return;
             const QJsonObject head{{"action", "videoFrame"}, {"key", key}, {"screen", m_screenShareOn},
                                    {"w", w}, {"h", h}, {"bin", au.size()}};
-            QByteArray pkt = QJsonDocument(head).toJson(QJsonDocument::Compact);
-            pkt.append('\n');
-            pkt.append(au);
-            m_uiSocket->write(pkt);
+            QByteArray line = QJsonDocument(head).toJson(QJsonDocument::Compact);
+            line.append('\n');
+            m_uiSocket->write(line);
+            m_uiSocket->write(au);
         });
         connect(m_cameraSender, &CameraSender::failed, this, [this](const QString& reason) {
             m_cameraError = reason;
@@ -1172,6 +1194,13 @@ void CallBridge::handleVoipControl(const QJsonObject& rawContent) {
 
 void CallBridge::drainUiBuffer() {
     for (;;) {
+        if (m_uiDiscardBytes > 0) {
+            const qint64 n = qMin<qint64>(m_uiDiscardBytes, m_uiBuffer.size());
+            m_uiBuffer.remove(0, n);
+            m_uiDiscardBytes -= n;
+            if (m_uiDiscardBytes > 0) return;
+            continue;
+        }
         if (m_uiSkipBytes > 0) {
             if (m_uiBuffer.size() < m_uiSkipBytes) return;
             const QByteArray payload = m_uiBuffer.left(m_uiSkipBytes);
@@ -1194,10 +1223,9 @@ void CallBridge::drainUiBuffer() {
         const QJsonObject head = QJsonDocument::fromJson(line).object();
         if (head.contains("bin")) {
             const qint64 bin = head.value("bin").toVariant().toLongLong();
-            if (bin <= 0 || bin > 4 * 1024 * 1024) {
-                m_uiBuffer.clear();
-                m_uiSkipBytes = 0;
-                return;
+            if (bin <= 0 || bin > kMaxUiFrameBytes) {
+                m_uiDiscardBytes = qMax<qint64>(bin, 0);
+                continue;
             }
             m_uiSkipBytes = bin;
             m_lastVideoKey = head.value("key").toBool();
@@ -1205,7 +1233,7 @@ void CallBridge::drainUiBuffer() {
             m_lastVideoSrc = head.value("src").toInt();
             continue;
         }
-        onUiLine(line);
+        onUiMessage(head);
     }
 }
 
@@ -1216,7 +1244,10 @@ void CallBridge::sendUi(const QJsonObject& action) {
 }
 
 void CallBridge::onUiLine(const QByteArray& line) {
-    const QJsonObject msg = QJsonDocument::fromJson(line).object();
+    onUiMessage(QJsonDocument::fromJson(line).object());
+}
+
+void CallBridge::onUiMessage(const QJsonObject& msg) {
     const QString type = msg.value("type").toString();
     if (type == "state") {
         const QString previous = phase();
@@ -1332,6 +1363,7 @@ void CallBridge::resetUi() {
     m_micLevel = 60;
     m_micVolume = 100;
     m_micAutoGain = true;
+    m_uiDiscardBytes += m_uiSkipBytes;
     m_uiSkipBytes = 0;
     emit micStateChanged();
     emit stateChanged();
@@ -1408,7 +1440,7 @@ QVariantList CallBridge::cameraDevices() const {
 
 void CallBridge::selectAudioDevice(const QString& kind, const QString& id) {
     if (kind != QLatin1String("mic") && kind != QLatin1String("speaker")) return;
-    QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    QSettings settings;
     if (kind == QLatin1String("mic")) {
         m_selectedMicId = id;
         settings.setValue(QStringLiteral("call/micDevice"), id);
@@ -1422,7 +1454,7 @@ void CallBridge::selectAudioDevice(const QString& kind, const QString& id) {
 
 void CallBridge::selectCameraDevice(const QString& id) {
     m_selectedCameraId = id;
-    QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    QSettings settings;
     settings.setValue(QStringLiteral("call/cameraDevice"), id);
     emit devicesChanged();
     if (m_cameraSender) m_cameraSender->setPreferredCameraId(id);

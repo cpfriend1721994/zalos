@@ -29,7 +29,10 @@ bool isMediaType(int t) {
 }
 
 QByteArray wrapMediaPacket(int msgType, uint32_t token, const QByteArray& payload) {
-    QByteArray buf(kMediaHeaderLen, '\0');
+    QByteArray buf;
+    buf.reserve(kMediaHeaderLen + payload.size());
+    buf.resize(kMediaHeaderLen);
+    buf.fill('\0');
     buf[0] = char(msgType);
     wr32le(buf, 1, token);
     buf.append(payload);
