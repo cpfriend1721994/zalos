@@ -1181,16 +1181,34 @@ void MobileHistorySync::resolveIdsAndImport() {
         importNextChunk();
     };
 
+    QList<QPair<QStringList, QStringList>> batches;
     for (int i = 0; i < qMax(userList.size(), groupList.size()); i += kNoiseBatch) {
         const QStringList u = userList.mid(i, kNoiseBatch);
         const QStringList g = groupList.mid(i, kNoiseBatch);
-        if (u.isEmpty() && g.isEmpty()) continue;
-        pending->outstanding++;
-        m_session->fetchNoisedIds(u, g, [onReply, u, g](bool ok, const QJsonValue& data, const QString&, int) {
-            onReply(u, g, ok, data);
-        });
+        if (!u.isEmpty() || !g.isEmpty()) batches.append({u, g});
     }
+    pending->outstanding = int(batches.size());
+    runInSequence(int(batches.size()), [this, batches, onReply, gen](int k, std::function<void()> next) {
+        if (gen != m_generation) return;
+        const QStringList u = batches.at(k).first;
+        const QStringList g = batches.at(k).second;
+        m_session->fetchNoisedIds(u, g, [this, onReply, u, g, gen, next](bool ok, const QJsonValue& data, const QString&, int) {
+            onReply(u, g, ok, data);
+            if (gen == m_generation) next();
+        });
+    });
     if (pending->outstanding == 0) fail(L("Bản sao lưu không có hội thoại hợp lệ.", "The backup has no valid conversations."));
+}
+
+void MobileHistorySync::runInSequence(int count, SequenceStep step) {
+    auto run = std::make_shared<std::function<void(int)>>();
+    *run = [count, step = std::move(step), weak = std::weak_ptr<std::function<void(int)>>(run)](int k) {
+        if (k >= count) return;
+        auto self = weak.lock();
+        if (!self) return;
+        step(k, [self, k] { (*self)(k + 1); });
+    };
+    (*run)(0);
 }
 
 void MobileHistorySync::recordIngestDelta(const QHash<QString, int>& drops) {

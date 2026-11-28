@@ -10,6 +10,8 @@
 #include <QSet>
 #include <QString>
 #include <QStringList>
+
+#include <functional>
 #include <QTimer>
 #include <QVector>
 
@@ -31,6 +33,8 @@ class MobileHistorySync : public QObject {
     Q_OBJECT
 
 public:
+    using SequenceStep = std::function<void(int index, std::function<void()> next)>;
+    static void runInSequence(int count, SequenceStep step);
     enum State { Idle = 0, WaitingConfirm = 1, PhonePreparing = 2, Importing = 3, Done = 4, Failed = 5 };
 
     struct KeyPair {

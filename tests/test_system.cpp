@@ -3399,6 +3399,24 @@ private slots:
         QCOMPARE(frames.first().value("command").toString(), QString("native-ready"));
     }
 
+    void testNoiseLookupsRunOneAtATime() {
+        QList<int> started;
+        std::function<void()> pendingNext;
+        Zalos::Core::Sync::MobileHistorySync::runInSequence(3, [&](int k, std::function<void()> next) {
+            started.append(k);
+            pendingNext = next;
+        });
+        QCOMPARE(started, QList<int>({0}));
+        pendingNext();
+        QCOMPARE(started, QList<int>({0, 1}));
+        pendingNext();
+        pendingNext();
+        QCOMPARE(started, QList<int>({0, 1, 2}));
+        started.clear();
+        Zalos::Core::Sync::MobileHistorySync::runInSequence(0, [&](int k, std::function<void()>) { started.append(k); });
+        QVERIFY(started.isEmpty());
+    }
+
     void testSocketQueuesAndFailoverRules() {
         const QJsonObject auth{{"error_code", 0},
             {"data", QJsonObject{
