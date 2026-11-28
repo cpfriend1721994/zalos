@@ -31,7 +31,14 @@ A sync runs in two phases:
    query is `{partition, from, to, limit}`, where `partition` is `group/<id>` or `oneone/<id>`.
    The phone answers with encrypted batches that are downloaded first and imported afterwards.
 
-Sessions stay open until the sync ends and are released together.
+Sessions stay open until the sync ends and are then released one at a time, each after the
+previous release is acknowledged. When several releases are sent at once, the server acknowledges
+only the first, and the phone keeps showing the sync until it times out.
+
+Rows without a `globalId` are mostly the user's own old messages, kept only on the phone. They are
+stored as `<cliMsgId>_<thread>`, which stays the same across syncs. The server does not know these
+ids, so senders are never corrected through them and server actions (react, recall, reply) are
+hidden for them.
 
 ## Incremental sync
 

@@ -136,6 +136,7 @@ public:
     int correctMessageSenders(const QHash<QString, QString>& senders);
     QHash<QString, qint64> syncCheckpoints();
     QSet<QString> existingMessageIds(const QStringList& ids);
+    bool hasServerCopy(const QString& convId, const QString& cliMsgId);
     bool saveSyncCheckpoints(const QHash<QString, qint64>& checkpoints);
     struct UnreadReaction {
         QString msgId;

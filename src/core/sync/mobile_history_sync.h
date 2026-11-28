@@ -103,7 +103,7 @@ public:
     };
     static QVector<BackupConversation> readBackupDirectory(const QString& dir, QString* error,
                                                            BackupDirStats* stats = nullptr);
-    static QString phoneLocalId(const QString& cliMsgId, const QString& thread);
+    static QString phoneLocalId(const QString& cliMsgId, const QString& sender, const QString& thread);
     static bool isPhoneLocalId(const QString& msgId);
     static QJsonArray toMessages(const BackupConversation& conv, const QHash<QString, QString>& ids,
                                  const QString& myPlainUid, const QString& myNoisedUid, int* skipped = nullptr,

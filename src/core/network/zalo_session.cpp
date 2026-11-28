@@ -1522,6 +1522,7 @@ bool ZaloSession::sendSyncV2Request(const QString& syncId, const QJsonObject& sy
 }
 
 void ZaloSession::sendSyncV2Release(const QString& syncId, int reason) {
+    m_syncV2ReleaseReqId.clear();
     if (syncId.isEmpty()) return;
     sendWs(591, 0,
            {{"data", QJsonObject{{"syncId", syncId}, {"toDevice", 0}, {"reason", reason}}}},
@@ -2578,6 +2579,7 @@ void ZaloSession::sendWs(int cmd, int subCmd, QJsonObject data, const QString& r
     if (state != QAbstractSocket::ConnectedState) return;
     if (!reqIdKey.isEmpty()) data[reqIdKey] = QStringLiteral("req_%1").arg(m_wsRequestId++);
     if (cmd == 590 && !reqIdKey.isEmpty()) m_syncV2ReqId = data.value(reqIdKey).toString();
+    if (cmd == 591 && !reqIdKey.isEmpty()) m_syncV2ReleaseReqId = data.value(reqIdKey).toString();
     if (cmd == 591 || cmd == 592) {
         ErrorCatalog::trace("phone-sync", QStringLiteral("ws send cmd=%1 %2").arg(cmd).arg(
                                               QString::fromUtf8(QJsonDocument(data).toJson(QJsonDocument::Compact))));
@@ -2650,7 +2652,13 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
             }
         }
         ErrorCatalog::trace("phone-sync", QStringLiteral("ws cmd=%1 sub=%2 %3").arg(cmd).arg(subCmd).arg(detail.left(400)));
-        if (cmd == 591) emit syncV2ReleaseAcked();
+        if (cmd == 591) {
+            QString reqId;
+            int err = 0;
+            const QJsonObject ack = parsed.value("data").isObject() ? parsed.value("data").toObject()
+                                                                    : QJsonDocument::fromJson(detail.toUtf8()).object();
+            if (syncV2AckOf(ack, &reqId, &err)) emit syncV2ReleaseAcked(reqId);
+        }
         return;
     }
 

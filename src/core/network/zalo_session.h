@@ -131,6 +131,7 @@ public:
     void cleanMobileSync(const QString& publicKey, Callback cb);
     bool sendSyncV2Request(const QString& syncId, const QJsonObject& syncData);
     void sendSyncV2Release(const QString& syncId, int reason);
+    QString lastSyncV2ReleaseReqId() const { return m_syncV2ReleaseReqId; }
     void sendSyncV2WakeUp(const QString& syncId);
     void fetchAliasList(int page, int count, Callback cb);
     void fetchUnreadMarks(Callback cb);
@@ -288,7 +289,7 @@ signals:
     void voipControlReceived(const QJsonObject& content);
     void mobileSyncControlReceived(const QJsonObject& content);
     void syncV2RequestAcked(int err);
-    void syncV2ReleaseAcked();
+    void syncV2ReleaseAcked(const QString& reqId);
     void syncV2RequestSent();
     void controlReceived(const QString& actType, const QString& act, const QJsonValue& data);
 
@@ -317,6 +318,7 @@ private:
     void handleApiReply(QNetworkReply* reply, Callback cb);
     void postMultipartFile(const QString& url, const QJsonObject& params, const QByteArray& content, Callback cb);
     void requestServerInfo(int retryCount = 0);
+    QString m_syncV2ReleaseReqId;
     void sendWs(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey = QStringLiteral("req_id"));
     void enqueuePendingWsFrame(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey);
     void scheduleWsReconnect();

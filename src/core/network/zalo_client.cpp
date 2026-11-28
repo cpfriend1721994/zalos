@@ -173,12 +173,13 @@ ZaloClient::ZaloClient(QObject* parent)
             [this](const QJsonArray& imported, bool isGroup) {
                 int alreadySaved = 0;
                 QHash<QString, QString> senderFixes;
-                const QJsonArray messages =
+                const QJsonArray fresh =
                     m_offlineStore ? Sync::MobileHistorySync::withoutSavedMessages(
                                          imported,
                                          m_offlineStore->savedMessageSenders(Sync::MobileHistorySync::messageIdsOf(imported)),
                                          m_historySync->importingFromV2(), &alreadySaved, &senderFixes)
                                    : imported;
+                const QJsonArray messages = withoutServerCopies(fresh, isGroup, &alreadySaved);
                 const int sendersFixed = applyCorrectedSenders(senderFixes);
                 const auto before = m_offlineStore ? m_offlineStore->saveStats() : Offline::ZaloOfflineStore::SaveStats{};
                 const QHash<QString, int> dropsBefore = m_ingestDrops;

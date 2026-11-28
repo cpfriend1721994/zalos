@@ -2188,6 +2188,25 @@ private slots:
         QVERIFY(fixesLocal.isEmpty());
     }
 
+    void testPhoneLocalCopyKeepsTheServerMessage() {
+        {
+            ZaloOfflineStore owner;
+            owner.clearCache();
+            owner.bindOwner("u-sc-owner");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-sc-owner");
+        auto msg = [](const QString& id) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", "6003"}, {"uidFrom", "u-sc-a"}, {"idTo", "u-sc-owner"},
+                               {"msgType", "webchat"}, {"content", "fixture"}, {"ts", "1700000000000"}};
+        };
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{msg("7003")}, false, false);
+        const QString local = Zalos::Core::Sync::MobileHistorySync::phoneLocalId("6003", "u-sc-a", "u-sc-a");
+        emit client.historySyncForTesting()->messagesImported(QJsonArray{msg(local)}, false);
+        QVERIFY(client.offlineStore()->existingMessageIds({"7003"}).contains("7003"));
+        QVERIFY(!client.offlineStore()->existingMessageIds({local}).contains(local));
+    }
+
     void testPhoneLocalIdsAreNotServerMessages() {
         QVERIFY(ZaloClient::isServerMessageId("7001"));
         QVERIFY(!ZaloClient::isServerMessageId(""));
@@ -2265,15 +2284,16 @@ private slots:
                            ParsedSyncV2Mention{QStringLiteral("enc-peer"), 1, 1, 0},
                            ParsedSyncV2Mention{QStringLiteral("enc-unknown"), 2, 1, 0}};
         conv.rows = {peer, row("7002", "6002", "0"), row("0", "6003", "enc-peer"), row("", "6004", "enc-peer"),
-                     row("7005", "6005", "enc-unknown"), row("", "", "enc-peer")};
+                     row("7005", "6005", "enc-unknown"), row("", "", "enc-peer"), row("", "6004", "0")};
         const QHash<QString, QString> ids{{"enc-group", "g-plain"}, {"enc-peer", "u-peer"}};
         int skipped = 0;
         QHash<QString, int> reasons;
         const QJsonArray out = MobileHistorySync::toMessages(conv, ids, "enc-me", "u-me", &skipped, 0, -1, &reasons, true);
-        QCOMPARE(out.size(), 4);
-        QCOMPARE(out.at(2).toObject().value("msgId").toString(), QStringLiteral("6003_g-plain"));
+        QCOMPARE(out.size(), 5);
+        QCOMPARE(out.at(4).toObject().value("msgId").toString(), QStringLiteral("6004_0_g-plain"));
+        QCOMPARE(out.at(2).toObject().value("msgId").toString(), QStringLiteral("6003_u-peer_g-plain"));
         QCOMPARE(out.at(2).toObject().value("cliMsgId").toString(), QStringLiteral("6003"));
-        QCOMPARE(out.at(3).toObject().value("msgId").toString(), QStringLiteral("6004_g-plain"));
+        QCOMPARE(out.at(3).toObject().value("msgId").toString(), QStringLiteral("6004_u-peer_g-plain"));
         const QJsonObject a = out.at(0).toObject();
         QCOMPARE(a.value("msgId").toString(), QStringLiteral("7001"));
         QCOMPARE(a.value("uidFrom").toString(), QStringLiteral("u-peer"));

@@ -1575,6 +1575,25 @@ void ZaloClient::scheduleExpiry() {
     m_expiryTimer->start(int(qBound<qint64>(1000, next - now + 500, 6LL * 60 * 60 * 1000)));
 }
 
+QJsonArray ZaloClient::withoutServerCopies(const QJsonArray& messages, bool isGroup, int* dropped) {
+    if (!m_offlineStore) return messages;
+    QJsonArray out;
+    for (const QJsonValue& v : messages) {
+        const QJsonObject msg = v.toObject();
+        if (Sync::MobileHistorySync::isPhoneLocalId(msg.value("msgId").toString())) {
+            const QString from = idOf(msg.value("uidFrom"));
+            const QString to = idOf(msg.value("idTo"));
+            const QString thread = (isGroup || from == QLatin1String("0") || from == m_myUid) ? to : from;
+            if (m_offlineStore->hasServerCopy(thread, msg.value("cliMsgId").toVariant().toString())) {
+                if (dropped) ++*dropped;
+                continue;
+            }
+        }
+        out.append(v);
+    }
+    return out;
+}
+
 int ZaloClient::applyCorrectedSenders(const QHash<QString, QString>& senders) {
     if (senders.isEmpty() || !m_offlineStore) return 0;
     const int changed = m_offlineStore->correctMessageSenders(senders);

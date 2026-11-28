@@ -704,6 +704,15 @@ QHash<QString, QString> ZaloOfflineStore::savedMessageSenders(const QStringList&
     return out;
 }
 
+bool ZaloOfflineStore::hasServerCopy(const QString& convId, const QString& cliMsgId) {
+    if (!m_db.isOpen() || convId.isEmpty() || cliMsgId.isEmpty()) return false;
+    QSqlQuery q(m_db);
+    q.prepare("SELECT 1 FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND cli_msg_id <> '' AND instr(id, '_') = 0 LIMIT 1;");
+    q.bindValue(":conv", convId);
+    q.bindValue(":cli", cliMsgId);
+    return q.exec() && q.next();
+}
+
 int ZaloOfflineStore::correctMessageSenders(const QHash<QString, QString>& senders) {
     if (!m_db.isOpen() || senders.isEmpty()) return 0;
     int changed = 0;

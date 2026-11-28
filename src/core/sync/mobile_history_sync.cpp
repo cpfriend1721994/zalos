@@ -388,8 +388,8 @@ QVector<MobileHistorySync::BackupConversation> MobileHistorySync::readBackupDire
     return out;
 }
 
-QString MobileHistorySync::phoneLocalId(const QString& cliMsgId, const QString& thread) {
-    return cliMsgId + QLatin1Char('_') + thread;
+QString MobileHistorySync::phoneLocalId(const QString& cliMsgId, const QString& sender, const QString& thread) {
+    return cliMsgId + QLatin1Char('_') + sender + QLatin1Char('_') + thread;
 }
 
 bool MobileHistorySync::isPhoneLocalId(const QString& msgId) {
@@ -461,7 +461,7 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
             continue;
         }
         const QString rowMsgId = !noGlobalId ? row.globalMsgId
-                                 : v2Rows   ? phoneLocalId(row.cliMsgId, thread)
+                                 : v2Rows   ? phoneLocalId(row.cliMsgId, uidFrom, thread)
                                             : row.cliMsgId;
         auto jsonObjectOf = [](const QString& raw) {
             const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
@@ -790,9 +790,14 @@ void MobileHistorySync::releaseV2Sessions(int reason) {
             QObject::disconnect(*conn);
             next();
         };
-        *conn = QObject::connect(session, &Network::ZaloSession::syncV2ReleaseAcked, session, proceed);
+        auto expected = std::make_shared<QString>();
+        *conn = QObject::connect(session, &Network::ZaloSession::syncV2ReleaseAcked, session,
+                                 [expected, proceed](const QString& reqId) {
+                                     if (!expected->isEmpty() && reqId == *expected) proceed();
+                                 });
         QTimer::singleShot(kReleaseAckMs, session, proceed);
         session->sendSyncV2Release(ids.at(k), reason);
+        *expected = session->lastSyncV2ReleaseReqId();
     });
 }
 

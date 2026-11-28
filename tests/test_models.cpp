@@ -97,6 +97,30 @@ class TestModels : public QObject {
     Q_OBJECT
 
 private slots:
+    void testSetSenderRefreshesPresentationAndRuns() {
+        MessageModel model;
+        loadImageRun(model, QStringLiteral("c-run"), 6);
+        QSignalSpy spy(&model, &QAbstractItemModel::dataChanged);
+        model.setSender(QStringLiteral("c-run"), QStringLiteral("run-3"), QStringLiteral("u-other"));
+        bool headRefreshed = false;
+        for (const QList<QVariant>& args : std::as_const(spy)) {
+            const int top = args.at(0).toModelIndex().row();
+            const QList<int> roles = args.at(2).value<QList<int>>();
+            if (top == 0 && (roles.isEmpty() || roles.contains(MessageModel::MediaRunRole))) headRefreshed = true;
+        }
+        QVERIFY(headRefreshed);
+
+        MessageItem named = runImage(10);
+        named.id = QStringLiteral("named");
+        named.messageType = QStringLiteral("text");
+        named.senderName = QStringLiteral("Old Name");
+        named.senderAvatar = QStringLiteral("https://cdn.example/old.png");
+        model.mergeMessages(QStringLiteral("c-run"), {named});
+        model.setSender(QStringLiteral("c-run"), QStringLiteral("named"), QStringLiteral("u-other"));
+        QVERIFY(model.message(QStringLiteral("c-run"), QStringLiteral("named")).senderName.isEmpty());
+        QVERIFY(model.message(QStringLiteral("c-run"), QStringLiteral("named")).senderAvatar.isEmpty());
+    }
+
     void testAccentInsensitiveSearch() {
         QCOMPARE(foldForSearch(QStringLiteral("Nguyễn Đức Thắng")), QStringLiteral("nguyen duc thang"));
 

@@ -640,13 +640,31 @@ void MessageModel::setStatus(const QString& convId, const QString& msgId, const 
 }
 
 void MessageModel::setSender(const QString& convId, const QString& msgId, const QString& senderId) {
-    updateItem(m_store, m_items, m_activeRowById, m_currentConvId, convId, msgId,
-               [&](MessageItem& m) { m.senderId = senderId; }, this,
-               {SenderIdRole, SenderNameRole, SenderAvatarRole, FirstInGroupRole, LastInGroupRole});
-    const int row = convId == m_currentConvId ? activeRowOf(msgId) : -1;
-    if (row < 0) return;
+    auto apply = [&](MessageItem& m) {
+        m.senderId = senderId;
+        m.senderName.clear();
+        m.senderAvatar.clear();
+    };
+    if (convId != m_currentConvId) {
+        auto it = m_store.find(convId);
+        if (it == m_store.end()) return;
+        for (auto& m : *it) {
+            if (m.id == msgId) {
+                apply(m);
+                break;
+            }
+        }
+        return;
+    }
+    const int row = activeRowOf(msgId);
+    if (row < 0 || row >= m_items.size()) return;
+    const int oldStart = runStartOf(row);
+    apply(m_items[row]);
+    resetRunStarts(qMax(0, oldStart));
     const int last = int(m_items.size()) - 1;
-    emit dataChanged(index(qMax(0, row - 1)), index(qMin(last, row + 1)), {FirstInGroupRole, LastInGroupRole});
+    emit dataChanged(index(qMax(0, qMin(oldStart, row - 1))), index(qMin(last, row + 1)),
+                     {SenderIdRole, SenderNameRole, SenderAvatarRole, FirstInGroupRole, LastInGroupRole, MediaRunRole,
+                      InMediaRunRole});
     refreshRunsAround(row);
 }
 
