@@ -94,6 +94,9 @@ public:
         QString senderName;
         QString text;
         qint64 ts{0};
+        QString senderId;
+        QString senderAvatar;
+        bool isMine{false};
     };
     QVector<SearchHit> searchMessages(const QString& query, const QString& convId = QString(), int limit = 200) const;
     static QString ftsQuery(const QString& input);
@@ -180,7 +183,7 @@ private:
     int m_batchDepth{0};
     void resetCachedQueries();
     void closeDatabase();
-    void indexMessage(const QString& msgId, const Models::MessageItem& item);
+    void indexMessage(const QString& msgId, const Models::MessageItem& item, qint64 newRowid = -1);
 };
 
 }

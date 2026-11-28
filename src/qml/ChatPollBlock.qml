@@ -140,7 +140,7 @@ ColumnLayout {
             elide: Text.ElideRight
             textFormat: Text.PlainText
             font.family: Theme.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             font.weight: Font.DemiBold
             color: ThemeManager.textColor
         }
@@ -151,7 +151,7 @@ ColumnLayout {
             textFormat: Text.PlainText
             text: root.actionText + (root.shortQuestion.length > 0 ? " “" + root.shortQuestion + "”" : "")
             font.family: Theme.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             color: ThemeManager.secondaryTextColor
         }
 
@@ -160,7 +160,7 @@ ColumnLayout {
             visible: root.pollId > 0
             text: I18n.t("Xem", "View")
             font.family: Theme.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             font.weight: Font.DemiBold
             font.underline: viewInfoMouse.containsMouse
             color: Theme.zaloBlue
@@ -211,7 +211,7 @@ ColumnLayout {
                 maximumLineCount: 4
                 elide: Text.ElideRight
                 font.family: Theme.fontFamily
-                font.pixelSize: 15
+                font.pixelSize: Theme.fontSubtitle
                 font.weight: Font.DemiBold
                 color: ThemeManager.textColor
             }
@@ -223,7 +223,7 @@ ColumnLayout {
                 text: value
                 wrapMode: Text.Wrap
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: ThemeManager.secondaryTextColor
             }
 
@@ -232,7 +232,7 @@ ColumnLayout {
                 text: I18n.t(root.voterCount + " người bình chọn", root.voterCount + " voters")
                       + (root.canViewVoters ? "  ›" : "")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 font.underline: votersMouse.containsMouse && root.canViewVoters
                 color: root.canViewVoters ? Theme.zaloBlue : ThemeManager.secondaryTextColor
 
@@ -250,7 +250,7 @@ ColumnLayout {
                 visible: !root.loaded
                 text: I18n.t("Đang tải bình chọn…", "Loading poll…")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: ThemeManager.secondaryTextColor
             }
 
@@ -298,7 +298,7 @@ ColumnLayout {
                             text: optRow.modelData.content
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                         }
                         ZIcon {
@@ -324,7 +324,7 @@ ColumnLayout {
                             visible: !root.hideResults
                             text: optRow.modelData.votes
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                         }
                     }
@@ -343,7 +343,7 @@ ColumnLayout {
                 visible: root.loaded && root.optionCount > 3
                 text: I18n.t("+" + (root.optionCount - 3) + " phương án khác", "+" + (root.optionCount - 3) + " more options")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: ThemeManager.secondaryTextColor
             }
 
@@ -352,7 +352,7 @@ ColumnLayout {
                 text: root.lockReason === "closed" ? I18n.t("Bình chọn đã khóa", "Poll closed")
                                                          : I18n.t("Bình chọn đã hết hạn", "Poll ended")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
                 color: ThemeManager.secondaryTextColor
             }

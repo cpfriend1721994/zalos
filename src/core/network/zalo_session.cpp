@@ -1,5 +1,6 @@
 #include "zalo_session.h"
 #include "error_catalog.h"
+#include "url_policy.h"
 #include "zalo_crypto.h"
 
 #include <QDateTime>
@@ -259,33 +260,56 @@ void ZaloSession::login(const QString& imei, const QString& userAgent, const QSt
     });
 }
 
-void ZaloSession::requestServerInfo(int retryCount) {
-    QMap<QString, QString> signParams{
-        {"imei", m_imei},
-        {"type", QString::number(kApiType)},
-        {"client_version", QString::number(kApiVersion)},
-        {"computer_name", "Web"},
-    };
+QList<QPair<QString, QString>> ZaloSession::serverInfoQuery(const QString& imei, bool signAll, int supportMaintenance,
+                                                            int bucketId) {
     QList<QPair<QString, QString>> query{
-        {"imei", m_imei},
+        {"imei", imei},
         {"type", QString::number(kApiType)},
         {"client_version", QString::number(kApiVersion)},
         {"computer_name", "Web"},
-        {"signkey", ZaloCrypto::signKey("getserverinfo", signParams)},
     };
+    QMap<QString, QString> signParams;
+    for (const auto& kv : std::as_const(query)) signParams.insert(kv.first, kv.second);
+    if (signAll) {
+        query.append(qMakePair(QStringLiteral("sp_mtn"), QString::number(supportMaintenance)));
+        query.append(qMakePair(QStringLiteral("bkt"), QString::number(bucketId)));
+        query.append(qMakePair(QStringLiteral("floatMenuPos"), QStringLiteral("null")));
+        signParams.clear();
+        for (const auto& kv : std::as_const(query)) signParams.insert(kv.first, kv.second);
+    }
+    query.append(qMakePair(QStringLiteral("signkey"), ZaloCrypto::signKey("getserverinfo", signParams)));
+    return query;
+}
+
+void ZaloSession::requestServerInfo(int retryCount, bool signAll) {
+    const auto query = serverInfoQuery(m_imei, signAll, m_drSupportMaintenance, m_drBucketId);
     QNetworkRequest req(makeUrl("https://wpa.chat.zalo.me/api/login/getServerInfo", query, false));
     applyHeaders(req, false);
     QNetworkReply* reply = m_nam->get(req);
     const QString keyAtStart = m_secretKey;
     const quint64 gen = m_sessionGen;
-    connect(reply, &QNetworkReply::finished, this, [this, reply, retryCount, keyAtStart, gen]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, retryCount, signAll, keyAtStart, gen]() {
         reply->deleteLater();
         if (gen != m_sessionGen) return;
+        QJsonObject settings;
+        QJsonObject data;
         if (reply->error() == QNetworkReply::NoError && reply->isOpen()) {
-            const QJsonObject data = QJsonDocument::fromJson(reply->readAll()).object().value("data").toObject();
-            m_serverSettings = data.value("setttings").toObject();
-            if (m_serverSettings.isEmpty()) m_serverSettings = data.value("settings").toObject();
+            data = QJsonDocument::fromJson(reply->readAll()).object().value("data").toObject();
+            settings = data.value("setttings").toObject();
+            if (settings.isEmpty()) settings = data.value("settings").toObject();
+        }
+        if (settings.isEmpty() && !signAll) {
+            requestServerInfo(retryCount, true);
+            return;
+        }
+        if (!settings.isEmpty()) {
+            m_serverSettings = settings;
             m_extraVer = data.value("extra_ver").toObject();
+            const QJsonObject dr = settings.value("features").toObject().value("dr_config").toObject();
+            if (!dr.isEmpty()) {
+                m_drSupportMaintenance = dr.value("supportMaintenance").toVariant().toInt();
+                m_drBucketId = dr.value("bucketId").toVariant().toInt();
+            }
         } else if (retryCount < 2 && !keyAtStart.isEmpty()) {
             QTimer::singleShot(1500, this, [this, retryCount, keyAtStart, gen]() {
                 if (gen == m_sessionGen && !m_secretKey.isEmpty() && m_secretKey == keyAtStart) {
@@ -659,11 +683,13 @@ void ZaloSession::sendQuote(const QString& threadId, bool isGroup, const QString
             params["mentionInfo"] = QString::fromUtf8(QJsonDocument(mentions).toJson(QJsonDocument::Compact));
         }
         if (const QString props = textPropertiesJson(styles); !props.isEmpty()) params["textProperties"] = props;
+        applyUrgency(params);
         apiPost("group", "/api/group/quote", params, cb);
     } else {
         params["toid"] = threadId;
         params["imei"] = m_imei;
         if (const QString props = textPropertiesJson(styles); !props.isEmpty()) params["textProperties"] = props;
+        applyUrgency(params);
         apiPost("chat", "/api/message/quote", params, cb);
     }
 }
@@ -729,6 +755,7 @@ void ZaloSession::sendText(const QString& threadId, bool isGroup, const QString&
     QJsonObject params{{"message", text}, {"clientId", clientId}, {"ttl", ttl}};
     const QString props = textPropertiesJson(styles);
     if (!props.isEmpty()) params.insert("textProperties", props);
+    applyUrgency(params);
     if (isGroup) {
         params.insert("visibility", 0);
         params.insert("grid", threadId);
@@ -902,6 +929,19 @@ void ZaloSession::sendSeen(const QString& threadId, bool isGroup, const QJsonArr
             v1Params.insert("senderId", threadId.toLongLong());
             apiPost("chat", "/api/message/seen", v1Params, noop, {{"nretry", "0"}});
         }
+    }
+}
+
+void ZaloSession::applyUrgency(QJsonObject& params) {
+    if (m_nextUrgency == 1 || m_nextUrgency == 2) params.insert("metaData", QJsonObject{{"urgency", m_nextUrgency}});
+    m_nextUrgency = 0;
+}
+
+void ZaloSession::fetchGifs(const QString& keyword, int offset, Callback cb) {
+    if (keyword.trimmed().isEmpty()) {
+        apiGet("sticker", "/api/message/giphy/trending", {{"offset", offset}, {"limit", 24}}, cb);
+    } else {
+        apiGet("sticker", "/api/message/giphy/search", {{"keyword", keyword.trimmed()}, {"offset", offset}, {"limit", 24}}, cb);
     }
 }
 
@@ -1194,6 +1234,8 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
                         {"ttl", ttl},
                         {"jcp", "{\"convertible\":\"jxl\"}"},
                     };
+                    const QJsonObject albumProps = m_photoSendExtras.take(QString::number(clientId));
+                    for (auto it = albumProps.constBegin(); it != albumProps.constEnd(); ++it) send.insert(it.key(), it.value());
                     if (isGroup) {
                         send["grid"] = threadId;
                         send["oriUrl"] = res.value("normalUrl");
@@ -1549,13 +1591,18 @@ static bool isZaloCookieHost(const QString& rawHost) {
         || host == QLatin1String("dlmd.me") || host.endsWith(QLatin1String(".dlmd.me"));
 }
 
-QNetworkReply* ZaloSession::getWithCookies(const QUrl& url) {
+bool ZaloSession::sendsSessionCookies(const QUrl& url) {
+    return url.scheme() == QLatin1String("https") && isZaloCookieHost(url.host());
+}
+
+QNetworkReply* ZaloSession::getWithCookies(const QUrl& requested) {
+    const QUrl url = isZaloCookieHost(requested.host()) ? UrlPolicy::upgradeToHttps(requested) : requested;
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader, m_userAgent.isEmpty() ? kDefaultUserAgent : m_userAgent);
     req.setRawHeader("Accept", "*/*");
     req.setRawHeader("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
 
-    const bool isZaloDomain = isZaloCookieHost(url.host());
+    const bool isZaloDomain = sendsSessionCookies(url);
 
     if (isZaloDomain) {
         QStringList parts;
@@ -1595,7 +1642,7 @@ QNetworkReply* ZaloSession::getWithCookies(const QUrl& url) {
     QNetworkReply* reply = m_nam->get(req);
     if (isZaloDomain && reply) {
         connect(reply, &QNetworkReply::redirected, reply, [reply](const QUrl& target) {
-            if (isZaloCookieHost(target.host())) {
+            if (sendsSessionCookies(target)) {
                 reply->redirectAllowed();
             } else {
                 reply->abort();
@@ -1665,6 +1712,7 @@ void ZaloSession::sendMention(const QString& groupId, const QString& text, const
                        {"mentionInfo", QString::fromUtf8(QJsonDocument(valid).toJson(QJsonDocument::Compact))},
                        {"visibility", 0}, {"ttl", ttl}, {"grid", groupId}};
     if (const QString props = textPropertiesJson(styles); !props.isEmpty()) params.insert("textProperties", props);
+    applyUrgency(params);
     apiPost("group", "/api/group/mention", params, cb, {{"nretry", "0"}});
 }
 

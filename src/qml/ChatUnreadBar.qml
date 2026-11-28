@@ -23,7 +23,7 @@ Item {
             text: I18n.t("Tin nhắn chưa đọc", "Unread messages")
             color: Theme.zaloBlueTonalText
             font.family: Theme.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             font.weight: Font.DemiBold
         }
     }

@@ -87,6 +87,7 @@ private:
 
     Hooks m_hooks;
     QHash<QString, Board> m_boards;
+    quint64 m_generation{0};
     QString m_current;
 };
 

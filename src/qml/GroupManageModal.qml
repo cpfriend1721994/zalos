@@ -34,7 +34,7 @@ Item {
         Layout.fillWidth: true
         Layout.topMargin: 6
         font.family: Theme.fontFamily
-        font.pixelSize: 14
+        font.pixelSize: Theme.fontBodyLarge
         font.weight: Font.DemiBold
         color: ThemeManager.textColor
     }
@@ -43,7 +43,7 @@ Item {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
         font.family: Theme.fontFamily
-        font.pixelSize: 12
+        font.pixelSize: Theme.fontSmall
         color: ThemeManager.secondaryTextColor
     }
 
@@ -62,7 +62,7 @@ Item {
             wrapMode: Text.Wrap
             text: I18n.t(settingRow.sVi, settingRow.sEn)
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
             color: ThemeManager.textColor
         }
         ZSwitch {
@@ -94,7 +94,7 @@ Item {
             elide: Text.ElideRight
             text: personRow.pName.length > 0 ? personRow.pName : personRow.pId
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
             color: ThemeManager.textColor
             MouseArea {
                 anchors.fill: parent
@@ -130,7 +130,7 @@ Item {
                     text: I18n.t("Quản lý nhóm", "Manage group")
                     elide: Text.ElideRight
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
@@ -214,7 +214,7 @@ Item {
                             elide: Text.ElideMiddle
                             verticalAlignment: Text.AlignVCenter
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: Theme.linkColor
                         }
                     }

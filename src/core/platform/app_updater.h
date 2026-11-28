@@ -39,5 +39,7 @@ SelectedAssets selectAssetsForKind(PackageKind kind,
 QString parseSha256ForFile(const QByteArray& sha256SumsContent, const QString& fileName);
 bool verifyFileSha256(const QString& filePath, const QString& expectedHex);
 bool replaceAppImageFile(const QString& targetPath, const QString& downloadedPath, QString* errorOut = nullptr);
+QString prepareUpdateDirectory(const QString& baseDir);
+QString updateFilePath(const QString& dir, const QString& assetName);
 
 }

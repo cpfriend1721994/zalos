@@ -36,6 +36,10 @@ public:
     Q_INVOKABLE bool removePasscode(const QString& current);
     Q_INVOKABLE void lock();
     Q_INVOKABLE bool unlock(const QString& passcode);
+    void forgetPasscode();
+    void lockForSleep();
+    void setCallActive(bool active);
+    bool callActive() const { return m_callActive; }
 
     void noteActivity();
     bool isEventFilterInstalledForTesting() const { return m_filterInstalled; }
@@ -53,6 +57,7 @@ private:
     bool verify(const QString& passcode) const;
     void restartIdle();
     void syncEventFilter();
+    void saveAttempts();
 
     QByteArray m_salt;
     QByteArray m_hash;
@@ -60,6 +65,7 @@ private:
     bool m_locked{false};
     int m_failures{0};
     qint64 m_blockedUntil{0};
+    bool m_callActive{false};
     QTimer m_idle;
     QTimer m_retryTick;
     bool m_filterInstalled{false};

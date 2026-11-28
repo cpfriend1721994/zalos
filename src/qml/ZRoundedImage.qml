@@ -5,7 +5,7 @@ import "MediaSource.js" as MediaSource
 
 Item {
     id: root
-    readonly property bool windowShowing: Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true
+    readonly property bool windowShowing: UiWindow.showing
     property url source: ""
     readonly property AnimatedImage anim: animLoader.item as AnimatedImage
     readonly property bool animReady: root.anim !== null && root.anim.status === Image.Ready
@@ -24,6 +24,8 @@ Item {
     readonly property bool gpu: GraphicsInfo.api !== GraphicsInfo.Software
     readonly property bool ready: (img.status === Image.Ready && img.source.toString().length > 0) || root.animReady
     readonly property real screenDpr: Screen.devicePixelRatio || 1
+    readonly property size layerTextureSize: Qt.size(Math.min(4096, Math.max(1, Math.ceil(root.width * (root.screenDpr > 1 ? root.screenDpr : 1)))),
+                                                     Math.min(4096, Math.max(1, Math.ceil(root.height * (root.screenDpr > 1 ? root.screenDpr : 1)))))
     property bool maskArmed: false
     readonly property bool masked: gpu && maskLoader.status === Loader.Ready
 
@@ -39,7 +41,10 @@ Item {
     }
     onRadiusChanged: if (masked) maskLayer.scheduleUpdate()
     onTopOnlyChanged: if (masked) maskLayer.scheduleUpdate()
-    onScreenDprChanged: if (masked) maskLayer.scheduleUpdate()
+    onScreenDprChanged: {
+        if (masked && !contentLayer.live) contentLayer.scheduleUpdate();
+        if (masked) maskLayer.scheduleUpdate();
+    }
     onMaskedChanged: {
         if (masked && !contentLayer.live) contentLayer.scheduleUpdate();
         if (masked) maskLayer.scheduleUpdate();
@@ -69,6 +74,7 @@ Item {
             asynchronous: true
             cache: root.cache
             smooth: true
+            mipmap: true
             fillMode: Image.PreserveAspectCrop
             sourceSize.width: 1024
             sourceSize.height: 2048
@@ -102,6 +108,7 @@ Item {
         anchors.fill: content
         sourceItem: root.masked ? content : null
         hideSource: root.masked
+        textureSize: root.layerTextureSize
         live: root.animReady
         visible: false
     }
@@ -125,6 +132,7 @@ Item {
         anchors.fill: maskShape
         sourceItem: root.masked ? maskShape : null
         hideSource: root.masked
+        textureSize: root.layerTextureSize
         live: false
         visible: false
     }

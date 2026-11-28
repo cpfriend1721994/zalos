@@ -103,6 +103,7 @@ void LabelManager::applyServer(const QJsonObject& data) {
 }
 
 void LabelManager::reset() {
+    ++m_generation;
     m_data = {};
     m_version = 0;
     m_loaded = false;
@@ -132,8 +133,9 @@ void LabelManager::reload() {
     ZaloSession* s = session();
     if (!s) return;
     QPointer<LabelManager> self(this);
-    s->fetchLabels([self](bool ok, const QJsonValue& data, const QString&, int) {
-        if (self && ok) self->applyServer(data.toObject());
+    const quint64 gen = m_generation;
+    s->fetchLabels([self, gen](bool ok, const QJsonValue& data, const QString&, int) {
+        if (self && ok && gen == self->m_generation) self->applyServer(data.toObject());
     });
 }
 

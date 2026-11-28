@@ -49,7 +49,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         text: root.text
         font.family: Theme.fontFamily
-        font.pixelSize: 13
+        font.pixelSize: Theme.fontBody
         color: root.enabled ? ThemeManager.textColor : ThemeManager.secondaryTextColor
     }
     MouseArea {
@@ -62,4 +62,5 @@ Item {
     }
     Accessible.role: Accessible.CheckBox
     Accessible.checked: checked
+    Accessible.name: root.text
 }

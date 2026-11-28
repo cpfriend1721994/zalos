@@ -12,7 +12,7 @@ Button {
     implicitWidth: Math.max(72, label.implicitWidth + (iconName.length > 0 ? 22 : 0) + 28)
     hoverEnabled: true
     font.family: Theme.fontFamily
-    font.pixelSize: 13
+    font.pixelSize: Theme.fontBody
     opacity: enabled ? 1.0 : 0.5
 
     background: Rectangle {

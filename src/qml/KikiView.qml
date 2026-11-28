@@ -105,7 +105,7 @@ Rectangle {
                             text: I18n.t("Trợ lý Kiki", "Kiki Assistant")
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontSubtitle
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -121,7 +121,7 @@ Rectangle {
                                 text: ZaloClient.kikiAvailable ? I18n.t("Máy chủ: Sẵn sàng", "Server: Ready")
                                                               : I18n.t("Chế độ mẫu tin nhắn", "Template Mode")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontTiny
                                 color: ZaloClient.kikiAvailable ? Theme.onlineGreen : ThemeManager.secondaryTextColor
                             }
                         }
@@ -132,7 +132,7 @@ Rectangle {
                         elide: Text.ElideRight
                         text: I18n.t("Soạn thảo văn bản, tóm tắt và hỗ trợ bán hàng", "Text drafting, summaries and sales productivity")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: ThemeManager.secondaryTextColor
                     }
                 }
@@ -193,7 +193,7 @@ Rectangle {
                             Layout.alignment: Qt.AlignHCenter
                             text: I18n.t("Xin chào, tôi là Trợ lý Kiki!", "Hello, I am Kiki Assistant!")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 18
+                            font.pixelSize: Theme.fontTitleLarge
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -206,7 +206,7 @@ Rectangle {
                             text: I18n.t("Tôi có thể hỗ trợ bạn soạn thảo tin nhắn, tóm tắt cuộc họp, viết email và hỗ trợ kinh doanh với zBusiness.",
                                          "I can assist you with message drafting, meeting summaries, and productivity tools.")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                         }
                     }
@@ -259,7 +259,7 @@ Rectangle {
                                         elide: Text.ElideRight
                                         text: cap.title
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         font.weight: Font.DemiBold
                                         color: ThemeManager.textColor
                                     }
@@ -267,7 +267,7 @@ Rectangle {
                                         Layout.fillWidth: true
                                         text: cap.desc
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 11
+                                        font.pixelSize: Theme.fontCaption
                                         color: ThemeManager.secondaryTextColor
                                         elide: Text.ElideRight
                                     }
@@ -324,6 +324,7 @@ Rectangle {
 
             ListView {
                 id: chatListView
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 visible: kikiChatModel.count > 0
                 anchors.fill: parent
                 anchors.margins: 16
@@ -384,7 +385,7 @@ Rectangle {
                                     HoverHandler { cursorShape: bubbleText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                     wrapMode: Text.WordWrap
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     lineHeight: 1.35
                                     color: msgDelegate.model.isUser ? "#FFFFFF" : ThemeManager.textColor
                                 }
@@ -413,7 +414,7 @@ Rectangle {
                                 Text {
                                     text: I18n.t("Sao chép", "Copy")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontCaption
                                     color: ThemeManager.secondaryTextColor
                                 }
                             }
@@ -442,7 +443,7 @@ Rectangle {
                                 Text {
                                     text: I18n.t("Chèn vào chat", "Send to chat")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontCaption
                                     color: Theme.zaloBlue
                                     font.weight: Font.DemiBold
                                 }
@@ -496,13 +497,13 @@ Rectangle {
                         anchors.rightMargin: 10
                         spacing: 8
 
-                        TextField {
+                        ZTextField {
                             id: inputField
                             Layout.fillWidth: true
                             background: null
                             padding: 0
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                             placeholderText: I18n.t("Nhập yêu cầu hoặc câu hỏi... (Enter để gửi)", "Type a prompt or query... (Enter to send)")
                             placeholderTextColor: ThemeManager.secondaryTextColor

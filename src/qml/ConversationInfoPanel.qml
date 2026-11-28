@@ -8,6 +8,8 @@ import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
+    readonly property bool compactWindow: (Window.window ? Window.window.width : 1000) < 720
+    readonly property bool shortWindow: (Window.window ? Window.window.height : 800) < 600
     clip: true
     color: ThemeManager.surfaceColor
     border.color: ThemeManager.borderColor
@@ -16,6 +18,9 @@ Rectangle {
     readonly property bool isPinned: ZaloClient.currentConversationPinned
     readonly property bool isMuted: ZaloClient.currentConversationMuted
     readonly property bool hasConversation: ZaloClient.currentConversationId.length > 0
+    readonly property int quickActionCount: 2 + (ZaloClient.currentConversationIsGroup ? 1 : 0)
+        + (ZaloClient.currentConversationCanShareContact ? 1 : 0) + (ZaloClient.currentConversationCanCreateGroup ? 1 : 0)
+    readonly property int quickActionWidth: Math.max(48, Math.min(76, Math.floor((width - 24 - 4 * (quickActionCount - 1)) / quickActionCount)))
 
     property var members: []
     property string myRole: ""
@@ -119,7 +124,7 @@ Rectangle {
 
     ZConfirmDialog {
         id: confirmDialog
-        width: 340
+        maxWidth: 340
         danger: root.confirmAction !== "owner"
         okText: root.confirmAction === "disperse" ? I18n.t("Giải tán", "Disband")
               : root.confirmAction === "owner" ? I18n.t("Chuyển quyền", "Transfer")
@@ -142,7 +147,7 @@ Rectangle {
                 wrapMode: Text.Wrap
                 color: ThemeManager.textColor
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 text: root.confirmAction === "disperse"
                       ? I18n.t("Tất cả thành viên sẽ bị xóa khỏi nhóm và tin nhắn nhóm sẽ không còn. Không thể hoàn tác.",
                                "Everyone is removed and the group's messages are gone. This cannot be undone.")
@@ -180,7 +185,7 @@ Rectangle {
 
     ZConfirmDialog {
         id: reminderDialog
-        width: 320
+        maxWidth: 320
         title: I18n.t("Thêm nhắc hẹn", "Add reminder")
         okText: I18n.t("Thêm", "Add")
         onAboutToShow: {
@@ -243,6 +248,9 @@ Rectangle {
         spacing: 6
         Layout.preferredWidth: 76
         Layout.alignment: Qt.AlignTop
+        Accessible.role: Accessible.Button
+        Accessible.name: qa.caption
+        Accessible.onPressAction: if (qa.actionEnabled) qa.triggered()
 
         Rectangle {
             Layout.alignment: Qt.AlignHCenter
@@ -275,11 +283,13 @@ Rectangle {
             horizontalAlignment: Text.AlignHCenter
             text: qa.caption
             font.family: Theme.fontFamily
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontCaption
             color: ThemeManager.secondaryTextColor
             wrapMode: Text.WordWrap
             maximumLineCount: 2
             elide: Text.ElideRight
+            Layout.preferredHeight: Math.ceil(font.pixelSize * 2.8)
+            verticalAlignment: Text.AlignTop
         }
     }
 
@@ -294,21 +304,31 @@ Rectangle {
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 16
+                anchors.leftMargin: root.compactWindow ? 8 : 16
                 anchors.rightMargin: 12
                 spacing: 8
+
+                ZIconButton {
+                    objectName: "infoBackButton"
+                    visible: root.compactWindow
+                    iconName: "arrow_left"
+                    iconSize: 16
+                    tooltip: I18n.t("Quay lại cuộc trò chuyện", "Back to the chat")
+                    onClicked: ZaloClient.toggleConversationInfo()
+                }
 
                 Text {
                     Layout.fillWidth: true
                     text: I18n.t("Thông tin hội thoại", "Conversation info")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.fontSubtitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
                 }
 
                 Rectangle {
+                    visible: !root.compactWindow
                     Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                     Layout.preferredWidth: 28
                     Layout.preferredHeight: 28
@@ -343,6 +363,8 @@ Rectangle {
 
         ScrollView {
             id: bodyScroll
+            objectName: "infoScroll"
+            ScrollBar.vertical.objectName: "infoScrollBar"
             Layout.fillWidth: true
             Layout.fillHeight: true
             leftPadding: 8
@@ -471,7 +493,7 @@ Rectangle {
                             textFormat: Text.PlainText
                             font.family: Theme.fontFamily
                             font.weight: Font.DemiBold
-                            font.pixelSize: 16
+                            font.pixelSize: Theme.fontTitle
                             color: ThemeManager.textColor
                             wrapMode: Text.WordWrap
                             maximumLineCount: 2
@@ -502,13 +524,13 @@ Rectangle {
                             ToolTip.text: ZaloClient.currentConversationIsGroup ? I18n.t("Đổi tên nhóm", "Rename group") : I18n.t("Đổi biệt danh", "Edit alias")
                         }
 
-                        TextField {
+                        ZTextField {
                             id: nameEditField
                             visible: nameEditRow.isEditingName
                             Layout.fillWidth: true
                             color: ThemeManager.textColor
                             font.family: Theme.fontFamily
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.fontBodyLarge
                             background: Rectangle {
                                 color: ThemeManager.inputFillColor
                                 radius: 4
@@ -535,10 +557,12 @@ Rectangle {
                 }
 
                 RowLayout {
+                    objectName: "infoQuickActions"
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 8
+                    spacing: 4
 
                     QuickAction {
+                        Layout.preferredWidth: root.quickActionWidth
                         actionEnabled: root.hasConversation
                         iconName: root.isMuted ? "bell_off" : "bell"
                         active: root.isMuted
@@ -547,6 +571,7 @@ Rectangle {
                     }
 
                     QuickAction {
+                        Layout.preferredWidth: root.quickActionWidth
                         actionEnabled: root.hasConversation
                         iconName: "pin"
                         active: root.isPinned
@@ -555,6 +580,7 @@ Rectangle {
                     }
 
                     QuickAction {
+                        Layout.preferredWidth: root.quickActionWidth
                         visible: ZaloClient.currentConversationIsGroup
                         actionEnabled: root.hasConversation
                         iconName: "poll"
@@ -563,6 +589,7 @@ Rectangle {
                     }
 
                     QuickAction {
+                        Layout.preferredWidth: root.quickActionWidth
                         visible: ZaloClient.currentConversationCanShareContact
                         actionEnabled: root.hasConversation
                         iconName: "contacts"
@@ -571,6 +598,7 @@ Rectangle {
                     }
 
                     QuickAction {
+                        Layout.preferredWidth: root.quickActionWidth
                         visible: ZaloClient.currentConversationCanCreateGroup
                         actionEnabled: root.hasConversation
                         iconName: "group_add"
@@ -595,7 +623,7 @@ Rectangle {
                     Text {
                         text: I18n.t("Cài đặt nhóm", "Group settings")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
@@ -616,7 +644,7 @@ Rectangle {
                                 text: I18n.t("Quản lý nhóm", "Manage group")
                                 elide: Text.ElideRight
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 color: ThemeManager.textColor
                             }
                             ZIcon { name: "chevron_right"; size: 14; color: ThemeManager.secondaryTextColor }
@@ -652,7 +680,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: I18n.t("Rời nhóm", "Leave group")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 color: Theme.badgeRed
                             }
                         }
@@ -682,7 +710,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: I18n.t("Giải tán nhóm", "Disband group")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 color: Theme.badgeRed
                             }
                         }
@@ -743,7 +771,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: I18n.t("Tin nhắn tự xóa", "Disappearing messages")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                             elide: Text.ElideRight
@@ -753,7 +781,7 @@ Rectangle {
                             Layout.preferredWidth: 88
                             Layout.minimumWidth: 84
                             implicitHeight: 28
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             model: [
                                 I18n.t("Tắt", "Off"),
                                 I18n.t("1 ngày", "1 day"),
@@ -801,7 +829,7 @@ Rectangle {
                             text: hideRow.hiddenNow ? I18n.t("Bỏ ẩn trò chuyện", "Unhide conversation")
                                                     : I18n.t("Ẩn trò chuyện", "Hide conversation")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                         }
                     }
@@ -837,7 +865,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: I18n.t("Nhắc hẹn", "Reminders")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -865,7 +893,7 @@ Rectangle {
                         text: ZaloClient.isLoadingReminders ? I18n.t("Đang tải…", "Loading…")
                                                             : I18n.t("Chưa có nhắc hẹn nào", "No reminders yet")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -890,7 +918,7 @@ Rectangle {
                                 spacing: 8
                                 Text {
                                     text: remRow.remEmoji.length > 0 ? remRow.remEmoji : "⏰"
-                                    font.pixelSize: 16
+                                    font.pixelSize: Theme.fontTitle
                                 }
                                 ColumnLayout {
                                     Layout.fillWidth: true
@@ -905,7 +933,7 @@ Rectangle {
                                         HoverHandler { cursorShape: remTitleText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         color: ThemeManager.textColor
                                     }
                                     Text {
@@ -913,7 +941,7 @@ Rectangle {
                                         visible: text.length > 0
                                         text: root.dueLabel(remRow.remStartTime)
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 11
+                                        font.pixelSize: Theme.fontCaption
                                         color: ThemeManager.secondaryTextColor
                                     }
                                 }
@@ -957,7 +985,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: I18n.t("Thành viên", "Members") + " (" + Math.max(ZaloClient.currentConversationMemberCount, root.members.length) + ")"
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -965,7 +993,7 @@ Rectangle {
                             visible: root.members.length > root.memberLimit
                             text: root.showAllMembers ? I18n.t("Thu gọn", "Collapse") : I18n.t("Xem tất cả", "Show all")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: Theme.zaloBlue
                             MouseArea {
                                 anchors.fill: parent
@@ -982,7 +1010,7 @@ Rectangle {
                         text: ZaloClient.isLoggedIn ? I18n.t("Đang tải danh sách thành viên…", "Loading members…")
                                                     : I18n.t("Cần kết nối để xem thành viên", "Connect to see members")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -1036,14 +1064,14 @@ Rectangle {
                                         textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         color: memberRow.memberName.length > 0 ? ThemeManager.textColor : ThemeManager.secondaryTextColor
                                     }
                                     Text {
                                         visible: memberRow.memberRole !== "member"
                                         text: memberRow.memberRole === "owner" ? I18n.t("Trưởng nhóm", "Owner") : I18n.t("Phó nhóm", "Deputy")
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 11
+                                        font.pixelSize: Theme.fontCaption
                                         color: Theme.zaloBlue
                                     }
                                 }
@@ -1121,7 +1149,7 @@ Rectangle {
                         Text {
                             text: I18n.t("Ảnh/Video", "Photos/Videos") + (root.sharedMedia.length > 0 ? " (" + root.sharedMedia.length + ")" : "")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -1133,10 +1161,11 @@ Rectangle {
                         columnSpacing: 4
                         rowSpacing: 4
                         Repeater {
-                            model: root.sharedMedia.slice(0, 12)
+                            model: Math.min(12, root.sharedMedia.length)
                             delegate: Item {
                                 id: mediaCell
-                                required property var modelData
+                                required property int index
+                                readonly property var cellData: root.sharedMedia[mediaCell.index] || ({})
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: width
                                 Rectangle {
@@ -1147,7 +1176,7 @@ Rectangle {
                                         objectName: "sharedMediaGlyph"
                                         anchors.centerIn: parent
                                         visible: !(mediaThumb.status === Image.Ready && mediaThumb.source.toString().length > 0)
-                                                 && !mediaCell.modelData.isVideo
+                                                 && !mediaCell.cellData.isVideo
                                         name: "image"
                                         size: 20
                                         color: ThemeManager.secondaryTextColor
@@ -1156,14 +1185,14 @@ Rectangle {
                                 Image {
                                     id: mediaThumb
                                     anchors.fill: parent
-                                    source: (mediaCell.modelData.thumb || "").length > 0 ? MediaSource.toSource(mediaCell.modelData.thumb) : ""
+                                    source: (mediaCell.cellData.thumb || "").length > 0 ? MediaSource.toSource(mediaCell.cellData.thumb) : ""
                                     asynchronous: true
                                     fillMode: Image.PreserveAspectCrop
                                     sourceSize.width: 160
                                     clip: true
                                 }
                                 ZIcon {
-                                    visible: mediaCell.modelData.isVideo
+                                    visible: mediaCell.cellData.isVideo
                                     anchors.centerIn: parent
                                     name: "play"
                                     size: 20
@@ -1172,7 +1201,7 @@ Rectangle {
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.openViewer(mediaCell.modelData.msgId)
+                                    onClicked: root.openViewer(mediaCell.cellData.msgId)
                                 }
                             }
                         }
@@ -1183,7 +1212,7 @@ Rectangle {
                         wrapMode: Text.Wrap
                         text: I18n.t("Chưa có ảnh/video trong các tin nhắn đã tải", "No photos or videos in the loaded messages")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -1194,26 +1223,27 @@ Rectangle {
                         Text {
                             text: I18n.t("File", "Files") + (root.sharedFiles.length > 0 ? " (" + root.sharedFiles.length + ")" : "")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                     }
                     Repeater {
-                        model: root.sharedFiles.slice(0, 5)
+                        model: Math.min(5, root.sharedFiles.length)
                         delegate: Text {
                             id: fileLine
-                            required property var modelData
+                            required property int index
+                            readonly property var cellData: root.sharedFiles[fileLine.index] || ({})
                             Layout.fillWidth: true
-                            text: fileLine.modelData.title
+                            text: fileLine.cellData.title
                             elide: Text.ElideMiddle
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.textColor
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: ZaloClient.openFileMessage(fileLine.modelData.url, fileLine.modelData.title)
+                                onClicked: ZaloClient.openFileMessage(fileLine.cellData.url, fileLine.cellData.title)
                             }
                         }
                     }
@@ -1223,7 +1253,7 @@ Rectangle {
                         wrapMode: Text.Wrap
                         text: I18n.t("Chưa có file trong các tin nhắn đã tải", "No files in the loaded messages")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -1234,26 +1264,27 @@ Rectangle {
                         Text {
                             text: I18n.t("Link", "Links") + (root.sharedLinks.length > 0 ? " (" + root.sharedLinks.length + ")" : "")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                     }
                     Repeater {
-                        model: root.sharedLinks.slice(0, 5)
+                        model: Math.min(5, root.sharedLinks.length)
                         delegate: Text {
                             id: linkLine
-                            required property var modelData
+                            required property int index
+                            readonly property var cellData: root.sharedLinks[linkLine.index] || ({})
                             Layout.fillWidth: true
-                            text: linkLine.modelData.title
+                            text: linkLine.cellData.title
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: Theme.linkColor
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: ZaloClient.openLink(linkLine.modelData.url)
+                                onClicked: ZaloClient.openLink(linkLine.cellData.url)
                             }
                         }
                     }
@@ -1263,7 +1294,7 @@ Rectangle {
                         wrapMode: Text.Wrap
                         text: I18n.t("Chưa có link trong các tin nhắn đã tải", "No links in the loaded messages")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: ThemeManager.secondaryTextColor
                     }
                 }

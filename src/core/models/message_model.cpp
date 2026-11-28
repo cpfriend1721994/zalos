@@ -34,6 +34,10 @@ const QVector<MessageItem>& MessageModel::threadOf(const QString& convId) const 
 namespace {
 constexpr qint64 kGroupBreakMs = 30 * 60 * 1000;
 
+QString emoticonHtml(const QString& text, int emojiPx, int pacmanPx);
+int pacmanPxForJumbo(int emojiPx);
+int itemJumboEmojiSize(const MessageItem& item);
+
 qint64 localDay(const MessageItem& m) {
     if (m.dayCache < 0)
         m.dayCache = QDateTime::fromMSecsSinceEpoch(m.ts).date().toJulianDay();
@@ -103,18 +107,30 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
         case ShowStatusRole:
             return item.isMine && index.row() == m_lastMineRow;
         case RichTextRole: {
+            const int jumboPx = itemJumboEmojiSize(item);
             const QString key = item.id + QLatin1Char(':') + QString::number(m_richTextRev) + QLatin1Char(':')
-                              + QString::number(item.text.size());
+                              + QString::number(item.text.size()) + QLatin1Char(':') + QString::number(jumboPx);
             if (const QString* cached = m_richTextLru.object(key)) {
                 return *cached;
             }
-            const QVariantList styles = item.extra.value("styles").toList();
-            const QString html = !styles.isEmpty()
-                ? styledHtml(item.text, item.mentions, styles)
-                : (item.mentions.isEmpty() ? linkify(item.text) : linkify(item.text, item.mentions));
+            QString html;
+            if (jumboPx > 0) {
+                html = emoticonHtml(item.text, jumboPx, pacmanPxForJumbo(jumboPx));
+            } else {
+                const QVariantList styles = item.extra.value("styles").toList();
+                html = !styles.isEmpty()
+                    ? styledHtml(item.text, item.mentions, styles)
+                    : (item.mentions.isEmpty() ? linkify(item.text) : linkify(item.text, item.mentions));
+            }
             m_richTextLru.insert(key, new QString(html));
             return html;
         }
+        case JumboEmojiSizeRole: return itemJumboEmojiSize(item);
+        case CanReactRole: return (actionsFor(item) & ActionReact) != 0;
+        case CanReplyRole: return (actionsFor(item) & ActionReply) != 0;
+        case CanForwardRole: return (actionsFor(item) & ActionForward) != 0;
+        case CanCopyRole: return (actionsFor(item) & ActionCopy) != 0;
+        case HasMenuRole: return (actionsFor(item) & ActionMenu) != 0;
         case ExtraRole: return item.extra;
         case SeenUidsRole: return item.seenUids;
         case InMediaRunRole: return joinsPrevious(index.row());
@@ -166,8 +182,14 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
         {RichTextRole, "richText"},
         {ExtraRole, "extra"},
         {SeenUidsRole, "seenUids"},
+        {JumboEmojiSizeRole, "jumboEmojiSize"},
         {MediaRunRole, "mediaRun"},
-        {InMediaRunRole, "inMediaRun"}
+        {InMediaRunRole, "inMediaRun"},
+        {CanReactRole, "canReact"},
+        {CanReplyRole, "canReply"},
+        {CanForwardRole, "canForward"},
+        {CanCopyRole, "canCopy"},
+        {HasMenuRole, "hasMenu"}
     };
 }
 
@@ -183,6 +205,9 @@ bool MessageModel::runPairsWithPrevious(int idx) const {
     if (idx <= 0 || idx >= m_items.size() || !isRunTile(idx) || !isRunTile(idx - 1)) return false;
     const auto& a = m_items.at(idx - 1);
     const auto& b = m_items.at(idx);
+    const QString layoutA = a.extra.value(QStringLiteral("groupLayoutId")).toString();
+    const QString layoutB = b.extra.value(QStringLiteral("groupLayoutId")).toString();
+    if (!layoutA.isEmpty() && !layoutB.isEmpty()) return layoutA == layoutB && a.senderId == b.senderId;
     return a.senderId == b.senderId && a.isMine == b.isMine && b.ts - a.ts <= kMediaRunGapMs && b.ts >= a.ts
            && localDay(a) == localDay(b);
 }
@@ -277,14 +302,17 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
     const int baseSize = base.size();
     QVector<MessageItem> appended;
     auto at = [&](int i) -> MessageItem& { return i < baseSize ? base[i] : appended[i - baseSize]; };
-    QHash<QString, int> byId;
-    byId.reserve(baseSize + items.size());
-    QHash<QString, int> byCliId;
-    for (int i = 0; i < baseSize; ++i) {
-        const MessageItem& m = std::as_const(base)[i];
-        byId.insert(m.id, i);
-        if (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0")) byCliId.insert(m.cliMsgId, i);
+    QHash<QString, int> localById;
+    QHash<QString, int> localByCliId;
+    if (!isActive) {
+        for (int i = 0; i < baseSize; ++i) {
+            const MessageItem& m = std::as_const(base)[i];
+            localById.insert(m.id, i);
+            if (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0")) localByCliId.insert(m.cliMsgId, i);
+        }
     }
+    QHash<QString, int>& byId = isActive ? m_activeRowById : localById;
+    QHash<QString, int>& byCliId = isActive ? m_activeRowByCliId : localByCliId;
     bool needSort = false;
     for (const auto& m : items) {
         if (m.id.isEmpty()) continue;
@@ -528,7 +556,7 @@ void MessageModel::confirmMessage(const QString& convId, const QString& localId,
         resetRunStarts(row);
         m_activeRowById.remove(localId);
         m_activeRowById.insert(serverId, row);
-        emit dataChanged(index(row), index(row), {IdRole});
+        emit dataChanged(index(row), index(row), {IdRole, CanReactRole, CanReplyRole, CanForwardRole});
         refreshRunsAround(row);
     }
 }
@@ -578,13 +606,18 @@ void updateItem(QHash<QString, QVector<MessageItem>>& store, QVector<MessageItem
         auto it = store.find(convId);
         if (it == store.end()) return;
         for (auto& m : *it) {
-            if (m.id == msgId) { fn(m); break; }
+            if (m.id == msgId) {
+                fn(m);
+                m.jumboCache = -1;
+                break;
+            }
         }
         return;
     }
     const int row = activeRowById.value(msgId, -1);
     if (row >= 0 && row < visible.size()) {
         fn(visible[row]);
+        visible[row].jumboCache = -1;
         model->resetRunStarts(row);
         emit model->dataChanged(model->index(row), model->index(row), roles);
         if (roles.contains(MessageModel::TextRole) || roles.contains(MessageModel::MessageTypeRole)
@@ -608,7 +641,8 @@ void MessageModel::markRecalled(const QString& convId, const QString& msgId, con
         m.messageType = "text";
         m.mediaUrl.clear();
         m.reaction.clear();
-    }, this, {IsRecalledRole, TextRole, RichTextRole, MessageTypeRole, MediaUrlRole, ReactionRole});
+    }, this, {IsRecalledRole, TextRole, RichTextRole, JumboEmojiSizeRole, MessageTypeRole, MediaUrlRole, ReactionRole,
+              CanReactRole, CanReplyRole, CanForwardRole, CanCopyRole, HasMenuRole});
 }
 
 void MessageModel::setMedia(const QString& convId, const QString& msgId, const QString& mediaUrl) {
@@ -631,7 +665,7 @@ void MessageModel::setMessageExtra(const QString& convId, const QString& msgId, 
         for (auto it = extra.cbegin(); it != extra.cend(); ++it) {
             m.extra.insert(it.key(), it.value());
         }
-    }, this, {TextRole, RichTextRole, ExtraRole});
+    }, this, {TextRole, RichTextRole, JumboEmojiSizeRole, ExtraRole});
 }
 
 void MessageModel::setStatus(const QString& convId, const QString& msgId, const QString& status) {
@@ -823,8 +857,33 @@ void MessageModel::loadConversation(const QString& conversationId) {
     endResetModel();
 }
 
+QString MessageModel::messageIdAt(int row) const {
+    return data(index(row, 0), IdRole).toString();
+}
+
+int MessageModel::actionsFor(const MessageItem& item) {
+    if (item.isRecalled) return 0;
+    const QString& type = item.messageType;
+    int actions = 0;
+    if (type == QLatin1String("text") || type == QLatin1String("image") || type == QLatin1String("video")) {
+        actions = ActionReact | ActionReply | ActionForward | ActionCopy | ActionMenu;
+    } else if (type == QLatin1String("link")) {
+        if (!item.extra.value(QStringLiteral("template")).toBool())
+            actions = ActionReact | ActionReply | ActionForward | ActionCopy | ActionMenu;
+    } else if (type == QLatin1String("file")) {
+        actions = ActionReact | ActionReply | ActionForward | ActionMenu;
+    } else if (type == QLatin1String("location")) {
+        actions = ActionReply | ActionForward | ActionMenu;
+    } else if (type == QLatin1String("sticker") || type == QLatin1String("voice") || type == QLatin1String("card")) {
+        actions = ActionReply | ActionMenu;
+    }
+    if (item.id.isEmpty() || item.id.startsWith(QLatin1String("local-"))) actions &= ActionCopy | ActionMenu;
+    return actions;
+}
+
 QVariantMap MessageModel::getMessageById(const QString& msgId) const {
     auto toMap = [](const MessageItem& item) -> QVariantMap {
+        const int actions = actionsFor(item);
         return {
             {"id", item.id},
             {"senderName", item.senderName},
@@ -835,7 +894,13 @@ QVariantMap MessageModel::getMessageById(const QString& msgId) const {
             {"mediaUrl", item.mediaUrl},
             {"href", item.href},
             {"ts", item.ts},
-            {"senderId", item.senderId}
+            {"senderId", item.senderId},
+            {"actions", actions},
+            {"canReact", (actions & ActionReact) != 0},
+            {"canReply", (actions & ActionReply) != 0},
+            {"canForward", (actions & ActionForward) != 0},
+            {"canCopy", (actions & ActionCopy) != 0},
+            {"hasMenu", (actions & ActionMenu) != 0}
         };
     };
     const int activeRow = m_activeRowById.value(msgId, -1);
@@ -983,16 +1048,219 @@ QVector<MessageModel::LinkSpan> MessageModel::findLinks(const QString& text) {
 }
 
 namespace {
+constexpr int kSmallEmojiPx = 16;
+constexpr int kSmallPacmanPx = 14;
+constexpr int kNormalEmojiPx = 19;
+constexpr int kNormalPacmanPx = 17;
+constexpr int kLargeEmojiPx = 23;
+constexpr int kLargePacmanPx = 20;
+
+int pacmanPxForJumbo(int emojiPx) {
+    if (emojiPx == 44) return 40;
+    if (emojiPx == 36) return 33;
+    return 29;
+}
+
+char32_t readCodePoint(const QString& s, int pos, int* step) {
+    const QChar ch = s.at(pos);
+    if (ch.isHighSurrogate() && pos + 1 < s.size() && s.at(pos + 1).isLowSurrogate()) {
+        *step = 2;
+        return QChar::surrogateToUcs4(ch, s.at(pos + 1));
+    }
+    *step = 1;
+    return ch.unicode();
+}
+
+bool isEmojiBase(char32_t cp) {
+    if (cp >= 0x1F000 && cp <= 0x1FAFF) return true;
+    if (cp >= 0x1F170 && cp <= 0x1F251) return true;
+    if (cp >= 0x2600 && cp <= 0x27BF) return true;
+    switch (cp) {
+        case 0x203C:
+        case 0x2049:
+        case 0x231A:
+        case 0x231B:
+        case 0x2328:
+        case 0x23CF:
+        case 0x25AA:
+        case 0x25AB:
+        case 0x25B6:
+        case 0x25C0:
+        case 0x2934:
+        case 0x2935:
+        case 0x2B1B:
+        case 0x2B1C:
+        case 0x2B50:
+        case 0x2B55:
+        case 0x3030:
+        case 0x303D:
+        case 0x3297:
+        case 0x3299:
+            return true;
+        default:
+            break;
+    }
+    return (cp >= 0x23E9 && cp <= 0x23F3) || (cp >= 0x23F8 && cp <= 0x23FA)
+           || (cp >= 0x25FB && cp <= 0x25FE) || (cp >= 0x2B05 && cp <= 0x2B07);
+}
+
+bool isRegionalIndicator(char32_t cp) {
+    return cp >= 0x1F1E6 && cp <= 0x1F1FF;
+}
+
+bool isEmojiClusterAt(const QString& s, int pos, int* nextPos) {
+    if (pos < 0 || pos >= s.size()) return false;
+    const int n = s.size();
+    int step = 0;
+    const char32_t first = readCodePoint(s, pos, &step);
+    int cur = pos + step;
+
+    if ((first >= U'0' && first <= U'9') || first == U'#' || first == U'*') {
+        if (cur < n && s.at(cur).unicode() == 0xFE0F) ++cur;
+        if (cur < n && s.at(cur).unicode() == 0x20E3) {
+            if (nextPos) *nextPos = cur + 1;
+            return true;
+        }
+        return false;
+    }
+
+    if (isRegionalIndicator(first)) {
+        if (cur < n) {
+            int s2 = 0;
+            const char32_t second = readCodePoint(s, cur, &s2);
+            if (isRegionalIndicator(second)) {
+                if (nextPos) *nextPos = cur + s2;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (!isEmojiBase(first)) return false;
+
+    auto consumeModifiers = [&](int& idx) -> bool {
+        while (idx < n) {
+            int ms = 0;
+            const char32_t mcp = readCodePoint(s, idx, &ms);
+            if (mcp == 0xFE0E) return false;
+            if (mcp == 0xFE0F || mcp == 0x20E3
+                || (mcp >= 0x1F3FB && mcp <= 0x1F3FF)
+                || (mcp >= 0xE0020 && mcp <= 0xE007F)) {
+                idx += ms;
+                continue;
+            }
+            break;
+        }
+        return true;
+    };
+
+    if (!consumeModifiers(cur)) return false;
+
+    while (cur < n && s.at(cur).unicode() == 0x200D) {
+        int probe = cur + 1;
+        if (probe >= n) break;
+        int js = 0;
+        const char32_t nextBase = readCodePoint(s, probe, &js);
+        if (!isEmojiBase(nextBase)) break;
+        probe += js;
+        if (!consumeModifiers(probe)) return false;
+        cur = probe;
+    }
+
+    if (nextPos) *nextPos = cur;
+    return true;
+}
+
 QString anchorHtml(const QString& href, const QString& label) {
     return QStringLiteral("<a href=\"%1\">%2</a>").arg(href.toHtmlEscaped(), label.toHtmlEscaped());
 }
 
-QString emoticonHtml(const QString& text) {
-    QString out = convertEmoticons(text).toHtmlEscaped();
-    out.replace(QStringLiteral("ICON_PACMAN_PLACEHOLDER"),
-                QStringLiteral("<img src=\"qrc:/Zalos/assets/icons/pacman.png\" width=\"18\" height=\"18\" style=\"vertical-align:middle;\"/>"));
-    return out.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+QString emoticonHtml(const QString& text, int emojiPx, int pacmanPx) {
+    static const QString kPacmanPlaceholder = QStringLiteral("ICON_PACMAN_PLACEHOLDER");
+    const QString converted = convertEmoticons(text);
+    const QStringView view(converted);
+    const int n = converted.size();
+    QString out;
+    out.reserve(n + 32);
+    int i = 0;
+    while (i < n) {
+        if (view.sliced(i).startsWith(kPacmanPlaceholder)) {
+            out += QStringLiteral("<img src=\"image://icon/pacman/%1\" width=\"%1\" height=\"%1\" style=\"vertical-align:middle;\"/>")
+                       .arg(pacmanPx);
+            i += kPacmanPlaceholder.size();
+            continue;
+        }
+        int nextEmoji = 0;
+        if (isEmojiClusterAt(converted, i, &nextEmoji)) {
+            int end = nextEmoji;
+            while (end < n && !view.sliced(end).startsWith(kPacmanPlaceholder)
+                   && isEmojiClusterAt(converted, end, &nextEmoji)) {
+                end = nextEmoji;
+            }
+            out += QStringLiteral("<span style=\"font-size:%1px;\">%2</span>")
+                       .arg(emojiPx)
+                       .arg(converted.mid(i, end - i));
+            i = end;
+            continue;
+        }
+        const QChar ch = converted.at(i);
+        if (ch == QLatin1Char('\n')) out += QStringLiteral("<br>");
+        else if (ch == QLatin1Char('&')) out += QStringLiteral("&amp;");
+        else if (ch == QLatin1Char('<')) out += QStringLiteral("&lt;");
+        else if (ch == QLatin1Char('>')) out += QStringLiteral("&gt;");
+        else if (ch == QLatin1Char('"')) out += QStringLiteral("&quot;");
+        else out += ch;
+        ++i;
+    }
+    return out;
 }
+
+int computeJumboEmojiSize(const MessageItem& item);
+
+int itemJumboEmojiSize(const MessageItem& item) {
+    if (item.jumboCache < 0) item.jumboCache = qint16(computeJumboEmojiSize(item));
+    return item.jumboCache;
+}
+
+int computeJumboEmojiSize(const MessageItem& item) {
+    if (item.messageType != QLatin1String("text") || item.isRecalled
+        || !item.quoteMsgId.isEmpty() || !item.quoteText.isEmpty()
+        || !item.mentions.isEmpty()
+        || !item.extra.value(QStringLiteral("styles")).toList().isEmpty()) {
+        return 0;
+    }
+    return MessageModel::jumboEmojiSizeFor(item.text);
+}
+}
+
+int MessageModel::jumboEmojiSizeFor(const QString& text) {
+    if (text.isEmpty()) return 0;
+    static const QString kPacmanPlaceholder = QStringLiteral("ICON_PACMAN_PLACEHOLDER");
+    const QString converted = convertEmoticons(text);
+    const QStringView view(converted);
+    const int n = converted.size();
+    int count = 0;
+    int i = 0;
+    while (i < n) {
+        if (converted.at(i).isSpace()) {
+            ++i;
+            continue;
+        }
+        if (view.sliced(i).startsWith(kPacmanPlaceholder)) {
+            ++count;
+            i += kPacmanPlaceholder.size();
+        } else {
+            int nextPos = 0;
+            if (!isEmojiClusterAt(converted, i, &nextPos)) return 0;
+            ++count;
+            i = nextPos;
+        }
+        if (count > 3) return 0;
+    }
+    if (count == 1) return 44;
+    if (count == 2) return 36;
+    if (count == 3) return 32;
+    return 0;
 }
 
 QString MessageModel::linkifyPlain(const QString& text) {
@@ -1011,11 +1279,11 @@ QString MessageModel::linkify(const QString& text) {
     QString out;
     int last = 0;
     for (const LinkSpan& span : findLinks(text)) {
-        out += emoticonHtml(text.mid(last, span.start - last));
+        out += emoticonHtml(text.mid(last, span.start - last), kNormalEmojiPx, kNormalPacmanPx);
         out += anchorHtml(span.href, text.mid(span.start, span.length));
         last = span.start + span.length;
     }
-    out += emoticonHtml(text.mid(last));
+    out += emoticonHtml(text.mid(last), kNormalEmojiPx, kNormalPacmanPx);
     return out;
 }
 
@@ -1159,6 +1427,11 @@ QString MessageModel::styledHtml(const QString& text, const QVector<MessageMenti
                 if (list == QLatin1String("lst_1")) out += QStringLiteral("\u2022 ");
             }
         }
+        const QString size = active(from, QStringLiteral("f_"));
+        const int emojiPx = size == QLatin1String("f_13") ? kSmallEmojiPx
+                          : (size == QLatin1String("f_18") ? kLargeEmojiPx : kNormalEmojiPx);
+        const int pacmanPx = size == QLatin1String("f_13") ? kSmallPacmanPx
+                           : (size == QLatin1String("f_18") ? kLargePacmanPx : kNormalPacmanPx);
         const QString piece = text.mid(from, to - from);
         QString html;
         const MessageMention* mention = nullptr;
@@ -1173,7 +1446,7 @@ QString MessageModel::styledHtml(const QString& text, const QVector<MessageMenti
             for (const LinkSpan& span : links) {
                 if (from >= span.start && to <= span.start + span.length) { link = &span; break; }
             }
-            html = link ? anchorHtml(link->href, piece) : emoticonHtml(piece);
+            html = link ? anchorHtml(link->href, piece) : emoticonHtml(piece, emojiPx, pacmanPx);
         }
         QString open, close;
         QString css;
@@ -1186,7 +1459,6 @@ QString MessageModel::styledHtml(const QString& text, const QVector<MessageMenti
             });
             if (validHex) css += QStringLiteral("color:#%1;").arg(hex);
         }
-        const QString size = active(from, QStringLiteral("f_"));
         if (size == QLatin1String("f_13")) css += QStringLiteral("font-size:12px;");
         else if (size == QLatin1String("f_18")) css += QStringLiteral("font-size:18px;");
         if (!css.isEmpty()) { open += QStringLiteral("<span style=\"%1\">").arg(css); close.prepend(QStringLiteral("</span>")); }

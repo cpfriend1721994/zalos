@@ -37,7 +37,7 @@ Rectangle {
             text: root.newCount > 99 ? "99+" : String(root.newCount)
             color: "#FFFFFF"
             font.family: Theme.fontFamily
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
         }
     }

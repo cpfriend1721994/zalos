@@ -29,6 +29,11 @@ Rectangle {
     scale: mouse.pressed ? root.pressedScale : 1.0
     Behavior on scale { NumberAnimation { duration: 100 } }
 
+    Accessible.role: Accessible.Button
+    Accessible.name: root.tooltip.length > 0 ? root.tooltip : root.iconName
+    Accessible.focusable: true
+    Accessible.onPressAction: root.clicked()
+
     ZIcon {
         anchors.centerIn: parent
         name: root.iconName
@@ -41,7 +46,7 @@ Rectangle {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        ToolTip.visible: containsMouse
+        ToolTip.visible: containsMouse && root.tooltip.length > 0
         ToolTip.delay: root.tooltipDelay
         ToolTip.text: root.tooltip
         onPressed: root.pressStarted()

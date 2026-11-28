@@ -225,7 +225,7 @@ Item {
                           ? I18n.t(root.voterCount + " người bình chọn", root.voterCount + " voters")
                           : I18n.t("Bình chọn", "Poll")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
@@ -266,7 +266,7 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 text: I18n.t("Đang tải bình chọn…", "Loading poll…")
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 color: ThemeManager.secondaryTextColor
             }
 
@@ -295,7 +295,7 @@ Item {
                             HoverHandler { cursorShape: pollQuestionText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                             wrapMode: Text.Wrap
                             font.family: Theme.fontFamily
-                            font.pixelSize: 16
+                            font.pixelSize: Theme.fontTitle
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -310,7 +310,7 @@ Item {
                                      ? " · " + Qt.formatDateTime(new Date(root.createdTime), "dd/MM/yyyy") : "")
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                         }
 
@@ -320,7 +320,7 @@ Item {
                             elide: Text.ElideRight
                             wrapMode: Text.Wrap
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                         }
 
@@ -329,7 +329,7 @@ Item {
                             text: I18n.t(root.voterCount + " người bình chọn", root.voterCount + " voters")
                                   + (root.canViewVoters ? "  ›" : "")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             font.underline: dlgVotersMouse.containsMouse && root.canViewVoters
                             color: root.canViewVoters ? Theme.zaloBlue : ThemeManager.secondaryTextColor
                             MouseArea {
@@ -363,7 +363,7 @@ Item {
                                 text: reasonBox.message
                                 wrapMode: Text.Wrap
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.fontSmall
                                 color: ThemeManager.textColor
                             }
                         }
@@ -415,7 +415,7 @@ Item {
                                         textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         color: ThemeManager.textColor
                                     }
                                     ZIcon {
@@ -441,7 +441,7 @@ Item {
                                         visible: !root.hideResults
                                         text: optRow.modelData.votes + " · " + optRow.modelData.percent + "%"
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         color: ThemeManager.secondaryTextColor
                                     }
                                 }
@@ -490,7 +490,7 @@ Item {
                                         text: addedRow.modelData + I18n.t("  (mới)", "  (new)")
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         color: ThemeManager.textColor
                                     }
                                     Rectangle {
@@ -556,7 +556,7 @@ Item {
                               ? I18n.t("Người tham gia không thể thấy người khác bình chọn.", "Participants can't see who voted.")
                               : I18n.t("Bạn chỉ thấy người bình chọn sau khi đã bình chọn.", "You'll see the voters after you vote.")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -603,7 +603,7 @@ Item {
                                 textFormat: Text.PlainText
                                 elide: Text.ElideRight
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                             }
@@ -614,7 +614,7 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: voterEntry.modelData.label
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.fontSmall
                                 color: ThemeManager.secondaryTextColor
                             }
                             RowLayout {
@@ -632,7 +632,7 @@ Item {
                                     textFormat: Text.PlainText
                                     elide: Text.ElideRight
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     color: ThemeManager.textColor
                                 }
                             }
@@ -683,7 +683,7 @@ Item {
             wrapMode: Text.Wrap
             text: I18n.t("Sau khi khóa, mọi người sẽ không thể bình chọn nữa.", "Once closed, nobody can vote anymore.")
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
             color: ThemeManager.textColor
         }
         onAccepted: ZaloClient.lockPoll(root.pollId)
@@ -698,7 +698,7 @@ Item {
             wrapMode: Text.Wrap
             text: I18n.t("Bạn chưa lưu bình chọn của mình. Thoát bình chọn?", "Your vote isn't saved yet. Leave anyway?")
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
             color: ThemeManager.textColor
         }
         onAccepted: {

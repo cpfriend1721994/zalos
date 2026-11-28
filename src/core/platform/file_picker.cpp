@@ -173,6 +173,7 @@ QStringList FilePicker::zenityArguments(FileMode mode, const QString& title, con
     if (!title.isEmpty()) args << QStringLiteral("--title=") + title;
     if (mode == OpenFiles) args << QStringLiteral("--multiple") << QStringLiteral("--separator=\n");
     if (mode == SaveFile) args << QStringLiteral("--save") << QStringLiteral("--confirm-overwrite");
+    if (mode == SelectFolder) args << QStringLiteral("--directory");
     if (!currentPath.isEmpty()) args << QStringLiteral("--filename=") + currentPath;
     for (const Filter& f : filters) args << QStringLiteral("--file-filter=%1 | %2").arg(f.name, f.patterns.join(QLatin1Char(' ')));
     return args;
@@ -186,6 +187,9 @@ QStringList FilePicker::kdialogArguments(FileMode mode, const QString& title, co
     if (!title.isEmpty()) args << QStringLiteral("--title") << title;
     if (mode == SaveFile) {
         args << QStringLiteral("--getsavefilename");
+    } else if (mode == SelectFolder) {
+        args << QStringLiteral("--getexistingdirectory") << (currentPath.isEmpty() ? QDir::homePath() : currentPath);
+        return args;
     } else {
         args << QStringLiteral("--getopenfilename");
         if (mode == OpenFiles) args << QStringLiteral("--multiple") << QStringLiteral("--separate-output");
@@ -245,6 +249,8 @@ bool FilePicker::openWithPortal() {
         }
     } else if (m_fileMode == OpenFiles) {
         options.insert(QStringLiteral("multiple"), true);
+    } else if (m_fileMode == SelectFolder) {
+        options.insert(QStringLiteral("directory"), true);
     }
 
     QDBusMessage msg = QDBusMessage::createMethodCall(kPortalService, kPortalPath,

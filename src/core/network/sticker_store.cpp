@@ -128,8 +128,11 @@ void StickerStore::busy(int delta) {
 QVariantList StickerStore::recent() const {
     const QString uid = m_hooks.account ? m_hooks.account() : QString();
     if (uid.isEmpty()) return {};
-    const QJsonArray arr = QJsonDocument::fromJson(QSettings().value("stickers/recent/" + uid).toByteArray()).array();
-    return arr.toVariantList();
+    if (uid != m_recentUid) {
+        m_recentUid = uid;
+        m_recentCache = QJsonDocument::fromJson(QSettings().value("stickers/recent/" + uid).toByteArray()).array().toVariantList();
+    }
+    return m_recentCache;
 }
 
 QString StickerStore::currentCategoryName() const {
@@ -324,7 +327,8 @@ void StickerStore::lookup(const QString& keyword, int limit, std::function<void(
             return;
         }
         auto pump = std::make_shared<std::function<void()>>();
-        *pump = [self, pending, inFlight, results, publish, pump]() {
+        std::weak_ptr<std::function<void()>> weakPump = pump;
+        *pump = [self, pending, inFlight, results, publish, weakPump]() {
             if (!self) return;
             ZaloSession* s2 = self->session();
             while (*inFlight < kMaxInFlight && !pending->isEmpty()) {
@@ -334,7 +338,8 @@ void StickerStore::lookup(const QString& keyword, int limit, std::function<void(
                 }
                 const qint64 id = pending->takeFirst();
                 ++*inFlight;
-                s2->fetchStickerDetail(id, [self, id, results, pending, inFlight, publish, pump](bool ok, const QJsonValue& d, const QString&, int) {
+                const auto keepAlive = weakPump.lock();
+                s2->fetchStickerDetail(id, [self, id, results, pending, inFlight, publish, keepAlive](bool ok, const QJsonValue& d, const QString&, int) {
                     if (self && ok) {
                         const QVariantMap info = describe(d.toObject());
                         if (!info.isEmpty()) {
@@ -343,8 +348,7 @@ void StickerStore::lookup(const QString& keyword, int limit, std::function<void(
                         }
                     }
                     --*inFlight;
-                    (*pump)();
-                    if (pending->isEmpty() && *inFlight == 0) publish();
+                    (*keepAlive)();
                 });
             }
             if (pending->isEmpty() && *inFlight == 0) publish();
@@ -437,11 +441,15 @@ void StickerStore::send(const QVariantMap& sticker) {
     while (list.size() > kMaxRecent) list.removeLast();
     QSettings().setValue("stickers/recent/" + uid,
                          QJsonDocument(QJsonArray::fromVariantList(list)).toJson(QJsonDocument::Compact));
+    m_recentUid = uid;
+    m_recentCache = list;
     emit categoriesChanged();
     if (m_current == kRecentId && m_query.isEmpty()) setStickers(kRecentId, list);
 }
 
 void StickerStore::reset() {
+    m_recentUid.clear();
+    m_recentCache.clear();
     ++m_resetGen;
     ++m_searchSeq;
     const bool wasLoading = loading();

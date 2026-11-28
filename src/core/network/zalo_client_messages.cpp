@@ -21,6 +21,156 @@ qint64 groupTopicPollId(const QJsonObject& data) {
 
 constexpr qint64 kReadPointMaxWaitMs = 15000;
 
+void storeDeclaredMediaSize(Models::MessageItem* item, const QJsonObject& params, const char* wKey, const char* hKey) {
+    const qint64 w = params.value(QLatin1String(wKey)).toVariant().toLongLong();
+    const qint64 h = params.value(QLatin1String(hKey)).toVariant().toLongLong();
+    if (w <= 0 || h <= 0 || w > 20000 || h > 20000) return;
+    item->extra.insert(QStringLiteral("mediaW"), int(w));
+    item->extra.insert(QStringLiteral("mediaH"), int(h));
+}
+
+QString quoteTypeOf(const QJsonObject& quote) {
+    for (const char* key : {"cliMsgType", "msgType", "type"}) {
+        const QJsonValue v = quote.value(QLatin1String(key));
+        bool numeric = v.isDouble();
+        qint64 code = numeric ? qint64(v.toDouble()) : 0;
+        if (v.isString()) code = v.toString().trimmed().toLongLong(&numeric);
+        if (numeric) {
+            switch (code) {
+            case 1: return QStringLiteral("chat.text");
+            case 2: case 11: case 32: return QStringLiteral("chat.photo");
+            case 3: case 31: return QStringLiteral("chat.voice");
+            case 4: case 13: case 36: case 401: case 402: case 403: case 404: return QStringLiteral("chat.sticker");
+            case 5: case 37: return QStringLiteral("chat.doodle");
+            case 6: case 38: return QStringLiteral("chat.contact");
+            case 7: case 23: case 49: return QStringLiteral("chat.gif");
+            case 17: case 24: case 43: return QStringLiteral("chat.location");
+            case 18: case 44: return QStringLiteral("chat.video");
+            case 19: case 46: return QStringLiteral("chat.file");
+            case 20: case 45: return QStringLiteral("chat.undo");
+            case 40: return QStringLiteral("chat.link");
+            default: break;
+            }
+        } else if (v.isString() && !v.toString().trimmed().isEmpty()) {
+            return v.toString().trimmed().toLower();
+        }
+    }
+    return {};
+}
+
+bool isJsonLiteral(const QString& s) {
+    const QString t = s.trimmed();
+    if (!((t.startsWith(QLatin1Char('{')) && t.endsWith(QLatin1Char('}')))
+          || (t.startsWith(QLatin1Char('[')) && t.endsWith(QLatin1Char(']'))))) return false;
+    QJsonParseError err;
+    QJsonDocument::fromJson(t.toUtf8(), &err);
+    return err.error == QJsonParseError::NoError;
+}
+
+bool isWebUrl(const QString& s) {
+    return s.startsWith(QLatin1String("http://"), Qt::CaseInsensitive) || s.startsWith(QLatin1String("https://"), Qt::CaseInsensitive);
+}
+
+bool isVideoUrl(const QString& s) {
+    if (!isWebUrl(s)) return false;
+    const QString l = s.trimmed().toLower();
+    for (const char* ext : {".mp4", ".mov", ".webm", ".mkv", ".avi"}) if (l.endsWith(QLatin1String(ext))) return true;
+    return l.contains(QLatin1String("/video/")) || l.contains(QLatin1String("videomedia")) || l.contains(QLatin1String(".dlmd.me"));
+}
+
+bool isImageUrlOrName(const QString& s) {
+    const QString l = s.trimmed().toLower();
+    QString path = l;
+    if (isWebUrl(l)) {
+        path = QUrl(l).path();
+        if (l.contains(QLatin1String("zdn.vn")) || l.contains(QLatin1String("zadn.vn"))) return !isVideoUrl(l);
+    }
+    for (const char* ext : {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".jfif", ".heic", ".avif"})
+        if (path.endsWith(QLatin1String(ext))) return true;
+    return false;
+}
+
+QString cleanQuoteText(const QString& raw) {
+    const QString t = raw.trimmed();
+    if (t.isEmpty() || t == QLatin1String("sendBubbleMessage") || isJsonLiteral(t)) return {};
+    return t;
+}
+
+QString quoteCaption(const QString& raw) {
+    const QString t = cleanQuoteText(raw);
+    if (t.isEmpty() || isWebUrl(t) || isImageUrlOrName(t)) return {};
+    if (t.size() > 20 && !t.contains(QLatin1Char(' ')) && !t.contains(QLatin1Char('.'))) return {};
+    return t;
+}
+
+QString firstNonEmpty(std::initializer_list<QString> values) {
+    for (const QString& v : values) if (!v.trimmed().isEmpty()) return v.trimmed();
+    return {};
+}
+
+}
+
+QString ZaloClient::quotePreviewText(const QJsonObject& quote) const {
+    const QString type = quoteTypeOf(quote);
+    const QJsonValue msgVal = quote.value(QLatin1String("msg"));
+    const QString msgRaw = msgVal.isString() ? msgVal.toString().trimmed() : QString();
+    QJsonObject meta = parseNestedJsonObject(quote.value(QLatin1String("attach")));
+    if (meta.isEmpty()) meta = msgVal.isObject() ? msgVal.toObject() : parseNestedJsonObject(msgVal);
+    const QJsonObject params = parseNestedJsonObject(meta.value(QLatin1String("params")));
+    const QString msgText = cleanQuoteText(msgRaw);
+    const QString action = meta.value(QLatin1String("action")).toString().toLower();
+    const QString href = pickString(meta, {"href", "hdUrl", "oriUrl", "normalUrl", "url"});
+    const QString title = pickString(meta, {"fileName", "name", "title"});
+    const QString desc = pickString(meta, {"description", "caption", "desc"});
+    auto withDetail = [](const QString& label, const QString& detail) {
+        return detail.isEmpty() ? label : label + QLatin1Char(' ') + detail;
+    };
+
+    if ((type == QLatin1String("chat.text") || type == QLatin1String("webchat")) && !msgText.isEmpty()) return msgText;
+    if (type == QLatin1String("chat.undo") || type == QLatin1String("undo")) return L("[Tin nhắn đã thu hồi]", "[Recalled message]");
+    if (type == QLatin1String("chat.sticker") || type == QLatin1String("sticker") || action == QLatin1String("recommened.stickerset")
+        || (meta.contains(QLatin1String("catId")) && meta.contains(QLatin1String("id")) && !meta.contains(QLatin1String("href"))))
+        return L("[Nhãn dán]", "[Sticker]");
+    if (type == QLatin1String("chat.voice") || type == QLatin1String("voice") || params.contains(QLatin1String("m4a"))
+        || params.contains(QLatin1String("waveform")))
+        return L("[Tin nhắn thoại]", "[Voice message]");
+    if (type == QLatin1String("chat.video") || type == QLatin1String("chat.video.msg") || type == QLatin1String("video")
+        || params.contains(QLatin1String("video_width")) || meta.contains(QLatin1String("videoUrl"))
+        || isVideoUrl(href) || isVideoUrl(msgRaw))
+        return withDetail(L("[Video]", "[Video]"), firstNonEmpty({quoteCaption(msgRaw), quoteCaption(desc)}));
+    if (type == QLatin1String("chat.contact") || type == QLatin1String("contact")) {
+        if (action == QLatin1String("recommened.misscall")) return L("[Cuộc gọi nhỡ]", "[Missed call]");
+        if (action.startsWith(QLatin1String("recommened.calling")) || action.startsWith(QLatin1String("recommened.receivecall"))
+            || action.startsWith(QLatin1String("recommened.calltime")))
+            return L("[Cuộc gọi]", "[Call]");
+        if (action == QLatin1String("recommened.link"))
+            return firstNonEmpty({msgText, cleanQuoteText(title), cleanQuoteText(desc)}).isEmpty()
+                       ? L("[Liên kết]", "[Link]") : firstNonEmpty({msgText, cleanQuoteText(title), cleanQuoteText(desc)});
+        return withDetail(L("[Danh thiếp]", "[Contact card]"), firstNonEmpty({quoteCaption(msgRaw), quoteCaption(title)}));
+    }
+    if (type.startsWith(QLatin1String("chat.location")) || type == QLatin1String("location"))
+        return withDetail(L("[Vị trí]", "[Location]"), firstNonEmpty({quoteCaption(msgRaw), quoteCaption(title), quoteCaption(desc)}));
+    const bool photoType = type == QLatin1String("chat.photo") || type == QLatin1String("photo") || type == QLatin1String("chat.doodle")
+                           || type == QLatin1String("chat.gif") || type == QLatin1String("gif");
+    const bool fileMeta = meta.contains(QLatin1String("fileName")) || meta.contains(QLatin1String("fileExt"))
+                          || meta.contains(QLatin1String("fileSize")) || params.contains(QLatin1String("fileName"))
+                          || params.contains(QLatin1String("fileExt")) || params.contains(QLatin1String("fileSize"));
+    if (type == QLatin1String("chat.file") || type == QLatin1String("file") || type == QLatin1String("share.file") || (!photoType && fileMeta)) {
+        if (msgText.startsWith(L("[Tập tin]", "[File]"))) return msgText;
+        const QString name = firstNonEmpty({meta.value(QLatin1String("fileName")).toString(), params.value(QLatin1String("fileName")).toString(),
+                                            meta.value(QLatin1String("title")).toString(), params.value(QLatin1String("mediaTitle")).toString()});
+        return withDetail(L("[Tập tin]", "[File]"), isWebUrl(name) ? QString() : name);
+    }
+    if (photoType || isImageUrlOrName(msgRaw) || (msgText.isEmpty() && isImageUrlOrName(href)))
+        return withDetail(L("[Hình ảnh]", "[Photo]"), firstNonEmpty({quoteCaption(msgRaw), quoteCaption(desc)}));
+    if (type == QLatin1String("chat.link") || type == QLatin1String("chat.recommended")) {
+        const QString text = firstNonEmpty({msgText, cleanQuoteText(title), cleanQuoteText(href)});
+        return text.isEmpty() ? L("[Liên kết]", "[Link]") : text;
+    }
+    if (!msgText.isEmpty()) return msgText;
+    if (!cleanQuoteText(title).isEmpty()) return cleanQuoteText(title);
+    return meta.isEmpty() && quote.value(QLatin1String("attach")).toString().isEmpty() ? L("[Tin nhắn]", "[Message]")
+                                                                                     : L("[Tệp đính kèm]", "[Attachment]");
 }
 
 void ZaloClient::callLogItem(const QJsonObject& obj, bool missed, Models::MessageItem* item, QString* label) const {
@@ -87,11 +237,25 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
             if (qSender.isEmpty()) qSender = quote.value("fromD").toString();
         }
         item.quoteSender = qSender;
-        item.quoteText = quote.value("msg").toString();
-        if (item.quoteText.isEmpty()) {
-            item.quoteText = quote.value("attach").toString().isEmpty() ? L("[Tin nhắn]", "[Message]")
-                                                                         : L("[Tệp đính kèm]", "[Attachment]");
+        item.quoteText = quotePreviewText(quote);
+        if ((item.quoteText == L("[Tin nhắn]", "[Message]") || item.quoteText == L("[Tệp đính kèm]", "[Attachment]"))
+            && !item.quoteMsgId.isEmpty()) {
+            const Models::MessageItem original = m_messageModel->message(*threadId, item.quoteMsgId);
+            if (!original.id.isEmpty() && !original.isRecalled) {
+                if (original.messageType == QLatin1String("image")) item.quoteText = L("[Hình ảnh]", "[Photo]");
+                else if (original.messageType == QLatin1String("video")) item.quoteText = L("[Video]", "[Video]");
+                else if (original.messageType == QLatin1String("voice")) item.quoteText = L("[Tin nhắn thoại]", "[Voice message]");
+                else if (original.messageType == QLatin1String("sticker")) item.quoteText = L("[Nhãn dán]", "[Sticker]");
+                else if (original.messageType == QLatin1String("file")) item.quoteText = L("[Tập tin] ", "[File] ") + original.text;
+                else if (!original.text.trimmed().isEmpty()) item.quoteText = original.text.trimmed();
+            }
         }
+    }
+    {
+        int urgency = msg.value("urgency").toVariant().toInt();
+        if (urgency == 0) urgency = parseNestedJsonObject(msg.value("metaData")).value("urgency").toVariant().toInt();
+        if (urgency == 0) urgency = parseNestedJsonObject(msg.value("propertyExt")).value("urgency").toVariant().toInt();
+        if (urgency == 1 || urgency == 2) item.extra.insert(QStringLiteral("urgency"), urgency);
     }
     item.ts = msg.value("ts").toVariant().toLongLong();
     item.timeStr = item.ts >= kMinPlausibleEpochMs ? QDateTime::fromMSecsSinceEpoch(item.ts).toString("HH:mm") : QString();
@@ -146,6 +310,9 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         if (item.mediaUrl.isEmpty()) item.mediaUrl = item.href;
         if (item.href.isEmpty()) item.href = item.mediaUrl;
         item.text = captionOf(obj);
+        storeDeclaredMediaSize(&item, objParams, "width", "height");
+        if (const QString layout = objParams.value("group_layout_id").toVariant().toString(); !layout.isEmpty() && layout != QLatin1String("0"))
+            item.extra.insert(QStringLiteral("groupLayoutId"), layout);
         if (Offline::ZaloOfflineStore::isAnimatedImageHref(type, item.href))
             item.extra.insert("animatedUrl", item.href);
         label = L("[Hình ảnh]", "[Photo]");
@@ -194,6 +361,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         item.href = obj.value("href").toString();
         item.text = captionOf(obj);
         item.fileSize = objParams.value("fileSize").toVariant().toLongLong();
+        storeDeclaredMediaSize(&item, objParams, "video_width", "video_height");
         label = L("[Video]", "[Video]");
     } else if (type == "chat.location.new") {
         const QJsonObject& params = objParams;
@@ -268,7 +436,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
             item.messageType = QStringLiteral("link");
             item.text = !title.isEmpty() ? title : desc;
             item.mediaUrl = first.value("thumb").toString();
-            item.extra = {{"desc", desc == item.text ? QString() : desc}, {"domain", QString()}};
+            item.extra = {{"desc", desc == item.text ? QString() : desc}, {"domain", QString()}, {"template", true}};
         }
         if (item.text.isEmpty())
             item.text = L("Tin nhắn chưa hỗ trợ hiển thị trên phiên bản hiện tại", "This message isn't supported in the current version");
@@ -283,7 +451,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         item.mediaUrl = first.value("thumb").toString();
         item.text = title.isEmpty() ? href : title;
         const QString desc = first.value("description").toString();
-        item.extra = {{"desc", desc == title ? QString() : desc}, {"domain", QUrl(href).host()}};
+        item.extra = {{"desc", desc == title ? QString() : desc}, {"domain", QUrl(href).host()}, {"template", true}};
         label = L("[Liên kết] ", "[Link] ") + item.text;
     } else if (type == "chat.webcontent" || type == "chat.webcontent.v2") {
         const QString title = obj.value("title").toString();
@@ -351,7 +519,8 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
             item.href = buttonUrl;
             item.extra = {{"desc", cut > 0 ? body.mid(cut + 1).trimmed() : QString()},
                           {"domain", buttonUrl.isEmpty() ? QString() : QUrl(buttonUrl).host()},
-                          {"actionLabel", buttonLabel}};
+                          {"actionLabel", buttonLabel},
+                          {"template", true}};
             label = item.text;
         } else if (!localized.isEmpty()) {
             item.messageType = QStringLiteral("system");
@@ -370,7 +539,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
             item.mediaUrl = obj.value("thumb").toString();
             item.text = title.isEmpty() ? L("Nội dung web của Zalo", "Zalo web content") : title;
             const QString desc = obj.value("description").toString();
-            item.extra = {{"desc", desc == title ? QString() : desc}, {"domain", QUrl(href).host()}};
+            item.extra = {{"desc", desc == title ? QString() : desc}, {"domain", QUrl(href).host()}, {"template", true}};
             label = L("[Liên kết] ", "[Link] ") + item.text;
         } else if (!isGroup && webType != 6 && webType != 16 && webType != 19) {
             item.messageType = QStringLiteral("link");
@@ -381,7 +550,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
                       : (!desc.isEmpty() ? desc
                                          : L("Tin nhắn chưa hỗ trợ hiển thị trên phiên bản hiện tại",
                                              "This message isn't supported in the current version"));
-            item.extra = {{"desc", desc == item.text ? QString() : desc}, {"domain", QString()}};
+            item.extra = {{"desc", desc == item.text ? QString() : desc}, {"domain", QString()}, {"template", true}};
             label = item.text;
         } else {
             item.messageType = QStringLiteral("system");
@@ -544,6 +713,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
     }
     if (!item.seenUids.isEmpty() && item.isMine && item.status.isEmpty()) item.status = QStringLiteral("seen");
 
+    if (!item.isMine) UrlPolicy::sanitizeRemoteReferences(&item.mediaUrl, &item.href, &item.extra);
     return item;
 }
 
@@ -564,6 +734,13 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
     QHash<QString, QVector<QPair<Models::MessageItem, QJsonObject>>> coldThreads;
     QJsonArray receiptCandidates;
     QHash<QString, QPair<QString, QString>> recalls;
+    struct PendingNotice {
+        QString title;
+        QString body;
+        QString msgId;
+    };
+    QHash<QString, PendingNotice> pendingNotices;
+    bool pendingSound = false;
     if (m_offlineStore) m_offlineStore->beginBatch();
     for (const QJsonValue& v : messages) {
         const QJsonObject msg = v.toObject();
@@ -688,16 +865,21 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
             const bool callRinging = m_calls
                 && (m_calls->phase() == QLatin1String("incoming") || m_calls->phase() == QLatin1String("outgoing"));
             if (threadId != m_currentConvId || !focused) {
-                if (m_notifySound && !callRinging) m_sound->play("notification", m_selectedNotiSound);
+                if (m_notifySound && !callRinging) pendingSound = true;
                 if (m_notifyNewMessage && !focused) {
                     const QString title = isGroup ? m_groups.value(threadId).name : senderDisplay;
                     const QString body = (isGroup && item.messageType != QLatin1String("system") && !senderDisplay.isEmpty())
                                              ? (senderDisplay + QStringLiteral(": ") + preview)
                                              : preview;
-                    showMessageNotification(threadId, title, body);
+                    pendingNotices.insert(threadId, PendingNotice{title, body, item.id});
                 }
             }
         }
+    }
+    if (pendingSound) m_sound->play("notification", m_selectedNotiSound);
+    for (auto it = pendingNotices.cbegin(); it != pendingNotices.cend(); ++it) {
+        showMessageNotification(it.key(), it->title, it->body);
+        m_notifiedMsgIds.insert(it.key(), it->msgId);
     }
 
     for (auto it = coldThreads.cbegin(); it != coldThreads.cend(); ++it) {
@@ -719,6 +901,10 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
     for (auto it = recalls.cbegin(); it != recalls.cend(); ++it) {
         const QString& thread = it.value().first;
         m_messageModel->markRecalled(thread, it.key(), it.value().second);
+        if (m_notifiedMsgIds.value(thread) == it.key()) {
+            m_notifiedMsgIds.remove(thread);
+            m_notifications->close(QStringLiteral("thread:") + thread);
+        }
         if (isThreadResident(thread) && !m_messageModel->message(thread, it.key()).id.isEmpty()) persistMessage(thread, it.key());
         else if (m_offlineStore) m_offlineStore->markRecalled(it.key(), it.value().second);
         if (m_offlineStore) m_offlineStore->removeUnreadReactions(it.key());
@@ -740,6 +926,7 @@ void ZaloClient::openWelcomeScreen() {
     m_currentConvName.clear();
     m_currentConvAvatar.clear();
     m_messageModel->loadConversation(QString());
+    collectCurrentMentions(QString(), 0);
     emit currentConversationChanged();
     emit pinnedMessageChanged();
 }
@@ -757,6 +944,8 @@ void ZaloClient::selectConversation(const QString& id, const QString& name, cons
     trimMessageCaches();
     m_messageModel->loadConversation(id);
     m_messageModel->setUnreadMarker(id, m_conversationModel->conversation(id).unreadCount);
+    collectCurrentMentions(id, m_conversationModel->conversation(id).hasUnreadMention
+                                   ? m_conversationModel->conversation(id).unreadCount : 0);
     m_conversationModel->clearUnread(id);
     if (m_offlineStore) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
     m_notifications->close(QStringLiteral("thread:") + id);
@@ -972,6 +1161,11 @@ void ZaloClient::sendTextTo(const QString& convId, bool isGroup, const QString& 
     local.status = QStringLiteral("sending");
     if (isGroup) local.mentions = localMentions;
     if (!styles.isEmpty()) local.extra.insert("styles", styles.toVariantList());
+    if (m_composerUrgency > 0) {
+        local.extra.insert(QStringLiteral("urgency"), m_composerUrgency);
+        m_pendingUrgency.insert(local.cliMsgId, m_composerUrgency);
+        setComposerUrgency(0);
+    }
     if (!quoted.isEmpty()) {
         local.quoteMsgId = m_replyTarget.value("id").toString();
         local.quoteSender = m_replyTarget.value("senderName").toString();
@@ -1016,17 +1210,21 @@ void ZaloClient::sendTextNow(const QString& convId, bool isGroup, const QString&
     };
     ZaloSession* session = m_apiClient->session();
     const qint64 ttl = m_autoDeleteTtl.value(convId, 0);
+    const int urgency = m_pendingUrgency.take(cliMsgId);
     if (!quoted.isEmpty()) {
+        session->setNextUrgency(urgency);
         session->sendQuote(convId, isGroup, text, quoted, done, cliMsgId, styles, mentions, ttl);
         return;
     }
     if (!mentions.isEmpty()) {
+        session->setNextUrgency(urgency);
         session->sendMention(convId, text, mentions, done, cliMsgId, styles, ttl);
         return;
     }
     static const QRegularExpression urlRe(QStringLiteral(R"(https?://[^\s<>"']+)"));
     const QRegularExpressionMatch url = urlRe.match(text);
-    if (!url.hasMatch() || !styles.isEmpty()) {
+    if (!url.hasMatch() || !styles.isEmpty() || urgency > 0) {
+        session->setNextUrgency(urgency);
         session->sendText(convId, isGroup, text, done, cliMsgId, styles, ttl);
         return;
     }
@@ -1056,7 +1254,8 @@ void ZaloClient::sendTextNow(const QString& convId, bool isGroup, const QString&
 
 void ZaloClient::setReplyTarget(const QString& msgId) {
     const QVariantMap msg = m_messageModel->getMessageById(msgId);
-    if (msg.isEmpty() || rawMessage(msgId).isEmpty()) {
+    if (msg.isEmpty() || rawMessage(msgId).isEmpty()
+        || !(msg.value("actions").toInt() & Models::MessageModel::ActionReply)) {
         clearReplyTarget();
         return;
     }
@@ -1403,19 +1602,28 @@ void ZaloClient::deleteConversation(const QString& id) {
         emit notice(L("Đã xóa hội thoại.", "Conversation deleted."));
         return;
     }
-    if (!m_isLoggedIn) return;
+    auto restore = [this, id]() {
+        if (m_deleteRestore.contains(id)) m_conversationModel->upsertConversation(m_deleteRestore.take(id));
+    };
+    if (!m_isLoggedIn) {
+        restore();
+        return;
+    }
     const QJsonObject last = rawMessage(m_messageModel->latestMessageId(id));
     if (last.isEmpty()) {
+        restore();
         emit notice(L("Chưa tải được tin nhắn mới nhất của hội thoại nên chưa thể xóa. Hãy mở hội thoại rồi thử lại.",
                       "The latest message of this chat isn't loaded yet. Open the chat and try again."));
         return;
     }
     m_apiClient->session()->deleteConversation(id, isGroupThread(id), last,
-        [this, id](bool ok, const QJsonValue&, const QString& error, int code) {
+        [this, id, restore](bool ok, const QJsonValue&, const QString& error, int code) {
             if (!ok) {
+                restore();
                 emit notice(L("Không thể xóa hội thoại: ", "Couldn't delete the conversation: ") + friendlyError(error, code));
                 return;
             }
+            const bool undoFlow = m_deleteRestore.remove(id) > 0;
             if (id == m_currentConvId) openWelcomeScreen();
             m_messageModel->clearThread(id);
             m_conversationModel->removeConversation(id);
@@ -1424,8 +1632,39 @@ void ZaloClient::deleteConversation(const QString& id) {
         m_cloudPageState.remove(id);
             m_markedUnread.remove(id);
             if (m_offlineStore) m_offlineStore->deleteConversation(id);
-            emit notice(L("Đã xóa hội thoại.", "Conversation deleted."));
+            if (!undoFlow) emit notice(L("Đã xóa hội thoại.", "Conversation deleted."));
         });
+}
+
+void ZaloClient::deleteConversationWithUndo(const QString& id) {
+    if (id.isEmpty() || !m_conversationModel->contains(id)) return;
+    commitPendingDelete();
+    m_pendingDeleteItem = m_conversationModel->conversation(id);
+    m_pendingDeleteId = id;
+    if (id == m_currentConvId) openWelcomeScreen();
+    m_conversationModel->removeConversation(id);
+    m_pendingDeleteTimer->start();
+    emit pendingDeleteChanged();
+}
+
+void ZaloClient::undoDeleteConversation() {
+    if (m_pendingDeleteId.isEmpty()) return;
+    m_pendingDeleteTimer->stop();
+    m_conversationModel->upsertConversation(m_pendingDeleteItem);
+    m_pendingDeleteId.clear();
+    m_pendingDeleteItem = {};
+    emit pendingDeleteChanged();
+}
+
+void ZaloClient::commitPendingDelete() {
+    if (m_pendingDeleteId.isEmpty()) return;
+    m_pendingDeleteTimer->stop();
+    const QString id = m_pendingDeleteId;
+    m_deleteRestore.insert(id, m_pendingDeleteItem);
+    m_pendingDeleteId.clear();
+    m_pendingDeleteItem = {};
+    emit pendingDeleteChanged();
+    deleteConversation(id);
 }
 
 bool ZaloClient::loadOfflineCache() {
@@ -1526,6 +1765,12 @@ void ZaloClient::migrateCachedParses() {
             return;
         }
         timer->deleteLater();
+        m_conversationModel->beginBatch();
+        m_offlineStore->beginBatch();
+        const auto batch = qScopeGuard([this]() {
+            m_offlineStore->endBatch();
+            m_conversationModel->endBatch();
+        });
         for (const QString& convId : std::as_const(cursor->touched)) {
             const auto latest = m_offlineStore->loadMessages(convId, nullptr, 1, 0);
             if (!latest.isEmpty()) {
@@ -1635,6 +1880,10 @@ void ZaloClient::mergeCacheRows(const QString& convId, QVector<Models::MessageIt
         if (!row.seenUids.isEmpty() && row.isMine && row.status.isEmpty()) row.status = QStringLiteral("seen");
     }
     m_messageModel->mergeMessages(convId, rows);
+    if (m_offlineStore) m_offlineStore->beginBatch();
+    const auto reactionBatch = qScopeGuard([this]() {
+        if (m_offlineStore) m_offlineStore->endBatch();
+    });
     for (const auto& item : rows) {
         if (hasReactions(item.id)) refreshReactionSummary(convId, item.id);
         if (item.messageType == "sticker" && !item.extra.contains("sticker")) {
@@ -1701,6 +1950,7 @@ void ZaloClient::evictColdThreads(int maxResident) {
     }
     for (const QString& t : evicted) {
         m_messageModel->clearThread(t);
+        m_serverSharedMedia.remove(t);
         m_cacheMerged.remove(t);
         m_residentThreads.removeAll(t);
     }
@@ -1811,6 +2061,10 @@ void ZaloClient::fetchBytes(const QString& url, std::function<void(const QByteAr
             return;
         }
         done(f.readAll(), QString());
+        return;
+    }
+    if (!UrlPolicy::isWebUrl(u)) {
+        done({}, QStringLiteral("unsupported_url"));
         return;
     }
     QNetworkReply* reply = m_apiClient->session()->getWithCookies(u);
@@ -1969,7 +2223,7 @@ void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, con
     }
     const QString key = QStringLiteral("downloadIndex/")
                         + QString::fromLatin1(QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Md5).toHex());
-    const QString known = QSettings("Zalos", "ZalosApp").value(key).toString();
+    const QString known = knownDownloadPath(key);
     if (!known.isEmpty() && QFileInfo::exists(known)) {
         if (openAfter) {
             openLocalFile(known);
@@ -1982,15 +2236,19 @@ void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, con
         emit notice(L("Tệp đang được tải, vui lòng chờ...", "The file is still downloading..."));
         return;
     }
-    const QString dir = QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).filePath("Zalos");
+    const QString dir = downloadDirectory();
     QDir().mkpath(dir);
     QString safe = QFileInfo(fileName).fileName();
     if (safe.isEmpty()) safe = suggestedMediaFileName(url);
     const QString path = uniqueFilePath(dir, safe);
     m_downloadsInFlight.insert(key);
+    m_downloadProgress.insert(url, 0.0);
+    bumpFileStates();
     emit notice(L("Đang tải ", "Downloading ") + QFileInfo(path).fileName() + "...");
-    downloadToFile(url, path, [this, path, key, goneText, openAfter](const QString& error) {
+    downloadToFile(url, path, [this, url, path, key, goneText, openAfter](const QString& error) {
         m_downloadsInFlight.remove(key);
+        m_downloadProgress.remove(url);
+        bumpFileStates();
         if (isGoneError(error)) {
             emit notice(goneText);
             return;
@@ -1999,9 +2257,91 @@ void ZaloClient::openRemoteFile(const QString& url, const QString& fileName, con
             emit notice(L("Tải tệp thất bại", "Download failed") + " (" + friendlyError(error) + ")");
             return;
         }
-        QSettings("Zalos", "ZalosApp").setValue(key, path);
+        rememberDownload(key, path);
+        bumpFileStates();
         emit notice(L("Đã tải về ", "Downloaded to ") + path);
         if (openAfter) openLocalFile(path);
+    }, [this, url](qint64 received, qint64 total) {
+        if (total <= 0) return;
+        const double ratio = qBound(0.0, double(received) / double(total), 1.0);
+        if (int(ratio * 100) == int(m_downloadProgress.value(url, -1.0) * 100)) return;
+        m_downloadProgress.insert(url, ratio);
+        bumpFileStates();
+    });
+}
+
+void ZaloClient::bumpFileStates() {
+    ++m_fileStateRevision;
+    emit fileStatesChanged();
+}
+
+QVariantMap ZaloClient::fileState(const QString& url) const {
+    QVariantMap out;
+    if (url.isEmpty()) return out;
+    const auto progress = m_downloadProgress.constFind(url);
+    out.insert(QStringLiteral("downloading"), progress != m_downloadProgress.constEnd());
+    out.insert(QStringLiteral("progress"), progress != m_downloadProgress.constEnd() ? *progress : 0.0);
+    const QString key = QStringLiteral("downloadIndex/")
+                        + QString::fromLatin1(QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Md5).toHex());
+    const QString known = knownDownloadPath(key);
+    out.insert(QStringLiteral("path"), !known.isEmpty() && QFileInfo::exists(known) ? known : QString());
+    return out;
+}
+
+void ZaloClient::ensureDownloadIndex() const {
+    if (m_downloadIndexLoaded) return;
+    m_downloadIndexLoaded = true;
+    QSettings settings;
+    settings.beginGroup(QStringLiteral("downloadIndex"));
+    for (const QString& name : settings.childKeys()) {
+        const QString path = settings.value(name).toString();
+        if (!path.isEmpty() && QFileInfo::exists(path)) m_downloadIndex.insert(QStringLiteral("downloadIndex/") + name, path);
+        else settings.remove(name);
+    }
+}
+
+QString ZaloClient::knownDownloadPath(const QString& key) const {
+    ensureDownloadIndex();
+    return m_downloadIndex.value(key);
+}
+
+void ZaloClient::rememberDownload(const QString& key, const QString& path) {
+    ensureDownloadIndex();
+    m_downloadIndex.insert(key, path);
+    QSettings().setValue(key, path);
+}
+
+QString ZaloClient::downloadDirectory() const {
+    const QString chosen = QSettings().value(QStringLiteral("settings/downloadDir")).toString();
+    if (!chosen.isEmpty() && QFileInfo(chosen).isDir()) return chosen;
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).filePath("Zalos");
+}
+
+void ZaloClient::setDownloadDirectory(const QString& urlOrPath) {
+    const QUrl u(urlOrPath);
+    const QString path = u.isLocalFile() ? u.toLocalFile() : urlOrPath;
+    QSettings settings;
+    if (path.isEmpty()) settings.remove(QStringLiteral("settings/downloadDir"));
+    else if (QFileInfo(path).isDir()) settings.setValue(QStringLiteral("settings/downloadDir"), path);
+    else return;
+    emit settingsChanged();
+}
+
+void ZaloClient::revealFile(const QString& path) {
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
+        emit notice(L("Không tìm thấy tệp trên máy.", "The file wasn't found on this computer."));
+        return;
+    }
+    QDBusMessage msg = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.FileManager1"),
+                                                      QStringLiteral("/org/freedesktop/FileManager1"),
+                                                      QStringLiteral("org.freedesktop.FileManager1"),
+                                                      QStringLiteral("ShowItems"));
+    msg << QStringList{QUrl::fromLocalFile(path).toString()} << QString();
+    const QString dir = QFileInfo(path).absolutePath();
+    auto* watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, dir]() {
+        watcher->deleteLater();
+        if (QDBusPendingReply<>(*watcher).isError()) openLocalFile(dir);
     });
 }
 
@@ -2019,11 +2359,18 @@ QString ZaloClient::uniqueFilePath(const QString& dir, const QString& fileName) 
     return QDir(dir).filePath(QStringLiteral("%1 (%2)%3").arg(base, QString::number(QDateTime::currentMSecsSinceEpoch()), suffix));
 }
 
-void ZaloClient::downloadToFile(const QString& url, const QString& path, std::function<void(const QString& error)> done) {
+void ZaloClient::downloadToFile(const QString& url, const QString& path, std::function<void(const QString& error)> done,
+                                std::function<void(qint64, qint64)> progress) {
     const QUrl u(url);
     if (u.isLocalFile()) {
         QFile::remove(path);
-        done(QFile::copy(u.toLocalFile(), path) ? QString() : QStringLiteral("local_file_error"));
+        const bool copied = QFile::copy(u.toLocalFile(), path)
+            && QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup | QFile::ReadOther);
+        done(copied ? QString() : QStringLiteral("local_file_error"));
+        return;
+    }
+    if (!UrlPolicy::isWebUrl(u)) {
+        done(QStringLiteral("unsupported_url"));
         return;
     }
     auto out = std::make_shared<QSaveFile>(path);
@@ -2033,6 +2380,7 @@ void ZaloClient::downloadToFile(const QString& url, const QString& path, std::fu
     }
     auto writeFailed = std::make_shared<bool>(false);
     QNetworkReply* reply = m_apiClient->session()->getWithCookies(u);
+    if (progress) connect(reply, &QNetworkReply::downloadProgress, this, progress);
     connect(reply, &QNetworkReply::readyRead, this, [reply, out, writeFailed]() {
         const QByteArray chunk = reply->readAll();
         if (*writeFailed || chunk.isEmpty()) return;
@@ -2398,7 +2746,7 @@ void ZaloClient::markThreadReadOnly(const QString& id, const QString& reason, qi
 void ZaloClient::loadReadOnlyThreads() {
     m_readOnlyThreads.clear();
     if (m_myUid.isEmpty()) return;
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     const QVariantMap map = settings.value(QStringLiteral("readonlyThreads/") + m_myUid).toMap();
     for (auto it = map.cbegin(); it != map.cend(); ++it) m_readOnlyThreads.insert(it.key(), it.value().toString());
     m_strangerLocks.clear();
@@ -2412,7 +2760,7 @@ void ZaloClient::saveReadOnlyThreads() const {
     if (m_myUid.isEmpty()) return;
     QVariantMap map;
     for (auto it = m_readOnlyThreads.cbegin(); it != m_readOnlyThreads.cend(); ++it) map.insert(it.key(), it.value());
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     settings.setValue(QStringLiteral("readonlyThreads/") + m_myUid, map);
 }
 
@@ -2437,7 +2785,7 @@ void ZaloClient::saveStrangerLocks() const {
     if (m_myUid.isEmpty()) return;
     QVariantMap map;
     for (auto it = m_strangerLocks.cbegin(); it != m_strangerLocks.cend(); ++it) map.insert(it.key(), it.value());
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     settings.setValue(QStringLiteral("strangerLocks/") + m_myUid, map);
 }
 
@@ -2589,11 +2937,11 @@ void ZaloClient::handleSyncControl(const QString& actType, const QString& act, c
         if (act == "update") loadAccountData();
         else if (act == "online_status") refreshPresence();
     } else if (actType == "mute") {
-        QString id = idOf(obj.value("toId"));
-        if (id.isEmpty()) id = idOf(obj.value("id"));
+        QString id = normalizeMuteId(idOf(obj.value("toId")));
+        if (id.isEmpty()) id = muteEntryId(obj);
         if (id.isEmpty()) return;
-        const int muteMode = obj.value("muteMode").toInt(0);
-        const qint64 duration = obj.value("duration").toVariant().toLongLong();
+        const qint64 muteMode = jsonInt(obj.value("muteMode"));
+        const qint64 duration = jsonInt(obj.value("duration"));
         const bool mute = (act == "set") && (duration != 0 || muteMode == 2 || muteMode == 3);
         if (mute) {
             m_mutedIds.insert(id);
@@ -2660,6 +3008,12 @@ void ZaloClient::preloadRecentThreads() {
 }
 
 void ZaloClient::applyReadPoints(const QJsonArray& clearUnreads) {
+    m_conversationModel->beginBatch();
+    if (m_offlineStore) m_offlineStore->beginBatch();
+    const auto batch = qScopeGuard([this]() {
+        if (m_offlineStore) m_offlineStore->endBatch();
+        m_conversationModel->endBatch();
+    });
     for (const QJsonValue& v : clearUnreads) {
         const QJsonObject e = v.toObject();
         if (e.value("type").toInt() == 2 && e.contains("sct")) continue;
@@ -2903,6 +3257,54 @@ void ZaloClient::openConversationById(const QString& id) {
     const QString name = !conv.name.isEmpty() ? conv.name : p.name;
     const QString avatar = !conv.avatarUrl.isEmpty() ? conv.avatarUrl : p.avatar;
     selectConversation(id, name, avatar);
+}
+
+void ZaloClient::markConversationRead(const QString& convId) {
+    if (convId.isEmpty()) return;
+    mergeCachedThread(convId);
+    markThreadRead(convId);
+    m_notifications->close(QStringLiteral("thread:") + convId);
+}
+
+int ZaloClient::markAllConversationsRead() {
+    const QStringList ids = m_conversationModel->visibleUnreadIds();
+    m_conversationModel->beginBatch();
+    if (m_offlineStore) m_offlineStore->beginBatch();
+    const auto batch = qScopeGuard([this]() {
+        if (m_offlineStore) m_offlineStore->endBatch();
+        m_conversationModel->endBatch();
+    });
+    for (const QString& id : ids) {
+        markThreadRead(id);
+        m_notifications->close(QStringLiteral("thread:") + id);
+    }
+    return int(ids.size());
+}
+
+void ZaloClient::consumeMention(const QString& msgId) {
+    if (m_currentMentionIds.removeAll(msgId) > 0) emit currentMentionsChanged();
+}
+
+void ZaloClient::collectCurrentMentions(const QString& convId, int unreadCount) {
+    QStringList ids;
+    if (unreadCount > 0 && !m_myUid.isEmpty()) {
+        const auto& thread = m_messageModel->threadOf(convId);
+        int seen = 0;
+        for (auto it = thread.crbegin(); it != thread.crend() && seen < unreadCount; ++it) {
+            if (it->isMine) continue;
+            ++seen;
+            for (const auto& men : it->mentions) {
+                if (men.uid == m_myUid || men.uid == QLatin1String("-1")) {
+                    ids.prepend(it->id);
+                    break;
+                }
+            }
+        }
+    }
+    if (ids != m_currentMentionIds) {
+        m_currentMentionIds = ids;
+        emit currentMentionsChanged();
+    }
 }
 
 void ZaloClient::markThreadRead(const QString& convId) {

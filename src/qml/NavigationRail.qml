@@ -6,6 +6,8 @@ import Zalos
 
 Rectangle {
     id: root
+
+    signal shortcutsRequested()
     color: ThemeManager.railBackgroundColor
 
     readonly property string currentTab: ZaloClient.currentNavigationTab
@@ -64,7 +66,7 @@ Rectangle {
                 text: btn.badge > 99 ? "99+" : btn.badge
                 color: "#FFFFFF"
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
             }
         }
@@ -182,7 +184,7 @@ Rectangle {
                 text: row.label
                 elide: Text.ElideRight
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 color: row.danger ? Theme.badgeRed : ThemeManager.textColor
             }
             ZIcon {
@@ -377,18 +379,64 @@ Rectangle {
         contentItem: ColumnLayout {
             spacing: 2
 
-                Text {
+                Rectangle {
+                    id: accountHeader
+                    objectName: "accountMenuHeader"
                     Layout.fillWidth: true
-                    Layout.leftMargin: 12
-                    Layout.rightMargin: 12
-                    Layout.topMargin: 6
-                    Layout.bottomMargin: 6
-                    text: ZaloClient.currentUserName
-                    elide: Text.ElideRight
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 16
-                    font.weight: Font.DemiBold
-                    color: ThemeManager.textColor
+                    Layout.preferredHeight: 60
+                    radius: 8
+                    color: accountHeaderMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                    Accessible.role: Accessible.Button
+                    Accessible.name: I18n.t("Hồ sơ của bạn", "Profile")
+                    Accessible.onPressAction: { accountMenu.close(); ZaloClient.openUserProfile(); }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        spacing: 10
+
+                        ZAvatar {
+                            size: 40
+                            avatarUrl: ZaloClient.currentUserAvatar
+                            name: ZaloClient.currentUserName
+                            isOnline: ZaloClient.isConnected
+                            showStatusDot: true
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: ZaloClient.currentUserName.length > 0 ? ZaloClient.currentUserName
+                                                                            : I18n.t("Tài khoản Zalo", "Zalo account")
+                                elide: Text.ElideRight
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSubtitle
+                                font.weight: Font.DemiBold
+                                color: ThemeManager.textColor
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: ZaloClient.currentUserPhone.length > 0 ? ZaloClient.currentUserPhone
+                                                                             : I18n.t("Xem hồ sơ", "View profile")
+                                elide: Text.ElideRight
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSmall
+                                color: ThemeManager.secondaryTextColor
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        id: accountHeaderMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: { accountMenu.close(); ZaloClient.openUserProfile(); }
+                    }
                 }
 
                 MenuDivider {}
@@ -407,6 +455,12 @@ Rectangle {
                     icon: "help"
                     label: I18n.t("Hỗ trợ", "Help")
                     onTriggered: { accountMenu.close(); ZaloClient.openExternalUrl("https://help.zalo.me/"); }
+                }
+                MenuRow {
+                    objectName: "accountMenuShortcuts"
+                    icon: "info"
+                    label: I18n.t("Phím tắt", "Keyboard shortcuts")
+                    onTriggered: { accountMenu.close(); root.shortcutsRequested(); }
                 }
 
                 MenuDivider {}
@@ -445,7 +499,7 @@ Rectangle {
                     Layout.bottomMargin: 4
                     text: I18n.t("Chụp màn hình", "Capture Screenshot")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
@@ -497,7 +551,7 @@ Rectangle {
                     Layout.bottomMargin: 4
                     text: I18n.t("Công cụ zBusiness", "zBusiness Tools")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }

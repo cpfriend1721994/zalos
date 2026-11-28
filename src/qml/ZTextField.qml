@@ -12,7 +12,7 @@ TextField {
     selectionColor: Theme.zaloBlue
     selectedTextColor: "#FFFFFF"
     font.family: Theme.fontFamily
-    font.pixelSize: 13
+    font.pixelSize: Theme.fontBody
     background: Rectangle {
         radius: 6
         color: ThemeManager.inputFillColor

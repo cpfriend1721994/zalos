@@ -1,6 +1,8 @@
 #include "system_tray.h"
 
 #include <QCoreApplication>
+#include <QGuiApplication>
+#include <QRegularExpression>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusMetaType>
@@ -225,6 +227,12 @@ SystemTrayController::SystemTrayController(QObject* parent)
     QObject::connect(this, &QObject::destroyed, [](QObject* gone) {
         if (static_cast<QObject*>(s_instance) == gone) s_instance = nullptr;
     });
+    m_offlineDelay.setSingleShot(true);
+    m_offlineDelay.setInterval(8000);
+    connect(&m_offlineDelay, &QTimer::timeout, this, [this]() {
+        m_offline = true;
+        refreshIconAndTooltip();
+    });
     setupMenu();
     m_badgeImage = createBadgeImage(0, false);
     retranslate();
@@ -407,15 +415,17 @@ void SystemTrayController::setupMenu() {
     m_openAction = addAct();
     connect(m_openAction, &QAction::triggered, this, &SystemTrayController::toggleWindowRequested);
 
+    m_markAllReadAction = addAct();
+    m_markAllReadAction->setVisible(false);
+    m_markAllReadAction->setEnabled(false);
+    connect(m_markAllReadAction, &QAction::triggered, this, &SystemTrayController::markAllReadRequested);
+
     m_settingsAction = addAct();
     connect(m_settingsAction, &QAction::triggered, this, &SystemTrayController::openSettingsRequested);
 
     m_notificationsAction = addAct(true);
     m_notificationsAction->setChecked(m_notificationsEnabled);
     connect(m_notificationsAction, &QAction::triggered, this, &SystemTrayController::notificationsToggled);
-
-    m_themeAction = addAct();
-    connect(m_themeAction, &QAction::triggered, this, &SystemTrayController::toggleDarkModeRequested);
 
     m_antiPeekAction = addAct(true);
     connect(m_antiPeekAction, &QAction::triggered, this, &SystemTrayController::antiPeekingToggled);
@@ -523,6 +533,15 @@ void SystemTrayController::notifyMenuChanged() {
     if (m_menuAdaptor && m_busObjectsRegistered) emit m_menuAdaptor->LayoutUpdated(m_menuRevision, 0);
 }
 
+bool SystemTrayController::syncMarkAllReadAction() {
+    if (!m_markAllReadAction) return false;
+    const bool canMark = m_unreadCount > 0 && !m_locked;
+    if (m_markAllReadAction->isVisible() == canMark && m_markAllReadAction->isEnabled() == canMark) return false;
+    m_markAllReadAction->setVisible(canMark);
+    m_markAllReadAction->setEnabled(canMark);
+    return true;
+}
+
 void SystemTrayController::setLanguage(const QString& lang) {
     const QString next = lang == QLatin1String("en") ? QStringLiteral("en") : QStringLiteral("vi");
     if (m_language == next) return;
@@ -551,11 +570,15 @@ void SystemTrayController::setCallState(const QString& phase, const QString& pee
     retranslate();
 }
 
+QString SystemTrayController::callPeerLabel() const {
+    return m_callPeerName.isEmpty() ? L(QStringLiteral("Người dùng Zalo"), QStringLiteral("Zalo user")) : m_callPeerName;
+}
+
 void SystemTrayController::retranslate() {
     const bool active = !m_callPhase.isEmpty() && m_callPhase != QLatin1String("ended");
     const bool incoming = m_callPhase == QLatin1String("incoming");
     const bool inCall = active && !incoming;
-    const QString peer = m_callPeerName.isEmpty() ? QStringLiteral("Zalo") : m_callPeerName;
+    const QString peer = callPeerLabel();
     if (m_callStatusAction) {
         m_callStatusAction->setVisible(active);
         m_callStatusAction->setText(
@@ -605,9 +628,12 @@ void SystemTrayController::retranslate() {
         m_openAction->setText(m_windowVisible ? L(QStringLiteral("Ẩn Zalos"), QStringLiteral("Hide Zalos"))
                                               : L(QStringLiteral("Mở Zalos"), QStringLiteral("Open Zalos")));
     }
+    if (m_markAllReadAction) {
+        syncMarkAllReadAction();
+        m_markAllReadAction->setText(L(QStringLiteral("Đánh dấu đã đọc"), QStringLiteral("Mark as read")));
+    }
     if (m_settingsAction) m_settingsAction->setText(L(QStringLiteral("Cài đặt"), QStringLiteral("Settings")));
     if (m_notificationsAction) m_notificationsAction->setText(L(QStringLiteral("Thông báo"), QStringLiteral("Notifications")));
-    if (m_themeAction) m_themeAction->setText(L(QStringLiteral("Chuyển chế độ Sáng / Tối"), QStringLiteral("Toggle light / dark mode")));
     if (m_antiPeekAction) m_antiPeekAction->setText(L(QStringLiteral("Chống nhìn lén"), QStringLiteral("Anti-peeking")));
     if (m_quitAction) m_quitAction->setText(L(QStringLiteral("Thoát hoàn toàn"), QStringLiteral("Quit")));
     notifyMenuChanged();
@@ -628,6 +654,7 @@ void SystemTrayController::setUnreadCount(int count, bool hasMentions) {
     if (m_unreadCount == count && m_hasMentions == hasMentions) return;
     m_unreadCount = count;
     m_hasMentions = hasMentions;
+    if (syncMarkAllReadAction()) notifyMenuChanged();
     refreshIconAndTooltip();
 
     QDBusConnection bus = QDBusConnection::sessionBus();
@@ -640,9 +667,57 @@ void SystemTrayController::setUnreadCount(int count, bool hasMentions) {
         properties.insert(QStringLiteral("count"), qint64(m_unreadCount));
         properties.insert(QStringLiteral("count-visible"), m_unreadCount > 0);
         properties.insert(QStringLiteral("urgent"), m_hasMentions);
-        signal << QStringLiteral("application://zalos.desktop") << properties;
-        bus.send(signal);
+        for (const QString& desktopFile : launcherDesktopFiles()) {
+            QDBusMessage copy = signal;
+            copy << QStringLiteral("application://") + desktopFile << properties;
+            bus.send(copy);
+        }
     }
+}
+
+QStringList SystemTrayController::launcherDesktopFiles() {
+    QStringList names;
+    auto add = [&names](QString name) {
+        name = name.trimmed();
+        if (name.startsWith(QLatin1String("application://"))) name = name.mid(14);
+        if (name.isEmpty()) return;
+        if (!name.endsWith(QLatin1String(".desktop"))) name += QLatin1String(".desktop");
+        if (!names.contains(name)) names << name;
+    };
+    add(QGuiApplication::desktopFileName());
+    const QString appImage = qEnvironmentVariable("APPIMAGE").section(QLatin1Char('/'), -1);
+    if (!appImage.isEmpty()) {
+        QString base = appImage;
+        base.remove(QRegularExpression(QStringLiteral("\\.AppImage$"), QRegularExpression::CaseInsensitiveOption));
+        base.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]+")), QStringLiteral("-"));
+        add(base.remove(QRegularExpression(QStringLiteral("^-+|-+$"))));
+    }
+    add(QStringLiteral("zalos"));
+    return names;
+}
+
+QImage SystemTrayController::dimmedImage(const QImage& source) {
+    QImage out = source.convertToFormat(QImage::Format_ARGB32);
+    for (int y = 0; y < out.height(); ++y) {
+        auto* line = reinterpret_cast<QRgb*>(out.scanLine(y));
+        for (int x = 0; x < out.width(); ++x) {
+            const int gray = qGray(line[x]);
+            line[x] = qRgba(gray, gray, gray, qAlpha(line[x]) * 6 / 10);
+        }
+    }
+    return out;
+}
+
+void SystemTrayController::setOffline(bool offline) {
+    if (!offline) {
+        m_offlineDelay.stop();
+        if (!m_offline) return;
+        m_offline = false;
+        refreshIconAndTooltip();
+        return;
+    }
+    if (m_offline || m_offlineDelay.isActive()) return;
+    m_offlineDelay.start();
 }
 
 void SystemTrayController::setHasMentions(bool hasMentions) {
@@ -669,22 +744,32 @@ void SystemTrayController::setNotificationsEnabled(bool on) {
     m_notificationsEnabled = on;
 }
 
+void SystemTrayController::setLocked(bool locked) {
+    if (m_locked == locked) return;
+    m_locked = locked;
+    if (syncMarkAllReadAction()) notifyMenuChanged();
+}
+
 void SystemTrayController::refreshIconAndTooltip() {
     const QString callKey = (!m_callPhase.isEmpty() && m_callPhase != QLatin1String("ended"))
         ? (m_callPhase == QLatin1String("connected") ? QStringLiteral("connected") : QStringLiteral("active"))
         : QString();
     if (m_unreadCount != m_lastBadgeCount || m_hasMentions != m_lastBadgeMentions
-        || m_antiPeeking != m_lastBadgeAntiPeeking || callKey != m_lastBadgeCallPhase) {
+        || m_antiPeeking != m_lastBadgeAntiPeeking || callKey != m_lastBadgeCallPhase || m_offline != m_lastBadgeOffline) {
+        m_lastBadgeOffline = m_offline;
         m_lastBadgeCount = m_unreadCount;
         m_lastBadgeMentions = m_hasMentions;
         m_lastBadgeAntiPeeking = m_antiPeeking;
         m_lastBadgeCallPhase = callKey;
         m_badgeImage = createBadgeImage(m_unreadCount, m_hasMentions);
+        if (m_offline) m_badgeImage = dimmedImage(m_badgeImage);
         if (m_sniAdaptor && m_busObjectsRegistered) emit m_sniAdaptor->NewIcon();
     }
     QString tip;
+    if (m_offline) tip += L(QStringLiteral("Đang mất kết nối, Zalos sẽ tự kết nối lại\n"),
+                            QStringLiteral("Offline, Zalos will reconnect automatically\n"));
     if (!m_callPhase.isEmpty() && m_callPhase != QLatin1String("ended")) {
-        const QString peer = m_callPeerName.isEmpty() ? QStringLiteral("Zalo") : m_callPeerName;
+        const QString peer = callPeerLabel();
         if (m_callPhase == QLatin1String("incoming")) {
             tip += L(QStringLiteral("Cuộc gọi đến: %1\n"), QStringLiteral("Incoming call: %1\n")).arg(peer);
         } else if (m_callPhase == QLatin1String("connected")) {

@@ -7,7 +7,7 @@ Item {
     property var info: ({})
     property string fallbackUrl: ""
     property bool playing: true
-    readonly property bool windowShowing: Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true
+    readonly property bool windowShowing: UiWindow.showing
 
     readonly property string stillUrl: (root.info && root.info.url) ? root.info.url : root.fallbackUrl
     readonly property string animatedUrl: (root.info && root.info.animatedUrl) ? root.info.animatedUrl : ""

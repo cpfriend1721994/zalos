@@ -75,35 +75,43 @@ Item {
         asynchronous: true
         cache: true
         smooth: true
+        mipmap: true
         fillMode: Image.PreserveAspectFit
-        sourceSize.width: Math.max(1, Math.ceil(root.size))
-        sourceSize.height: Math.max(1, Math.ceil(root.size))
+        sourceSize.width: root.size
+        sourceSize.height: root.size
         source: root.avatarUrl.length > 0 ? "image://avatar/" + encodeURIComponent(root.avatarUrl) : ""
         visible: root.hasImage
         opacity: root.hasImage ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 150 } }
     }
 
-    Rectangle {
+    Image {
+        id: statusDot
+        objectName: "statusDot"
         visible: root.showStatusDot && root.isOnline && !root.isGroup && !root.showVerifiedBadge
         width: Math.max(11, Math.round(root.size * 0.35))
         height: width
-        radius: width / 2
-        color: Theme.onlineGreen
-        border.color: ThemeManager.surfaceColor
-        border.width: root.size >= 40 ? 2 : 1.5
+        readonly property int innerRatio: Math.round((Math.max(6, width - (root.size >= 40 ? 4 : 3)) / width) * 1000)
         anchors.bottom: parent.bottom
         anchors.right: parent.right
         anchors.bottomMargin: -Math.round(width * 0.15)
         anchors.rightMargin: -Math.round(width * 0.15)
+        source: visible
+                ? "image://icon/dot/" + encodeURIComponent(ThemeManager.surfaceColor.toString())
+                  + "/" + encodeURIComponent(Theme.onlineGreen.toString()) + "/" + innerRatio
+                : ""
+        sourceSize.width: width
+        sourceSize.height: height
+        smooth: true
+        mipmap: true
+        cache: true
     }
 
-    Rectangle {
+    Item {
+        id: verifiedBadgeBox
         visible: root.showVerifiedBadge
         width: Math.max(14, Math.round(root.size * 0.36))
         height: width
-        radius: width / 2
-        color: ThemeManager.surfaceColor
         anchors.bottom: parent.bottom
         anchors.right: parent.right
         anchors.bottomMargin: -Math.round(width * 0.12)
@@ -111,15 +119,22 @@ Item {
 
         ZIcon {
             anchors.centerIn: parent
+            name: "dot"
+            size: verifiedBadgeBox.width
+            color: ThemeManager.surfaceColor
+        }
+
+        ZIcon {
+            anchors.centerIn: parent
             name: "verified_badge"
-            size: Math.max(12, parent.width - 2)
+            size: Math.max(12, verifiedBadgeBox.width - 2)
             color: "#F59300"
         }
 
         ZIcon {
             anchors.centerIn: parent
             name: "verified_check"
-            size: Math.max(10, Math.round((parent.width - 2) * 0.78))
+            size: Math.max(10, Math.round((verifiedBadgeBox.width - 2) * 0.78))
             color: "#FFFFFF"
         }
     }
@@ -182,8 +197,9 @@ Item {
                     asynchronous: true
                     cache: true
                     smooth: true
-                    sourceSize.width: Math.max(1, Math.ceil(compositeBox.cell))
-                    sourceSize.height: Math.max(1, Math.ceil(compositeBox.cell))
+                    mipmap: true
+                    sourceSize.width: compositeBox.cell
+                    sourceSize.height: compositeBox.cell
                     source: (memberCell.modelData.avatar || "").length > 0
                             ? "image://avatar/" + encodeURIComponent(memberCell.modelData.avatar) : ""
                     visible: status === Image.Ready

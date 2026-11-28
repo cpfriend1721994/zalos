@@ -183,9 +183,9 @@ public:
 
     void cancel() override {
         std::shared_ptr<State> s = m_state;
-        failState(s, QStringLiteral("cancelled"));
         QMutexLocker locker(&s->mutex);
         s->cancelled = true;
+        s->image = QImage();
     }
 
     static void startNetworkFetch(const std::shared_ptr<State>& s, const QUrl& url, const QString& cachePath) {

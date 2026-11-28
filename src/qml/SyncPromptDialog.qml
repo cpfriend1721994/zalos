@@ -39,7 +39,7 @@ Rectangle {
                 text: I18n.t("Đồng bộ tin nhắn từ điện thoại?", "Sync your messages from your phone?")
                 color: ThemeManager.textColor
                 font.family: Theme.fontFamily
-                font.pixelSize: 17
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
             Text {
@@ -50,7 +50,7 @@ Rectangle {
                              "This computer doesn't have your older chats yet. Sync to transfer them from Zalo on your phone; your phone asks you to confirm and the messages are kept on this computer. Note: this feature is in beta and supports sync v1 (Android) with automatic fallback to v2 (iPhone).")
                 color: ThemeManager.secondaryTextColor
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 lineHeight: 1.2
             }
             RowLayout {
@@ -74,7 +74,7 @@ Rectangle {
                 text: I18n.t("Không hỏi lại", "Don't ask again")
                 color: ThemeManager.secondaryTextColor
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 font.underline: neverMouse.containsMouse
                 MouseArea {
                     id: neverMouse

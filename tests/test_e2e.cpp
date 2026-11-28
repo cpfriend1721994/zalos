@@ -21,14 +21,14 @@ private slots:
     void initTestCase() {
         QCoreApplication::setOrganizationName("Zalos");
         QCoreApplication::setApplicationName("ZalosApp");
-        QSettings settings("Zalos", "ZalosApp");
+        QSettings settings;
         settings.setValue("auth/isLoggedIn", false);
         settings.setValue("auth/userName", "");
         settings.setValue("auth/userPhone", "");
     }
 
     void cleanupTestCase() {
-        QSettings settings("Zalos", "ZalosApp");
+        QSettings settings;
         settings.setValue("auth/isLoggedIn", false);
         settings.setValue("auth/userName", "");
         settings.setValue("auth/userPhone", "");

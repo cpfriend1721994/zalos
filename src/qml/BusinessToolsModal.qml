@@ -108,7 +108,7 @@ Item {
                             elide: Text.ElideRight
                             text: I18n.t("Công cụ zBusiness", "zBusiness Tools")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontSubtitle
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -120,7 +120,7 @@ Item {
                                   : I18n.t("Hồ sơ kinh doanh, danh mục sản phẩm và tin nhắn tự động",
                                            "Business profile, product catalog and auto reply")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontCaption
                             color: ThemeManager.secondaryTextColor
                         }
                     }
@@ -226,7 +226,7 @@ Item {
                                     Text {
                                         text: I18n.t(tabBtn.tabVi, tabBtn.tabEn)
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         font.weight: tabBtn.selected ? Font.DemiBold : Font.Normal
                                         color: tabBtn.selected ? ThemeManager.accentTonalTextColor
                                                                : ThemeManager.secondaryTextColor
@@ -254,6 +254,7 @@ Item {
                               : ZaloClient.businessTab === "package" ? 3 : 0
 
                 Flickable {
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     clip: true
                     contentWidth: width
                     contentHeight: profileCol.implicitHeight + 40
@@ -274,7 +275,7 @@ Item {
                                 elide: Text.ElideRight
                                 text: I18n.t("Thông tin cửa hàng / doanh nghiệp", "Store / Business Information")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                             }
@@ -305,7 +306,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: infoBox.label
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontCaption
                                     color: ThemeManager.secondaryTextColor
                                 }
                                 Text {
@@ -314,7 +315,7 @@ Item {
                                     textFormat: Text.PlainText
                                     wrapMode: Text.Wrap
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: infoBox.value.length > 0 ? Font.Medium : Font.Normal
                                     color: infoBox.linkUrl.length > 0 && infoBox.value.length > 0
                                            ? Theme.linkColor
@@ -371,7 +372,7 @@ Item {
                             text: I18n.t("Chỉnh sửa thông tin hồ sơ kinh doanh hiện chỉ thực hiện trên Zalo điện thoại/web (Zalo chưa cho phép cập nhật hồ sơ từ máy tính).",
                                          "Editing business profile fields is only supported on Zalo mobile/web (Zalo doesn't allow updating it from a computer yet).")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontCaption
                             color: ThemeManager.secondaryTextColor
                         }
                     }
@@ -414,7 +415,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: I18n.t("Danh mục & Sản phẩm", "Catalogs & Products")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                                 elide: Text.ElideRight
@@ -483,7 +484,7 @@ Item {
                                                 text: catChip.cname
                                                 textFormat: Text.PlainText
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 12
+                                                font.pixelSize: Theme.fontSmall
                                                 font.weight: catChip.active ? Font.DemiBold : Font.Normal
                                                 color: catChip.active ? ThemeManager.accentTonalTextColor : ThemeManager.textColor
                                             }
@@ -623,6 +624,7 @@ Item {
 
                             ListView {
                                 id: prodList
+                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                                 anchors.fill: parent
                                 clip: true
                                 spacing: 8
@@ -684,7 +686,7 @@ Item {
                                                 text: prodRow.pName
                                                 textFormat: Text.PlainText
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 13
+                                                font.pixelSize: Theme.fontBody
                                                 font.weight: Font.DemiBold
                                                 color: ThemeManager.textColor
                                                 elide: Text.ElideRight
@@ -698,7 +700,7 @@ Item {
                                                 onLinkActivated: function(link) { ZaloClient.openLink(link); }
                                                 HoverHandler { cursorShape: prodDescText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 11
+                                                font.pixelSize: Theme.fontCaption
                                                 color: ThemeManager.secondaryTextColor
                                                 elide: Text.ElideRight
                                             }
@@ -707,7 +709,7 @@ Item {
                                                 text: prodRow.pPrice + (prodRow.pCur.length > 0 ? " " + prodRow.pCur : "")
                                                 textFormat: Text.PlainText
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 12
+                                                font.pixelSize: Theme.fontSmall
                                                 font.weight: Font.DemiBold
                                                 color: Theme.zaloBlue
                                                 elide: Text.ElideRight
@@ -766,7 +768,7 @@ Item {
                                           ? I18n.t("Chưa có danh mục sản phẩm", "No product catalogs yet")
                                           : I18n.t("Chưa có sản phẩm nào trong danh mục này", "No products in this catalog")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.DemiBold
                                     color: ThemeManager.textColor
                                 }
@@ -780,7 +782,7 @@ Item {
                                           : I18n.t("Bấm \"+ Sản phẩm\" phía trên để thêm sản phẩm và đồng bộ lên Zalo.",
                                                    "Click \"+ Product\" above to add products synced to Zalo.")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontCaption
                                     color: ThemeManager.secondaryTextColor
                                 }
                             }
@@ -828,7 +830,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: I18n.t("Tin nhắn trả lời tự động", "Auto Reply Rules")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                                 elide: Text.ElideRight
@@ -871,7 +873,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: I18n.t("Kích hoạt quy tắc", "Enable rule")
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         font.weight: Font.DemiBold
                                         color: ThemeManager.textColor
                                     }
@@ -891,7 +893,7 @@ Item {
                                     Text {
                                         text: I18n.t("Đối tượng:", "Scope:")
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         color: ThemeManager.secondaryTextColor
                                     }
                                     ZComboBox {
@@ -947,6 +949,7 @@ Item {
 
                             ListView {
                                 id: autoList
+                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                                 anchors.fill: parent
                                 clip: true
                                 spacing: 8
@@ -1001,7 +1004,7 @@ Item {
                                                 maximumLineCount: 3
                                                 elide: Text.ElideRight
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 13
+                                                font.pixelSize: Theme.fontBody
                                                 font.weight: Font.Medium
                                                 color: ThemeManager.textColor
                                             }
@@ -1009,7 +1012,7 @@ Item {
                                                 Layout.fillWidth: true
                                                 text: root.autoReplyScopeLabel(ruleRow.rScope)
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 11
+                                                font.pixelSize: Theme.fontCaption
                                                 color: ThemeManager.secondaryTextColor
                                             }
                                         }
@@ -1053,7 +1056,7 @@ Item {
                                     wrapMode: Text.Wrap
                                     text: I18n.t("Chưa có cấu hình trả lời tự động", "No auto-reply rules yet")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.DemiBold
                                     color: ThemeManager.textColor
                                 }
@@ -1064,7 +1067,7 @@ Item {
                                     text: I18n.t("Bấm \"+ Thêm quy tắc\" phía trên để tạo câu trả lời tự động trên tài khoản zBusiness.",
                                                  "Click \"+ Add Rule\" above to configure server-synced auto replies.")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontCaption
                                     color: ThemeManager.secondaryTextColor
                                 }
                             }
@@ -1074,6 +1077,7 @@ Item {
 
                 Flickable {
                     id: pkgTab
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     clip: true
                     contentWidth: width
                     contentHeight: pkgCol.implicitHeight + 40
@@ -1125,7 +1129,7 @@ Item {
                                               : I18n.t("Tài khoản Zalo Cá nhân (Tiêu chuẩn)", "Standard Zalo Account")
                                         textFormat: Text.PlainText
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 16
+                                        font.pixelSize: Theme.fontTitle
                                         font.weight: Font.DemiBold
                                         color: "#FFFFFF"
                                     }
@@ -1134,7 +1138,7 @@ Item {
                                               ? I18n.t("Đang hoạt động • Bộ công cụ bán hàng & chăm sóc khách hàng tối ưu", "Active • Full sales and CRM toolkit")
                                               : I18n.t("Chưa đăng ký gói zBusiness • Nâng cấp để mở rộng tính năng kinh doanh", "No active zBusiness package • Upgrade for business tools")
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         color: "#E0EFFF"
                                     }
                                 }
@@ -1144,7 +1148,7 @@ Item {
                         Text {
                             text: I18n.t("Quyền lợi gói zBusiness:", "zBusiness Benefits:")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -1172,7 +1176,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: label
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     color: ThemeManager.textColor
                                 }
                             }

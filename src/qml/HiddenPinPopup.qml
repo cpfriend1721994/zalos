@@ -183,7 +183,7 @@ Popup {
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
             font.family: Theme.fontFamily
-            font.pixelSize: 16
+            font.pixelSize: Theme.fontTitle
             font.weight: Font.DemiBold
             color: ThemeManager.textColor
         }
@@ -195,7 +195,7 @@ Popup {
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
             color: root.step === "resetWarn" ? Theme.badgeRed : ThemeManager.secondaryTextColor
         }
 
@@ -234,7 +234,7 @@ Popup {
                         Text {
                             anchors.centerIn: parent
                             text: index < pinInput.text.length ? "●" : ""
-                            font.pixelSize: 18
+                            font.pixelSize: Theme.fontTitleLarge
                             color: ThemeManager.textColor
                         }
                     }
@@ -255,7 +255,7 @@ Popup {
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
             font.family: Theme.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             color: Theme.badgeRed
         }
 
@@ -268,7 +268,7 @@ Popup {
                          "Forgot your PIN? You have to <a href=\"reset\">reset it.</a>")
             linkColor: Theme.zaloBlue
             font.family: Theme.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             color: ThemeManager.secondaryTextColor
             onLinkActivated: { root.close(); ZaloClient.openSettings("security"); }
         }

@@ -6,6 +6,7 @@ import Zalos
 
 Item {
     id: root
+    readonly property bool windowShowing: UiWindow.showing
     visible: ZaloClient.showAddFriendModal
     anchors.fill: parent
     z: 200
@@ -150,7 +151,7 @@ Item {
                     Layout.fillWidth: true
                     text: I18n.t("Thêm bạn", "Add friend")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
@@ -225,7 +226,7 @@ Item {
                                     anchors.centerIn: parent
                                     text: I18n.t(modePill.modeVi, modePill.modeEn)
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: modePill.on ? Font.DemiBold : Font.Normal
                                     color: modePill.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
                                 }
@@ -261,7 +262,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: "+84"
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                             }
@@ -283,7 +284,7 @@ Item {
                                 anchors.rightMargin: 10
                                 color: ThemeManager.textColor
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 verticalAlignment: TextInput.AlignVCenter
                                 inputMethodHints: root.searchMode === "username" ? Qt.ImhNone : Qt.ImhDialableCharactersOnly
                                 selectByMouse: true
@@ -297,7 +298,7 @@ Item {
                                                                           : I18n.t("Số điện thoại", "Phone number")
                                     color: ThemeManager.secondaryTextColor
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     elide: Text.ElideRight
                                     visible: !phoneInput.text && !phoneInput.activeFocus
                                 }
@@ -320,7 +321,7 @@ Item {
                                 text: root.searching ? I18n.t("Đang tìm...", "Searching...")
                                                      : I18n.t("Tìm kiếm", "Search")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                                 color: "#FFFFFF"
                             }
@@ -344,14 +345,14 @@ Item {
                         BusyIndicator {
                             Layout.preferredWidth: 22
                             Layout.preferredHeight: 22
-                            running: root.searching
+                            running: root.searching && root.windowShowing
                         }
 
                         Text {
                             Layout.fillWidth: true
                             text: I18n.t("Đang tìm người dùng...", "Looking up user...")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                             wrapMode: Text.WordWrap
                         }
@@ -374,7 +375,7 @@ Item {
                             text: root.searchError
                             color: Theme.badgeRed
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             wrapMode: Text.WordWrap
                         }
                     }
@@ -412,7 +413,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: root.foundName
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 15
+                                        font.pixelSize: Theme.fontSubtitle
                                         font.weight: Font.DemiBold
                                         color: foundProfileMouse.containsMouse ? Theme.zaloBlue : ThemeManager.textColor
                                         elide: Text.ElideRight
@@ -445,7 +446,7 @@ Item {
                                     anchors.rightMargin: 10
                                     color: ThemeManager.textColor
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     verticalAlignment: TextInput.AlignVCenter
                                     selectByMouse: true
                                     clip: true
@@ -456,7 +457,7 @@ Item {
                                         text: I18n.t("Lời chào", "Greeting message")
                                         color: ThemeManager.secondaryTextColor
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         visible: !greetingInput.text && !greetingInput.activeFocus
                                     }
                                 }
@@ -467,7 +468,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: root.requestMessage
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.fontSmall
                                 color: root.requestOk ? Theme.onlineGreen : Theme.badgeRed
                                 wrapMode: Text.WordWrap
                             }
@@ -491,7 +492,7 @@ Item {
                                         anchors.centerIn: parent
                                         text: I18n.t("Nhắn tin", "Chat")
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         color: ThemeManager.textColor
                                     }
 
@@ -521,7 +522,7 @@ Item {
                                               : (root.requestOk ? I18n.t("Đã gửi lời mời", "Request sent")
                                                                 : I18n.t("Kết bạn", "Add friend"))
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         font.weight: Font.DemiBold
                                         color: "#FFFFFF"
                                     }

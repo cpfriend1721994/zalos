@@ -87,7 +87,11 @@ QString StorageManager::directory(const QString& key) {
     if (key == "voice") return cache + "/voice";
     if (key == "sounds") return cache + "/sounds";
     if (key == "qmlcache") return cache + "/qmlcache";
-    if (key == "downloads") return QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).filePath("Zalos");
+    if (key == "downloads") {
+        const QString chosen = QSettings().value(QStringLiteral("settings/downloadDir")).toString();
+        if (!chosen.isEmpty() && QFileInfo(chosen).isDir()) return chosen;
+        return QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).filePath("Zalos");
+    }
     return {};
 }
 
@@ -196,7 +200,7 @@ void StorageManager::cleanTemporaryFiles() {
     const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
     if (tempDir.isEmpty()) return;
     QDir dir(tempDir);
-    const QStringList filters = {"zalos_paste_*", "zalos_annotated_*", "zalos_print_*"};
+    const QStringList filters = {"zalos_paste_*", "zalos_annotated_*", "zalos_print_*", "zalos_shot_*"};
     const QFileInfoList list = dir.entryInfoList(filters, QDir::Files | QDir::NoSymLinks);
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     constexpr qint64 kMaxAgeMs = 15 * 60 * 1000;

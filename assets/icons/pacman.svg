@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="body" gradientUnits="userSpaceOnUse" x1="25" y1="2" x2="37" y2="62">
+      <stop offset="0%" stop-color="#FFE938"/>
+      <stop offset="32%" stop-color="#FFD51E"/>
+      <stop offset="62%" stop-color="#FFBF10"/>
+      <stop offset="86%" stop-color="#FFA906"/>
+      <stop offset="100%" stop-color="#FA9800"/>
+    </linearGradient>
+    <radialGradient id="dome" gradientUnits="userSpaceOnUse" cx="28" cy="14" r="24" fx="27" fy="11">
+      <stop offset="0%" stop-color="#FFF782" stop-opacity="0.72"/>
+      <stop offset="48%" stop-color="#FFF066" stop-opacity="0.50"/>
+      <stop offset="82%" stop-color="#FFE238" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#FFD41E" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="rimShade" gradientUnits="userSpaceOnUse" cx="31" cy="31" r="31.5">
+      <stop offset="0%" stop-color="#FFBB00" stop-opacity="0"/>
+      <stop offset="76%" stop-color="#F29B00" stop-opacity="0"/>
+      <stop offset="93%" stop-color="#D97E00" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#B05A00" stop-opacity="0.40"/>
+    </radialGradient>
+    <radialGradient id="eyeL" gradientUnits="userSpaceOnUse" cx="19.6" cy="29.4" r="4.8">
+      <stop offset="0%" stop-color="#6F310E"/>
+      <stop offset="55%" stop-color="#4F1E04"/>
+      <stop offset="100%" stop-color="#351201"/>
+    </radialGradient>
+    <radialGradient id="eyeR" gradientUnits="userSpaceOnUse" cx="38.3" cy="16.8" r="4.8">
+      <stop offset="0%" stop-color="#6F310E"/>
+      <stop offset="55%" stop-color="#4F1E04"/>
+      <stop offset="100%" stop-color="#351201"/>
+    </radialGradient>
+    <linearGradient id="outerRim" gradientUnits="userSpaceOnUse" x1="18" y1="2" x2="46" y2="62">
+      <stop offset="0%" stop-color="#D6A810" stop-opacity="0.45"/>
+      <stop offset="55%" stop-color="#CC8604" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#A65400" stop-opacity="0.60"/>
+    </linearGradient>
+  </defs>
+  <path d="M 32.5 40.4 L 60.8 41.2 A 30.6 30.6 0 1 1 60.6 20.9 Z" fill="url(#body)"/>
+  <path d="M 32.5 40.4 L 60.8 41.2 A 30.6 30.6 0 1 1 60.6 20.9 Z" fill="url(#dome)"/>
+  <path d="M 32.5 40.4 L 60.8 41.2 A 30.6 30.6 0 1 1 60.6 20.9 Z" fill="url(#rimShade)"/>
+  <path d="M 33.2 41.4 L 59.6 42.1" stroke="#FFE654" stroke-opacity="0.55" stroke-width="1.35" stroke-linecap="round"/>
+  <path d="M 60.8 41.2 A 30.6 30.6 0 1 1 60.6 20.9" fill="none" stroke="url(#outerRim)" stroke-width="1.05"/>
+  <circle cx="20.6" cy="30.6" r="5.3" fill="#B86606" fill-opacity="0.34"/>
+  <circle cx="20.6" cy="30.6" r="4.3" fill="url(#eyeL)"/>
+  <circle cx="39.3" cy="18.0" r="5.3" fill="#B86606" fill-opacity="0.34"/>
+  <circle cx="39.3" cy="18.0" r="4.3" fill="url(#eyeR)"/>
+</svg>

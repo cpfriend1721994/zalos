@@ -41,7 +41,7 @@ Rectangle {
                 text: root.emoji.length > 0 ? root.emoji : "❤️"
                 textFormat: Text.PlainText
                 font.family: Theme.fontFamily
-                font.pixelSize: 36
+                font.pixelSize: Theme.fontEmojiStrike
                 scale: parent.width / 36
                 smooth: true
                 antialiasing: true
@@ -65,7 +65,7 @@ Rectangle {
             text: root.count > 99 ? "99+" : String(root.count)
             color: "#FFFFFF"
             font.family: Theme.fontFamily
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
         }
     }

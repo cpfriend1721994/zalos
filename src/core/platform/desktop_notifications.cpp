@@ -1,6 +1,7 @@
 #include "desktop_notifications.h"
 
 #include <QDBusConnection>
+#include <QGuiApplication>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
@@ -51,7 +52,8 @@ void DesktopNotifications::show(const QString& key, const Request& request) {
     QDBusMessage msg = QDBusMessage::createMethodCall(kService, kPath, kInterface, "Notify");
     QVariantMap hints;
     if (!request.category.isEmpty()) hints["category"] = request.category;
-    hints["desktop-entry"] = QStringLiteral("zalos");
+    const QString desktopId = QGuiApplication::desktopFileName();
+    hints["desktop-entry"] = desktopId.isEmpty() ? QStringLiteral("zalos") : desktopId;
     hints["urgency"] = static_cast<uchar>(request.urgency);
     if (request.inlineReply && !request.replyPlaceholder.isEmpty()) {
         hints["x-kde-reply-placeholder-text"] = request.replyPlaceholder;

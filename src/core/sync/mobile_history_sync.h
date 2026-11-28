@@ -116,6 +116,8 @@ private:
     QPointer<Network::ZaloSession> m_session;
     QString m_lang{"vi"};
     int m_state{Idle};
+    int m_lastProgress{-1};
+    QString m_lastStatus;
     QString m_pcName;
     QString m_myNoisedUid;
     KeyPair m_keys;

@@ -48,7 +48,7 @@ Rectangle {
                 text: cat.label
                 elide: Text.ElideRight
                 font.family: Theme.fontFamily
-                font.pixelSize: 14
+                font.pixelSize: Theme.fontBodyLarge
                 font.weight: cat.selected ? Font.DemiBold : Font.Normal
                 color: cat.selected ? Theme.zaloBlue : ThemeManager.textColor
             }
@@ -56,7 +56,7 @@ Rectangle {
                 text: cat.count
                 visible: cat.count > 0
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: ThemeManager.secondaryTextColor
             }
         }
@@ -122,13 +122,13 @@ Rectangle {
                                 onTriggered: ZaloClient.contactModel.setSearchFilter(contactSearchDebounce.targetText)
                             }
 
-                            TextField {
+                            ZTextField {
                                 id: contactSearch
                                 Layout.fillWidth: true
                                 background: null
                                 padding: 0
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 color: ThemeManager.textColor
                                 placeholderText: I18n.t("Tìm kiếm", "Search")
                                 placeholderTextColor: ThemeManager.secondaryTextColor
@@ -233,7 +233,7 @@ Rectangle {
                                   : I18n.t("Danh sách bạn bè", "Friends list")
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 16
+                            font.pixelSize: Theme.fontTitle
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -260,7 +260,7 @@ Rectangle {
                                         anchors.centerIn: parent
                                         text: I18n.t(chipItem.modelData.vi, chipItem.modelData.en)
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         color: parent.selected ? "#FFFFFF" : ThemeManager.textColor
                                     }
                                     MouseArea {
@@ -288,7 +288,7 @@ Rectangle {
                                : I18n.t("Bạn bè", "Friends"))
                               + " (" + (root.showingSentRequests ? ZaloClient.sentFriendRequests.length : ZaloClient.contactModel.count) + ")"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
@@ -331,7 +331,7 @@ Rectangle {
                                         anchors.centerIn: parent
                                         text: I18n.t(subTabChip.vi, subTabChip.en)
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         font.weight: subTabChip.on ? Font.DemiBold : Font.Normal
                                         color: subTabChip.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
                                     }
@@ -351,7 +351,7 @@ Rectangle {
                     }
 
                     Item { Layout.fillWidth: root.activeCategory !== "invites" && !root.compact }
-                    TextField {
+                    ZTextField {
                         visible: root.compact
                         Layout.preferredWidth: Math.min(200, root.width * 0.45)
                         Layout.preferredHeight: 32
@@ -359,7 +359,7 @@ Rectangle {
                         placeholderTextColor: ThemeManager.placeholderColor
                         color: ThemeManager.textColor
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         verticalAlignment: TextInput.AlignVCenter
                         leftPadding: 8
                         rightPadding: 8
@@ -435,7 +435,7 @@ Rectangle {
                                         textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         font.weight: Font.DemiBold
                                         color: ThemeManager.textColor
                                     }
@@ -450,7 +450,7 @@ Rectangle {
                                         HoverHandler { cursorShape: sentMsgText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         color: ThemeManager.secondaryTextColor
                                     }
                                 }
@@ -466,7 +466,7 @@ Rectangle {
                                         anchors.centerIn: parent
                                         text: I18n.t("Thu hồi", "Cancel")
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         color: Theme.badgeRed
                                     }
                                     MouseArea {
@@ -487,7 +487,7 @@ Rectangle {
                         visible: root.showingSentRequests && sentList.count === 0
                         text: I18n.t("Bạn chưa gửi lời mời kết bạn nào", "You haven't sent any friend requests")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -514,13 +514,14 @@ Rectangle {
                             verticalAlignment: Text.AlignVCenter
                             text: section.toUpperCase()
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
 
                         delegate: Rectangle {
                             id: contactRow
+                            HoverHandler { id: contactRowHover }
                             required property string id
                             required property string name
                             required property string avatarUrl
@@ -592,7 +593,7 @@ Rectangle {
                                         textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 14
+                                        font.pixelSize: Theme.fontBodyLarge
                                         color: ThemeManager.textColor
                                     }
                                     Text {
@@ -604,7 +605,7 @@ Rectangle {
                                         maximumLineCount: 2
                                         wrapMode: Text.Wrap
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         color: ThemeManager.secondaryTextColor
                                     }
                                     Text {
@@ -612,7 +613,7 @@ Rectangle {
                                         visible: contactRow.isGroup && contactRow.memberCount > 0
                                         text: contactRow.memberCount + I18n.t(" thành viên", " members")
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         color: ThemeManager.secondaryTextColor
                                     }
                                 }
@@ -621,136 +622,139 @@ Rectangle {
                                     visible: contactRow.isInvite
                                     spacing: 6
                                     Repeater {
-                                        model: [ { accept: false, vi: "Từ chối", en: "Decline" },
-                                                 { accept: true, vi: "Đồng ý", en: "Accept" } ]
+                                        model: contactRow.isInvite ? 2 : 0
                                         Rectangle {
                                             id: inviteBtn
-                                            required property var modelData
+                                            required property int index
+                                            readonly property bool accept: inviteBtn.index === 1
                                             width: inviteLabel.implicitWidth + 24
                                             height: 30
                                             radius: 6
-                                            color: inviteBtn.modelData.accept ? (inviteMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlue)
+                                            color: inviteBtn.accept ? (inviteMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlue)
                                                                               : (inviteMouse.containsMouse ? root.hoverColor() : (ThemeManager.hoverColor))
                                             Text {
                                                 id: inviteLabel
                                                 anchors.centerIn: parent
-                                                text: I18n.t(inviteBtn.modelData.vi, inviteBtn.modelData.en)
+                                                text: inviteBtn.accept ? I18n.t("Đồng ý", "Accept") : I18n.t("Từ chối", "Decline")
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 12
+                                                font.pixelSize: Theme.fontSmall
                                                 font.weight: Font.DemiBold
-                                                color: inviteBtn.modelData.accept ? "#FFFFFF" : ThemeManager.textColor
+                                                color: inviteBtn.accept ? "#FFFFFF" : ThemeManager.textColor
                                             }
                                             MouseArea {
                                                 id: inviteMouse
                                                 anchors.fill: parent
                                                 hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: inviteBtn.modelData.accept ? ZaloClient.acceptFriendRequest(contactRow.id)
+                                                onClicked: inviteBtn.accept ? ZaloClient.acceptFriendRequest(contactRow.id)
                                                                             : ZaloClient.rejectFriendRequest(contactRow.id)
                                             }
                                         }
                                     }
                                 }
 
-                                Row {
-                                    visible: (rowMouse.containsMouse || actVoiceMouse.containsMouse || actVideoMouse.containsMouse || actChatMouse.containsMouse) && !contactRow.isInvite
-                                    spacing: 4
+                                ZBoundLoader {
+                                    active: contactRowHover.hovered && !contactRow.isInvite
+                                    visible: active
+                                    sourceComponent: Row {
+                                        spacing: 4
 
-                                    Rectangle {
-                                        visible: contactRow.id !== ZaloClient.myCloudId
-                                        width: 32
-                                        height: 32
-                                        radius: 16
-                                        color: actVoiceMouse.pressed ? ThemeManager.selectedColor :
-                                               (actVoiceMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
-                                        scale: actVoiceMouse.pressed ? 0.92 : 1.0
-                                        Behavior on scale { NumberAnimation { duration: 100 } }
+                                        Rectangle {
+                                            visible: contactRow.id !== ZaloClient.myCloudId
+                                            width: 32
+                                            height: 32
+                                            radius: 16
+                                            color: actVoiceMouse.pressed ? ThemeManager.selectedColor :
+                                                   (actVoiceMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
+                                            scale: actVoiceMouse.pressed ? 0.92 : 1.0
+                                            Behavior on scale { NumberAnimation { duration: 100 } }
 
-                                        ZIcon {
-                                            anchors.centerIn: parent
-                                            name: "phone"
-                                            size: 16
-                                            color: ThemeManager.textColor
-                                        }
+                                            ZIcon {
+                                                anchors.centerIn: parent
+                                                name: "phone"
+                                                size: 16
+                                                color: ThemeManager.textColor
+                                            }
 
-                                        MouseArea {
-                                            id: actVoiceMouse
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            hoverEnabled: true
-                                            ToolTip.visible: containsMouse
-                                            ToolTip.delay: 350
-                                            ToolTip.text: contactRow.isGroup
-                                                          ? I18n.t("Cuộc gọi thoại nhóm", "Group voice call")
-                                                          : I18n.t("Cuộc gọi thoại", "Voice call")
-                                            onClicked: {
-                                                ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl);
-                                                if (contactRow.isGroup) ZaloClient.startGroupCall(false);
-                                                else ZaloClient.startVoiceCall();
+                                            MouseArea {
+                                                id: actVoiceMouse
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                hoverEnabled: true
+                                                ToolTip.visible: containsMouse
+                                                ToolTip.delay: 350
+                                                ToolTip.text: contactRow.isGroup
+                                                              ? I18n.t("Cuộc gọi thoại nhóm", "Group voice call")
+                                                              : I18n.t("Cuộc gọi thoại", "Voice call")
+                                                onClicked: {
+                                                    ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl);
+                                                    if (contactRow.isGroup) ZaloClient.startGroupCall(false);
+                                                    else ZaloClient.startVoiceCall();
+                                                }
                                             }
                                         }
-                                    }
 
-                                    Rectangle {
-                                        visible: contactRow.id !== ZaloClient.myCloudId
-                                        width: 32
-                                        height: 32
-                                        radius: 16
-                                        color: actVideoMouse.pressed ? ThemeManager.selectedColor :
-                                               (actVideoMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
-                                        scale: actVideoMouse.pressed ? 0.92 : 1.0
-                                        Behavior on scale { NumberAnimation { duration: 100 } }
+                                        Rectangle {
+                                            visible: contactRow.id !== ZaloClient.myCloudId
+                                            width: 32
+                                            height: 32
+                                            radius: 16
+                                            color: actVideoMouse.pressed ? ThemeManager.selectedColor :
+                                                   (actVideoMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
+                                            scale: actVideoMouse.pressed ? 0.92 : 1.0
+                                            Behavior on scale { NumberAnimation { duration: 100 } }
 
-                                        ZIcon {
-                                            anchors.centerIn: parent
-                                            name: "video"
-                                            size: 16
-                                            color: ThemeManager.textColor
-                                        }
+                                            ZIcon {
+                                                anchors.centerIn: parent
+                                                name: "video"
+                                                size: 16
+                                                color: ThemeManager.textColor
+                                            }
 
-                                        MouseArea {
-                                            id: actVideoMouse
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            hoverEnabled: true
-                                            ToolTip.visible: containsMouse
-                                            ToolTip.delay: 350
-                                            ToolTip.text: contactRow.isGroup
-                                                          ? I18n.t("Cuộc gọi video nhóm", "Group video call")
-                                                          : I18n.t("Cuộc gọi video", "Video call")
-                                            onClicked: {
-                                                ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl);
-                                                if (contactRow.isGroup) ZaloClient.startGroupCall(true);
-                                                else ZaloClient.startVideoCall();
+                                            MouseArea {
+                                                id: actVideoMouse
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                hoverEnabled: true
+                                                ToolTip.visible: containsMouse
+                                                ToolTip.delay: 350
+                                                ToolTip.text: contactRow.isGroup
+                                                              ? I18n.t("Cuộc gọi video nhóm", "Group video call")
+                                                              : I18n.t("Cuộc gọi video", "Video call")
+                                                onClicked: {
+                                                    ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl);
+                                                    if (contactRow.isGroup) ZaloClient.startGroupCall(true);
+                                                    else ZaloClient.startVideoCall();
+                                                }
                                             }
                                         }
-                                    }
 
-                                    Rectangle {
-                                        width: 32
-                                        height: 32
-                                        radius: 16
-                                        color: actChatMouse.pressed ? ThemeManager.selectedColor :
-                                               (actChatMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
-                                        scale: actChatMouse.pressed ? 0.92 : 1.0
-                                        Behavior on scale { NumberAnimation { duration: 100 } }
+                                        Rectangle {
+                                            width: 32
+                                            height: 32
+                                            radius: 16
+                                            color: actChatMouse.pressed ? ThemeManager.selectedColor :
+                                                   (actChatMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
+                                            scale: actChatMouse.pressed ? 0.92 : 1.0
+                                            Behavior on scale { NumberAnimation { duration: 100 } }
 
-                                        ZIcon {
-                                            anchors.centerIn: parent
-                                            name: "chat"
-                                            size: 16
-                                            color: ThemeManager.textColor
-                                        }
+                                            ZIcon {
+                                                anchors.centerIn: parent
+                                                name: "chat"
+                                                size: 16
+                                                color: ThemeManager.textColor
+                                            }
 
-                                        MouseArea {
-                                            id: actChatMouse
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            hoverEnabled: true
-                                            ToolTip.visible: containsMouse
-                                            ToolTip.delay: 350
-                                            ToolTip.text: I18n.t("Nhắn tin", "Chat")
-                                            onClicked: ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl)
+                                            MouseArea {
+                                                id: actChatMouse
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                hoverEnabled: true
+                                                ToolTip.visible: containsMouse
+                                                ToolTip.delay: 350
+                                                ToolTip.text: I18n.t("Nhắn tin", "Chat")
+                                                onClicked: ZaloClient.openConversationWithContact(contactRow.id, contactRow.name, contactRow.avatarUrl)
+                                            }
                                         }
                                     }
                                 }
@@ -760,6 +764,7 @@ Rectangle {
 
                     ListView {
                         id: groupInviteList
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                         anchors.fill: parent
                         clip: true
                         visible: root.activeCategory === "invites" && root.invitesTab === "group_invites"
@@ -795,7 +800,7 @@ Rectangle {
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.weight: Font.DemiBold
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         color: ThemeManager.textColor
                                     }
                                     Text {
@@ -805,7 +810,7 @@ Rectangle {
                                         textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 11
+                                        font.pixelSize: Theme.fontCaption
                                         color: ThemeManager.secondaryTextColor
                                     }
                                 }
@@ -825,6 +830,7 @@ Rectangle {
 
                     ListView {
                         id: recommList
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                         anchors.fill: parent
                         clip: true
                         visible: root.activeCategory === "invites" && root.invitesTab === "recommended"
@@ -859,7 +865,7 @@ Rectangle {
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.weight: Font.DemiBold
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         color: ThemeManager.textColor
                                     }
                                     Text {
@@ -873,7 +879,7 @@ Rectangle {
                                         HoverHandler { cursorShape: recMsgText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 11
+                                        font.pixelSize: Theme.fontCaption
                                         color: ThemeManager.secondaryTextColor
                                     }
                                 }
@@ -887,54 +893,25 @@ Rectangle {
                         }
                     }
 
-                    ColumnLayout {
+                    ZEmptyState {
+                        objectName: "contactsEmptyState"
                         anchors.centerIn: parent
                         width: Math.min(parent.width - 48, 360)
                         visible: !root.showingSentRequests && contactsList.count === 0 && !(root.activeCategory === "invites" && (root.invitesTab === "group_invites" || root.invitesTab === "recommended"))
-                        spacing: 10
-
-                        BusyIndicator {
-                            Layout.alignment: Qt.AlignHCenter
-                            visible: ZaloClient.isSyncing
-                            running: visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            horizontalAlignment: Text.AlignHCenter
-                            wrapMode: Text.Wrap
-                            text: ZaloClient.isSyncing ? I18n.t("Đang tải danh bạ...", "Loading contacts...")
-                                : ZaloClient.contactModel.searchQuery.length > 0 ? I18n.t("Không tìm thấy kết quả phù hợp", "No matching results")
-                                : root.activeCategory === "groups" ? I18n.t("Bạn chưa tham gia nhóm nào", "You haven't joined any groups")
-                                : root.activeCategory === "invites" ? I18n.t("Không có lời mời kết bạn nào", "No friend requests")
-                                : I18n.t("Danh bạ chưa có bạn bè", "No friends yet")
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 14
-                            color: ThemeManager.secondaryTextColor
-                        }
-                        Button {
-                            id: reloadContactsBtn
-                            Layout.alignment: Qt.AlignHCenter
-                            Layout.preferredHeight: 34
-                            Layout.preferredWidth: 90
-                            visible: !ZaloClient.isSyncing && ZaloClient.isLoggedIn
-                            background: Rectangle {
-                                radius: 6
-                                color: reloadContactsBtn.pressed ? Theme.zaloBlueHover : (reloadContactsBtn.hovered ? Theme.zaloBlueHover : Theme.zaloBlue)
-                                Behavior on color { ColorAnimation { duration: 120 } }
-                            }
-                            contentItem: Text {
-                                text: I18n.t("Tải lại", "Reload")
-                                color: "#FFFFFF"
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 13
-                                font.weight: Font.DemiBold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onClicked: {
-                                ZaloClient.refreshContacts();
-                                ZaloClient.refreshFriendRequests();
-                            }
+                        busy: ZaloClient.isSyncing
+                        iconName: ZaloClient.contactModel.searchQuery.length > 0 ? "search"
+                                  : root.activeCategory === "groups" ? "group_add"
+                                  : root.activeCategory === "invites" ? "user_add"
+                                  : "contacts"
+                        title: ZaloClient.isSyncing ? I18n.t("Đang tải danh bạ...", "Loading contacts...")
+                            : ZaloClient.contactModel.searchQuery.length > 0 ? I18n.t("Không tìm thấy kết quả phù hợp", "No matching results")
+                            : root.activeCategory === "groups" ? I18n.t("Bạn chưa tham gia nhóm nào", "You haven't joined any groups")
+                            : root.activeCategory === "invites" ? I18n.t("Không có lời mời kết bạn nào", "No friend requests")
+                            : I18n.t("Danh bạ chưa có bạn bè", "No friends yet")
+                        actionText: !ZaloClient.isSyncing && ZaloClient.isLoggedIn ? I18n.t("Tải lại", "Reload") : ""
+                        onActionTriggered: {
+                            ZaloClient.refreshContacts();
+                            ZaloClient.refreshFriendRequests();
                         }
                     }
                 }

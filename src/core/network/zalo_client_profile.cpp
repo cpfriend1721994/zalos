@@ -1,4 +1,5 @@
 #include "zalo_client_internal.h"
+#include "platform/background_portal.h"
 
 #include <QCollator>
 
@@ -483,7 +484,8 @@ void ZaloClient::openSendCardPicker() {
     emit forwardModalChanged();
 }
 
-QVariantList ZaloClient::friendsForCard() const {
+QVariantList ZaloClient::friendsForCard(const QString& query) const {
+    const QStringList terms = Models::foldTerms(query.trimmed());
     struct Row {
         QCollatorSortKey key;
         QVariantMap map;
@@ -494,6 +496,7 @@ QVariantList ZaloClient::friendsForCard() const {
     for (const QString& id : m_friendIds) {
         const QString name = displayNameOf(id);
         if (name.isEmpty()) continue;
+        if (!terms.isEmpty() && !Models::containsAllTerms(Models::foldForSearch(name), terms)) continue;
         rows.append(Row{collator.sortKey(name), QVariantMap{{"id", id}, {"name", name}, {"avatar", m_users.value(id).avatar}}});
     }
     std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.key < b.key; });
@@ -539,6 +542,10 @@ QVariantList ZaloClient::conversationsForForward(const QString& query) const {
 }
 
 void ZaloClient::openForwardModal(const QString& msgId, const QString& previewText) {
+    if (!(m_messageModel->getMessageById(msgId).value("actions").toInt() & Models::MessageModel::ActionForward)) {
+        emit notice(L("Không thể chuyển tiếp tin nhắn này", "This message can't be forwarded"));
+        return;
+    }
     m_forwardMode = QStringLiteral("message");
     m_forwardCardUid.clear();
     m_forwardSourceMsgId = msgId;
@@ -549,6 +556,7 @@ void ZaloClient::openForwardModal(const QString& msgId, const QString& previewTe
 
 void ZaloClient::closeForwardModal() {
     m_showForwardModal = false;
+    m_forwardSourceMsgIds.clear();
     m_forwardSourceMsgId.clear();
     m_forwardSourcePreview.clear();
     m_forwardCardUid.clear();
@@ -1093,6 +1101,11 @@ void ZaloClient::sendForward(const QString& targetThreadId, const QString& msgId
         if (done) done(false);
         return;
     }
+    if (!(item.value("actions").toInt() & Models::MessageModel::ActionForward)) {
+        emit notice(L("Không thể chuyển tiếp tin nhắn này", "This message can't be forwarded"));
+        if (done) done(false);
+        return;
+    }
 
     const QString text = item.value("text").toString();
     const QString href = item.value("href").toString().trimmed();
@@ -1151,8 +1164,8 @@ void ZaloClient::sendForward(const QString& targetThreadId, const QString& msgId
     };
 
     if (msgType == "image" || msgType == "file" || msgType == "video") {
-        if (!mediaUrl.isEmpty() && (QFile::exists(mediaUrl) || mediaUrl.startsWith("file://"))) {
-            const QString localPath = mediaUrl.startsWith("file://") ? QUrl(mediaUrl).toLocalFile() : mediaUrl;
+        const QString localPath = item.value("isMine").toBool() ? forwardableLocalPath(mediaUrl) : QString();
+        if (!localPath.isEmpty()) {
             m_apiClient->session()->sendAttachment(targetThreadId, isGroup, localPath, text,
                 [finish](bool ok, const QJsonValue& data, const QString& err, int) { finish(ok, data, err); },
                 cliId);
@@ -1474,7 +1487,7 @@ void ZaloClient::setInterfaceScale(int pct) {
     const int normalized = normalizeInterfaceScale(pct);
     if (m_interfaceScale == normalized) return;
     m_interfaceScale = normalized;
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     settings.setValue("appearance/interfaceScale", m_interfaceScale);
     emit settingsChanged();
 }
@@ -1545,6 +1558,11 @@ QString ZaloClient::packageKind() const {
     return Platform::packageKindKey(Platform::detectRuntimePackageKind());
 }
 
+bool ZaloClient::inAppUpdateSupported() const {
+    const auto kind = Platform::detectRuntimePackageKind();
+    return kind == Platform::PackageKind::AppImage || kind == Platform::PackageKind::Deb || kind == Platform::PackageKind::Rpm;
+}
+
 bool ZaloClient::canInAppUpdate() const {
     const auto kind = Platform::detectRuntimePackageKind();
     return m_updateAvailable
@@ -1559,8 +1577,8 @@ QString ZaloClient::updateStatus() const {
     case UpdateCheckState::Checking:
         return L("Đang kiểm tra bản cập nhật...", "Checking for updates...");
     case UpdateCheckState::NetworkError:
-        return L("Không kiểm tra được bản cập nhật. Vui lòng thử lại sau.",
-                 "Couldn't check for updates. Please try again later.");
+        return L("Không kiểm tra được bản cập nhật. Zalos sẽ tự thử lại sau.",
+                 "Couldn't check for updates. Zalos will try again later.");
     case UpdateCheckState::NoRelease:
         return L("Chưa có thông tin bản phát hành mới.", "No release information found.");
     case UpdateCheckState::Available:
@@ -1653,6 +1671,7 @@ void ZaloClient::checkForUpdates() {
             emit guard->updateCheckChanged();
             return;
         }
+        QSettings().setValue(QStringLiteral("settings/updateLastCheck"), QDateTime::currentSecsSinceEpoch());
 
         const QJsonObject obj = QJsonDocument::fromJson(body).object();
         const QString tag = obj.value(QStringLiteral("tag_name")).toString().trimmed();
@@ -1682,7 +1701,69 @@ void ZaloClient::checkForUpdates() {
             guard->m_updateState = UpdateCheckState::UpToDate;
         }
         emit guard->updateCheckChanged();
+        guard->handleUpdateFound();
     });
+}
+
+bool ZaloClient::updateCheckDue(qint64 nowSec, qint64 lastSec, int hours, bool atStartup) {
+    if (hours <= 0) return false;
+    if (hours == 1) return atStartup;
+    return lastSec <= 0 || nowSec - lastSec >= qint64(hours) * 3600;
+}
+
+int ZaloClient::updateCheckHours() const {
+    return QSettings().value(QStringLiteral("settings/updateCheckHours"), 24).toInt();
+}
+
+void ZaloClient::setUpdateCheckHours(int hours) {
+    if (hours != 0 && hours != 1 && hours != 24 && hours != 168) return;
+    if (hours == updateCheckHours()) return;
+    QSettings().setValue(QStringLiteral("settings/updateCheckHours"), hours);
+    emit settingsChanged();
+    maybeAutoCheckUpdates(false);
+}
+
+bool ZaloClient::autoInstallUpdates() const {
+    return QSettings().value(QStringLiteral("settings/autoInstallUpdates"), false).toBool();
+}
+
+void ZaloClient::setAutoInstallUpdates(bool on) {
+    if (on == autoInstallUpdates()) return;
+    QSettings().setValue(QStringLiteral("settings/autoInstallUpdates"), on);
+    emit settingsChanged();
+    if (on) handleUpdateFound();
+}
+
+QString ZaloClient::lastUpdateCheckText() const {
+    const qint64 last = QSettings().value(QStringLiteral("settings/updateLastCheck"), 0).toLongLong();
+    if (last <= 0) return QString();
+    return L("Lần kiểm tra gần nhất: ", "Last checked: ")
+           + QDateTime::fromSecsSinceEpoch(last).toString(QStringLiteral("HH:mm dd/MM/yyyy"));
+}
+
+void ZaloClient::startUpdateSchedule() {
+    if (m_updateTimer->isActive()) return;
+    m_updateTimer->start();
+    QTimer::singleShot(20000, this, [this]() { maybeAutoCheckUpdates(true); });
+}
+
+void ZaloClient::maybeAutoCheckUpdates(bool atStartup) {
+    if (!m_updateTimer || !m_updateTimer->isActive()) return;
+    const qint64 last = QSettings().value(QStringLiteral("settings/updateLastCheck"), 0).toLongLong();
+    if (updateCheckDue(QDateTime::currentSecsSinceEpoch(), last, updateCheckHours(), atStartup)) checkForUpdates();
+}
+
+void ZaloClient::handleUpdateFound() {
+    if (!m_updateAvailable || m_latestVersion.isEmpty() || m_updatingApp || m_updateInstalledRestartRequired) return;
+    if (autoInstallUpdates() && canInAppUpdate()) {
+        installAvailableUpdate();
+        return;
+    }
+    QSettings settings;
+    if (settings.value(QStringLiteral("settings/updateNotifiedVersion")).toString() == m_latestVersion) return;
+    settings.setValue(QStringLiteral("settings/updateNotifiedVersion"), m_latestVersion);
+    emit notice(L("Đã có Zalos %1. Mở Cài đặt › Về ứng dụng để cập nhật.", "Zalos %1 is available. Open Settings › About to update.")
+                    .arg(m_latestVersion));
 }
 
 void ZaloClient::installAvailableUpdate() {
@@ -1690,10 +1771,27 @@ void ZaloClient::installAvailableUpdate() {
 
     const auto kind = Platform::detectRuntimePackageKind();
     const QString appImageTarget = qEnvironmentVariable("APPIMAGE");
-    QString downloadDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    if (downloadDir.isEmpty()) downloadDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    QDir().mkpath(downloadDir);
-    const QString destPath = downloadDir + QLatin1Char('/') + m_updateAssetName;
+    if (m_updateShaSumsUrl.isEmpty()) {
+        m_updateState = UpdateCheckState::VerifyFailed;
+        emit updateCheckChanged();
+        return;
+    }
+    const QString destPath = Platform::updateFilePath(
+        Platform::prepareUpdateDirectory(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)),
+        m_updateAssetName);
+    if (destPath.isEmpty()) {
+        m_updateState = UpdateCheckState::DownloadFailed;
+        emit updateCheckChanged();
+        return;
+    }
+    const auto exportUpdate = [](const QString& path) {
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        if (dir.isEmpty() || !QDir().mkpath(dir)) return path;
+        const QString target = ZaloClient::uniqueFilePath(dir, QFileInfo(path).fileName());
+        if (!QFile::copy(path, target)) return path;
+        QFile::remove(path);
+        return target;
+    };
 
     m_updatingApp = true;
     m_updateInstalledRestartRequired = false;
@@ -1735,7 +1833,8 @@ void ZaloClient::installAvailableUpdate() {
             emit guard->updateCheckChanged();
         }
     });
-    connect(reply, &QNetworkReply::finished, this, [guard, nam, reply, outFile, writeFailed, destPath, kind, appImageTarget]() {
+    connect(reply, &QNetworkReply::finished, this, [guard, nam, reply, outFile, writeFailed, destPath, kind, appImageTarget,
+                                                    exportUpdate]() {
         const QByteArray tail = reply->readAll();
         if (!tail.isEmpty() && !*writeFailed && outFile->write(tail) != tail.size()) {
             *writeFailed = true;
@@ -1770,30 +1869,31 @@ void ZaloClient::installAvailableUpdate() {
         }
         outFile->deleteLater();
 
-        auto applyPackage = [guard, destPath, kind, appImageTarget]() {
+        auto applyPackage = [guard, destPath, kind, appImageTarget, exportUpdate]() {
             if (!guard) return;
             if (kind == Platform::PackageKind::AppImage) {
                 const QFileInfo targetInfo(appImageTarget);
                 if (!targetInfo.dir().exists() || !QFileInfo(targetInfo.dir().absolutePath()).isWritable()) {
+                    const QString saved = exportUpdate(destPath);
                     guard->m_updatingApp = false;
-                    guard->m_updateSavedPath = destPath;
+                    guard->m_updateSavedPath = saved;
                     guard->m_updateState = UpdateCheckState::SavedToDownloads;
                     emit guard->updateCheckChanged();
-                    Fs::FileUtils::openLocalPath(QFileInfo(destPath).absolutePath());
+                    Fs::FileUtils::openLocalPath(QFileInfo(saved).absolutePath());
                     return;
                 }
                 guard->m_updateState = UpdateCheckState::Installing;
                 emit guard->updateCheckChanged();
-                QThreadPool::globalInstance()->start([guard, appImageTarget, destPath]() {
+                QThreadPool::globalInstance()->start([guard, appImageTarget, destPath, exportUpdate]() {
                     QString replaceErr;
                     const bool replaced = Platform::replaceAppImageFile(appImageTarget, destPath, &replaceErr);
                     if (replaced) QFile::remove(destPath);
                     if (!guard) return;
-                    QMetaObject::invokeMethod(guard, [guard, replaced, destPath]() {
+                    QMetaObject::invokeMethod(guard, [guard, replaced, destPath, exportUpdate]() {
                         if (!guard) return;
                         guard->m_updatingApp = false;
                         if (!replaced) {
-                            guard->m_updateSavedPath = destPath;
+                            guard->m_updateSavedPath = exportUpdate(destPath);
                             guard->m_updateState = UpdateCheckState::InstallFailed;
                         } else {
                             guard->m_updateInstalledRestartRequired = true;
@@ -1810,11 +1910,12 @@ void ZaloClient::installAvailableUpdate() {
 
             const QString pkexec = QStandardPaths::findExecutable(QStringLiteral("pkexec"));
             if (pkexec.isEmpty()) {
+                const QString saved = exportUpdate(destPath);
                 guard->m_updatingApp = false;
-                guard->m_updateSavedPath = destPath;
+                guard->m_updateSavedPath = saved;
                 guard->m_updateState = UpdateCheckState::InstallFailed;
                 emit guard->updateCheckChanged();
-                Fs::FileUtils::openLocalPath(destPath);
+                Fs::FileUtils::openLocalPath(saved);
                 return;
             }
 
@@ -1826,7 +1927,7 @@ void ZaloClient::installAvailableUpdate() {
             }
 
             auto* proc = new QProcess(guard);
-            connect(proc, &QProcess::finished, guard, [guard, proc, destPath](int exitCode, QProcess::ExitStatus status) {
+            connect(proc, &QProcess::finished, guard, [guard, proc, destPath, exportUpdate](int exitCode, QProcess::ExitStatus status) {
                 proc->deleteLater();
                 if (!guard) return;
                 guard->m_updatingApp = false;
@@ -1835,9 +1936,10 @@ void ZaloClient::installAvailableUpdate() {
                     guard->m_updateInstalledRestartRequired = true;
                     guard->m_updateState = UpdateCheckState::InstalledRestartRequired;
                 } else {
-                    guard->m_updateSavedPath = destPath;
+                    const QString saved = exportUpdate(destPath);
+                    guard->m_updateSavedPath = saved;
                     guard->m_updateState = UpdateCheckState::InstallFailed;
-                    Fs::FileUtils::openLocalPath(destPath);
+                    Fs::FileUtils::openLocalPath(saved);
                 }
                 emit guard->updateCheckChanged();
             });
@@ -1845,7 +1947,10 @@ void ZaloClient::installAvailableUpdate() {
         };
 
         if (guard->m_updateShaSumsUrl.isEmpty()) {
-            applyPackage();
+            QFile::remove(destPath);
+            guard->m_updatingApp = false;
+            guard->m_updateState = UpdateCheckState::VerifyFailed;
+            emit guard->updateCheckChanged();
             return;
         }
 
@@ -1941,10 +2046,28 @@ QString ZaloClient::autostartFilePath() {
 }
 
 bool ZaloClient::startWithSystem() const {
+    if (Platform::BackgroundPortal::inFlatpak()) return QSettings().value("settings/flatpakAutostart", false).toBool();
     return QFile::exists(autostartFilePath());
 }
 
 void ZaloClient::setStartWithSystem(bool val) {
+    if (Platform::BackgroundPortal::inFlatpak()) {
+        if (!m_backgroundPortal) {
+            m_backgroundPortal = new Platform::BackgroundPortal(this);
+            connect(m_backgroundPortal, &Platform::BackgroundPortal::finished, this, [this](bool ok, bool autostart) {
+                const bool wanted = QSettings().value("settings/flatpakAutostartWanted", false).toBool();
+                QSettings().setValue("settings/flatpakAutostart", ok && autostart);
+                if (wanted && !(ok && autostart)) {
+                    emit notice(ok ? L("Hệ thống chưa cho phép Zalos khởi động cùng máy.", "The system didn't allow Zalos to start at login.")
+                                   : L("Máy này chưa hỗ trợ cho Zalos khởi động cùng hệ thống.", "Starting Zalos at login isn't available on this computer."));
+                }
+                emit settingsChanged();
+            });
+        }
+        QSettings().setValue("settings/flatpakAutostartWanted", val);
+        m_backgroundPortal->requestAutostart(val, L("Mở Zalos khi đăng nhập để nhận tin nhắn", "Open Zalos at login to receive messages"));
+        return;
+    }
     const QString path = autostartFilePath();
     if (val == QFile::exists(path)) return;
     if (!val) {
@@ -2013,7 +2136,6 @@ void ZaloClient::stopSoundPreview() {
 void ZaloClient::triggerSimulatedIncomingCall(const QString& callerName) {
     m_incomingCallerName = callerName.isEmpty() ? L("Người gọi Zalo", "Zalo caller") : callerName;
     m_incomingCallActive = true;
-    m_callEngine->startCall("peer-incoming", m_incomingCallerName, false);
     emit incomingCallStateChanged(true);
 
     notifyIncomingCallDbus(m_incomingCallerName);
@@ -2022,14 +2144,12 @@ void ZaloClient::triggerSimulatedIncomingCall(const QString& callerName) {
 
 void ZaloClient::answerCall(bool withCamera) {
     m_incomingCallActive = false;
-    m_callEngine->answerCall(withCamera);
     if (m_calls) m_calls->accept(!withCamera);
     emit incomingCallStateChanged(false);
 }
 
 void ZaloClient::declineCall() {
     m_incomingCallActive = false;
-    m_callEngine->declineCall();
     if (m_calls) m_calls->reject();
     emit incomingCallStateChanged(false);
 }
@@ -2298,6 +2418,7 @@ void ZaloClient::onScreenshotResponse(uint response, const QVariantMap& results)
                                              SLOT(onScreenshotResponse(uint,QVariantMap)));
     m_screenshotRequest.clear();
     emit requestRestoreAfterScreenshot();
+    if (response == 1) return;
     if (response != 0) {
         const QString tempPath = QDir::tempPath() + QStringLiteral("/zalos_shot_%1.png").arg(QDateTime::currentMSecsSinceEpoch());
         QScreen* screen = QGuiApplication::primaryScreen();
@@ -2771,7 +2892,7 @@ void ZaloClient::printMedia(const QString& url) {
 }
 
 QVariantMap ZaloClient::windowGeometry() const {
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     const bool hasPos = settings.contains(QStringLiteral("window/x"))
                         && settings.contains(QStringLiteral("window/y"));
     int x = settings.value(QStringLiteral("window/x"), -1).toInt();
@@ -2818,7 +2939,7 @@ QVariantMap ZaloClient::windowGeometry() const {
 }
 
 void ZaloClient::saveWindowGeometry(int x, int y, int width, int height, bool maximized) {
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     if (!maximized && width > 0 && height > 0) {
         settings.setValue(QStringLiteral("window/x"), x);
         settings.setValue(QStringLiteral("window/y"), y);

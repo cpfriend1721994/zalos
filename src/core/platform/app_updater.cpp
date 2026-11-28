@@ -212,4 +212,20 @@ bool replaceAppImageFile(const QString& targetPath, const QString& downloadedPat
     return true;
 }
 
+QString prepareUpdateDirectory(const QString& baseDir) {
+    if (baseDir.isEmpty()) return {};
+    const QString dir = QDir(baseDir).filePath(QStringLiteral("updates"));
+    if (QFileInfo(dir).isSymLink() || !QDir().mkpath(dir)) return {};
+    const QFileInfo info(dir);
+    if (info.isSymLink() || !info.isDir()) return {};
+    if (!QFile::setPermissions(dir, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner)) return {};
+    return info.absoluteFilePath();
+}
+
+QString updateFilePath(const QString& dir, const QString& assetName) {
+    const QString name = QFileInfo(assetName.trimmed()).fileName();
+    if (dir.isEmpty() || name.isEmpty() || name == QLatin1String(".") || name == QLatin1String("..")) return {};
+    return QDir(dir).filePath(name);
+}
+
 }

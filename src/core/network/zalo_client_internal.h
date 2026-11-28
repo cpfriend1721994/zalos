@@ -2,6 +2,7 @@
 
 #include "zalo_client.h"
 #include <QJSEngine>
+#include <QJsonDocument>
 #include <QCryptographicHash>
 #include "crypto/db_cross.h"
 #include "sync/mobile_history_sync.h"
@@ -14,6 +15,7 @@
 #include "network/zalo_api_client.h"
 #include "network/zalo_session.h"
 #include "network/error_catalog.h"
+#include "network/url_policy.h"
 #include "network/message_scheduler.h"
 #include "platform/desktop_notifications.h"
 #include "media/voice_recorder.h"
@@ -230,23 +232,51 @@ inline bool isOfficialAccount(const QJsonObject& user) {
 }
 
 struct MuteSnapshot {
+    bool valid{false};
     QSet<QString> muted;
     QHash<QString, qint64> until;
 };
 
-inline MuteSnapshot parseMuteSnapshot(const QJsonObject& obj, qint64 fallbackNowSec) {
-    qint64 nowSec = obj.value("systemTime").toVariant().toLongLong();
+inline qint64 jsonInt(const QJsonValue& v) {
+    return v.toVariant().toLongLong();
+}
+
+inline QString normalizeMuteId(QString id) {
+    id = id.trimmed();
+    if (id.startsWith(QLatin1String("group_"))) return id.mid(6);
+    if (id.size() > 1 && QStringLiteral("gGuU").contains(id.at(0))) {
+        bool digits = true;
+        for (qsizetype i = 1; i < id.size() && digits; ++i) digits = id.at(i).isDigit();
+        if (digits) return id.mid(1);
+    }
+    return id;
+}
+
+inline QString muteEntryId(const QJsonObject& e) {
+    for (const char* key : {"id", "toId", "toid", "grid", "groupId"}) {
+        const QString id = normalizeMuteId(idOf(e.value(QLatin1String(key))));
+        if (!id.isEmpty()) return id;
+    }
+    return {};
+}
+
+inline MuteSnapshot parseMuteSnapshot(const QJsonValue& value, qint64 fallbackNowSec) {
+    const QJsonObject obj = value.isString() ? QJsonDocument::fromJson(value.toString().toUtf8()).object() : value.toObject();
+    MuteSnapshot out;
+    if (jsonInt(obj.value("error_code")) != 0) return out;
+    out.valid = obj.value("chatEntries").isArray() || obj.value("groupChatEntries").isArray();
+    qint64 nowSec = jsonInt(obj.value("systemTime"));
     if (nowSec > 100000000000LL) nowSec /= 1000;
     if (nowSec <= 0) nowSec = fallbackNowSec;
-    MuteSnapshot out;
     for (const char* key : {"chatEntries", "groupChatEntries"}) {
         for (const QJsonValue& v : obj.value(key).toArray()) {
             const QJsonObject e = v.toObject();
-            const QString id = idOf(e.value("id"));
+            const QString id = muteEntryId(e);
             if (id.isEmpty()) continue;
-            const int muteMode = e.value("muteMode").toInt(0);
-            const qint64 duration = e.value("duration").toVariant().toLongLong();
-            const qint64 start = e.value("startTime").toVariant().toLongLong();
+            const qint64 muteMode = jsonInt(e.value("muteMode"));
+            const qint64 duration = jsonInt(e.value("duration"));
+            qint64 start = jsonInt(e.value("startTime"));
+            if (start > 100000000000LL) start /= 1000;
             const bool infinite = duration == -1 || muteMode == 2 || muteMode == 3;
             if (!infinite && (duration == 0 || start + duration < nowSec)) continue;
             out.muted.insert(id);

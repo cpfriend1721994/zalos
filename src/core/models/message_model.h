@@ -48,6 +48,7 @@ struct MessageItem {
     bool isForwarded{false};
     bool isRecalled{false};
     bool pollCard{true};
+    mutable qint16 jumboCache{-1};
 };
 
 class MessageModel : public QAbstractListModel {
@@ -86,8 +87,22 @@ public:
         UnreadMarkerRole,
         MediaRunRole,
         InMediaRunRole,
-        SeenUidsRole
+        SeenUidsRole,
+        JumboEmojiSizeRole,
+        CanReactRole,
+        CanReplyRole,
+        CanForwardRole,
+        CanCopyRole,
+        HasMenuRole
     };
+    enum Action {
+        ActionReact = 0x1,
+        ActionReply = 0x2,
+        ActionForward = 0x4,
+        ActionCopy = 0x8,
+        ActionMenu = 0x10
+    };
+    static int actionsFor(const MessageItem& item);
     static constexpr qint64 kMediaRunGapMs = 5 * 60 * 1000;
 
     explicit MessageModel(QObject* parent = nullptr);
@@ -137,6 +152,7 @@ public:
     void setUnreadMarker(const QString& convId, int unreadCount);
     void clearUnreadMarker();
     Q_INVOKABLE int unreadMarkerRow() const;
+    Q_INVOKABLE QString messageIdAt(int row) const;
     void clearAll();
     QString currentConversationId() const { return m_currentConvId; }
 
@@ -153,6 +169,7 @@ public:
     static QString linkify(const QString& text);
     static QString linkify(const QString& text, const QVector<MessageMention>& mentions);
     static QString styledHtml(const QString& text, const QVector<MessageMention>& mentions, const QVariantList& styles);
+    static int jumboEmojiSizeFor(const QString& text);
     static QString internMessageType(QStringView type);
     static QString internStatus(QStringView status);
     void setPollData(qint64 pollId, const QVariantMap& data, const QString& convId = QString());

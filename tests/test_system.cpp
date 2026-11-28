@@ -40,6 +40,7 @@
 #include "core/platform/bound_loader.h"
 #include "core/call/portal_screen_cast.h"
 #include <QPainter>
+#include <QSvgRenderer>
 #include <QDBusArgument>
 #include <QDBusMetaType>
 #include <QDBusVariant>
@@ -51,6 +52,8 @@
 #include "core/network/zalo_crypto.h"
 #include "core/platform/theme_manager.h"
 #include "core/platform/system_tray.h"
+#include "core/platform/swipe_back.h"
+#include <QPointingDevice>
 #include "core/platform/wheel_boost.h"
 #include "core/platform/middle_autoscroll.h"
 #include "core/network/zalo_client_internal.h"
@@ -119,7 +122,7 @@ private slots:
     void initTestCase() {
         QCoreApplication::setOrganizationName("Zalos");
         QCoreApplication::setApplicationName("ZalosApp");
-        QSettings settings("Zalos", "ZalosApp");
+        QSettings settings;
         settings.setValue("auth/isLoggedIn", false);
         settings.setValue("auth/userName", "");
         settings.setValue("auth/userPhone", "");
@@ -259,6 +262,10 @@ private slots:
         QVERIFY(zenity.contains(QStringLiteral("--multiple")));
         QVERIFY(zenity.contains(QStringLiteral("--file-filter=Hình ảnh (*.jpg *.png *.jpg) | *.jpg *.png")));
         const QStringList save = FilePicker::zenityArguments(FilePicker::SaveFile, QString(), {}, QStringLiteral("/tmp/x.jpg"));
+        const QStringList folderZenity = FilePicker::zenityArguments(FilePicker::SelectFolder, QString(), {}, QString());
+        QVERIFY(folderZenity.contains(QStringLiteral("--directory")));
+        const QStringList folderKde = FilePicker::kdialogArguments(FilePicker::SelectFolder, QString(), {}, QStringLiteral("/tmp"));
+        QCOMPARE(folderKde, QStringList({QStringLiteral("--getexistingdirectory"), QStringLiteral("/tmp")}));
         QVERIFY(save.contains(QStringLiteral("--save")));
         QVERIFY(save.contains(QStringLiteral("--filename=/tmp/x.jpg")));
         const QStringList kde = FilePicker::kdialogArguments(FilePicker::SaveFile, QString(), filters.mid(0, 1),
@@ -302,7 +309,7 @@ private slots:
         QCOMPARE(resolved, fallback);
         QVERIFY(!ThemeManager::isEmojiOrSymbolFamily(resolved));
 
-        QSettings settings("Zalos", "ZalosApp");
+        QSettings settings;
         const QVariant savedDesktop = settings.value("appearance/cachedDesktopFont");
         settings.setValue("appearance/cachedSystemFont", emojiFamily.isEmpty() ? QStringLiteral("Zalos Color Emoji") : emojiFamily);
         settings.setValue("appearance/cachedDesktopFont", emojiFamily.isEmpty() ? QStringLiteral("Zalos Color Emoji") : emojiFamily);
@@ -417,7 +424,7 @@ private slots:
     }
 
     void cleanupTestCase() {
-        QSettings settings("Zalos", "ZalosApp");
+        QSettings settings;
         settings.setValue("auth/isLoggedIn", false);
         settings.setValue("auth/userName", "");
         settings.setValue("auth/userPhone", "");
@@ -469,6 +476,17 @@ private slots:
             QTest::qWait(50);
         }
 
+        window->resize(360, 420);
+        QTest::qWait(100);
+        QCOMPARE(window->size(), QSize(360, 420));
+        window->grabWindow().save("/workspace/build/test_login_360x420.png");
+        auto* loginLogo = window->findChild<QQuickItem*>("loginLogo");
+        QVERIFY(loginLogo != nullptr);
+        QVERIFY(loginLogo->isVisible());
+        auto* loginVersion = window->findChild<QQuickItem*>("loginVersion");
+        QVERIFY(loginVersion != nullptr);
+        QVERIFY(loginVersion->property("text").toString().contains(zaloClient->appVersion()));
+
         window->resize(800, 600);
         QCOMPARE(window->width(), 800);
         QCOMPARE(window->height(), 600);
@@ -492,7 +510,7 @@ private slots:
         QCOMPARE(window->close(), true);
         zaloClient->setTrayAvailableForTesting(-1);
         zaloClient->setCloseToTray(prevCloseToTray);
-        QSettings("Zalos", "ZalosApp").remove(QStringLiteral("settings/closeToTray"));
+        QSettings().remove(QStringLiteral("settings/closeToTray"));
     }
 
     void testConversationSearchFeature() {
@@ -992,6 +1010,51 @@ private slots:
         QCOMPARE(ZaloClient::undoTargetOf(original), QString());
         const MessageItem bareUndo = client.toMessageItemForTesting(msg("9906", "chat.undo", QJsonObject{}, 0), false);
         QVERIFY(bareUndo.isRecalled);
+
+        auto quoted = [&](const QJsonObject& quote) {
+            QJsonObject m = msg("9950", "webchat", QString("fixture reply"), 0);
+            m.insert("quote", quote);
+            return client.toMessageItemForTesting(m, false).quoteText;
+        };
+        QCOMPARE(quoted(QJsonObject{{"msg", "fixture plain"}}), QString("fixture plain"));
+        const MessageItem sizedPhoto = client.toMessageItemForTesting(msg("9960", "chat.photo",
+            QJsonObject{{"thumb", "https://example.invalid/t.jpg"}, {"params", "{\"width\":\"1280\",\"height\":960}"}}, 0), false);
+        QCOMPARE(sizedPhoto.extra.value("mediaW").toInt(), 1280);
+        QCOMPARE(sizedPhoto.extra.value("mediaH").toInt(), 960);
+        const MessageItem sizedVideo = client.toMessageItemForTesting(msg("9961", "chat.video.msg",
+            QJsonObject{{"thumb", "https://example.invalid/v.jpg"}, {"params", "{\"video_width\":720,\"video_height\":1280}"}}, 0), false);
+        QCOMPARE(sizedVideo.extra.value("mediaH").toInt(), 1280);
+        const MessageItem unsized = client.toMessageItemForTesting(msg("9962", "chat.photo",
+            QJsonObject{{"thumb", "https://example.invalid/u.jpg"}, {"params", "{\"width\":0}"}}, 0), false);
+        QVERIFY(!unsized.extra.contains("mediaW"));
+        const MessageItem albumPhoto = client.toMessageItemForTesting(msg("9963", "chat.photo",
+            QJsonObject{{"thumb", "https://example.invalid/a.jpg"}, {"params", "{\"group_layout_id\":\"777\"}"}}, 0), false);
+        QCOMPARE(albumPhoto.extra.value("groupLayoutId").toString(), QString("777"));
+        QJsonObject urgentRaw = msg("9964", "webchat", QString("fixture urgent"), 0);
+        urgentRaw.insert("metaData", QJsonObject{{"urgency", 2}});
+        QCOMPARE(client.toMessageItemForTesting(urgentRaw, false).extra.value("urgency").toInt(), 2);
+        QVERIFY(!client.toMessageItemForTesting(msg("9965", "webchat", QString("fixture normal"), 0), false).extra.contains("urgency"));
+        client.setComposerUrgency(5);
+        QCOMPARE(client.composerUrgency(), 0);
+        client.setComposerUrgency(1);
+        QCOMPARE(client.composerUrgency(), 1);
+        client.setComposerUrgency(0);
+        QCOMPARE(quoted(QJsonObject{{"msg", "fixture.png"}, {"cliMsgType", 1}}), QString("fixture.png"));
+        QCOMPARE(quoted(QJsonObject{{"msg", "https://f1.photo.talk.zdn.vn/fixture/a.jpg"}, {"cliMsgType", 32}}),
+                 QString::fromUtf8("[Hình ảnh]"));
+        QCOMPARE(quoted(QJsonObject{{"msg", "{\"href\":\"https://example.invalid/a.png\"}"}, {"cliMsgType", "2"}}),
+                 QString::fromUtf8("[Hình ảnh]"));
+        QCOMPARE(quoted(QJsonObject{{"msg", "fixture caption"}, {"cliMsgType", 2}}),
+                 QString::fromUtf8("[Hình ảnh] fixture caption"));
+        QCOMPARE(quoted(QJsonObject{{"msg", "https://example.invalid/video/clip.mp4"}}), QString::fromUtf8("[Video]"));
+        QCOMPARE(quoted(QJsonObject{{"msg", "sendBubbleMessage"}, {"cliMsgType", 36}}), QString::fromUtf8("[Nhãn dán]"));
+        QCOMPARE(quoted(QJsonObject{{"msg", ""}, {"cliMsgType", 46},
+                                    {"attach", "{\"title\":\"fixture.pdf\",\"params\":\"{\\\"fileExt\\\":\\\"pdf\\\"}\"}"}}),
+                 QString::fromUtf8("[Tập tin] fixture.pdf"));
+        QCOMPARE(quoted(QJsonObject{{"msg", ""}, {"cliMsgType", 31}}), QString::fromUtf8("[Tin nhắn thoại]"));
+        QCOMPARE(quoted(QJsonObject{{"msg", ""}}), QString::fromUtf8("[Tin nhắn]"));
+        emit session->messagesReceived(QJsonArray{msg("9980", "webchat", QString("fixture original text"), 3)}, false, true);
+        QCOMPARE(quoted(QJsonObject{{"msg", ""}, {"globalMsgId", "9980"}}), QString("fixture original text"));
         QCOMPARE(bareUndo.text, QString::fromUtf8("Tin nhắn đã thu hồi"));
         QCOMPARE(client.toMessageItemForTesting(msg("9907", "chat.delete.everyone", QJsonObject{}, 0), false).text,
                  QString::fromUtf8("Tin nhắn đã bị xóa"));
@@ -2120,7 +2183,7 @@ private slots:
     void testRenderGuardRemembersVulkanFailure() {
         namespace RG = Zalos::Core::Platform::RenderGuard;
         using RP = Zalos::Core::Platform::RenderProfile;
-        QSettings s("Zalos", "ZalosApp");
+        QSettings s;
         s.remove("render/vulkanBroken");
         RG::markAttempt(RP::Backend::Vulkan);
         RG::markFirstFrame();
@@ -2143,7 +2206,7 @@ private slots:
     void testRenderGuardFallsBackToSoftware() {
         namespace RG = Zalos::Core::Platform::RenderGuard;
         using RP = Zalos::Core::Platform::RenderProfile;
-        QSettings s("Zalos", "ZalosApp");
+        QSettings s;
         for (const char* k : {"render/guardVersion", "render/hardwareAcceleration", "render/hardwareFailed",
                               "render/vulkanBroken", "render/pending"}) s.remove(k);
         s.setValue("render/guardVersion", 2);
@@ -2248,6 +2311,16 @@ private slots:
         replyExternal->abort();
         replyExternal->deleteLater();
 
+        QVERIFY(ZaloSession::sendsSessionCookies(QUrl("https://trans-bin.zaloapp.com/x")));
+        QVERIFY(!ZaloSession::sendsSessionCookies(QUrl("http://trans-bin.zaloapp.com/x")));
+        QVERIFY(!ZaloSession::sendsSessionCookies(QUrl("https://zalo.me.invalid/x")));
+        QNetworkReply* replyPlain = session->getWithCookies(QUrl("http://trans-bin.zaloapp.com/download/test_batch"));
+        QVERIFY(replyPlain != nullptr);
+        QCOMPARE(replyPlain->request().url().scheme(), QStringLiteral("https"));
+        QVERIFY(replyPlain->request().rawHeader("Cookie").contains("zpw_sek=fixture_sek"));
+        replyPlain->abort();
+        replyPlain->deleteLater();
+
         auto makeCookie = [](const QByteArray& name, const QByteArray& value, const QString& domain) {
             QNetworkCookie c(name, value);
             c.setDomain(domain);
@@ -2283,6 +2356,10 @@ private slots:
         QVERIFY(!ZaloClient::externalUrl(QString()).isValid());
         QVERIFY(!ZaloClient::externalUrl(QStringLiteral("   ")).isValid());
         QVERIFY(!ZaloClient::externalUrl(QStringLiteral("javascript:alert(1)")).isValid());
+        QVERIFY(!ZaloClient::externalUrl(QStringLiteral("smb://fixture.invalid/share")).isValid());
+        QVERIFY(!ZaloClient::externalUrl(QStringLiteral("steam://run/1")).isValid());
+        QVERIFY(!ZaloClient::externalUrl(QStringLiteral("vscode://fixture.invalid/x")).isValid());
+        QVERIFY(ZaloClient::externalUrl(QStringLiteral("tel:0000")).isValid());
     }
 
     void testLinkCardHrefFallbacks() {
@@ -2429,7 +2506,11 @@ private slots:
         pic.fill(qRgb(90, 120, 160));
         const QString picPath = QDir::temp().filePath("zalos-scroll-photo.png");
         pic.save(picPath);
-        const QString picUrl = QUrl::fromLocalFile(picPath).toString();
+        QFile picFile(picPath);
+        QVERIFY(picFile.open(QIODevice::ReadOnly));
+        const QByteArray picBytes = picFile.readAll();
+        TestSupport::LoopbackApi photoServer([picBytes](const TestSupport::LoopbackApi::Request&) { return picBytes; });
+        const QString picUrl = photoServer.baseUrl() + QStringLiteral("/scroll-photo.png");
         auto* session = client.apiClient()->session();
         const qint64 base = QDateTime::currentMSecsSinceEpoch() - 200LL * 60000;
         QJsonArray msgs;
@@ -2479,6 +2560,9 @@ private slots:
             QTest::qWait(40);
         }
         QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, grab);
+        auto* datePill = window->findChild<QQuickItem*>("floatingDatePill");
+        QVERIFY(datePill != nullptr);
+        QVERIFY(!datePill->property("label").toString().isEmpty());
         QTest::qWait(1200);
         const double afterDrag = list->property("contentY").toDouble();
         QVERIFY2(!list->property("atYEnd").toBool(),
@@ -2488,6 +2572,7 @@ private slots:
         QMetaObject::invokeMethod(list, "scrollToEnd");
         QTRY_VERIFY(list->property("atYEnd").toBool());
         QVERIFY(list->property("stickToBottom").toBool());
+        QTRY_VERIFY(!datePill->property("shown").toBool());
 
         QMetaObject::invokeMethod(list, "scrollToEnd");
         QTRY_VERIFY(list->property("atYEnd").toBool());
@@ -2526,6 +2611,109 @@ private slots:
             {"ts", QString::number(QDateTime::currentMSecsSinceEpoch())}}}, false, true);
         QTest::qWait(1500);
         QVERIFY2(!list->property("atYEnd").toBool(), "a wheel scroll up was pulled back to the end");
+
+        auto dragsPanel = [window](const char* barName, const char* viewName) {
+            QQuickItem* bar = nullptr;
+            QQuickItem* view = nullptr;
+            QTRY_VERIFY_WITH_TIMEOUT((bar = window->findChild<QQuickItem*>(barName)) != nullptr, 3000);
+            QTRY_VERIFY_WITH_TIMEOUT((view = window->findChild<QQuickItem*>(viewName)) != nullptr, 3000);
+            auto* flick = qvariant_cast<QQuickItem*>(view->property("contentItem"));
+            QVERIFY(flick != nullptr);
+            QTRY_VERIFY2(bar->property("size").toDouble() < 0.95, barName);
+            const double before = flick->property("contentY").toDouble();
+            QPoint grab = bar->mapToScene(QPointF(bar->width() / 2, 6)).toPoint();
+            QTest::mouseMove(window, grab);
+            QTest::qWait(60);
+            QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, grab);
+            for (int step = 1; step <= 8; ++step) {
+                grab.ry() += 15;
+                QTest::mouseMove(window, grab);
+                QTest::qWait(30);
+            }
+            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, grab);
+            QTest::qWait(100);
+            QVERIFY2(flick->property("contentY").toDouble() > before + 20,
+                     qPrintable(QStringLiteral("%1 drag did not scroll").arg(QString::fromLatin1(barName))));
+        };
+        window->resize(1100, 520);
+        QTest::qWait(200);
+        client.setShowConversationInfo(true);
+        QTest::qWait(400);
+        dragsPanel("infoScrollBar", "infoScroll");
+        client.setShowConversationInfo(false);
+        QTest::qWait(100);
+        window->resize(1100, 440);
+        QTest::qWait(200);
+        client.openSettings(QStringLiteral("privacy"));
+        QTest::qWait(400);
+        dragsPanel("settingsScrollBar", "settingsScroll");
+        client.setShowSettingsModal(false);
+        QTest::qWait(100);
+
+        window->resize(1100, 700);
+        QTest::qWait(200);
+        const QVariantList hits = client.searchConversationHits(QStringLiteral("Fixture line 12"));
+        QVERIFY(hits.size() >= 2);
+        for (int i = 1; i < hits.size(); ++i)
+            QVERIFY(hits.at(i - 1).toMap().value("ts").toLongLong() <= hits.at(i).toMap().value("ts").toLongLong());
+        for (const QVariant& v : hits) {
+            const QVariantMap hit = v.toMap();
+            QVERIFY(hit.value("text").toString().contains(QStringLiteral("12")));
+            QVERIFY(!hit.value("senderName").toString().isEmpty());
+        }
+        QCOMPARE(client.searchConversationMessages(QStringLiteral("Fixture line 12")).size(), hits.size());
+        QMetaObject::invokeMethod(chatArea, "openSearch");
+        auto* searchInput = window->findChild<QQuickItem*>("inChatSearchInput");
+        QVERIFY(searchInput != nullptr);
+        searchInput->setProperty("text", QStringLiteral("Fixture line 12"));
+        QTRY_COMPARE(chatArea->property("searchHits").toStringList().size(), int(hits.size()));
+        auto* resultsButton = window->findChild<QQuickItem*>("searchResultsButton");
+        QVERIFY(resultsButton != nullptr);
+        QTRY_VERIFY(resultsButton->isVisible());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          resultsButton->mapToScene(QPointF(resultsButton->width() / 2, resultsButton->height() / 2)).toPoint());
+        auto* resultsList = window->findChild<QQuickItem*>("searchResultsList");
+        QTRY_VERIFY(resultsList != nullptr && resultsList->isVisible());
+        QTRY_COMPARE(resultsList->property("count").toInt(), int(hits.size()));
+        QTest::qWait(300);
+        window->grabWindow().save(QStringLiteral("/workspace/build/ui_chat_search_results.png"));
+        const int last = int(hits.size()) - 1;
+        QVERIFY(QMetaObject::invokeMethod(resultsList, "positionViewAtEnd"));
+        QTest::qWait(100);
+        QQuickItem* lastRow = nullptr;
+        for (QQuickItem* child : resultsList->property("contentItem").value<QQuickItem*>()->childItems()) {
+            if (child->property("index").toInt() == last && child->isVisible()) lastRow = child;
+        }
+        QVERIFY(lastRow != nullptr);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          lastRow->mapToScene(QPointF(lastRow->width() / 2, lastRow->height() / 2)).toPoint());
+        QTRY_VERIFY(!resultsList->isVisible());
+        QCOMPARE(chatArea->property("searchCursor").toInt(), 0);
+        QCOMPARE(chatArea->property("searchFocusId").toString(), hits.first().toMap().value("msgId").toString());
+        QCOMPARE(chatArea->property("flashMsgId").toString(), hits.first().toMap().value("msgId").toString());
+        QMetaObject::invokeMethod(chatArea, "closeSearch");
+        auto flashOpacity = [window]() {
+            qreal top = 0;
+            QList<QQuickItem*> pending{window->contentItem()};
+            while (!pending.isEmpty()) {
+                QQuickItem* item = pending.takeLast();
+                if (item->objectName() == QLatin1String("messageFlash") && item->isVisible()) top = qMax(top, item->opacity());
+                pending.append(item->childItems());
+            }
+            return top;
+        };
+        QTRY_COMPARE_WITH_TIMEOUT(flashOpacity(), qreal(0), 3000);
+        const QString globalId = hits.at(hits.size() / 2).toMap().value("msgId").toString();
+        client.openMessageFromSearch(QStringLiteral("u-scroll"), globalId);
+        QTRY_COMPARE(chatArea->property("foundMsgId").toString(), globalId);
+        QCOMPARE(chatArea->property("flashMsgId").toString(), globalId);
+        QTRY_VERIFY_WITH_TIMEOUT(flashOpacity() > 0.3, 2000);
+        QTRY_COMPARE_WITH_TIMEOUT(flashOpacity(), qreal(0), 3000);
+        QTRY_VERIFY(chatArea->property("flashMsgId").toString().isEmpty());
+        QCOMPARE(chatArea->property("foundMsgId").toString(), globalId);
+        QMetaObject::invokeMethod(chatArea, "openSearch");
+        QVERIFY(chatArea->property("foundMsgId").toString().isEmpty());
+        QMetaObject::invokeMethod(chatArea, "closeSearch");
     }
 
     void testReactionJumpKeepsMessageBelowPinBar() {
@@ -2720,6 +2908,11 @@ private slots:
             for (int x = 0; x < pic.width(); ++x) pic.setPixel(x, y, qRgb(40 + x / 4, 90 + y / 5, 160));
         const QString picPath = QDir::temp().filePath("zalos-gallery-photo.png");
         pic.save(picPath);
+        QFile picFile(picPath);
+        QVERIFY(picFile.open(QIODevice::ReadOnly));
+        const QByteArray picBytes = picFile.readAll();
+        TestSupport::LoopbackApi photoServer([picBytes](const TestSupport::LoopbackApi::Request&) { return picBytes; });
+        const QString peerPicUrl = photoServer.baseUrl() + QStringLiteral("/gallery-photo.png");
         auto* session = client.apiClient()->session();
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
         auto msg = [&](const QString& id, bool mine, const QString& type, const QJsonValue& content, qint64 ts) {
@@ -2737,8 +2930,8 @@ private slots:
             msg("9106", false, "chat.recommended", QJsonObject{{"action", "recommened.user"}, {"title", "Fixture Card"},
                                                                {"params", "u-cardfix"}, {"thumb", ""},
                                                                {"description", "{\"phone\":\"0900000000\"}"}}, now - 120000),
-            msg("9105", false, "chat.photo", QJsonObject{{"thumb", QUrl::fromLocalFile(picPath).toString()},
-                                                         {"href", QUrl::fromLocalFile(picPath).toString()},
+            msg("9105", false, "chat.photo", QJsonObject{{"thumb", peerPicUrl},
+                                                         {"href", peerPicUrl},
                                                          {"title", QString::fromUtf8("Ảnh chụp buổi họp")}}, now - 60000),
         };
         client.setUserForTesting("u-gallery", "Fixture Gallery", "");
@@ -2827,7 +3020,7 @@ private slots:
                 };
                 QJsonObject photoPin = topic("t2", 2, "", 32);
                 QJsonObject photoParams = photoPin.value("params").toObject();
-                photoParams.insert("thumb", "file:///nonexistent/fixture-expired-thumb.jpg");
+                photoParams.insert("thumb", "http://127.0.0.1:9/fixture-expired-thumb.jpg");
                 photoPin.insert("params", photoParams);
                 client.pins()->applyListForTesting(conv, QJsonObject{{"version", 3}, {"data", QJsonArray{
                     topic("t1", 2, "Fixture pinned text message\n" + QString("Fixture detail line with enough words to wrap. ").repeated(12), 1), photoPin,
@@ -2864,7 +3057,7 @@ private slots:
                 QVERIFY(detail->property("fullText").toString().contains("Fixture detail line"));
                 shot("pins_detail_" + suffix);
                 QVERIFY(QMetaObject::invokeMethod(detail, "close"));
-                QTRY_VERIFY(client.isMediaBroken("file:///nonexistent/fixture-expired-thumb.jpg"));
+                QTRY_VERIFY(client.isMediaBroken("http://127.0.0.1:9/fixture-expired-thumb.jpg"));
                 QVERIFY(QMetaObject::invokeMethod(chatArea, "openPinDetail", Q_ARG(QString, "t2")));
                 shot("pins_detail_expired_" + suffix);
                 QVERIFY(QMetaObject::invokeMethod(detail, "close"));
@@ -2910,6 +3103,24 @@ private slots:
             client.labels()->setManageOpen(true);
             shot("labels_" + suffix);
             client.labels()->setManageOpen(false);
+            QVERIFY(window->setProperty("shortcutsHelpOpen", true));
+            QTRY_VERIFY(window->findChild<QQuickItem*>("shortcutsDialogCard") != nullptr);
+            shot("shortcuts_" + suffix);
+            QTest::keyClick(window, Qt::Key_Escape);
+            QTRY_VERIFY(!window->property("shortcutsHelpOpen").toBool());
+            client.openWelcomeScreen();
+            QQuickItem* welcome = nullptr;
+            QTRY_VERIFY((welcome = window->findChild<QQuickItem*>("welcomeArea")) != nullptr);
+            QCOMPARE(welcome->property("totalSlides").toInt(), 6);
+            welcome->setProperty("currentSlide", 5);
+            shot("welcome_keys_" + suffix);
+            auto* welcomeShortcuts = window->findChild<QObject*>("welcomeShortcuts");
+            QVERIFY(welcomeShortcuts != nullptr);
+            QVERIFY(QMetaObject::invokeMethod(welcomeShortcuts, "clicked"));
+            QTRY_VERIFY(window->property("shortcutsHelpOpen").toBool());
+            QTest::keyClick(window, Qt::Key_Escape);
+            QTRY_VERIFY(!window->property("shortcutsHelpOpen").toBool());
+            client.selectConversation("u-gallery", "Fixture Gallery", "");
             client.openShareCard("u-gallery", "Fixture Gallery");
             shot("share_card_" + suffix);
             client.closeForwardModal();
@@ -2962,6 +3173,39 @@ private slots:
             client.messageSearch()->setQuery("fixture");
             client.messageSearch()->runNow();
             shot("sidebar_search_dark");
+            {
+                QObject* sidebar = window->findChild<QObject*>("sidebar");
+                auto* tabBar = window->findChild<QQuickItem*>("searchTabBar");
+                auto* peopleList = window->findChild<QQuickItem*>("peopleHitList");
+                auto* messageList = window->findChild<QQuickItem*>("messageHitList");
+                QVERIFY(tabBar && peopleList && messageList);
+                QVERIFY(tabBar->isVisible());
+                QVERIFY(client.peopleSearch()->count() > 0);
+                const QString firstTab = sidebar->property("searchTab").toString();
+                QVERIFY(firstTab == "chats" || firstTab == "people");
+                auto clickTab = [&](const char* name) {
+                    auto* tab = window->findChild<QQuickItem*>(name);
+                    QVERIFY(tab != nullptr && tab->isVisible());
+                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                                      tab->mapToScene(QPointF(tab->width() / 2, tab->height() / 2)).toPoint());
+                    QTest::qWait(50);
+                };
+                clickTab("searchTab_people");
+                QCOMPARE(sidebar->property("searchTab").toString(), QString("people"));
+                QVERIFY(peopleList->isVisible());
+                QVERIFY(!messageList->isVisible());
+                clickTab("searchTab_messages");
+                QCOMPARE(sidebar->property("searchTab").toString(), QString("messages"));
+                QVERIFY(!peopleList->isVisible());
+                auto* empty = window->findChild<QQuickItem*>("conversationsEmptyState");
+                QVERIFY(empty != nullptr);
+                QCOMPARE(messageList->isVisible(), client.messageSearch()->count() > 0);
+                QCOMPARE(empty->isVisible(), client.messageSearch()->count() == 0);
+                shot("sidebar_search_messages_dark");
+                client.peopleSearch()->clear();
+                QTest::qWait(50);
+                QCOMPARE(sidebar->property("searchTab").toString(), QString("messages"));
+            }
             client.conversationModel()->setSearchFilter("");
             client.peopleSearch()->clear();
             client.messageSearch()->clear();
@@ -2976,6 +3220,9 @@ private slots:
             QCOMPARE(client.hiddenSearch()->count(), 1);
             client.conversationModel()->setSearchFilter("");
             client.hiddenSearch()->clear();
+            QTest::qWait(50);
+            QCOMPARE(window->findChild<QObject*>("sidebar")->property("searchTab").toString(), QString("chats"));
+            QVERIFY(!window->findChild<QQuickItem*>("searchTabBar")->isVisible());
             client.requestHiddenFlow("hide", "u-gallery", false);
             QObject* pinPopup = window->findChild<QObject*>("hiddenPinPopup");
             QVERIFY(pinPopup != nullptr);
@@ -3342,7 +3589,6 @@ private slots:
 
     void testZaloClientWrappersIntegration() {
         ZaloClient client;
-        QVERIFY(client.callEngine() != nullptr);
         QVERIFY(client.offlineStore() != nullptr);
         QVERIFY(client.apiClient() != nullptr);
 
@@ -4672,7 +4918,7 @@ private slots:
 
     void testChatBackgroundModes() {
         {
-            QSettings settings("Zalos", "ZalosApp");
+            QSettings settings;
             settings.remove("settings/chatBackgroundMode");
             settings.remove("settings/chatBackgroundImage");
             settings.remove("settings/useAvatarAsChatBackground");
@@ -4738,18 +4984,18 @@ private slots:
         QCOMPARE(client.currentConversationBackground(), QString());
 
         {
-            QSettings legacySettings("Zalos", "ZalosApp");
+            QSettings legacySettings;
             legacySettings.setValue("settings/useAvatarAsChatBackground", true);
             legacySettings.setValue("settings/chatBackgroundMode", "none");
         }
         {
             ZaloClient clientNone;
             QCOMPARE(clientNone.chatBackgroundMode(), QString("none"));
-            QSettings legacySettings("Zalos", "ZalosApp");
+            QSettings legacySettings;
             QVERIFY(!legacySettings.contains("settings/useAvatarAsChatBackground"));
         }
 
-        QSettings settings("Zalos", "ZalosApp");
+        QSettings settings;
         settings.remove("settings/chatBackgroundMode");
         settings.remove("settings/chatBackgroundImage");
         settings.remove("settings/useAvatarAsChatBackground");
@@ -5046,6 +5292,161 @@ private slots:
         QVERIFY(!sink.videoFrame().isValid());
     }
 
+    void testRemoteReferencesNeverPointAtLocalFiles() {
+        for (const char* local : {"file:///home/fixture/.ssh/id_rsa", "FILE:///etc/hosts", "/etc/hosts", "//etc/hosts",
+                                  ".local/share/Zalos/Zalos/session.json", "~/.ssh/id_rsa", "Downloads/fixture.desktop",
+                                  "qrc:/qt/qml/Zalos/Main.qml", "image://media/file%3A%2F%2F%2Fetc%2Fhosts", "C:/fixture.exe"}) {
+            QVERIFY2(UrlPolicy::sanitizeRemoteReference(QString::fromLatin1(local)).isEmpty(), local);
+            QVERIFY2(UrlPolicy::isLocalReference(QString::fromLatin1(local)), local);
+        }
+        QCOMPARE(UrlPolicy::sanitizeRemoteReference(QStringLiteral(" https://f.invalid/a.jpg ")), QStringLiteral("https://f.invalid/a.jpg"));
+        QCOMPARE(UrlPolicy::sanitizeRemoteReference(QStringLiteral("zalo.me/fixture")), QStringLiteral("http://zalo.me/fixture"));
+        QVERIFY(!UrlPolicy::isLocalReference(QString()));
+        QVERIFY(UrlPolicy::isWebUrl(QStringLiteral("https://f.invalid/a")));
+        QVERIFY(!UrlPolicy::isWebUrl(QStringLiteral("smb://fixture.invalid/share")));
+        QVERIFY(!UrlPolicy::isWebUrl(QStringLiteral("https:///nohost")));
+        QCOMPARE(UrlPolicy::upgradeToHttps(QUrl("http://f.invalid:80/a")).toString(), QStringLiteral("https://f.invalid/a"));
+
+        ZaloClient client;
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        auto peerMsg = [](const QString& id, const QString& type, const QJsonObject& content) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-peer"}, {"idTo", "u-me"}, {"msgType", type},
+                               {"content", content}, {"ts", "1700000000000"}};
+        };
+        const MessageItem file = client.toMessageItemForTesting(
+            peerMsg("9801", "share.file", QJsonObject{{"title", "fixture.pdf"},
+                                                     {"href", "file:///home/fixture/.local/share/Zalos/Zalos/session.json"},
+                                                     {"params", "{\"fileExt\":\"pdf\"}"}}), false);
+        QCOMPARE(file.messageType, QStringLiteral("file"));
+        QVERIFY(file.mediaUrl.isEmpty());
+        QVERIFY(file.href.isEmpty());
+        const MessageItem photo = client.toMessageItemForTesting(
+            peerMsg("9802", "chat.photo", QJsonObject{{"thumb", ".local/share/Zalos/Zalos/session.json"}, {"href", "/etc/hosts"}}), false);
+        QVERIFY(photo.mediaUrl.isEmpty());
+        QVERIFY(photo.href.isEmpty());
+        const MessageItem gif = client.toMessageItemForTesting(
+            peerMsg("9803", "chat.gif", QJsonObject{{"thumb", "file:///tmp/fixture.gif"}, {"href", "file:///tmp/fixture.gif"}}), false);
+        QVERIFY(!gif.extra.contains(QStringLiteral("animatedUrl")));
+        const MessageItem remote = client.toMessageItemForTesting(
+            peerMsg("9804", "chat.photo", QJsonObject{{"thumb", "https://f.invalid/t.jpg"}, {"href", "https://f.invalid/h.jpg"}}), false);
+        QCOMPARE(remote.mediaUrl, QStringLiteral("https://f.invalid/t.jpg"));
+        QCOMPARE(remote.href, QStringLiteral("https://f.invalid/h.jpg"));
+        QJsonObject own = peerMsg("9805", "chat.photo", QJsonObject{{"thumb", "file:///tmp/fixture-own.png"},
+                                                                    {"href", "file:///tmp/fixture-own.png"}});
+        own.insert("uidFrom", "0");
+        own.insert("idTo", "u-peer");
+        QCOMPARE(client.toMessageItemForTesting(own, false).mediaUrl, QStringLiteral("file:///tmp/fixture-own.png"));
+
+        QVERIFY(PinBoard::mediaCandidates(QVariantMap{{"msgType", 32}, {"thumb", "file:///etc/hosts"}, {"href", "/etc/hosts"}},
+                                          {}, true).isEmpty());
+    }
+
+    void testForwardNeverUploadsPeerLocalFiles() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString secretPath = dir.filePath(QStringLiteral("fixture-secret.json"));
+        {
+            QFile f(secretPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("{}");
+        }
+        QCOMPARE(ZaloClient::forwardableLocalPath(QUrl::fromLocalFile(secretPath).toString()), QFileInfo(secretPath).absoluteFilePath());
+        QCOMPARE(ZaloClient::forwardableLocalPath(secretPath), QFileInfo(secretPath).absoluteFilePath());
+        QVERIFY(ZaloClient::forwardableLocalPath(QStringLiteral("fixture-secret.json")).isEmpty());
+        QVERIFY(ZaloClient::forwardableLocalPath(dir.path()).isEmpty());
+        QVERIFY(ZaloClient::forwardableLocalPath(dir.filePath(QStringLiteral("missing.json"))).isEmpty());
+        QVERIFY(ZaloClient::forwardableLocalPath(QStringLiteral("https://f.invalid/a.png")).isEmpty());
+
+        TestSupport::LoopbackApi api([](const TestSupport::LoopbackApi::Request&) {
+            return TestSupport::jsonEnvelope(0, QJsonObject{{"msgId", "9901"}});
+        });
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.apiClient()->session()->setLoginInfoForTesting(api.loginInfo(QStringLiteral("u-me")));
+        MessageItem peer;
+        peer.id = QStringLiteral("m-peer-file");
+        peer.messageType = QStringLiteral("file");
+        peer.senderId = QStringLiteral("u-peer");
+        peer.text = QStringLiteral("fixture.pdf");
+        peer.mediaUrl = QUrl::fromLocalFile(secretPath).toString();
+        peer.href = peer.mediaUrl;
+        peer.ts = 1700000000000LL;
+        client.messageModel()->mergeMessages(QStringLiteral("u-peer"), {peer});
+        client.forwardMessage(QStringLiteral("u-target"), QStringLiteral("m-peer-file"));
+        QTRY_VERIFY_WITH_TIMEOUT(api.count(QStringLiteral("/api/message/sms")) >= 1, 5000);
+        QCOMPARE(api.count(QStringLiteral("upload")), 0);
+        QCOMPARE(api.count(QStringLiteral("asyncfile")), 0);
+    }
+
+    void testCallUiOversizeFrameKeepsFraming() {
+        ZaloClient client;
+        auto* calls = client.calls();
+        const qint64 bin = 4LL * 1024 * 1024 + 1;
+        QByteArray body(bin, 'x');
+        const QByteArray injected = QByteArray("\n") + R"({"type":"state","phase":"connected","name":"Injected","since":1})" + "\n";
+        body.replace(1024 * 1024, injected.size(), injected);
+        const QByteArray header = QByteArray(R"({"type":"video","key":true,"bin":)") + QByteArray::number(bin) + "}\n";
+        calls->injectUiBytesForTesting(header + body.left(2048));
+        calls->injectUiBytesForTesting(body.mid(2048));
+        QVERIFY(calls->phase() != QStringLiteral("connected"));
+        calls->injectUiBytesForTesting(QByteArray(R"({"type":"state","phase":"connected","name":"Fixture","since":1})") + "\n");
+        QCOMPARE(calls->phase(), QStringLiteral("connected"));
+        calls->injectUiLineForTesting(R"({"type":"close"})");
+        calls->hangup();
+
+        QVERIFY(CallBridge::tokenMatches("zcall-abc", "zcall-abc"));
+        QVERIFY(!CallBridge::tokenMatches("zcall-abd", "zcall-abc"));
+        QVERIFY(!CallBridge::tokenMatches("zcall-ab", "zcall-abc"));
+        QVERIFY(!CallBridge::tokenMatches(QByteArray(), QByteArray()));
+        const QStringList args = CallBridge::engineArguments(1, 2, 3, QStringLiteral("/run/fixture.key"));
+        QVERIFY(!args.contains(QStringLiteral("--token")));
+        QVERIFY(!args.contains(QStringLiteral("--ui-token")));
+        QVERIFY(args.contains(QStringLiteral("--key-file")));
+        const QProcessEnvironment env = CallBridge::engineEnvironment(QProcessEnvironment(), QStringLiteral("zcall-a"),
+                                                                      QStringLiteral("zcall-b"));
+        QCOMPARE(env.value(QStringLiteral("ZCALL_TOKEN")), QStringLiteral("zcall-a"));
+        QCOMPARE(env.value(QStringLiteral("ZCALL_UI_TOKEN")), QStringLiteral("zcall-b"));
+    }
+
+    void testCameraProfileRejectsOversizedDimensions() {
+        CameraSender sender;
+        sender.setProfile(QSize(640, 360), 15, 300000);
+        QCOMPARE(sender.size(), QSize(640, 360));
+        sender.setProfile(QSize(65536, 65538), 15, 300000);
+        QCOMPARE(sender.size(), QSize(640, 360));
+        sender.setProfile(QSize(1920, 1080), 15, 300000);
+        QCOMPARE(sender.size(), QSize(1920, 1080));
+        QImage image(64, 64, QImage::Format_RGB32);
+        image.fill(Qt::gray);
+        QByteArray out;
+        QVERIFY(!imageToI420Into(image, QSize(65536, 65538), out));
+        QVERIFY(out.isEmpty());
+        QVERIFY(imageToI420Into(image, QSize(64, 64), out));
+        QCOMPARE(out.size(), 64 * 64 * 3 / 2);
+    }
+
+    void testUpdateDownloadsStayPrivate() {
+        QTemporaryDir base;
+        QVERIFY(base.isValid());
+        const QString dir = prepareUpdateDirectory(base.path());
+        QVERIFY(!dir.isEmpty());
+        const QFileDevice::Permissions shared = QFile::ReadGroup | QFile::WriteGroup | QFile::ExeGroup | QFile::ReadOther
+            | QFile::WriteOther | QFile::ExeOther;
+        QCOMPARE(QFileInfo(dir).permissions() & shared, QFileDevice::Permissions());
+        QCOMPARE(updateFilePath(dir, QStringLiteral("../../Zalos-9.9.9-x86_64.AppImage")),
+                 QDir(dir).filePath(QStringLiteral("Zalos-9.9.9-x86_64.AppImage")));
+        QVERIFY(updateFilePath(dir, QStringLiteral("..")).isEmpty());
+        QVERIFY(updateFilePath(dir, QString()).isEmpty());
+        QVERIFY(updateFilePath(QString(), QStringLiteral("fixture.deb")).isEmpty());
+        QVERIFY(prepareUpdateDirectory(QString()).isEmpty());
+        QTemporaryDir linked;
+        QTemporaryDir target;
+        QVERIFY(linked.isValid() && target.isValid());
+        QVERIFY(QFile::link(target.path(), QDir(linked.path()).filePath(QStringLiteral("updates"))));
+        QVERIFY(prepareUpdateDirectory(linked.path()).isEmpty());
+    }
+
     void testSingleInstanceActivatesPrimary() {
         using Zalos::Core::Platform::SingleInstance;
         QTemporaryDir runtime;
@@ -5316,6 +5717,50 @@ private slots:
             QJsonObject{{"id", "u-x"}, {"muteMode", 1}, {"duration", -1}}}}}, now);
         QVERIFY(noClock.muted.contains("u-x"));
         QVERIFY(parseMuteSnapshot(QJsonObject{}, now).muted.isEmpty());
+        QVERIFY(snap.valid);
+        QVERIFY(!parseMuteSnapshot(QJsonObject{}, now).valid);
+
+        const QJsonObject loose{
+            {"systemTime", QString::number(now)},
+            {"groupChatEntries", QJsonArray{
+                QJsonObject{{"id", "group_1001"}, {"muteMode", "2"}, {"duration", "-1"}},
+                QJsonObject{{"grid", "g1002"}, {"muteMode", "1"}, {"duration", "3600"}, {"startTime", QString::number((now - 60) * 1000)}},
+            }},
+            {"chatEntries", QJsonArray{
+                QJsonObject{{"toId", "u2001"}, {"muteMode", 1}, {"duration", 600}, {"startTime", now}},
+                QJsonObject{{"id", "u-fixture"}, {"muteMode", 2}, {"duration", -1}},
+            }},
+        };
+        const auto looseSnap = parseMuteSnapshot(QString::fromUtf8(QJsonDocument(loose).toJson(QJsonDocument::Compact)), 0);
+        QVERIFY(looseSnap.valid);
+        QCOMPARE(looseSnap.muted, (QSet<QString>{"1001", "1002", "2001", "u-fixture"}));
+        QCOMPARE(looseSnap.until.value("1002"), (now - 60 + 3600) * 1000);
+        QCOMPARE(Zalos::Core::Network::Detail::normalizeMuteId("U3001"), QString("3001"));
+        QCOMPARE(Zalos::Core::Network::Detail::normalizeMuteId("group"), QString("group"));
+
+        const auto failed = parseMuteSnapshot(QJsonObject{{"error_code", 114}, {"chatEntries", QJsonArray{}}}, now);
+        QVERIFY(!failed.valid);
+        QVERIFY(failed.muted.isEmpty());
+
+        using Zalos::Core::Network::ZaloSession;
+        using Zalos::Core::Network::ZaloCrypto::signKey;
+        auto toMap = [](const QList<QPair<QString, QString>>& q) {
+            QMap<QString, QString> m;
+            for (const auto& kv : q) m.insert(kv.first, kv.second);
+            return m;
+        };
+        QMap<QString, QString> legacy = toMap(ZaloSession::serverInfoQuery("fixture-imei", false, 7, 8));
+        QCOMPARE(legacy.size(), 5);
+        QVERIFY(!legacy.contains("sp_mtn"));
+        const QString legacyKey = legacy.take("signkey");
+        QCOMPARE(legacyKey, signKey("getserverinfo", legacy));
+        QMap<QString, QString> signedAll = toMap(ZaloSession::serverInfoQuery("fixture-imei", true, -1, 3));
+        QCOMPARE(signedAll.value("sp_mtn"), QString("-1"));
+        QCOMPARE(signedAll.value("bkt"), QString("3"));
+        QCOMPARE(signedAll.value("floatMenuPos"), QString("null"));
+        const QString allKey = signedAll.take("signkey");
+        QCOMPARE(allKey, signKey("getserverinfo", signedAll));
+        QVERIFY(allKey != legacyKey);
     }
 
     void loginReplyClassification() {
@@ -5602,6 +6047,7 @@ private slots:
         QVERIFY(map.keys("app.quit").isEmpty());
         QVERIFY(map.keys("made.up").isEmpty());
         QCOMPARE(map.keys("composer.voice"), QStringList({"Ctrl+Shift+V"}));
+        QCOMPARE(map.keys("app.shortcuts"), QStringList({"Ctrl+/"}));
         QVERIFY(QFile::exists(config.path() + "/shortcuts-default.json"));
         QCOMPARE(map.all().size(), map.commands().size());
 
@@ -5625,14 +6071,41 @@ private slots:
         }
         {
             AppLock lock;
+            QVERIFY(lock.locked());
+            QVERIFY(lock.retryAfterSeconds() > 0);
+            QVERIFY(!lock.unlock("2468"));
+        }
+        QSettings().remove("lock/blockedUntil");
+        {
+            AppLock lock;
             QVERIFY(lock.hasPasscode());
             QVERIFY(lock.locked());
             QVERIFY(lock.unlock("2468"));
+            QVERIFY(!QSettings().contains("lock/failures"));
+            QVERIFY(lock.isEventFilterInstalledForTesting());
+            lock.setCallActive(true);
+            QVERIFY(lock.callActive());
+            lock.lockForSleep();
+            QVERIFY(lock.locked());
+            QVERIFY(lock.unlock("2468"));
+            lock.setCallActive(false);
+            lock.setAutoLockMinutes(0);
+            lock.lockForSleep();
+            QVERIFY(!lock.locked());
+            lock.setAutoLockMinutes(5);
             QVERIFY(lock.isEventFilterInstalledForTesting());
             QVERIFY(!lock.removePasscode("0000"));
             QVERIFY(lock.removePasscode("2468"));
             QVERIFY(!lock.hasPasscode());
             QVERIFY(!lock.isEventFilterInstalledForTesting());
+            QVERIFY(lock.setPasscode("", "1357"));
+            lock.lock();
+            QVERIFY(!lock.unlock("0000"));
+            QVERIFY(QSettings().contains("lock/failures"));
+            lock.forgetPasscode();
+            QVERIFY(!lock.hasPasscode());
+            QVERIFY(!lock.locked());
+            QVERIFY(!QSettings().contains("lock/failures"));
             lock.setAutoLockMinutes(0);
         }
         QSettings settings;
@@ -5833,7 +6306,17 @@ private slots:
 
         client.selectConversation("conv-1", "Conv 1", "");
         client.sendMessage("Tin nhắn gốc");
-        QString msgId = client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString();
+        const QString localId = client.messageModel()->data(client.messageModel()->index(0), MessageModel::IdRole).toString();
+        QVERIFY(localId.startsWith("local-"));
+        client.openForwardModal(localId, "Tin nhắn gốc");
+        QCOMPARE(client.showForwardModal(), false);
+        MessageItem source;
+        source.id = "fwd-src-1";
+        source.messageType = "text";
+        source.text = "Tin nhắn gốc";
+        source.ts = QDateTime::currentMSecsSinceEpoch();
+        client.messageModel()->mergeMessages("conv-1", {source});
+        const QString msgId = source.id;
 
         client.openForwardModal(msgId, "Tin nhắn gốc");
         QCOMPARE(client.showForwardModal(), true);
@@ -6000,6 +6483,14 @@ private slots:
         QTest::qWait(100);
         QVERIFY2(openItems > closedItems + 50, "settings must be created on open");
         QVERIFY2(itemCount() < openItems, "settings must be destroyed on close");
+        window->resize(1040, 760);
+        for (const QString& tab : {QStringLiteral("general"), QStringLiteral("storage"), QStringLiteral("about"), QStringLiteral("chat")}) {
+            client.openSettings(tab);
+            QTest::qWait(400);
+            window->grabWindow().save(QStringLiteral("/workspace/build/ui_settings_%1.png").arg(tab));
+            client.setShowSettingsModal(false);
+            QTest::qWait(100);
+        }
 
         QCOMPARE(client.showConversationInfo(), false);
         QCOMPARE(window->findChild<QQuickItem*>("conversationInfoPanel"), nullptr);
@@ -6010,13 +6501,188 @@ private slots:
         QTest::qWait(100);
         QCOMPARE(window->findChild<QQuickItem*>("conversationInfoPanel"), nullptr);
 
-        const QList<QSize> sizes{{1920, 1080}, {960, 1080}, {1280, 720}, {640, 480}, {480, 540}};
+        QVERIFY(window->minimumWidth() <= 360);
+        QVERIFY(window->minimumHeight() <= 420);
+        const QList<QSize> sizes{{1920, 1080}, {960, 1080}, {1280, 720}, {640, 480}, {480, 1040}, {480, 540},
+                                 {360, 720}, {360, 420}};
+        auto visibleItem = [&](const char* name) {
+            auto* item = window->findChild<QQuickItem*>(QString::fromLatin1(name));
+            return item && item->isVisible();
+        };
+        auto rightEdge = [&](const char* name) {
+            auto* item = window->findChild<QQuickItem*>(QString::fromLatin1(name));
+            return item ? item->mapToScene(QPointF(item->width(), 0)).x() : -1.0;
+        };
         for (const QSize& size : sizes) {
             window->resize(size);
             QTest::qWait(250);
             QCOMPARE(window->size(), size);
+            auto* list = window->findChild<QQuickItem*>("messageList");
+            auto* composer = window->findChild<QQuickItem*>("composerBox");
+            QVERIFY(list != nullptr && composer != nullptr);
+            const bool compact = size.width() < 720;
+            const QString where = QStringLiteral("%1x%2 list %3 composer %4")
+                                      .arg(size.width()).arg(size.height()).arg(list->width()).arg(composer->height());
+            QVERIFY2(visibleItem("navigationRail") == !compact, qPrintable(where));
+            QVERIFY2(visibleItem("headerMoreButton") == compact, qPrintable(where));
+            QVERIFY2(visibleItem("composerMoreButton") == (size.width() < 480), qPrintable(where));
+            if (compact) {
+                QVERIFY2(list->width() >= size.width() - 1, qPrintable(where));
+                QVERIFY2(rightEdge("headerMoreButton") <= size.width(), qPrintable(where));
+            }
+            if (size.width() < 480) QVERIFY2(rightEdge("composerMoreButton") <= size.width(), qPrintable(where));
+            if (size.height() < 600) QVERIFY2(composer->height() < 120, qPrintable(where));
             window->grabWindow().save(QString("/workspace/build/test_chat_%1x%2.png").arg(size.width()).arg(size.height()));
         }
+
+        const int rowsBeforeList = client.messageModel()->rowCount();
+        client.openWelcomeScreen();
+        for (const QSize& size : {QSize(480, 1040), QSize(480, 540)}) {
+            window->resize(size);
+            QTest::qWait(250);
+            QVERIFY(visibleItem("navigationRail"));
+            window->grabWindow().save(QString("/workspace/build/test_chat_list_%1x%2.png").arg(size.width()).arg(size.height()));
+        }
+        client.selectConversation("u-new", "Fixture New", "");
+        QTest::qWait(100);
+        QCOMPARE(client.messageModel()->rowCount(), rowsBeforeList);
+
+        window->resize(480, 540);
+        QTest::qWait(250);
+        client.setShowConversationInfo(true);
+        QTest::qWait(100);
+        QTest::mouseClick(window, Qt::BackButton, {}, QPoint(240, 300));
+        QTest::qWait(100);
+        QVERIFY(!client.showConversationInfo());
+        QCOMPARE(client.currentConversationId(), QString("u-new"));
+        QTest::mouseClick(window, Qt::BackButton, {}, QPoint(240, 300));
+        QTest::qWait(100);
+        QVERIFY(client.currentConversationId().isEmpty());
+        client.selectConversation("u-new", "Fixture New", "");
+        QTest::qWait(100);
+        QCOMPARE(client.messageModel()->rowCount(), rowsBeforeList);
+        window->resize(1280, 720);
+        QTest::qWait(100);
+
+        convModel->recordMessage("u-old", "fixture unread", "", now + 2000, true);
+        QVERIFY(convModel->conversation("u-old").unreadCount > 0);
+        client.markConversationRead("u-old");
+        QCOMPARE(convModel->conversation("u-old").unreadCount, 0);
+        convModel->recordMessage("g-pin", "fixture mention", "", now + 3000, true, true);
+        QVERIFY(convModel->conversation("g-pin").hasUnreadMention);
+        QVERIFY(client.markAllConversationsRead() >= 1);
+        QCOMPARE(convModel->totalUnreadCount(), 0);
+
+        QCOMPARE(client.copyMessages({"1", "3"}), QString("first\nmine"));
+        QVERIFY(!client.canModerateCurrent());
+        client.openForwardModalMulti({"3", "1"});
+        QCOMPARE(client.forwardMode(), QString("messages"));
+        QVERIFY(client.showForwardModal());
+        client.closeForwardModal();
+        {
+            MessageItem call; call.id = "9960"; call.ts = now + 4000; call.messageType = "call"; call.text = "Fixture call";
+            MessageItem sticker; sticker.id = "9961"; sticker.ts = now + 5000; sticker.messageType = "sticker";
+            sticker.mediaUrl = "https://example.invalid/s.png";
+            client.messageModel()->mergeMessages("u-new", {call, sticker});
+            QSignalSpy notices(&client, &ZaloClient::notice);
+            QCOMPARE(client.copyMessages({"1", "9960"}), QString("first"));
+            client.openForwardModal("9960", "Fixture call");
+            QVERIFY(!client.showForwardModal());
+            client.openForwardModal("9961", QString());
+            QVERIFY(!client.showForwardModal());
+            client.openForwardModalMulti({"9960", "9961"});
+            QVERIFY(!client.showForwardModal());
+            client.openForwardModalMulti({"9960", "1"});
+            QVERIFY(client.showForwardModal());
+            QCOMPARE(client.forwardSourceMsgId(), QString("1"));
+            client.closeForwardModal();
+            QCOMPARE(notices.count(), 4);
+        }
+        {
+            MessageItem a; a.id = "9970"; a.ts = now - 600000; a.messageType = "image"; a.mediaUrl = "https://example.invalid/1.jpg";
+            a.senderId = "u-album"; a.extra.insert("groupLayoutId", "L1");
+            MessageItem b = a; b.id = "9971"; b.ts = now; b.mediaUrl = "https://example.invalid/2.jpg";
+            MessageItem c = a; c.id = "9972"; c.ts = now + 1000; c.mediaUrl = "https://example.invalid/3.jpg"; c.extra.insert("groupLayoutId", "L2");
+            MessageModel albums;
+            albums.loadConversation("album-fixture");
+            albums.mergeMessages("album-fixture", {a, b, c});
+            QCOMPARE(albums.rowCount(), 3);
+            QVERIFY(albums.data(albums.index(1), MessageModel::InMediaRunRole).toBool());
+            QVERIFY(!albums.data(albums.index(2), MessageModel::InMediaRunRole).toBool());
+        }
+
+        client.setScrollAnchor("u-old", "fixture-anchor");
+        QCOMPARE(client.scrollAnchor("u-old"), QString("fixture-anchor"));
+        client.setScrollAnchor("u-old", "");
+        QVERIFY(client.scrollAnchor("u-old").isEmpty());
+        QTemporaryDir downloadsDir;
+        client.setDownloadDirectory(QUrl::fromLocalFile(downloadsDir.path()).toString());
+        QCOMPARE(client.downloadDirectory(), downloadsDir.path());
+        client.setDownloadDirectory(QString());
+        QVERIFY(client.downloadDirectory().endsWith(QStringLiteral("Zalos")));
+        QVERIFY(!ZaloClient::updateCheckDue(100000, 0, 0, true));
+        QVERIFY(ZaloClient::updateCheckDue(100000, 0, 1, true));
+        QVERIFY(!ZaloClient::updateCheckDue(100000, 0, 1, false));
+        QVERIFY(ZaloClient::updateCheckDue(100000, 0, 24, false));
+        QVERIFY(!ZaloClient::updateCheckDue(100000, 100000 - 3600, 24, true));
+        QVERIFY(ZaloClient::updateCheckDue(100000 + 86400, 100000, 24, false));
+        QVERIFY(!ZaloClient::updateCheckDue(100000 + 86400, 100000, 168, false));
+        const int previousHours = client.updateCheckHours();
+        client.setUpdateCheckHours(5);
+        QCOMPARE(client.updateCheckHours(), previousHours);
+        client.setUpdateCheckHours(0);
+        QCOMPARE(client.updateCheckHours(), 0);
+        client.setUpdateCheckHours(previousHours);
+        const QVariantMap noFile = client.fileState(QStringLiteral("https://example.invalid/none.bin"));
+        QVERIFY(!noFile.value("downloading").toBool());
+        QVERIFY(noFile.value("path").toString().isEmpty());
+
+        client.deleteConversationWithUndo("u-old");
+        QVERIFY(!convModel->contains("u-old"));
+        QCOMPARE(client.pendingDeleteConversation(), QString("u-old"));
+        QTest::qWait(50);
+        QVERIFY(visibleItem("undoDeleteBar"));
+        client.undoDeleteConversation();
+        QVERIFY(convModel->contains("u-old"));
+        QVERIFY(client.pendingDeleteConversation().isEmpty());
+
+        {
+            Zalos::Core::Platform::SwipeBack swipe;
+            QObject target;
+            target.installEventFilter(&swipe);
+            QSignalSpy swiped(&swipe, &Zalos::Core::Platform::SwipeBack::swipeBack);
+            QPointingDevice pad(QStringLiteral("fixture touchpad"), 4242, QInputDevice::DeviceType::TouchPad,
+                                QPointingDevice::PointerType::Finger,
+                                QInputDevice::Capability::Position | QInputDevice::Capability::Scroll, 2, 0);
+            auto send = [&](QPoint pixels, Qt::ScrollPhase phase) {
+                QWheelEvent ev(QPointF(10, 10), QPointF(10, 10), pixels, pixels, Qt::NoButton, Qt::NoModifier, phase, false,
+                               Qt::MouseEventSynthesizedBySystem, &pad);
+                QCoreApplication::sendEvent(&target, &ev);
+            };
+            send(QPoint(-10, 0), Qt::ScrollBegin);
+            send(QPoint(-120, 2), Qt::ScrollUpdate);
+            send(QPoint(-120, 1), Qt::ScrollUpdate);
+            send(QPoint(-60, 0), Qt::ScrollUpdate);
+            send(QPoint(0, 0), Qt::ScrollEnd);
+            QCOMPARE(swiped.count(), 1);
+            send(QPoint(0, -10), Qt::ScrollBegin);
+            send(QPoint(-120, 200), Qt::ScrollUpdate);
+            send(QPoint(-120, 200), Qt::ScrollUpdate);
+            send(QPoint(0, 0), Qt::ScrollEnd);
+            QCOMPARE(swiped.count(), 1);
+        }
+
+        using Zalos::Core::Platform::SystemTrayController;
+        QVERIFY(SystemTrayController::launcherDesktopFiles().contains(QStringLiteral("zalos.desktop")));
+        QImage colour(4, 4, QImage::Format_ARGB32);
+        colour.fill(QColor(0, 104, 255, 255));
+        const QImage dim = SystemTrayController::dimmedImage(colour);
+        QCOMPARE(qRed(dim.pixel(1, 1)), qBlue(dim.pixel(1, 1)));
+        QVERIFY(qAlpha(dim.pixel(1, 1)) < 255);
+        trayCtrl.setOffline(true);
+        QVERIFY(!trayCtrl.offline());
+        trayCtrl.setOffline(false);
+        QVERIFY(!trayCtrl.offline());
 
         client.setShowConversationInfo(true);
         for (const QSize& size : sizes) {
@@ -6028,8 +6694,13 @@ private slots:
             const QString where = QStringLiteral("%1x%2 panel %3 list %4 visible %5")
                                       .arg(size.width()).arg(size.height()).arg(panel->width()).arg(list->width())
                                       .arg(list->isVisible());
-            QVERIFY2(panel->width() <= 280.5, qPrintable(where));
-            QVERIFY2(list->isVisible() && list->width() > 200, qPrintable(where));
+            if (size.width() < 720) {
+                QVERIFY2(qAbs(panel->width() - size.width()) < 1.0, qPrintable(where));
+                QVERIFY2(visibleItem("infoBackButton"), qPrintable(where));
+            } else {
+                QVERIFY2(panel->width() <= 280.5, qPrintable(where));
+                QVERIFY2(list->isVisible() && list->width() > 200, qPrintable(where));
+            }
             window->grabWindow().save(QString("/workspace/build/test_chat_info_%1x%2.png").arg(size.width()).arg(size.height()));
         }
         client.setShowConversationInfo(false);
@@ -6393,7 +7064,7 @@ private slots:
     }
 
     void testUiFeatureSettingsAndKikiFallback() {
-        QSettings settings("Zalos", "ZalosApp");
+        QSettings settings;
         settings.remove("settings/showBusinessButton");
         settings.remove("settings/showKikiButton");
         settings.remove("render/hardwareAcceleration");
@@ -6528,7 +7199,7 @@ private slots:
     }
 
     void testSettingsRoundTripAndUrlPolicy() {
-        QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+        QSettings settings;
         settings.remove(QStringLiteral("settings/showBusinessButton"));
         settings.remove(QStringLiteral("settings/showKikiButton"));
         settings.remove(QStringLiteral("settings/showLabelFolders"));
@@ -6992,7 +7663,7 @@ private slots:
         calls->hangup();
         client.setTrayAvailableForTesting(-1);
         client.setCloseToTray(prevCloseToTray);
-        QSettings("Zalos", "ZalosApp").remove(QStringLiteral("settings/closeToTray"));
+        QSettings().remove(QStringLiteral("settings/closeToTray"));
         calls->selectAudioDevice(QStringLiteral("mic"), QString());
         calls->selectAudioDevice(QStringLiteral("speaker"), QString());
 
@@ -7739,7 +8410,7 @@ private slots:
         }
 
         {
-            QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+            QSettings s;
             s.setValue(QStringLiteral("window/x"), -50000);
             s.setValue(QStringLiteral("window/y"), -50000);
             s.setValue(QStringLiteral("window/width"), 99999);
@@ -8232,6 +8903,28 @@ private slots:
         tray.setNotificationsEnabled(true);
         QCOMPARE(findByLabel(QStringLiteral("Notifications")).value(QStringLiteral("toggle-state")).toInt(), 1);
 
+        QSignalSpy markAllSpy(&tray, &SystemTrayController::markAllReadRequested);
+        tray.setUnreadCount(0, false);
+        const QVariantMap initialMarkAll = findByLabel(QStringLiteral("Mark as read"));
+        QCOMPARE(initialMarkAll.value(QStringLiteral("visible")).toBool(), false);
+        QCOMPARE(initialMarkAll.value(QStringLiteral("enabled")).toBool(), false);
+        QVERIFY(!tray.triggerMenuItem(initialMarkAll.value(QStringLiteral("id")).toInt()));
+
+        tray.setUnreadCount(3, false);
+        const QVariantMap unreadMarkAll = findByLabel(QStringLiteral("Mark as read"));
+        QCOMPARE(unreadMarkAll.value(QStringLiteral("visible")).toBool(), true);
+        QCOMPARE(unreadMarkAll.value(QStringLiteral("enabled")).toBool(), true);
+        QVERIFY(tray.triggerMenuItem(unreadMarkAll.value(QStringLiteral("id")).toInt()));
+        QCOMPARE(markAllSpy.count(), 1);
+
+        tray.setLocked(true);
+        QCOMPARE(findByLabel(QStringLiteral("Mark as read")).value(QStringLiteral("visible")).toBool(), false);
+        QVERIFY(!tray.triggerMenuItem(unreadMarkAll.value(QStringLiteral("id")).toInt()));
+        tray.setLocked(false);
+        QCOMPARE(findByLabel(QStringLiteral("Mark as read")).value(QStringLiteral("visible")).toBool(), true);
+        tray.setUnreadCount(0, false);
+        QCOMPARE(findByLabel(QStringLiteral("Mark as read")).value(QStringLiteral("visible")).toBool(), false);
+
         tray.setCallState(QStringLiteral("incoming"), QStringLiteral("Peer A"), true, false, false, false, false);
         QVERIFY(findByLabel(QStringLiteral("Incoming call: Peer A")).value(QStringLiteral("visible")).toBool());
         QVERIFY(findByLabel(QStringLiteral("Answer with video")).value(QStringLiteral("visible")).toBool());
@@ -8257,8 +8950,9 @@ private slots:
         QCOMPARE(findByLabel(QStringLiteral("Share screen")).value(QStringLiteral("toggle-state")).toInt(), 1);
         QVERIFY(findByLabel(QStringLiteral("End call")).value(QStringLiteral("visible")).toBool());
 
+        QVERIFY(findByLabel(QStringLiteral("Toggle light / dark mode")).isEmpty());
+
         QSignalSpy toggleWinSpy(&tray, &SystemTrayController::toggleWindowRequested);
-        QSignalSpy darkSpy(&tray, &SystemTrayController::toggleDarkModeRequested);
         QSignalSpy quitSpy(&tray, &SystemTrayController::quitRequested);
         QSignalSpy settingsSpy(&tray, &SystemTrayController::openSettingsRequested);
         QSignalSpy notiSpy(&tray, &SystemTrayController::notificationsToggled);
@@ -8274,7 +8968,6 @@ private slots:
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Hide Zalos")).value(QStringLiteral("id")).toInt()));
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Settings")).value(QStringLiteral("id")).toInt()));
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Notifications")).value(QStringLiteral("id")).toInt()));
-        QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Toggle light / dark mode")).value(QStringLiteral("id")).toInt()));
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Anti-peeking")).value(QStringLiteral("id")).toInt()));
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("Quit")).value(QStringLiteral("id")).toInt()));
         QVERIFY(tray.triggerMenuItem(findByLabel(QStringLiteral("In call: Peer A")).value(QStringLiteral("id")).toInt()));
@@ -8288,7 +8981,6 @@ private slots:
         QCOMPARE(toggleWinSpy.count(), 2);
         QCOMPARE(settingsSpy.count(), 1);
         QCOMPARE(notiSpy.count(), 1);
-        QCOMPARE(darkSpy.count(), 1);
         QCOMPARE(peekSpy.count(), 1);
         QCOMPARE(quitSpy.count(), 1);
         QCOMPARE(showCallSpy.count(), 1);
@@ -8311,7 +9003,7 @@ private slots:
     }
 
     void testDefaultReactionAndInterfaceScale() {
-        QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+        QSettings settings;
         settings.remove(QStringLiteral("settings/defaultReaction"));
         settings.remove(QStringLiteral("appearance/interfaceScale"));
 
@@ -8900,9 +9592,9 @@ private slots:
     }
 
     void testScreenshotPreservesWindowVisibility() {
-        QSettings("Zalos", "ZalosApp").remove(QStringLiteral("window"));
+        QSettings().remove(QStringLiteral("window"));
         auto cleanup = qScopeGuard([]() {
-            QSettings("Zalos", "ZalosApp").remove(QStringLiteral("window"));
+            QSettings().remove(QStringLiteral("window"));
         });
 
         ZaloClient client;
@@ -9309,6 +10001,197 @@ private slots:
         QTest::qWait(250);
         client.setProperty("showSettingsModal", false);
         QTest::qWait(50);
+    }
+
+    void testScaleCrispRenderingAndDialogClamp() {
+        ZaloClient client;
+        ThemeManager themeMgr;
+        QQmlEngine engine;
+        engine.addImageProvider(QStringLiteral("avatar"), new AvatarImageProvider);
+        engine.addImageProvider(QStringLiteral("media"), new AvatarImageProvider(false));
+        engine.addImageProvider(QStringLiteral("icon"), new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath(QStringLiteral("qrc:/"));
+        engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+
+        const QByteArray qml =
+            "import QtQuick\n"
+            "import QtQuick.Controls.Basic\n"
+            "import Zalos\n"
+            "ApplicationWindow {\n"
+            "    id: win\n"
+            "    width: 300\n"
+            "    height: 420\n"
+            "    visible: false\n"
+            "    ZIcon {\n"
+            "        id: icon\n"
+            "        objectName: 'testIcon'\n"
+            "        name: 'chat'\n"
+            "        size: 20\n"
+            "    }\n"
+            "    ZAvatar {\n"
+            "        id: av\n"
+            "        objectName: 'testAvatar'\n"
+            "        size: 40\n"
+            "        avatarUrl: 'https://example.invalid/a.jpg'\n"
+            "        isOnline: true\n"
+            "        showStatusDot: true\n"
+            "    }\n"
+            "    ZRoundedImage {\n"
+            "        id: ri\n"
+            "        objectName: 'testRounded'\n"
+            "        width: 120\n"
+            "        height: 80\n"
+            "        source: 'https://example.invalid/b.jpg'\n"
+            "    }\n"
+            "    ZConfirmDialog {\n"
+            "        id: dlg\n"
+            "        objectName: 'testDlg'\n"
+            "        maxWidth: 360\n"
+            "        title: 'Fixture'\n"
+            "    }\n"
+            "}\n";
+        QQmlComponent comp(&engine);
+        comp.setData(qml, QUrl(QStringLiteral("qrc:/Zalos/TestScaleCrisp.qml")));
+        QVERIFY2(comp.isReady(), qPrintable(comp.errorString()));
+        std::unique_ptr<QObject> root(comp.create());
+        QVERIFY(root != nullptr);
+
+        auto* iconItem = root->findChild<QQuickItem*>(QStringLiteral("testIcon"));
+        auto* avItem = root->findChild<QQuickItem*>(QStringLiteral("testAvatar"));
+        auto* riItem = root->findChild<QQuickItem*>(QStringLiteral("testRounded"));
+        QVERIFY(iconItem && avItem && riItem);
+
+        auto findImageBySource = [](QQuickItem* rootItem, const QString& needle) -> QQuickItem* {
+            std::function<QQuickItem*(QQuickItem*)> walk = [&](QQuickItem* node) -> QQuickItem* {
+                if (!node) return nullptr;
+                if (node->inherits("QQuickImage")
+                    && node->property("source").toUrl().toString().contains(needle)) {
+                    return node;
+                }
+                for (QQuickItem* ch : node->childItems()) {
+                    if (QQuickItem* hit = walk(ch)) return hit;
+                }
+                return nullptr;
+            };
+            return walk(rootItem);
+        };
+
+        QQuickItem* iconImg = findImageBySource(iconItem, QStringLiteral("image://icon/"));
+        QQuickItem* avImg = findImageBySource(avItem, QStringLiteral("image://avatar/"));
+        QQuickItem* riImg = findImageBySource(riItem, QStringLiteral("image://media/"));
+        QVERIFY(iconImg && avImg && riImg);
+        QCOMPARE(iconImg->property("mipmap").toBool(), true);
+        QCOMPARE(avImg->property("mipmap").toBool(), true);
+        QCOMPARE(riImg->property("mipmap").toBool(), true);
+        QCOMPARE(iconImg->property("sourceSize").toSize(), QSize(20, 20));
+        QCOMPARE(avImg->property("sourceSize").toSize(), QSize(40, 40));
+
+        QQuickItem* statusDot = avItem->findChild<QQuickItem*>(QStringLiteral("statusDot"));
+        QVERIFY(statusDot != nullptr);
+        QVERIFY(statusDot->inherits("QQuickImage"));
+        QVERIFY(statusDot->property("source").toUrl().toString().contains(QStringLiteral("image://icon/dot/")));
+        QCOMPARE(statusDot->property("mipmap").toBool(), true);
+        QCOMPARE(statusDot->property("smooth").toBool(), true);
+
+        Zalos::Core::Platform::IconImageProvider iconProvider;
+        for (const int px : {14, 17, 40}) {
+            QSize outSize;
+            const QImage pacImg = iconProvider.requestImage(QStringLiteral("pacman/%1").arg(px), &outSize, QSize());
+            QVERIFY(!pacImg.isNull());
+            QVERIFY(outSize.width() >= 8 && outSize.height() >= 8);
+            int yellowPx = 0;
+            int brownPx = 0;
+            for (int y = 0; y < pacImg.height(); ++y) {
+                for (int x = 0; x < pacImg.width(); ++x) {
+                    const QColor c = pacImg.pixelColor(x, y);
+                    if (c.alpha() < 128) continue;
+                    if (c.red() > 180 && c.green() > 135 && c.blue() < 100) ++yellowPx;
+                    else if (c.red() < 140 && c.green() < 90 && c.blue() < 40) ++brownPx;
+                }
+            }
+            QVERIFY2(yellowPx > px, qPrintable(QStringLiteral("icon/pacman/%1 missing yellow").arg(px)));
+            QVERIFY2(brownPx > 0, qPrintable(QStringLiteral("icon/pacman/%1 missing eyes").arg(px)));
+        }
+
+        for (const QSize& dotTarget : {QSize(14, 14), QSize(19, 19)}) {
+            QSize outSize;
+            const QImage dotImg = iconProvider.requestImage(
+                QStringLiteral("dot/%2322262B/%236ACD8B/733"), &outSize, dotTarget);
+            QCOMPARE(outSize, dotTarget);
+            QVERIFY(dotImg.pixelColor(dotTarget.width() / 2, dotTarget.height() / 2).green() > 150);
+            for (int y = 0; y < dotImg.height(); ++y) {
+                for (int x = 0; x < dotImg.width(); ++x) {
+                    const QRgb a = dotImg.pixel(x, y);
+                    const QRgb b = dotImg.pixel(dotImg.width() - 1 - x, y);
+                    const QRgb c = dotImg.pixel(x, dotImg.height() - 1 - y);
+                    QVERIFY(qAbs(qRed(a) - qRed(b)) <= 2 && qAbs(qGreen(a) - qGreen(b)) <= 2
+                            && qAbs(qBlue(a) - qBlue(b)) <= 2 && qAbs(qAlpha(a) - qAlpha(b)) <= 2);
+                    QVERIFY(qAbs(qRed(a) - qRed(c)) <= 2 && qAbs(qGreen(a) - qGreen(c)) <= 2
+                            && qAbs(qBlue(a) - qBlue(c)) <= 2 && qAbs(qAlpha(a) - qAlpha(c)) <= 2);
+                }
+            }
+        }
+
+        QSvgRenderer pacmanSvg(QStringLiteral(":/Zalos/assets/icons/pacman.svg"));
+        QVERIFY(pacmanSvg.isValid());
+        for (const int px : {18, 44, 66}) {
+            QImage rendered(px, px, QImage::Format_ARGB32_Premultiplied);
+            rendered.fill(Qt::transparent);
+            {
+                QPainter p(&rendered);
+                pacmanSvg.render(&p, QRectF(0, 0, px, px));
+            }
+            int yellowPx = 0;
+            int brownPx = 0;
+            for (int y = 0; y < px; ++y) {
+                for (int x = 0; x < px; ++x) {
+                    const QColor c = rendered.pixelColor(x, y);
+                    if (c.alpha() < 128) continue;
+                    if (c.red() > 180 && c.green() > 140 && c.blue() < 100) ++yellowPx;
+                    else if (c.red() < 140 && c.green() < 90 && c.blue() < 40) ++brownPx;
+                }
+            }
+            QVERIFY2(yellowPx > px, qPrintable(QStringLiteral("pacman.svg missing yellow body at %1px").arg(px)));
+            QVERIFY2(brownPx > 0, qPrintable(QStringLiteral("pacman.svg missing brown eyes at %1px").arg(px)));
+        }
+
+        const QString emojiFamily = Zalos::Core::Platform::ThemeManager::registerEmojiFallbackFont();
+        QVERIFY(!emojiFamily.isEmpty());
+        auto measureEmojiHeight = [&](int px, qreal dpr) -> int {
+            QFont ef(emojiFamily);
+            ef.setPixelSize(px);
+            QImage img(int(140 * dpr), int(140 * dpr), QImage::Format_ARGB32_Premultiplied);
+            img.setDevicePixelRatio(dpr);
+            img.fill(Qt::transparent);
+            {
+                QPainter p(&img);
+                p.setFont(ef);
+                p.drawText(10, 100, QString::fromUtf8("😄"));
+            }
+            int minY = img.height();
+            int maxY = -1;
+            for (int y = 0; y < img.height(); ++y) {
+                const QRgb* row = reinterpret_cast<const QRgb*>(img.constScanLine(y));
+                for (int x = 0; x < img.width(); ++x) {
+                    if (qAlpha(row[x]) > 5) {
+                        minY = qMin(minY, y);
+                        maxY = qMax(maxY, y);
+                    }
+                }
+            }
+            return maxY >= minY ? (maxY - minY + 1) : 0;
+        };
+        for (const int px : {16, 19, 23, 32, 36, 44}) {
+            const int h10 = measureEmojiHeight(px, 1.0);
+            const int h15 = measureEmojiHeight(px, 1.5);
+            QVERIFY2(h15 > h10, qPrintable(QStringLiteral("Emoji px=%1 did not scale at 1.5x (%2 -> %3)")
+                                               .arg(px).arg(h10).arg(h15)));
+        }
+
+        QObject* dlg = root->findChild<QObject*>(QStringLiteral("testDlg"));
+        QVERIFY(dlg != nullptr);
+        QVERIFY(dlg->property("width").toReal() <= 276.0);
+        QVERIFY(dlg->property("width").toReal() >= 240.0);
     }
 };
 

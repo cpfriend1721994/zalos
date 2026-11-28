@@ -169,6 +169,9 @@ QString shapeOf(const QJsonValue& v) {
 }
 
 void MobileHistorySync::setState(int state, const QString& status, int progress) {
+    if (state == m_state && progress == m_lastProgress && status == m_lastStatus) return;
+    m_lastProgress = progress;
+    m_lastStatus = status;
     log(QStringLiteral("state %1 progress %2").arg(state).arg(progress));
     m_state = state;
     emit stateChanged(state, status, progress);
@@ -186,6 +189,14 @@ void MobileHistorySync::fail(const QString& reason) {
     m_v2HasSession = false;
     m_v2SawLastBatch = false;
     m_v2InFlightDownload = false;
+    m_v2Phase = V2Phase::Conversation;
+    m_v2WakeUpSent = false;
+    m_v2ExpectedBatches = -1;
+    m_v2ConvCursor = 0;
+    m_v2UssIdx = 0;
+    m_v2SeenBatchIdxs.clear();
+    m_v2PendingConvs.clear();
+    m_v2PendingConvKeys.clear();
     m_v2SeenUrls.clear();
     m_v2DownloadQueue.clear();
     m_v2Conversations.clear();
@@ -1549,6 +1560,10 @@ void MobileHistorySync::processNextV2Download() {
 
     const quint64 gen = m_generation;
     QNetworkReply* reply = m_session->getWithCookies(QUrl(task.url));
+    if (!reply) {
+        fail(L("Không tải được dữ liệu từ điện thoại.", "Couldn't download the data from the phone."));
+        return;
+    }
     reply->setReadBufferSize(kMaxV2BatchBytes + 1);
     m_download = reply;
     auto tooLarge = std::make_shared<bool>(false);
@@ -1709,51 +1724,6 @@ bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& byte
         return true;
     }
 
-    if (batchType == 1) {
-        if (!m_v2HasSession) {
-            if (error) *error = L("Thiếu thông tin đồng bộ từ điện thoại. Vui lòng thử lại.", "Sync details from the phone are missing. Please try again.");
-            return false;
-        }
-        V2MessageParseResult res = parseV2MessageBatch(bytes, m_v2Session, m_myNoisedUid, m_v2Phase == V2Phase::Conversation);
-        if (res.errorKind != V2MessageParseResult::None) {
-            if (error) {
-                switch (res.errorKind) {
-                case V2MessageParseResult::InvalidFraming:
-                    *error = L("Dữ liệu điện thoại gửi không hợp lệ. Vui lòng thử lại.", "The data sent by the phone is invalid. Please try again.");
-                    break;
-                case V2MessageParseResult::DecryptFailed:
-                    Network::ErrorCatalog::trace("phone-sync", QStringLiteral("v2 message decrypt failed status=%1")
-                                                                   .arg(V2::cryptoStatusName(res.cryptoStatus)));
-                    *error = L("Không đọc được tin nhắn điện thoại gửi. Vui lòng thử lại.",
-                               "Couldn't read the messages sent by the phone. Please try again.");
-                    break;
-                case V2MessageParseResult::ZstdFailed:
-                    *error = L("Không đọc được tin nhắn điện thoại gửi. Vui lòng thử lại.",
-                               "Couldn't read the messages sent by the phone. Please try again.");
-                    break;
-                case V2MessageParseResult::ParseFailed:
-                case V2MessageParseResult::None:
-                    *error = L("Không đọc được tin nhắn điện thoại gửi. Vui lòng thử lại.", "Couldn't read the messages sent by the phone. Please try again.");
-                    break;
-                }
-            }
-            return false;
-        }
-        for (const QString& id : std::as_const(res.discoveredIds)) {
-            m_ids.insert(id, id);
-        }
-        for (const auto& mc : std::as_const(res.metaConversations)) {
-            const QString key = QStringLiteral("%1:%2").arg(mc.convType).arg(mc.convId);
-            if (!m_v2PendingConvKeys.contains(key)) {
-                m_v2PendingConvKeys.insert(key);
-                m_v2PendingConvs.append(mc);
-            }
-        }
-        for (auto& conv : res.conversations) {
-            m_v2Conversations.append(std::move(conv));
-        }
-        return true;
-    }
     return true;
 }
 

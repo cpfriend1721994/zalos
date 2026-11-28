@@ -22,20 +22,8 @@ Item {
     readonly property bool canCreate: root.selectedCount >= root.minMembers && !root.creating
 
     function updateFilteredFriends(): void {
-        var all = root.friendList || [];
-        var q = root.filterText.trim().toLowerCase();
-        if (q.length === 0) {
-            root.filteredFriends = all;
-            return;
-        }
-        var res = [];
-        for (var i = 0; i < all.length; ++i) {
-            var item = all[i];
-            if (item && item.name && item.name.toLowerCase().indexOf(q) !== -1) {
-                res.push(item);
-            }
-        }
-        root.filteredFriends = res;
+        var q = root.filterText.trim();
+        root.filteredFriends = q.length === 0 ? (root.friendList || []) : ZaloClient.friendsForCard(q);
     }
 
     function isMemberSelected(id: string): bool {
@@ -138,7 +126,7 @@ Item {
                     Layout.fillWidth: true
                     text: I18n.t("Tạo nhóm", "Create group")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
@@ -209,7 +197,7 @@ Item {
                         anchors.rightMargin: 10
                         color: ThemeManager.textColor
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         verticalAlignment: TextInput.AlignVCenter
                         selectByMouse: true
                         clip: true
@@ -220,7 +208,7 @@ Item {
                             text: I18n.t("Đặt tên nhóm", "Group name")
                             color: ThemeManager.secondaryTextColor
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             elide: Text.ElideRight
                             visible: !groupNameInput.text && !groupNameInput.activeFocus
                         }
@@ -264,7 +252,7 @@ Item {
                         verticalAlignment: TextInput.AlignVCenter
                         color: ThemeManager.textColor
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         selectByMouse: true
                         clip: true
                         onTextChanged: {
@@ -283,7 +271,7 @@ Item {
                             text: I18n.t("Tìm bạn bè theo tên", "Search friends by name")
                             color: ThemeManager.secondaryTextColor
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             elide: Text.ElideRight
                             visible: !memberSearchInput.text && !memberSearchInput.activeFocus
                         }
@@ -350,7 +338,7 @@ Item {
                                 text: memberRow.memberName
                                 textFormat: Text.PlainText
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 color: ThemeManager.textColor
                                 elide: Text.ElideRight
                             }
@@ -366,35 +354,17 @@ Item {
                     }
                 }
 
-                ColumnLayout {
+                ZEmptyState {
+                    objectName: "createGroupEmptyState"
                     visible: memberListView.count === 0
                     anchors.centerIn: parent
                     width: Math.min(parent.width - 32, 320)
-                    spacing: 6
-
-                    Text {
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        text: (root.friendList && root.friendList.length === 0)
-                              ? I18n.t("Chưa có bạn bè nào", "No friends yet")
-                              : I18n.t("Không tìm thấy bạn bè phù hợp", "No matching friends")
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 13
-                        font.weight: Font.DemiBold
-                        color: ThemeManager.textColor
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Text {
-                        visible: root.friendList && root.friendList.length === 0
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        text: I18n.t("Hãy kết bạn trước khi tạo nhóm.", "Add some friends before creating a group.")
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 11
-                        color: ThemeManager.secondaryTextColor
-                        wrapMode: Text.WordWrap
-                    }
+                    iconName: (root.friendList && root.friendList.length === 0) ? "user_add" : "search"
+                    title: (root.friendList && root.friendList.length === 0)
+                           ? I18n.t("Chưa có bạn bè nào", "No friends yet")
+                           : I18n.t("Không tìm thấy bạn bè phù hợp", "No matching friends")
+                    subtitle: (root.friendList && root.friendList.length === 0)
+                              ? I18n.t("Hãy kết bạn trước khi tạo nhóm.", "Add some friends before creating a group.") : ""
                 }
             }
 
@@ -403,7 +373,7 @@ Item {
                 Layout.fillWidth: true
                 text: root.resultMessage
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: root.resultOk ? Theme.onlineGreen : Theme.badgeRed
                 wrapMode: Text.WordWrap
             }
@@ -424,7 +394,7 @@ Item {
                           ? I18n.t("Đã chọn " + root.selectedCount + " bạn", root.selectedCount + " friends selected")
                           : I18n.t("Chọn ít nhất " + root.minMembers + " bạn", "Select at least " + root.minMembers + " friends")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontSmall
                     color: ThemeManager.secondaryTextColor
                     elide: Text.ElideRight
                 }
@@ -442,7 +412,7 @@ Item {
                         anchors.centerIn: parent
                         text: I18n.t("Hủy", "Cancel")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         color: ThemeManager.textColor
                     }
 
@@ -467,7 +437,7 @@ Item {
                         anchors.centerIn: parent
                         text: root.creating ? I18n.t("Đang tạo...", "Creating...") : I18n.t("Tạo nhóm", "Create group")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                         color: root.canCreate ? "#FFFFFF" : "#94A3B8"
                     }

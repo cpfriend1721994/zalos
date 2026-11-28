@@ -110,7 +110,7 @@ Item {
                     Layout.fillWidth: true
                     text: I18n.t("Quản lý thẻ phân loại", "Manage labels")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
@@ -123,7 +123,7 @@ Item {
                 text: I18n.t("Gắn thẻ phân loại cho hội thoại bằng chuột phải trong danh sách tin nhắn. Thẻ phân loại được đồng bộ với Zalo trên các thiết bị khác.",
                              "Assign labels to conversations by right-clicking them in the chat list. Labels sync with Zalo on your other devices.")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: ThemeManager.secondaryTextColor
             }
 
@@ -132,12 +132,13 @@ Item {
                 text: ZaloClient.isLoggedIn ? I18n.t("Đang tải thẻ phân loại…", "Loading labels…")
                                             : I18n.t("Cần kết nối tới Zalo", "Connect to Zalo first")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: ThemeManager.secondaryTextColor
             }
 
             ListView {
                 id: list
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -170,13 +171,13 @@ Item {
                             text: labelRow.labelRowText
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                         }
                         Text {
                             text: I18n.t("%1 hội thoại", "%1 chats").arg(labelRow.labelRowCount)
                             font.family: Theme.fontFamily
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontCaption
                             color: ThemeManager.secondaryTextColor
                         }
                         IconAction {
@@ -256,7 +257,7 @@ Item {
                 text: I18n.t("Thêm thẻ phân loại", "Add label")
                       + " (" + root.labelList.length + "/" + ZaloClient.labels.maxLabels + ")"
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 font.weight: Font.DemiBold
                 color: ThemeManager.textColor
             }
@@ -287,7 +288,7 @@ Item {
                 wrapMode: Text.Wrap
                 text: root.error
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: Theme.badgeRed
             }
         }
@@ -295,7 +296,7 @@ Item {
 
     ZConfirmDialog {
         id: deleteDialog
-        width: 340
+        maxWidth: 340
         danger: true
         title: I18n.t("Xóa thẻ phân loại?", "Delete label?")
         okText: I18n.t("Xóa", "Delete")
@@ -305,7 +306,7 @@ Item {
             text: I18n.t("Thẻ “%1” sẽ bị gỡ khỏi mọi hội thoại trên tất cả thiết bị.",
                          "“%1” is removed from every conversation on all devices.").arg(root.deleteName)
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
             color: ThemeManager.textColor
         }
         onAccepted: ZaloClient.labels.remove(root.deleteId)

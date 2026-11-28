@@ -13,7 +13,6 @@ Item {
     property string filterText: ""
     readonly property string mode: ZaloClient.forwardMode
     property var sentIds: ({})
-    property var friends: []
 
     Timer {
         id: filterTimer
@@ -26,14 +25,12 @@ Item {
         filterInput.text = ""
     }
 
-    function matches(name: string): bool {
-        return root.filterText.length === 0 || (name || "").toLowerCase().indexOf(root.filterText) !== -1;
-    }
 
     function sendTo(id: string, name: string): void {
         if (id.length === 0 || root.sentIds[id]) return;
         if (root.mode === "card") ZaloClient.sendContactCard(id, ZaloClient.forwardCardUid, "");
         else if (root.mode === "pickContact") ZaloClient.sendContactCard(ZaloClient.currentConversationId, id, name);
+        else if (root.mode === "messages") ZaloClient.forwardMessagesTo(id);
         else ZaloClient.forwardMessage(id, ZaloClient.forwardSourceMsgId);
         const next = Object.assign({}, root.sentIds);
         next[id] = true;
@@ -48,7 +45,6 @@ Item {
             filterInput.text = ""
             root.filterText = ""
             root.sentIds = ({})
-            root.friends = root.mode === "pickContact" ? ZaloClient.friendsForCard() : []
             filterInput.forceActiveFocus()
         } else {
             filterTimer.stop()
@@ -92,7 +88,7 @@ Item {
                           : root.mode === "pickContact" ? I18n.t("Gửi danh thiếp", "Send a contact card")
                           : I18n.t("Chuyển tiếp tin nhắn", "Forward message")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
@@ -151,7 +147,7 @@ Item {
                         text: root.mode === "message" ? I18n.t("Nội dung tin nhắn:", "Message content:")
                                                       : I18n.t("Danh thiếp:", "Contact card:")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -162,7 +158,7 @@ Item {
                               : I18n.t("[Tin nhắn / Tệp đính kèm]", "[Message / Attachment]")
                         textFormat: Text.PlainText
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         color: ThemeManager.textColor
                         elide: Text.ElideRight
                         maximumLineCount: 2
@@ -195,7 +191,7 @@ Item {
                         id: filterInput
                         Layout.fillWidth: true
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         color: ThemeManager.textColor
                         selectionColor: ThemeManager.accentColor
                         selectByMouse: true
@@ -214,7 +210,7 @@ Item {
                             text: root.mode === "pickContact" ? I18n.t("Tìm bạn bè...", "Search friends...")
                                                               : I18n.t("Tìm kiếm hội thoại hoặc liên hệ...", "Search conversations or contacts...")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.secondaryTextColor
                             visible: !filterInput.text && !filterInput.activeFocus
                         }
@@ -248,7 +244,7 @@ Item {
             Text {
                 text: root.mode === "pickContact" ? I18n.t("Bạn bè", "Friends") : I18n.t("Gần đây", "Recent")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
                 color: ThemeManager.secondaryTextColor
                 Layout.topMargin: 4
@@ -267,7 +263,7 @@ Item {
                 readonly property bool sent: root.sentIds[rowItem.rowId] === true
                 radius: 8
                 color: rowHover.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                visible: !rowItem.rowHidden && root.matches(rowItem.rowName)
+                visible: !rowItem.rowHidden
                 height: visible ? 52 : 0
 
                 RowLayout {
@@ -291,7 +287,7 @@ Item {
                             text: rowItem.rowName
                             textFormat: Text.PlainText
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                             elide: Text.ElideRight
@@ -302,7 +298,7 @@ Item {
                             text: rowItem.rowSub
                             textFormat: Text.PlainText
                             font.family: Theme.fontFamily
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontCaption
                             color: ThemeManager.secondaryTextColor
                             elide: Text.ElideRight
                         }
@@ -348,16 +344,12 @@ Item {
                     }
                 }
 
-                Text {
+                ZEmptyState {
                     anchors.centerIn: parent
                     visible: root.mode !== "pickContact" && targetList.count === 0
                     width: parent.width - 32
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.Wrap
-                    text: I18n.t("Không tìm thấy hội thoại phù hợp", "No matching conversations")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 12
-                    color: ThemeManager.secondaryTextColor
+                    iconName: "search"
+                    title: I18n.t("Không tìm thấy hội thoại phù hợp", "No matching conversations")
                 }
 
                 ListView {
@@ -365,7 +357,7 @@ Item {
                     visible: root.mode === "pickContact"
                     anchors.fill: parent
                     clip: true
-                    model: root.friends
+                    model: (root.visible && root.mode === "pickContact") ? ZaloClient.friendsForCard(root.filterText) : []
                     spacing: 4
                     ScrollBar.vertical: ScrollBar { active: true; width: 6 }
                     delegate: TargetRow {
@@ -377,16 +369,13 @@ Item {
                     }
                 }
 
-                Text {
+                ZEmptyState {
                     anchors.centerIn: parent
                     visible: root.mode === "pickContact" && friendList.count === 0
                     width: parent.width - 32
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.Wrap
-                    text: I18n.t("Chưa có bạn bè nào", "No friends yet")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 12
-                    color: ThemeManager.secondaryTextColor
+                    iconName: "user_add"
+                    title: root.filterText.length > 0 ? I18n.t("Không tìm thấy bạn bè phù hợp", "No matching friends")
+                                                      : I18n.t("Chưa có bạn bè nào", "No friends yet")
                 }
             }
 
@@ -408,7 +397,7 @@ Item {
                         anchors.centerIn: parent
                         text: I18n.t("Đóng", "Close")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         color: ThemeManager.textColor
                     }
 

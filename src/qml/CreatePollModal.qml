@@ -43,7 +43,7 @@ Item {
                 text: settingRow.label
                 wrapMode: Text.Wrap
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 color: ThemeManager.textColor
             }
             Text {
@@ -52,7 +52,7 @@ Item {
                 text: settingRow.hint
                 wrapMode: Text.Wrap
                 font.family: Theme.fontFamily
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontCaption
                 color: ThemeManager.secondaryTextColor
             }
         }
@@ -155,7 +155,7 @@ Item {
                     Layout.fillWidth: true
                     text: I18n.t("Tạo bình chọn", "Create poll")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
@@ -207,14 +207,14 @@ Item {
                             Layout.fillWidth: true
                             text: I18n.t("Chủ đề bình chọn", "Poll question")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                         Text {
                             text: questionInput.text.length + "/200"
                             font.family: Theme.fontFamily
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontCaption
                             color: ThemeManager.secondaryTextColor
                         }
                     }
@@ -225,13 +225,13 @@ Item {
                         implicitHeight: 40
                         maximumLength: 200
                         placeholderText: I18n.t("Đặt câu hỏi bình chọn", "Ask a question")
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.fontBodyLarge
                     }
 
                     Text {
                         text: I18n.t("Các lựa chọn", "Options")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
@@ -308,7 +308,7 @@ Item {
                             Text {
                                 text: I18n.t("Thêm lựa chọn", "Add option")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 color: Theme.zaloBlue
                             }
                         }
@@ -330,7 +330,7 @@ Item {
                         Layout.topMargin: 6
                         text: I18n.t("Thiết lập nâng cao", "Advanced settings")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
@@ -370,7 +370,7 @@ Item {
                         Layout.topMargin: 4
                         text: I18n.t("Thời hạn bình chọn", "Voting deadline")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         color: ThemeManager.textColor
                     }
 
@@ -395,7 +395,7 @@ Item {
                                     anchors.centerIn: parent
                                     text: I18n.t(root.deadlineVi[chip.index], root.deadlineEn[chip.index])
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     color: chip.active ? Theme.zaloBlueTonalText : ThemeManager.textColor
                                 }
                                 MouseArea {
@@ -417,7 +417,7 @@ Item {
                 wrapMode: Text.Wrap
                 text: root.problem
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: Theme.badgeRed
             }
 

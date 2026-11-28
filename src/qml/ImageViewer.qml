@@ -9,6 +9,7 @@ import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
+    readonly property bool windowShowing: UiWindow.showing
     objectName: "imageViewerRoot"
     color: "#EB000000"
     focus: true
@@ -228,7 +229,7 @@ Rectangle {
                 cache: false
                 smooth: true
                 fillMode: Image.PreserveAspectFit
-                playing: status === Image.Ready && root.visible && !root.annotating
+                playing: status === Image.Ready && root.visible && !root.annotating && root.windowShowing
                 visible: status === Image.Ready
             }
 
@@ -411,7 +412,7 @@ Rectangle {
                                    : I18n.t("Không tải được ảnh", "Couldn't load the picture")
                 color: "#CFD3D8"
                 font.family: Theme.fontFamily
-                font.pixelSize: 14
+                font.pixelSize: Theme.fontBodyLarge
             }
             ZButton {
                 visible: root.isVideo && root.currentUrl.length > 0
@@ -488,7 +489,7 @@ Rectangle {
                 text: root.formatDuration(root.videoPosition) + " / " + root.formatDuration(root.videoDuration)
                 color: "#E5E7EB"
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
             }
 
             Slider {
@@ -571,7 +572,7 @@ Rectangle {
                     text: ImageViewerState.currentIsMine ? I18n.t("Bạn", "You") : ImageViewerState.currentSenderName
                     color: "#FFFFFF"
                     font.family: Theme.fontFamily
-                    font.pixelSize: 14
+                    font.pixelSize: Theme.fontBodyLarge
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                     Layout.fillWidth: true
@@ -580,7 +581,7 @@ Rectangle {
                     text: root.timeText(ImageViewerState.currentTs)
                     color: "#AEB4BC"
                     font.family: Theme.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontSmall
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }
@@ -591,7 +592,7 @@ Rectangle {
                 text: (ImageViewerState.index + 1) + " / " + root.count
                 color: "#CFD3D8"
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 Layout.rightMargin: 12
             }
 
@@ -618,7 +619,7 @@ Rectangle {
                     text: tb.label
                     color: "#FFFFFF"
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                 }
                 MouseArea {
                     id: tbMouse
@@ -697,6 +698,7 @@ Rectangle {
 
     ListView {
         id: strip
+        reuseItems: true
         visible: root.count > 1
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 12
@@ -911,7 +913,7 @@ Rectangle {
         id: textInputDialog
         property real targetX: 0
         property real targetY: 0
-        width: 300
+        maxWidth: 300
         title: I18n.t("Nhập ghi chú", "Enter note")
         okText: I18n.t("Thêm", "Add")
         onOpened: annotationField.forceActiveFocus()

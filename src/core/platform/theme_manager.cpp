@@ -33,7 +33,7 @@ ThemeManager::ThemeManager(QObject* parent)
     QObject::connect(this, &QObject::destroyed, [](QObject* gone) {
         if (static_cast<QObject*>(s_instance) == gone) s_instance = nullptr;
     });
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     m_themeMode = settings.value("appearance/themeMode", 2).toInt();
     m_systemIsDark = settings.value("appearance/cachedSystemDark", false).toBool();
     m_systemPalette = QGuiApplication::palette();
@@ -66,7 +66,7 @@ ThemeManager::ThemeManager(QObject* parent)
 
 void ThemeManager::setThemeMode(int mode) {
     m_themeMode = mode;
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     settings.setValue("appearance/themeMode", m_themeMode);
     emit themeModeChanged(m_themeMode);
 
@@ -844,7 +844,7 @@ void ThemeManager::detectSystemAccentColor() {
             detectedAccent = portalAccentFromVariant(reply.value().variant());
         }
         if (detectedAccent.isValid()) {
-            QSettings("Zalos", "ZalosApp").setValue("appearance/cachedAccentColor", detectedAccent.name());
+            QSettings().setValue("appearance/cachedAccentColor", detectedAccent.name());
             self->applySystemAccentColor(detectedAccent);
         } else {
             self->applySystemAccentColor(QColor());
@@ -870,7 +870,7 @@ void ThemeManager::detectKdeTheme() {
     if (viewMuted.isValid()) m_systemPalette.setColor(QPalette::PlaceholderText, viewMuted);
     if (known) {
         m_systemIsDark = dark;
-        QSettings("Zalos", "ZalosApp").setValue("appearance/cachedSystemDark", m_systemIsDark);
+        QSettings().setValue("appearance/cachedSystemDark", m_systemIsDark);
         if (m_themeMode == 2) setDarkMode(m_systemIsDark);
     }
     if (m_themeMode == 2) {
@@ -881,7 +881,7 @@ void ThemeManager::detectKdeTheme() {
 
 void ThemeManager::applyPortalDarkMode(bool dark) {
     m_systemIsDark = dark;
-    QSettings("Zalos", "ZalosApp").setValue("appearance/cachedSystemDark", m_systemIsDark);
+    QSettings().setValue("appearance/cachedSystemDark", m_systemIsDark);
     if (m_themeMode == 2) setDarkMode(m_systemIsDark);
 }
 
@@ -1004,7 +1004,7 @@ QString readKdeFontSpec() {
 }
 
 QString userFontChoice() {
-    return QSettings("Zalos", "ZalosApp").value("appearance/fontFamily").toString();
+    return QSettings().value("appearance/fontFamily").toString();
 }
 
 QString pickUiFont(const QStringList& specs) {
@@ -1024,7 +1024,7 @@ QString ThemeManager::resolveFontSpecForTesting(const QString& spec) {
 
 void ThemeManager::applyDetectedFont(const QString& family) {
     if (family.isEmpty()) return;
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     if (isUsableUiFamily(family)) settings.setValue("appearance/cachedDesktopFont", family);
     else settings.remove("appearance/cachedDesktopFont");
     setSystemFontFamily(family);
@@ -1082,7 +1082,7 @@ void ThemeManager::onPortalSettingChanged(const QString& ns, const QString& key,
         if (raw.isValid()) {
             const QColor detectedAccent = portalAccentFromVariant(raw);
             if (detectedAccent.isValid()) {
-                QSettings("Zalos", "ZalosApp").setValue("appearance/cachedAccentColor", detectedAccent.name());
+                QSettings().setValue("appearance/cachedAccentColor", detectedAccent.name());
                 applySystemAccentColor(detectedAccent);
                 return;
             }

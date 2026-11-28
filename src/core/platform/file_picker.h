@@ -27,7 +27,7 @@ class FilePicker : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged FINAL)
 
 public:
-    enum FileMode { OpenFile, OpenFiles, SaveFile };
+    enum FileMode { OpenFile, OpenFiles, SaveFile, SelectFolder };
     Q_ENUM(FileMode)
 
     struct Filter {

@@ -293,7 +293,7 @@ Item {
                                   : I18n.t("Người dùng Zalo", "Zalo User")
                             font.family: Theme.fontFamily
                             font.weight: Font.DemiBold
-                            font.pixelSize: 18
+                            font.pixelSize: Theme.fontTitleLarge
                             color: ThemeManager.textColor
                             selectionColor: Theme.zaloBlueLight
                             wrapMode: TextEdit.Wrap
@@ -316,7 +316,7 @@ Item {
                                       : (ZaloClient.profileIsOfficial ? I18n.t("Tài khoản chính thức", "Official account")
                                          : (ZaloClient.profileIsFriend ? I18n.t("Bạn bè", "Friend") : I18n.t("Người lạ", "Stranger")))
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.fontCaption
                                 font.weight: Font.DemiBold
                                 color: ZaloClient.profileIsSelf ? Theme.zaloBlueTonalText : ThemeManager.secondaryTextColor
                             }
@@ -330,7 +330,7 @@ Item {
                         selectByMouse: true
                         text: I18n.t("Tên Zalo: ", "Zalo Name: ") + ZaloClient.profileZaloName
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                         selectionColor: Theme.zaloBlueLight
                         wrapMode: TextEdit.Wrap
@@ -393,7 +393,7 @@ Item {
                                 onLinkActivated: function(link) { ZaloClient.openLink(link); }
                                 HoverHandler { cursorShape: profileBioText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.IBeamCursor }
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.italic: !statusCard.hasStatus
                                 color: statusCard.hasStatus ? ThemeManager.textColor : ThemeManager.placeholderColor
                                 selectionColor: Theme.zaloBlueLight
@@ -486,7 +486,7 @@ Item {
                         text: I18n.t("Thông tin cá nhân", "Personal Information")
                         font.family: Theme.fontFamily
                         font.weight: Font.DemiBold
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         color: ThemeManager.textColor
                     }
 
@@ -499,7 +499,7 @@ Item {
                         Text {
                             text: I18n.t("Điện thoại", "Phone")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.secondaryTextColor
                             Layout.preferredWidth: 80
                         }
@@ -512,7 +512,7 @@ Item {
                                   ? root.formatPhone(ZaloClient.profilePhone)
                                   : I18n.t("Không công khai", "Private")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                             selectionColor: Theme.zaloBlueLight
                             wrapMode: TextEdit.Wrap
@@ -528,7 +528,7 @@ Item {
                         Text {
                             text: I18n.t("Giới tính", "Gender")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.secondaryTextColor
                             Layout.preferredWidth: 80
                         }
@@ -541,7 +541,7 @@ Item {
                                   ? I18n.t("Nữ", "Female")
                                   : I18n.t("Nam", "Male")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                             selectionColor: Theme.zaloBlueLight
                             wrapMode: TextEdit.Wrap
@@ -557,7 +557,7 @@ Item {
                         Text {
                             text: I18n.t("Ngày sinh", "Birthday")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.secondaryTextColor
                             Layout.preferredWidth: 80
                         }
@@ -570,7 +570,7 @@ Item {
                                   ? ZaloClient.profileDob
                                   : I18n.t("Chưa cập nhật", "Not updated")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                             selectionColor: Theme.zaloBlueLight
                             wrapMode: TextEdit.Wrap
@@ -600,7 +600,7 @@ Item {
                                     text: I18n.t("Chỉnh sửa thông tin", "Edit profile")
                                     font.family: Theme.fontFamily
                                     font.weight: Font.DemiBold
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     color: Theme.zaloBlueTonalText
                                 }
                             }
@@ -622,7 +622,7 @@ Item {
                             visible: ZaloClient.myAvatarHistory.length > 0
                             text: I18n.t("Ảnh đại diện trước đây", "Previous avatars")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                             Layout.topMargin: 4
                         }
@@ -704,7 +704,7 @@ Item {
                                     text: I18n.t("Nhóm chung", "Mutual groups") + " (" + mutualGroupsBox.totalCount + ")"
                                     font.family: Theme.fontFamily
                                     font.weight: Font.DemiBold
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     color: ThemeManager.secondaryTextColor
                                 }
                                 Text {
@@ -714,7 +714,7 @@ Item {
                                           : I18n.t("Xem thêm (+%1)", "Show all (+%1)").arg(mutualGroupsBox.totalCount - 3)
                                     font.family: Theme.fontFamily
                                     font.weight: Font.DemiBold
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     color: Theme.zaloBlue
                                     MouseArea {
                                         anchors.fill: parent
@@ -763,7 +763,7 @@ Item {
                                             text: mutGrpRow.modelData.name || mutGrpRow.modelData.id
                                             elide: Text.ElideRight
                                             font.family: Theme.fontFamily
-                                            font.pixelSize: 12
+                                            font.pixelSize: Theme.fontSmall
                                             color: ThemeManager.textColor
                                         }
                                     }
@@ -800,7 +800,7 @@ Item {
                                         text: I18n.t("Nhắn tin", "Chat")
                                         font.family: Theme.fontFamily
                                         font.weight: Font.DemiBold
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         color: "#FFFFFF"
                                     }
                                 }
@@ -918,7 +918,7 @@ Item {
                                     anchors.centerIn: parent
                                     text: I18n.t("Xóa bạn", "Remove friend")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     color: Theme.badgeRed
                                 }
 
@@ -943,7 +943,7 @@ Item {
                                           ? I18n.t("Bỏ chặn", "Unblock")
                                           : I18n.t("Chặn người này", "Block user")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     color: ZaloClient.profileIsBlocked ? Theme.onlineGreen : ThemeManager.secondaryTextColor
                                 }
 
@@ -972,7 +972,7 @@ Item {
                         text: I18n.t("Chỉnh sửa thông tin tài khoản", "Edit Profile")
                         font.family: Theme.fontFamily
                         font.weight: Font.DemiBold
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         color: ThemeManager.textColor
                     }
 
@@ -982,15 +982,15 @@ Item {
                         Text {
                             text: I18n.t("Tên hiển thị", "Display name")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                         }
-                        TextField {
+                        ZTextField {
                             id: nameEdit
                             Layout.fillWidth: true
                             Layout.preferredHeight: 36
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                             background: Rectangle {
                                 radius: 6
@@ -1007,7 +1007,7 @@ Item {
                         Text {
                             text: I18n.t("Giới tính", "Gender")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                         }
                         RowLayout {
@@ -1027,7 +1027,7 @@ Item {
                                     text: I18n.t("Nam", "Male")
                                     font.family: Theme.fontFamily
                                     font.weight: (root.editGender === 0) ? Font.DemiBold : Font.Normal
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     color: root.editGender === 0 ? Theme.zaloBlue : ThemeManager.textColor
                                 }
                                 MouseArea {
@@ -1050,7 +1050,7 @@ Item {
                                     text: I18n.t("Nữ", "Female")
                                     font.family: Theme.fontFamily
                                     font.weight: (root.editGender === 1) ? Font.DemiBold : Font.Normal
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     color: root.editGender === 1 ? Theme.zaloBlue : ThemeManager.textColor
                                 }
                                 MouseArea {
@@ -1068,16 +1068,16 @@ Item {
                         Text {
                             text: I18n.t("Ngày sinh (dd/MM/yyyy)", "Birthday (dd/MM/yyyy)")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                         }
-                        TextField {
+                        ZTextField {
                             id: dobEdit
                             Layout.fillWidth: true
                             Layout.preferredHeight: 36
                             placeholderText: "dd/MM/yyyy"
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                             background: Rectangle {
                                 radius: 6
@@ -1094,16 +1094,16 @@ Item {
                         Text {
                             text: I18n.t("Tiểu sử / Giới thiệu", "Bio / Status")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                         }
-                        TextField {
+                        ZTextField {
                             id: bioEdit
                             Layout.fillWidth: true
                             Layout.preferredHeight: 36
                             placeholderText: I18n.t("Nhập trạng thái hoặc câu nói yêu thích...", "Enter bio or status...")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                             background: Rectangle {
                                 radius: 6
@@ -1130,7 +1130,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: I18n.t("Hủy", "Cancel")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 color: ThemeManager.textColor
                             }
                             MouseArea {
@@ -1151,7 +1151,7 @@ Item {
                                 text: I18n.t("Lưu thay đổi", "Save")
                                 font.family: Theme.fontFamily
                                 font.weight: Font.DemiBold
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 color: "#FFFFFF"
                             }
                             MouseArea {
@@ -1199,7 +1199,7 @@ Item {
                 text: I18n.t("Thêm %1 vào nhóm", "Add %1 to groups").arg(ZaloClient.profileDisplayName)
                 elide: Text.ElideRight
                 font.family: Theme.fontFamily
-                font.pixelSize: 15
+                font.pixelSize: Theme.fontSubtitle
                 font.weight: Font.DemiBold
                 color: ThemeManager.textColor
             }
@@ -1210,14 +1210,20 @@ Item {
             }
             ListView {
                 id: groupList
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 spacing: 2
                 model: {
                     const q = groupSearch.text.trim().toLowerCase();
-                    return q.length === 0 ? groupPicker.groups
-                                          : groupPicker.groups.filter(g => g.name.toLowerCase().indexOf(q) >= 0);
+                    if (q.length === 0) return groupPicker.groups;
+                    const all = groupPicker.groups;
+                    const matches = [];
+                    for (let i = 0; i < all.length; ++i) {
+                        if (all[i].name.toLowerCase().indexOf(q) >= 0) matches.push(all[i]);
+                    }
+                    return matches;
                 }
                 delegate: Rectangle {
                     id: groupRow
@@ -1271,14 +1277,14 @@ Item {
                             elide: Text.ElideRight
                             text: groupRow.groupName
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             color: ThemeManager.textColor
                         }
                         Text {
                             visible: groupRow.groupIsMember
                             text: I18n.t("Đã tham gia", "Member")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontCaption
                             color: ThemeManager.secondaryTextColor
                         }
                     }
@@ -1289,7 +1295,7 @@ Item {
                     text: groupPicker.groups.length === 0 ? I18n.t("Chưa có nhóm nào", "No groups yet")
                                                           : I18n.t("Không tìm thấy nhóm", "No matching groups")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontSmall
                     color: ThemeManager.secondaryTextColor
                 }
             }

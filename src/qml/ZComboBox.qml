@@ -8,7 +8,7 @@ ComboBox {
     implicitHeight: 34
     implicitWidth: 160
     font.family: Theme.fontFamily
-    font.pixelSize: 13
+    font.pixelSize: Theme.fontBody
 
     background: Rectangle {
         radius: 6

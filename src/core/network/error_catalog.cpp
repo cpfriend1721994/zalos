@@ -144,6 +144,9 @@ Message transportError(const QString& raw) {
     if (raw == QLatin1String("local_file_error")) {
         return make("không đọc hoặc ghi được tệp trên máy này", "couldn't read or write the file on this computer");
     }
+    if (raw == QLatin1String("unsupported_url")) {
+        return make("liên kết của tệp không hợp lệ", "the file link isn't valid");
+    }
     if (raw == QLatin1String("upload_timeout")) {
         return make("máy chủ không phản hồi", "the server didn't respond");
     }

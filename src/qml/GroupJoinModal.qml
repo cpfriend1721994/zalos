@@ -45,6 +45,7 @@ Item {
         MouseArea { anchors.fill: parent }
 
         Flickable {
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             anchors.fill: parent
             anchors.margins: 20
             contentWidth: width
@@ -65,7 +66,7 @@ Item {
                     Layout.fillWidth: true
                     text: I18n.t("Tham gia nhóm bằng link", "Join a group by link")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
@@ -106,7 +107,7 @@ Item {
                 visible: root.previewLoading
                 text: I18n.t("Đang tải thông tin nhóm…", "Loading the group…")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: ThemeManager.secondaryTextColor
             }
             Text {
@@ -115,7 +116,7 @@ Item {
                 wrapMode: Text.Wrap
                 text: root.previewError
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: Theme.badgeRed
             }
 
@@ -139,7 +140,7 @@ Item {
                     text: root.previewName
                     textFormat: Text.PlainText
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
@@ -148,7 +149,7 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     text: I18n.t("%1 thành viên", "%1 members").arg(root.previewTotalMember)
                     font.family: Theme.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontSmall
                     color: ThemeManager.secondaryTextColor
                 }
                 Text {
@@ -165,7 +166,7 @@ Item {
                     onLinkActivated: function(link) { ZaloClient.openLink(link); }
                     HoverHandler { cursorShape: previewDescText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                     color: ThemeManager.textColor
                 }
                 Row {
@@ -195,7 +196,7 @@ Item {
                     text: I18n.t("Nhóm cần trưởng hoặc phó nhóm duyệt trước khi bạn vào nhóm.",
                                  "The owner or a deputy must approve you before you join.")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontSmall
                     color: ThemeManager.secondaryTextColor
                 }
                 ZButton {

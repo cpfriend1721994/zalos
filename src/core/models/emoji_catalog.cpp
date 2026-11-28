@@ -976,14 +976,14 @@ QString EmojiCatalog::currentCategoryNameEn() const {
 void EmojiCatalog::ensureRecentLoaded() const {
     if (m_recentLoaded) return;
     m_recentLoaded = true;
-    m_recent = QSettings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"))
+    m_recent = QSettings()
                    .value(QStringLiteral("emoji/recent"))
                    .toStringList();
     if (m_recent.size() > kMaxRecent) m_recent = m_recent.mid(0, kMaxRecent);
 }
 
 void EmojiCatalog::saveRecent() const {
-    QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    QSettings settings;
     settings.setValue(QStringLiteral("emoji/recent"), m_recent);
     settings.sync();
 }

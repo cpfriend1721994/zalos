@@ -7,6 +7,7 @@ import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
+    readonly property bool windowShowing: UiWindow.showing
     width: parent ? Math.min(380, parent.width - 32) : 380
     height: Math.min(parent ? parent.height - 32 : 420, 420)
     radius: 12
@@ -17,6 +18,7 @@ Rectangle {
 
     signal emojiSelected(string emoji)
     signal stickerSelected(var sticker)
+    signal gifSelected(string url)
 
     property int tab: 0
 
@@ -36,7 +38,7 @@ Rectangle {
             spacing: 16
 
             Repeater {
-                model: [I18n.t("Biểu tượng cảm xúc", "Emoji"), I18n.t("Sticker", "Sticker")]
+                model: [I18n.t("Biểu tượng cảm xúc", "Emoji"), I18n.t("Sticker", "Sticker"), I18n.t("GIF", "GIF")]
                 Item {
                     id: tabItem
                     required property int index
@@ -50,7 +52,7 @@ Rectangle {
                         anchors.centerIn: parent
                         text: tabItem.modelData
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         font.weight: tabItem.current ? Font.DemiBold : Font.Normal
                         color: tabItem.current ? Theme.zaloBlue : ThemeManager.secondaryTextColor
                     }
@@ -68,6 +70,9 @@ Rectangle {
                             if (tabItem.index === 1) {
                                 ZaloClient.stickers.load();
                                 stickerSearch.forceActiveFocus();
+                            } else if (tabItem.index === 2) {
+                                if (ZaloClient.gifResults.length === 0) ZaloClient.loadGifs(gifSearch.text.trim());
+                                gifSearch.forceActiveFocus();
                             }
                         }
                     }
@@ -139,7 +144,7 @@ Rectangle {
                         anchors { left: parent.left; right: parent.right; bottom: parent.bottom; bottomMargin: 2 }
                         text: I18n.t(rowDelegate.nameVi, rowDelegate.nameEn)
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                         color: ThemeManager.secondaryTextColor
                         elide: Text.ElideRight
@@ -150,12 +155,13 @@ Rectangle {
                         anchors.fill: parent
 
                         Repeater {
-                            model: rowDelegate.isHeader ? [] : rowDelegate.rowItems
+                            model: rowDelegate.isHeader ? 0 : rowDelegate.rowItems.length
                             delegate: Rectangle {
                                 id: emojiCell
-                                required property var modelData
-                                readonly property string glyph: emojiCell.modelData.glyph || ""
-                                readonly property string code: emojiCell.modelData.code || ""
+                                required property int index
+                                readonly property var cellData: rowDelegate.rowItems[emojiCell.index] || ({})
+                                readonly property string glyph: emojiCell.cellData.glyph || ""
+                                readonly property string code: emojiCell.cellData.code || ""
                                 width: emojiListContainer.cellSize
                                 height: 40
                                 radius: 8
@@ -164,7 +170,8 @@ Rectangle {
                                 Text {
                                     anchors.centerIn: parent
                                     text: emojiCell.glyph
-                                    font.pixelSize: 22
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontEmojiPicker
                                 }
                                 MouseArea {
                                     id: emojiMouse
@@ -192,7 +199,84 @@ Rectangle {
                 wrapMode: Text.Wrap
                 text: I18n.t("Không tìm thấy biểu tượng phù hợp.", "No matching emoji.")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
+                color: ThemeManager.secondaryTextColor
+            }
+        }
+
+        ZTextField {
+            id: gifSearch
+            objectName: "gifSearch"
+            visible: root.tab === 2
+            Layout.fillWidth: true
+            placeholderText: I18n.t("Tìm ảnh GIF", "Search GIFs")
+            onTextChanged: gifSearchTimer.restart()
+            onAccepted: {
+                gifSearchTimer.stop();
+                ZaloClient.loadGifs(text.trim());
+            }
+            Timer {
+                id: gifSearchTimer
+                interval: 400
+                onTriggered: ZaloClient.loadGifs(gifSearch.text.trim())
+            }
+        }
+
+        Item {
+            visible: root.tab === 2
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            GridView {
+                id: gifGrid
+                objectName: "gifGrid"
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                anchors.fill: parent
+                clip: true
+                cacheBuffer: 200
+                cellWidth: Math.floor(width / 2)
+                cellHeight: Math.floor(cellWidth * 0.75)
+                model: root.tab === 2 ? ZaloClient.gifResults : []
+                delegate: Rectangle {
+                    id: gifCell
+                    required property var modelData
+                    width: GridView.view.cellWidth
+                    height: GridView.view.cellHeight
+                    radius: 8
+                    color: gifMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                    AnimatedImage {
+                        anchors.fill: parent
+                        anchors.margins: 4
+                        source: gifCell.modelData.preview
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: false
+                        playing: root.visible && root.tab === 2 && root.windowShowing
+                    }
+                    MouseArea {
+                        id: gifMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.gifSelected(gifCell.modelData.url)
+                    }
+                }
+            }
+            BusyIndicator {
+                anchors.centerIn: parent
+                visible: ZaloClient.gifLoading && ZaloClient.gifResults.length === 0
+                running: visible && root.windowShowing
+            }
+            Text {
+                anchors.centerIn: parent
+                width: parent.width - 24
+                visible: !ZaloClient.gifLoading && ZaloClient.gifResults.length === 0
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                text: !ZaloClient.isLoggedIn ? I18n.t("Cần kết nối tới Zalo để dùng ảnh GIF.", "Connect to Zalo to use GIFs.")
+                                             : I18n.t("Không tìm thấy ảnh GIF phù hợp.", "No matching GIFs.")
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
                 color: ThemeManager.secondaryTextColor
             }
         }
@@ -235,7 +319,7 @@ Rectangle {
                       ? I18n.t("Kết quả tìm kiếm", "Search results")
                       : ZaloClient.stickers.currentCategoryName
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
                 color: ThemeManager.secondaryTextColor
                 elide: Text.ElideRight
@@ -243,6 +327,7 @@ Rectangle {
 
             GridView {
                 id: stickerGrid
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 anchors {
                     left: parent.left
                     right: parent.right
@@ -281,7 +366,7 @@ Rectangle {
             BusyIndicator {
                 anchors.centerIn: parent
                 visible: ZaloClient.stickers.loading && ZaloClient.stickers.stickers.length === 0
-                running: visible
+                running: visible && root.windowShowing
             }
             Text {
                 anchors.centerIn: parent
@@ -294,7 +379,7 @@ Rectangle {
                       : ZaloClient.stickers.categories.length === 0 ? I18n.t("Nhập từ khóa rồi nhấn Enter để tìm sticker.", "Type a keyword and press Enter.")
                       : I18n.t("Bộ sticker này chưa có gì.", "This pack is empty.")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 color: ThemeManager.secondaryTextColor
             }
         }

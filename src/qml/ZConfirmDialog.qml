@@ -11,6 +11,7 @@ Popup {
     property string cancelText: I18n.t("Hủy", "Cancel")
     property bool danger: false
     property bool okEnabled: true
+    property real maxWidth: 360
     default property alias content: body.data
     signal accepted()
     signal rejected()
@@ -28,7 +29,7 @@ Popup {
     anchors.centerIn: parent
     modal: true
     focus: true
-    width: 360
+    width: parent ? Math.max(240, Math.min(parent.width - 24, root.maxWidth)) : root.maxWidth
     padding: 20
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
@@ -49,7 +50,7 @@ Popup {
             wrapMode: Text.Wrap
             color: ThemeManager.textColor
             font.family: Theme.fontFamily
-            font.pixelSize: 16
+            font.pixelSize: Theme.fontTitle
             font.weight: Font.DemiBold
         }
 

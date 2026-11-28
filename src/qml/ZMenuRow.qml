@@ -16,6 +16,10 @@ Rectangle {
     color: rowMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
     Behavior on color { ColorAnimation { duration: 120 } }
 
+    Accessible.role: Accessible.MenuItem
+    Accessible.name: row.label
+    Accessible.onPressAction: row.triggered()
+
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 10
@@ -33,7 +37,7 @@ Rectangle {
             text: row.label
             elide: Text.ElideRight
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
             color: row.danger ? Theme.badgeRed : ThemeManager.textColor
         }
     }

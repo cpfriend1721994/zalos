@@ -7,6 +7,7 @@ import Zalos
 
 Item {
     id: root
+    readonly property bool windowShowing: UiWindow.showing
     objectName: "callOverlayRoot"
     property bool minimized: false
     property bool splitView: false
@@ -39,6 +40,8 @@ Item {
     readonly property bool hasLocalVideo: !!(ZaloClient.calls && (ZaloClient.calls.cameraOn || ZaloClient.calls.screenShareOn))
     readonly property bool hasAnyVideo: root.peerVideoShown || root.hasLocalVideo
     readonly property bool isSplitActive: !root.minimized && root.splitView && root.peerVideoShown && root.hasLocalVideo
+    readonly property bool splitStacked: root.height > root.width
+    readonly property int selfViewWidth: Math.min(200, Math.round(root.width * 0.4))
     readonly property real controlBarHeight: bar.height
     visible: phase.length > 0
     z: 2000
@@ -60,7 +63,8 @@ Item {
     Timer {
         interval: 1000
         repeat: true
-        running: root.phase === "connected"
+        running: root.phase === "connected" && root.windowShowing
+        triggeredOnStart: true
         onTriggered: root.now = Date.now()
     }
 
@@ -269,7 +273,7 @@ Item {
                 elide: Text.ElideRight
                 color: "#FFFFFF"
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 font.weight: devRow.selected ? Font.DemiBold : Font.Normal
             }
             ZIcon {
@@ -399,8 +403,8 @@ Item {
                 id: peerVideo
                 x: 0
                 y: 0
-                width: root.isSplitActive ? stage.width / 2 : stage.width
-                height: stage.height
+                width: root.isSplitActive && !root.splitStacked ? stage.width / 2 : stage.width
+                height: root.isSplitActive && root.splitStacked ? stage.height / 2 : stage.height
                 visible: root.peerVideoShown
                 active: ZaloClient.multimediaAvailable
                 source: active ? "ZVideoView.qml" : ""
@@ -424,7 +428,7 @@ Item {
                 text: I18n.t("Máy này chưa hiển thị được video nên cuộc gọi chỉ có âm thanh.",
                              "Video can't be shown on this computer, so the call is audio-only.")
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 color: "#FFFFFF"
             }
 
@@ -437,7 +441,7 @@ Item {
                 text: root.durationText()
                 color: "#42D58C"
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 font.weight: Font.DemiBold
             }
 
@@ -461,7 +465,7 @@ Item {
                         elide: Text.ElideRight
                         color: "#FFFFFF"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                     }
                     Text {
@@ -470,7 +474,7 @@ Item {
                         elide: Text.ElideRight
                         color: root.phase === "connected" ? "#42D58C" : "#CFD3D8"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.Medium
                     }
                 }
@@ -511,7 +515,7 @@ Item {
                 elide: Text.ElideRight
                 color: "#FFFFFF"
                 font.family: Theme.fontFamily
-                font.pixelSize: 20
+                font.pixelSize: Theme.fontHeadline
                 font.weight: Font.DemiBold
             }
             Text {
@@ -522,7 +526,7 @@ Item {
                 text: root.phaseText()
                 color: "#CFD3D8"
                 font.family: Theme.fontFamily
-                font.pixelSize: 16
+                font.pixelSize: Theme.fontTitle
             }
             Rectangle {
                 id: noticeStrip
@@ -547,7 +551,7 @@ Item {
                     verticalAlignment: Text.AlignVCenter
                     color: "#FFFFFF"
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                 }
             }
             Rectangle {
@@ -563,7 +567,7 @@ Item {
                     text: I18n.t("Người kia đang tắt micro", "The other person is muted")
                     color: "#FFFFFF"
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                 }
             }
 
@@ -580,7 +584,7 @@ Item {
                     text: I18n.t("Người kia đã tắt camera", "The other person turned off camera")
                     color: "#FFFFFF"
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                 }
             }
 
@@ -621,7 +625,7 @@ Item {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: (partCol.modelData.name || "").split(" ").slice(-1)[0]
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontCaption
                             color: "#FFFFFF"
                             elide: Text.ElideRight
                             width: 56
@@ -635,17 +639,17 @@ Item {
         Rectangle {
             id: selfView
             x: root.isSplitActive
-               ? stage.width / 2
+               ? (root.splitStacked ? 0 : stage.width / 2)
                : (parent.width - width - (root.minimized ? (root.peerVideoShown ? 6 : 0) : 16))
             y: root.isSplitActive
-               ? 0
+               ? (root.splitStacked ? stage.height / 2 : 0)
                : (parent.height - height - (root.minimized ? (root.peerVideoShown ? 6 : 0) : 96))
             width: root.isSplitActive
-                   ? stage.width / 2
-                   : (root.minimized ? (root.peerVideoShown ? 84 : stage.width) : 200)
+                   ? (root.splitStacked ? stage.width : stage.width / 2)
+                   : (root.minimized ? (root.peerVideoShown ? 84 : stage.width) : root.selfViewWidth)
             height: root.isSplitActive
-                    ? stage.height
-                    : (root.minimized ? (root.peerVideoShown ? 48 : stage.height) : 112)
+                    ? (root.splitStacked ? stage.height / 2 : stage.height)
+                    : (root.minimized ? (root.peerVideoShown ? 48 : stage.height) : Math.round(root.selfViewWidth * 0.56))
             radius: (root.isSplitActive || (root.minimized && !root.peerVideoShown)) ? 0 : 8
             color: "#000000"
             border.width: (root.isSplitActive || (root.minimized && !root.peerVideoShown)) ? 0 : 1
@@ -688,7 +692,7 @@ Item {
                 text: I18n.t("Người kia đang chia sẻ màn hình", "The other person is sharing their screen")
                 color: "#FFFFFF"
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.Medium
             }
         }
@@ -721,7 +725,7 @@ Item {
                         text: root.splitView ? I18n.t("Khung chuẩn", "Standard") : I18n.t("Chia đôi", "Split")
                         color: "#FFFFFF"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         font.weight: Font.Medium
                     }
                 }
@@ -753,7 +757,7 @@ Item {
                                                        : I18n.t("Ẩn xuống tác vụ", "Minimize")
                         color: "#FFFFFF"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         font.weight: Font.Medium
                     }
                 }
@@ -784,7 +788,7 @@ Item {
                         text: I18n.t("Thu nhỏ", "Minimize")
                         color: "#FFFFFF"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         font.weight: Font.Medium
                     }
                 }
@@ -836,7 +840,7 @@ Item {
                 }
             color: "#CFD3D8"
             font.family: Theme.fontFamily
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontCaption
         }
     }
     }
@@ -954,6 +958,7 @@ Item {
 
         Flickable {
             id: devFlick
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             anchors.fill: parent
             anchors.margins: 12
             contentHeight: devCol.implicitHeight
@@ -973,7 +978,7 @@ Item {
                         text: I18n.t("Micro", "Microphone")
                         color: "#9DB2CE"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         font.weight: Font.DemiBold
                     }
                 }
@@ -1006,7 +1011,7 @@ Item {
                         text: I18n.t("Âm lượng micro", "Microphone volume")
                         color: "#CFD3D8"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                     }
                     Rectangle {
                         id: micModeToggle
@@ -1034,7 +1039,7 @@ Item {
                                       : I18n.t("Thủ công", "Manual")
                                 color: micModeToggle.autoGain ? "#DCEBFF" : "#CFD3D8"
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontTiny
                                 font.weight: Font.DemiBold
                             }
                         }
@@ -1048,7 +1053,7 @@ Item {
                         text: String(ZaloClient.calls ? ZaloClient.calls.micVolume : 100) + "%"
                         color: "#FFFFFF"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                     }
                 }
@@ -1135,7 +1140,7 @@ Item {
                         text: I18n.t("Loa", "Speaker")
                         color: "#9DB2CE"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         font.weight: Font.DemiBold
                     }
                 }
@@ -1178,7 +1183,7 @@ Item {
                         text: I18n.t("Camera", "Camera")
                         color: "#9DB2CE"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         font.weight: Font.DemiBold
                     }
                 }
@@ -1313,7 +1318,7 @@ Item {
                     text: I18n.t("Chọn màn hình để chia sẻ", "Choose a screen to share")
                     color: "#FFFFFF"
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
@@ -1341,6 +1346,7 @@ Item {
 
             Flickable {
                 id: pickerFlick
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 contentWidth: width
@@ -1392,7 +1398,8 @@ Item {
                                         source: srcCard.previewUrl
                                         fillMode: Image.PreserveAspectFit
                                         cache: false
-                                        asynchronous: false
+                                        asynchronous: true
+                                        sourceSize.width: 480
                                         visible: srcCard.previewUrl.length > 0
                                     }
 
@@ -1431,7 +1438,7 @@ Item {
                                              : I18n.t("Màn hình %1", "Monitor %1").arg(srcCard.screenIdx))
                                     color: "#FFFFFF"
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.DemiBold
                                     elide: Text.ElideRight
                                 }
@@ -1445,7 +1452,7 @@ Item {
                                              : (srcCard.w + "×" + srcCard.h))
                                     color: "#9DB2CE"
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontCaption
                                     elide: Text.ElideRight
                                 }
                             }

@@ -187,8 +187,8 @@ private slots:
     }
 
     void testEmoticonShortcodes() {
-        QVERIFY(MessageModel::linkify(QStringLiteral("hay :v")).contains(QStringLiteral("width=\"18\" height=\"18\"")));
-        QVERIFY(MessageModel::linkify(QStringLiteral("hay :V")).contains(QStringLiteral("qrc:/Zalos/assets/icons/pacman.png")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hay :v")).contains(QStringLiteral("width=\"17\" height=\"17\"")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hay :V")).contains(QStringLiteral("image://icon/pacman/17")));
         QVERIFY(MessageModel::linkify(QStringLiteral("peace :v:")).contains(QString::fromUtf8("✌️")));
         QVERIFY(MessageModel::linkify(QStringLiteral("haha =))")).contains(QString::fromUtf8("🤣")));
         QVERIFY(MessageModel::linkify(QStringLiteral("gui /-loveu")).contains(QString::fromUtf8("🫶")));
@@ -205,6 +205,73 @@ private slots:
         QVERIFY(!MessageModel::linkify(QStringLiteral(":))!")).contains(QString::fromUtf8("🤣")));
         QVERIFY(MessageModel::linkify(QStringLiteral("hi :))) ok")).contains(QString::fromUtf8("😆")));
         QVERIFY(MessageModel::linkify(QStringLiteral("hi =)) ok")).contains(QString::fromUtf8("🤣")));
+
+        const QString mixed = MessageModel::linkify(
+            QStringLiteral("Xin chao 123 😄 ❤️ 👍🏽 🇻🇳 👨‍👩‍👧‍👦 1️⃣ 12:30"));
+        QVERIFY(mixed.contains(QStringLiteral("<span style=\"font-size:19px;\">😄</span>")));
+        QVERIFY(mixed.contains(QStringLiteral("<span style=\"font-size:19px;\">❤️</span>")));
+        QVERIFY(mixed.contains(QStringLiteral("<span style=\"font-size:19px;\">👍🏽</span>")));
+        QVERIFY(mixed.contains(QStringLiteral("<span style=\"font-size:19px;\">🇻🇳</span>")));
+        QVERIFY(mixed.contains(QStringLiteral("<span style=\"font-size:19px;\">👨‍👩‍👧‍👦</span>")));
+        QVERIFY(mixed.contains(QStringLiteral("<span style=\"font-size:19px;\">1️⃣</span>")));
+        QVERIFY(!MessageModel::linkify(QStringLiteral("Xin chào 123 12:30")).contains(QStringLiteral("font-size:")));
+
+        const QString smallStyled = MessageModel::styledHtml(
+            QStringLiteral("hi 😄 :v"), {},
+            QVariantList{QVariantMap{{"start", 0}, {"len", 8}, {"st", "f_13"}}});
+        QVERIFY(smallStyled.contains(QStringLiteral("<span style=\"font-size:16px;\">😄</span>")));
+        QVERIFY(smallStyled.contains(QStringLiteral("image://icon/pacman/14")));
+        QVERIFY(smallStyled.contains(QStringLiteral("width=\"14\" height=\"14\"")));
+
+        const QString normalStyled = MessageModel::styledHtml(
+            QStringLiteral("hi 😄 :v"), {},
+            QVariantList{QVariantMap{{"start", 0}, {"len", 8}, {"st", "b"}}});
+        QVERIFY(normalStyled.contains(QStringLiteral("<span style=\"font-size:19px;\">😄</span>")));
+        QVERIFY(normalStyled.contains(QStringLiteral("image://icon/pacman/17")));
+        QVERIFY(normalStyled.contains(QStringLiteral("width=\"17\" height=\"17\"")));
+
+        const QString largeStyled = MessageModel::styledHtml(
+            QStringLiteral("hi 😄 :v"), {},
+            QVariantList{QVariantMap{{"start", 0}, {"len", 8}, {"st", "f_18"}}});
+        QVERIFY(largeStyled.contains(QStringLiteral("<span style=\"font-size:23px;\">😄</span>")));
+        QVERIFY(largeStyled.contains(QStringLiteral("image://icon/pacman/20")));
+        QVERIFY(largeStyled.contains(QStringLiteral("width=\"20\" height=\"20\"")));
+
+        QCOMPARE(MessageModel::jumboEmojiSizeFor(QStringLiteral("😄")), 44);
+        QCOMPARE(MessageModel::jumboEmojiSizeFor(QStringLiteral(":v")), 44);
+        QCOMPARE(MessageModel::jumboEmojiSizeFor(QStringLiteral(" 😄 :v ")), 36);
+        QCOMPARE(MessageModel::jumboEmojiSizeFor(QStringLiteral("😄 ❤️ :v")), 32);
+        QCOMPARE(MessageModel::jumboEmojiSizeFor(QStringLiteral("👨‍👩‍👧‍👦 🇻🇳 👍🏽")), 32);
+        QCOMPARE(MessageModel::jumboEmojiSizeFor(QStringLiteral("😄 ❤️ 👍 :v")), 0);
+        QCOMPARE(MessageModel::jumboEmojiSizeFor(QStringLiteral("hi :v")), 0);
+        QCOMPARE(MessageModel::jumboEmojiSizeFor(QStringLiteral("123")), 0);
+
+        MessageModel jm;
+        jm.loadConversation(QStringLiteral("c-jumbo"));
+        MessageItem j1; j1.id = QStringLiteral("j1"); j1.ts = 1; j1.text = QStringLiteral(":v");
+        MessageItem j2; j2.id = QStringLiteral("j2"); j2.ts = 2; j2.text = QStringLiteral("😄 ❤️");
+        MessageItem j3; j3.id = QStringLiteral("j3"); j3.ts = 3; j3.text = QStringLiteral("😄 ❤️ :v");
+        MessageItem jQuoted; jQuoted.id = QStringLiteral("jq"); jQuoted.ts = 4; jQuoted.text = QStringLiteral("😄"); jQuoted.quoteText = QStringLiteral("ref");
+        MessageItem jMent; jMent.id = QStringLiteral("jm"); jMent.ts = 5; jMent.text = QStringLiteral("😄");
+        jMent.mentions.append({QStringLiteral("u1"), 0, 1});
+        MessageItem jStyled; jStyled.id = QStringLiteral("js"); jStyled.ts = 6; jStyled.text = QStringLiteral("😄");
+        jStyled.extra.insert(QStringLiteral("styles"), QVariantList{QVariantMap{{"start", 0}, {"len", 2}, {"st", "b"}}});
+        jm.mergeMessages(QStringLiteral("c-jumbo"), {j1, j2, j3, jQuoted, jMent, jStyled});
+
+        QCOMPARE(jm.data(jm.index(0), MessageModel::JumboEmojiSizeRole).toInt(), 44);
+        QVERIFY(jm.data(jm.index(0), MessageModel::RichTextRole).toString().contains(QStringLiteral("image://icon/pacman/40")));
+        QVERIFY(jm.data(jm.index(0), MessageModel::RichTextRole).toString().contains(QStringLiteral("width=\"40\" height=\"40\"")));
+        QCOMPARE(jm.data(jm.index(1), MessageModel::JumboEmojiSizeRole).toInt(), 36);
+        QVERIFY(jm.data(jm.index(1), MessageModel::RichTextRole).toString().contains(QStringLiteral("font-size:36px;")));
+        QCOMPARE(jm.data(jm.index(2), MessageModel::JumboEmojiSizeRole).toInt(), 32);
+        QVERIFY(jm.data(jm.index(2), MessageModel::RichTextRole).toString().contains(QStringLiteral("image://icon/pacman/29")));
+        QVERIFY(jm.data(jm.index(2), MessageModel::RichTextRole).toString().contains(QStringLiteral("width=\"29\" height=\"29\"")));
+        QCOMPARE(jm.data(jm.index(3), MessageModel::JumboEmojiSizeRole).toInt(), 0);
+        QCOMPARE(jm.data(jm.index(4), MessageModel::JumboEmojiSizeRole).toInt(), 0);
+        QCOMPARE(jm.data(jm.index(5), MessageModel::JumboEmojiSizeRole).toInt(), 0);
+
+        jm.markRecalled(QStringLiteral("c-jumbo"), QStringLiteral("j1"), QStringLiteral("Recalled"));
+        QCOMPARE(jm.data(jm.index(0), MessageModel::JumboEmojiSizeRole).toInt(), 0);
     }
 
     void testGroupSeenRecording() {
@@ -262,6 +329,60 @@ private slots:
         model.mergeMessages("t", {m});
         QCOMPARE(model.data(model.index(0), MessageModel::QuoteTextRole).toString(), QString("orig"));
         QCOMPARE(model.data(model.index(0), MessageModel::QuoteSenderRole).toString(), QString("Fixture"));
+    }
+
+    void testMessageActionsFollowMessageType() {
+        constexpr int React = MessageModel::ActionReact;
+        constexpr int Reply = MessageModel::ActionReply;
+        constexpr int Forward = MessageModel::ActionForward;
+        constexpr int Copy = MessageModel::ActionCopy;
+        constexpr int Menu = MessageModel::ActionMenu;
+        auto actions = [](const QString& type, const QString& id = QStringLiteral("1"), const QVariantMap& extra = {}) {
+            MessageItem m;
+            m.id = id;
+            m.messageType = type;
+            m.extra = extra;
+            return MessageModel::actionsFor(m);
+        };
+        QCOMPARE(actions("text"), React | Reply | Forward | Copy | Menu);
+        QCOMPARE(actions("image"), React | Reply | Forward | Copy | Menu);
+        QCOMPARE(actions("video"), React | Reply | Forward | Copy | Menu);
+        QCOMPARE(actions("file"), React | Reply | Forward | Menu);
+        QCOMPARE(actions("link"), React | Reply | Forward | Copy | Menu);
+        QCOMPARE(actions("location"), Reply | Forward | Menu);
+        QCOMPARE(actions("sticker"), Reply | Menu);
+        QCOMPARE(actions("voice"), Reply | Menu);
+        QCOMPARE(actions("card"), Reply | Menu);
+        for (const char* none : {"call", "system", "ecard", "poll", "bankcard", "unknown"})
+            QCOMPARE(actions(QString::fromLatin1(none)), 0);
+        QCOMPARE(actions("link", "1", {{"template", true}}), 0);
+        QCOMPARE(actions("text", "local-1-1"), Copy | Menu);
+        QCOMPARE(actions("sticker", "local-1-1"), int(Menu));
+        QCOMPARE(actions("text", QString()), Copy | Menu);
+
+        MessageModel model;
+        model.loadConversation("t");
+        MessageItem call; call.id = "c1"; call.messageType = "call"; call.text = "Fixture call";
+        MessageItem text; text.id = "t1"; text.messageType = "text"; text.text = "hello";
+        model.mergeMessages("t", {call, text});
+        const QModelIndex callIdx = model.index(model.rowOfMessage("c1"));
+        const QModelIndex textIdx = model.index(model.rowOfMessage("t1"));
+        QCOMPARE(model.data(callIdx, MessageModel::CanReactRole).toBool(), false);
+        QCOMPARE(model.data(callIdx, MessageModel::HasMenuRole).toBool(), false);
+        QCOMPARE(model.data(textIdx, MessageModel::CanReactRole).toBool(), true);
+        QCOMPARE(model.data(textIdx, MessageModel::CanForwardRole).toBool(), true);
+        QCOMPARE(model.getMessageById("c1").value("hasMenu").toBool(), false);
+        QCOMPARE(model.getMessageById("t1").value("canReply").toBool(), true);
+        QVERIFY(model.roleNames().values().contains("canReact"));
+
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        model.markRecalled("t", "t1", "recalled");
+        QCOMPARE(model.data(textIdx, MessageModel::CanReactRole).toBool(), false);
+        QCOMPARE(model.data(textIdx, MessageModel::HasMenuRole).toBool(), false);
+        bool reactRoleChanged = false;
+        for (const QList<QVariant>& args : changed)
+            reactRoleChanged = reactRoleChanged || args.at(2).value<QList<int>>().contains(MessageModel::CanReactRole);
+        QVERIFY(reactRoleChanged);
     }
 
     void testE2EEFlagRole() {
@@ -681,7 +802,7 @@ private slots:
 
         QCOMPARE(MessageModel::linkify(QStringLiteral("plain text")), QStringLiteral("plain text"));
         QVERIFY(MessageModel::linkify(QStringLiteral("hi :-) :v")).contains(QStringLiteral("🙂")));
-        QVERIFY(MessageModel::linkify(QStringLiteral("hi :v")).contains(QStringLiteral("pacman.png")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hi :v")).contains(QStringLiteral("image://icon/pacman/17")));
         QCOMPARE(MessageModel::linkify(QStringLiteral("https://example.com/path?q=:)&x=1")),
                  QStringLiteral("<a href=\"https://example.com/path?q=:)&amp;x=1\">https://example.com/path?q=:)&amp;x=1</a>"));
 

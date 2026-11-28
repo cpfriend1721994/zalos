@@ -36,7 +36,7 @@ RowLayout {
                 textFormat: Text.PlainText
                 elide: Text.ElideRight
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 font.weight: Font.DemiBold
                 color: ThemeManager.textColor
             }
@@ -44,7 +44,7 @@ RowLayout {
             Text {
                 text: root.dateText
                 font.family: Theme.fontFamily
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontCaption
                 color: ThemeManager.secondaryTextColor
             }
         }
@@ -56,7 +56,7 @@ RowLayout {
             maximumLineCount: 1
             elide: Text.ElideRight
             font.family: Theme.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             color: ThemeManager.secondaryTextColor
         }
     }

@@ -21,7 +21,6 @@ QtObject {
 
     readonly property var translations: ({
         "vi": {
-            "app_title": "Zalo",
             "search": "Tìm kiếm",
             "priority": "Ưu tiên",
             "other": "Khác",
@@ -107,11 +106,10 @@ QtObject {
             "start_with_system": "Tự khởi động cùng hệ thống",
             "start_hidden": "Khởi động thu nhỏ dưới khay hệ thống",
 
-            "welcome_title": "Chào mừng bạn đến với Zalo PC",
+            "welcome_title": "Chào mừng bạn đến với Zalos",
             "welcome_desc": "Khám phá những tiện ích hỗ trợ làm việc và trò chuyện cùng người thân, bạn bè được tối ưu hóa cho máy tính của bạn."
         },
         "en": {
-            "app_title": "Zalo",
             "search": "Search",
             "priority": "Priority",
             "other": "Other",
@@ -197,7 +195,7 @@ QtObject {
             "start_with_system": "Launch on system startup",
             "start_hidden": "Start minimized to tray",
 
-            "welcome_title": "Welcome to Zalo PC",
+            "welcome_title": "Welcome to Zalos",
             "welcome_desc": "Discover productivity and messaging features optimized for your desktop with family, friends, and colleagues."
         }
     })

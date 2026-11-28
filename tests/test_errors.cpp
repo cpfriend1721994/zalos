@@ -51,6 +51,8 @@ private slots:
     void localFileTokenIsFriendly() {
         QVERIFY(ErrorCatalog::render(0, "local_file_error", false).contains(QString::fromUtf8("tệp")));
         QVERIFY(!ErrorCatalog::render(0, "local_file_error", false).contains("local_file_error"));
+        QVERIFY(ErrorCatalog::render(0, "unsupported_url", false).contains(QString::fromUtf8("liên kết")));
+        QVERIFY(!ErrorCatalog::render(0, "unsupported_url", false).contains("unsupported_url"));
     }
 
     void phoneSyncCodesMatchZaloPc() {

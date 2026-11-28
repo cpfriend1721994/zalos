@@ -24,7 +24,7 @@ public:
     }
     Q_INVOKABLE QVariantList all() const;
     Q_INVOKABLE QString primaryText(const QString& cmd) const;
-    QStringList commands() const { return m_order; }
+    Q_INVOKABLE QStringList commands() const { return m_order; }
 
     static QHash<QString, QStringList> defaults();
     QString customPath() const { return m_customPath; }

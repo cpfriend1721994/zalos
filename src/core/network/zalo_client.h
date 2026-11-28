@@ -26,7 +26,6 @@ class QNetworkAccessManager;
 #include "models/message_model.h"
 #include "models/contact_model.h"
 
-#include "call/zcall_engine.h"
 #include "call/call_bridge.h"
 #include "offline/offline_store.h"
 #include "network/zalo_api_client.h"
@@ -44,9 +43,10 @@ class QNetworkAccessManager;
 #include "platform/shortcut_map.h"
 #include "platform/storage_manager.h"
 
-namespace Zalos::Core::Platform { class DesktopNotifications; class SystemTrayController; }
+namespace Zalos::Core::Platform { class DesktopNotifications; class SystemTrayController; class BackgroundPortal; }
 
 namespace Zalos::Core::Sync { class MobileHistorySync; }
+
 
 namespace Zalos::Core::Network {
 
@@ -124,7 +124,6 @@ using BoundedSet = BoundedHash<Key, BoundedUnit>;
 class ZaloClient : public QObject {
     Q_OBJECT
 
-    Q_PROPERTY(Zalos::Core::Call::ZCallEngine* callEngine READ callEngine CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Offline::ZaloOfflineStore* offlineStore READ offlineStore CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Network::ZaloApiClient* apiClient READ apiClient CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Call::CallBridge* calls READ calls CONSTANT FINAL)
@@ -191,6 +190,13 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool currentConversationHasPresence READ currentConversationHasPresence NOTIFY conversationStatusChanged FINAL)
     Q_PROPERTY(bool isSendingAttachment READ isSendingAttachment NOTIFY attachmentStateChanged FINAL)
     Q_PROPERTY(bool isConnected READ isConnected NOTIFY connectionStateChanged FINAL)
+    Q_PROPERTY(QStringList currentMentionIds READ currentMentionIds NOTIFY currentMentionsChanged FINAL)
+    Q_PROPERTY(QString pendingDeleteConversation READ pendingDeleteConversation NOTIFY pendingDeleteChanged FINAL)
+    Q_PROPERTY(int fileStateRevision READ fileStateRevision NOTIFY fileStatesChanged FINAL)
+    Q_PROPERTY(int composerUrgency READ composerUrgency WRITE setComposerUrgency NOTIFY composerUrgencyChanged FINAL)
+    Q_PROPERTY(QVariantList gifResults READ gifResults NOTIFY gifResultsChanged FINAL)
+    Q_PROPERTY(bool gifLoading READ gifLoading NOTIFY gifResultsChanged FINAL)
+    Q_PROPERTY(QString downloadDirectory READ downloadDirectory NOTIFY settingsChanged FINAL)
     Q_PROPERTY(int brokenMediaRevision READ brokenMediaRevision NOTIFY brokenMediaChanged FINAL)
     Q_PROPERTY(int stickerRevision READ stickerRevision NOTIFY stickerRevisionChanged FINAL)
     Q_PROPERTY(bool isE2EESupported READ isE2EESupported CONSTANT FINAL)
@@ -288,6 +294,10 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString platformName READ platformName CONSTANT FINAL)
     Q_PROPERTY(bool checkingUpdate READ checkingUpdate NOTIFY updateCheckChanged FINAL)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(int updateCheckHours READ updateCheckHours WRITE setUpdateCheckHours NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(bool autoInstallUpdates READ autoInstallUpdates WRITE setAutoInstallUpdates NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(QString lastUpdateCheckText READ lastUpdateCheckText NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(bool inAppUpdateSupported READ inAppUpdateSupported CONSTANT FINAL)
     Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY updateCheckChanged FINAL)
     Q_PROPERTY(QString updateUrl READ updateUrl NOTIFY updateCheckChanged FINAL)
     Q_PROPERTY(QString updateStatus READ updateStatus NOTIFY updateCheckChanged FINAL)
@@ -443,7 +453,6 @@ public:
     Q_INVOKABLE void setAppLanguage(const QString& lang);
 
     Q_INVOKABLE void openConversationWithContact(const QString& id, const QString& name, const QString& avatarUrl);
-    Call::ZCallEngine* callEngine() const { return m_callEngine; }
     Offline::ZaloOfflineStore* offlineStore() const { return m_offlineStore; }
     static constexpr int kCacheParseVersion = 7;
     ZaloApiClient* apiClient() const { return m_apiClient; }
@@ -501,7 +510,7 @@ public:
     QString forwardCardUid() const { return m_forwardCardUid; }
     Q_INVOKABLE void openShareCard(const QString& userId, const QString& name);
     Q_INVOKABLE void openSendCardPicker();
-    Q_INVOKABLE QVariantList friendsForCard() const;
+    Q_INVOKABLE QVariantList friendsForCard(const QString& query = QString()) const;
     Q_INVOKABLE QVariantList conversationsForForward(const QString& query = QString()) const;
     Q_INVOKABLE void forwardMessage(const QString& targetThreadId, const QString& msgId);
 
@@ -622,6 +631,16 @@ public:
     qreal updateProgress() const { return m_updateProgress; }
     bool updateInstalledRestartRequired() const { return m_updateInstalledRestartRequired; }
     Q_INVOKABLE void checkForUpdates();
+    static bool updateCheckDue(qint64 nowSec, qint64 lastSec, int hours, bool atStartup);
+    int updateCheckHours() const;
+    Q_INVOKABLE void setUpdateCheckHours(int hours);
+    bool autoInstallUpdates() const;
+    bool inAppUpdateSupported() const;
+    Q_INVOKABLE void setAutoInstallUpdates(bool on);
+    QString lastUpdateCheckText() const;
+    void maybeAutoCheckUpdates(bool atStartup);
+    void startUpdateSchedule();
+    void handleUpdateFound();
     Q_INVOKABLE void installAvailableUpdate();
     static int compareVersions(const QString& a, const QString& b);
 
@@ -663,6 +682,7 @@ public:
     Q_INVOKABLE void refreshQrCode();
     Q_INVOKABLE void clearLoginError();
     Q_INVOKABLE void logout();
+    Q_INVOKABLE void forgetPasscodeAndLogout();
 
 #ifdef ZALOS_TESTING
     void applyAliasesForTesting(const QHash<QString, QString>& aliases) { applyAliases(aliases); }
@@ -838,6 +858,20 @@ public:
     Q_INVOKABLE void refreshContacts();
 
     Q_INVOKABLE void sendFile(const QString& fileUrlOrPath, const QString& caption = QString());
+    Q_INVOKABLE void sendPhotoAlbum(const QStringList& fileUrls);
+    void sendFileWithAlbum(const QString& fileUrlOrPath, const QString& caption, const QJsonObject& album);
+    Q_INVOKABLE bool canModerateCurrent() const;
+    Q_INVOKABLE void deleteMessageForEveryone(const QString& msgId);
+    Q_INVOKABLE void deleteMessagesForMe(const QStringList& msgIds);
+    Q_INVOKABLE QString copyMessages(const QStringList& msgIds);
+    Q_INVOKABLE void openForwardModalMulti(const QStringList& msgIds);
+    Q_INVOKABLE void forwardMessagesTo(const QString& targetThreadId);
+    Q_INVOKABLE void loadGifs(const QString& keyword);
+    Q_INVOKABLE void sendGifFromUrl(const QString& url);
+    Q_INVOKABLE void setComposerUrgency(int urgency);
+    int composerUrgency() const { return m_composerUrgency; }
+    QVariantList gifResults() const { return m_gifResults; }
+    bool gifLoading() const { return m_gifLoading; }
     Q_INVOKABLE void searchStickers(const QString& keyword);
     Q_INVOKABLE void sendStickerItem(qint64 stickerId, qint64 cateId, int type);
     Q_INVOKABLE QString stickerThumb(const QString& stickerId) const;
@@ -855,6 +889,7 @@ public:
     Q_INVOKABLE void deleteMessageForMe(const QString& msgId);
     Q_INVOKABLE void copyText(const QString& text);
     Q_INVOKABLE QStringList searchConversationMessages(const QString& query);
+    Q_INVOKABLE QVariantList searchConversationHits(const QString& query);
     Q_INVOKABLE bool revealMessage(const QString& msgId);
     Q_INVOKABLE void openMessageFromSearch(const QString& convId, const QString& msgId);
     Q_INVOKABLE void openSearchResult(const QString& id, const QString& name, const QString& avatar, bool isGroup);
@@ -872,6 +907,7 @@ public:
     Q_INVOKABLE bool openExternalUrl(const QString& url);
     Q_INVOKABLE QString linkifyText(const QString& text) const;
     static QUrl externalUrl(const QString& url);
+    static QString forwardableLocalPath(const QString& mediaUrl);
     static QString linkHrefOf(const QJsonObject& obj, const QJsonObject& params);
     static QString uniqueFilePath(const QString& dir, const QString& fileName);
     Q_INVOKABLE QVariantMap qrModules(const QString& text) const;
@@ -885,6 +921,14 @@ public:
     Q_INVOKABLE void copyImage(const QString& url);
     Q_INVOKABLE void openFileMessage(const QString& url, const QString& fileName);
     Q_INVOKABLE void downloadFileMessage(const QString& url, const QString& fileName);
+    Q_INVOKABLE QVariantMap fileState(const QString& url) const;
+    Q_INVOKABLE void revealFile(const QString& path);
+    Q_INVOKABLE void setDownloadDirectory(const QString& urlOrPath);
+    QString downloadDirectory() const;
+    int fileStateRevision() const { return m_fileStateRevision; }
+    Q_INVOKABLE void setScrollAnchor(const QString& convId, const QString& msgId);
+    Q_INVOKABLE QString scrollAnchor(const QString& convId) const;
+    QVariantMap nextVoiceAfter(const QString& msgId) const;
     Q_INVOKABLE void prepareVideoPlayback(const QString& url);
     Q_INVOKABLE static bool isVideoFileName(const QString& nameOrUrl);
     Q_INVOKABLE QString suggestedMediaFileName(const QString& url) const;
@@ -905,8 +949,16 @@ public:
     Q_INVOKABLE void muteConversation(const QString& id);
     Q_INVOKABLE void muteConversationFor(const QString& id, int seconds);
     Q_INVOKABLE void toggleUnreadMark(const QString& id);
+    Q_INVOKABLE void markConversationRead(const QString& convId);
+    Q_INVOKABLE int markAllConversationsRead();
+    Q_INVOKABLE void consumeMention(const QString& msgId);
+    QStringList currentMentionIds() const { return m_currentMentionIds; }
     Q_INVOKABLE bool isMarkedUnread(const QString& id) const { return m_markedUnread.contains(id); }
     Q_INVOKABLE void deleteConversation(const QString& id);
+    Q_INVOKABLE void deleteConversationWithUndo(const QString& id);
+    Q_INVOKABLE void undoDeleteConversation();
+    Q_INVOKABLE void commitPendingDelete();
+    QString pendingDeleteConversation() const { return m_pendingDeleteId; }
     Q_INVOKABLE void hideConversation(const QString& id, bool hide);
     Q_INVOKABLE bool isConversationHidden(const QString& id) const { return m_hiddenThreads.contains(id); }
     Q_INVOKABLE void archiveConversation(const QString& id, bool archive);
@@ -977,6 +1029,12 @@ public:
     static QString bankShortNameForBin(int bin);
 
 signals:
+    void currentMentionsChanged();
+    void swipeBackRequested();
+    void pendingDeleteChanged();
+    void fileStatesChanged();
+    void composerUrgencyChanged();
+    void gifResultsChanged();
     void windowActivationRequested(const QString& activationToken);
     void hideWindowRequested();
     void syncPromptChanged();
@@ -1117,7 +1175,8 @@ private:
     void migrateCachedParses();
     void noteAccountFlags(const QString& uid, const QJsonObject& profile);
     void openRemoteFile(const QString& url, const QString& fileName, const QString& goneText, bool openAfter);
-    void downloadToFile(const QString& url, const QString& path, std::function<void(const QString& error)> done);
+    void downloadToFile(const QString& url, const QString& path, std::function<void(const QString& error)> done,
+                        std::function<void(qint64, qint64)> progress = {});
     void queueUnknownSenders(int first, int last);
     void scheduleExpiry();
     void loadReadOnlyThreads();
@@ -1172,6 +1231,7 @@ private:
     void onNotificationAction(const QString& key, const QString& action, const QString& activationToken);
     void openConversationById(const QString& id);
     void markThreadRead(const QString& convId);
+    void collectCurrentMentions(const QString& convId, int unreadCount);
     void loadDrafts();
     void sendSeenFor(const QString& convId, bool isGroup);
     void sendTextTo(const QString& convId, bool isGroup, const QString& cleanText,
@@ -1188,6 +1248,7 @@ private:
     void resolveUnknownUsers();
     void handleIncomingMessages(const QJsonArray& messages, bool isGroup, bool isOld);
     Models::MessageItem toMessageItem(const QJsonObject& msg, bool isGroup, QString* threadId, QString* preview) const;
+    QString quotePreviewText(const QJsonObject& quote) const;
     QString fillHighlights(const QString& text, const QJsonArray& highlights) const;
     static bool isQuietMessageType(const QString& msgType);
     void ensureConversation(const QString& threadId, bool isGroup);
@@ -1372,6 +1433,31 @@ private:
     QVariantMap m_replyTarget;
     class MessageScheduler* m_scheduler{nullptr};
     Platform::DesktopNotifications* m_notifications{nullptr};
+    QHash<QString, QString> m_notifiedMsgIds;
+    QStringList m_currentMentionIds;
+    QString m_voiceStartedId;
+    bool m_seenBatchOpen{false};
+    QTimer* m_updateTimer{nullptr};
+    int m_composerUrgency{0};
+    QHash<QString, int> m_pendingUrgency;
+    QVariantList m_gifResults;
+    bool m_gifLoading{false};
+    quint64 m_gifSeq{0};
+    QStringList m_forwardSourceMsgIds;
+    QHash<QString, QString> m_scrollAnchors;
+    QHash<QString, double> m_downloadProgress;
+    mutable QHash<QString, QString> m_downloadIndex;
+    mutable bool m_downloadIndexLoaded{false};
+    void ensureDownloadIndex() const;
+    QString knownDownloadPath(const QString& key) const;
+    void rememberDownload(const QString& key, const QString& path);
+    int m_fileStateRevision{0};
+    void bumpFileStates();
+    QString m_pendingDeleteId;
+    Models::ConversationItem m_pendingDeleteItem;
+    QHash<QString, Models::ConversationItem> m_deleteRestore;
+    QTimer* m_pendingDeleteTimer{nullptr};
+    Platform::BackgroundPortal* m_backgroundPortal{nullptr};
     Media::VoiceRecorder* m_voiceRecorder{nullptr};
     Platform::ShortcutMap* m_shortcuts{nullptr};
     Platform::AppLock* m_appLock{nullptr};
@@ -1405,6 +1491,7 @@ private:
     bool m_loadingHistory{false};
     bool m_syncing{false};
     quint64 m_accountLoadGen{0};
+    quint64 m_logoutGen{0};
     QTimer* m_userLookupTimer{nullptr};
 
     bool m_isLoggedIn{false};
@@ -1558,7 +1645,6 @@ private:
     Models::ConversationModel* m_conversationModel{nullptr};
     Models::MessageModel* m_messageModel{nullptr};
     Models::ContactModel* m_contactModel{nullptr};
-    Call::ZCallEngine* m_callEngine{nullptr};
     Offline::ZaloOfflineStore* m_offlineStore{nullptr};
     ZaloApiClient* m_apiClient{nullptr};
 };

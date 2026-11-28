@@ -98,7 +98,7 @@ Rectangle {
                         textFormat: Text.PlainText
                         elide: Text.ElideRight
                         font.family: Theme.fontFamily
-                        font.pixelSize: 15
+                        font.pixelSize: Theme.fontSubtitle
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
@@ -109,7 +109,7 @@ Rectangle {
                         textFormat: Text.PlainText
                         elide: Text.ElideRight
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: ThemeManager.secondaryTextColor
                     }
                 }
@@ -136,7 +136,7 @@ Rectangle {
                         Text {
                             text: I18n.t("Mở cuộc hội thoại Cloud", "Open Cloud Chat")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             font.weight: Font.DemiBold
                             color: "#FFFFFF"
                         }
@@ -183,7 +183,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: tabChip.modelData
                             font.family: Theme.fontFamily
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontCaption
                             font.weight: (root.activeTab === tabChip.index) ? Font.DemiBold : Font.Normal
                             color: root.activeTab === tabChip.index
                                    ? ThemeManager.accentTonalTextColor
@@ -245,7 +245,7 @@ Rectangle {
                             text: I18n.t("Kho lưu trữ My Documents", "My Documents Storage")
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -257,7 +257,7 @@ Rectangle {
                                      "Shows files, photos, and links from loaded Cloud messages.")
                         elide: Text.ElideRight
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: ThemeManager.secondaryTextColor
                     }
                 }
@@ -273,7 +273,7 @@ Rectangle {
                         anchors.centerIn: parent
                         text: root.cloudItems.length + " " + I18n.t("mục", "items")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
@@ -287,6 +287,7 @@ Rectangle {
 
             ListView {
                 id: cloudList
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 anchors.fill: parent
                 anchors.leftMargin: 20
                 anchors.rightMargin: 20
@@ -371,7 +372,7 @@ Rectangle {
                                 text: itemCard.modelData.title || itemCard.modelData.url || ""
                                 textFormat: Text.PlainText
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                                 elide: Text.ElideMiddle
                                 color: ThemeManager.textColor
@@ -382,14 +383,14 @@ Rectangle {
                                 Text {
                                     text: root.formatItemTime(itemCard.modelData.ts, itemCard.modelData.timeStr)
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontCaption
                                     color: ThemeManager.secondaryTextColor
                                 }
                                 Text {
                                     visible: itemCard.modelData.fileSize > 0
                                     text: "• " + root.formatFileSize(itemCard.modelData.fileSize)
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontCaption
                                     color: ThemeManager.secondaryTextColor
                                 }
                             }
@@ -469,7 +470,7 @@ Rectangle {
                         Layout.alignment: Qt.AlignHCenter
                         text: I18n.t("Chưa có dữ liệu trong My Documents", "My Documents is empty")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 15
+                        font.pixelSize: Theme.fontSubtitle
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
@@ -479,7 +480,7 @@ Rectangle {
                         text: I18n.t("Gửi hình ảnh, tài liệu hoặc liên kết vào My Documents để lưu trữ và truy cập mọi lúc.",
                                      "Send photos, files, or links to My Documents to access them anytime.")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -496,7 +497,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: I18n.t("Mở cuộc hội thoại My Documents", "Open My Documents Chat")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             font.weight: Font.DemiBold
                             color: "#FFFFFF"
                         }

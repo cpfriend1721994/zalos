@@ -111,6 +111,7 @@ public:
     ConversationItem conversation(const QString& convId) const;
     QString adjacentId(const QString& convId, int delta) const;
     QStringList pinnedIds() const;
+    QStringList visibleUnreadIds() const;
     bool updateProfile(const QString& convId, const QString& name, const QString& avatarUrl, int memberCount = -1);
     void setSenderPrefix(const QString& convId, const QString& senderPrefix);
     void recordMessage(const QString& convId, const QString& preview, const QString& senderPrefix, qint64 ts, bool incrementUnread, bool hasMention = false);

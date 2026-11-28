@@ -30,7 +30,6 @@ ZaloClient::ZaloClient(QObject* parent)
     m_conversationModel->setCategoryFilter(QString());
     m_messageModel = new Models::MessageModel(this);
     m_contactModel = new Models::ContactModel(this);
-    m_callEngine = new Call::ZCallEngine(this);
     m_offlineStore = new Offline::ZaloOfflineStore(this);
     m_apiClient = new ZaloApiClient(this);
 
@@ -49,19 +48,6 @@ ZaloClient::ZaloClient(QObject* parent)
             [this](const QModelIndex&, int first, int last) { queueUnknownSenders(first, last); });
     connect(m_messageModel, &QAbstractItemModel::modelReset, this,
             [this]() { queueUnknownSenders(0, m_messageModel->rowCount() - 1); });
-
-    connect(m_callEngine, &Call::ZCallEngine::callStateChanged, this, [this](int state) {
-        if (state == static_cast<int>(Call::CallState::RingingIncoming)) {
-            m_incomingCallActive = true;
-            m_incomingCallerName = m_callEngine->currentCaller();
-            emit incomingCallStateChanged(true);
-        } else if (state == static_cast<int>(Call::CallState::Idle) ||
-                   state == static_cast<int>(Call::CallState::Ended) ||
-                   state == static_cast<int>(Call::CallState::Declined)) {
-            m_incomingCallActive = false;
-            emit incomingCallStateChanged(false);
-        }
-    });
 
     connect(m_apiClient, &ZaloApiClient::qrTokenGenerated, this, [this](const QString& qrUrl, const QString& token) {
         m_qrImageUrl = qrUrl;
@@ -218,6 +204,13 @@ ZaloClient::ZaloClient(QObject* parent)
 
     m_shortcuts = new Platform::ShortcutMap(this);
     m_appLock = new Platform::AppLock(this);
+    m_updateTimer = new QTimer(this);
+    m_updateTimer->setInterval(30 * 60 * 1000);
+    connect(m_updateTimer, &QTimer::timeout, this, [this]() { maybeAutoCheckUpdates(false); });
+    m_pendingDeleteTimer = new QTimer(this);
+    m_pendingDeleteTimer->setSingleShot(true);
+    m_pendingDeleteTimer->setInterval(5000);
+    connect(m_pendingDeleteTimer, &QTimer::timeout, this, &ZaloClient::commitPendingDelete);
     m_storage = new Platform::StorageManager(this);
     {
         GroupAdmin::Hooks hooks;
@@ -389,6 +382,7 @@ ZaloClient::ZaloClient(QObject* parent)
     connect(session, &ZaloSession::voipControlReceived, m_calls, &Call::CallBridge::handleVoipControl);
     connect(m_calls, &Call::CallBridge::stateChanged, this, [this]() {
         const QString phase = m_calls->phase();
+        m_appLock->setCallActive(!phase.isEmpty() && phase != QLatin1String("ended"));
         const QString prevPhase = m_lastCallPhase;
         m_lastCallPhase = phase;
         if (phase == "incoming") {
@@ -576,7 +570,7 @@ void ZaloClient::setSyncing(bool syncing) {
 }
 
 void ZaloClient::loadSession() {
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     m_userName = settings.value("auth/userName", "").toString();
     m_userPhone = settings.value("auth/userPhone", "").toString();
     m_userAvatar = settings.value("auth/userAvatar", "").toString();
@@ -642,7 +636,7 @@ void ZaloClient::loadSession() {
 }
 
 void ZaloClient::saveSession() {
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     settings.setValue("auth/isLoggedIn", m_isLoggedIn);
     settings.setValue("auth/userName", m_userName);
     settings.setValue("auth/userPhone", m_userPhone);
@@ -842,7 +836,13 @@ void ZaloClient::watchConnectivity() {
 }
 
 void ZaloClient::onPrepareForSleep(bool sleeping) {
-    if (!sleeping) scheduleReconnectProbe();
+    if (sleeping) m_appLock->lockForSleep();
+    else scheduleReconnectProbe();
+}
+
+void ZaloClient::forgetPasscodeAndLogout() {
+    m_appLock->forgetPasscode();
+    logout();
 }
 
 void ZaloClient::scheduleReconnectProbe() {
@@ -882,6 +882,28 @@ void ZaloClient::onSessionLoginFailed(const QString& reason) {
 
 void ZaloClient::logout() {
     ++m_accountLoadGen;
+    ++m_logoutGen;
+    m_pendingDeleteTimer->stop();
+    m_pendingDeleteId.clear();
+    m_pendingDeleteItem = {};
+    m_deleteRestore.clear();
+    m_notifiedMsgIds.clear();
+    m_brokenMedia.clear();
+    ++m_brokenMediaRevision;
+    m_scrollAnchors.clear();
+    m_downloadProgress.clear();
+    ++m_fileStateRevision;
+    m_pendingAttachments = 0;
+    m_bankAccounts.clear();
+    m_gifResults.clear();
+    m_gifLoading = false;
+    m_gifSeq++;
+    m_currentMentionIds.clear();
+    m_forwardSourceMsgIds.clear();
+    m_composerUrgency = 0;
+    m_pendingUrgency.clear();
+    m_voiceStartedId.clear();
+    emit pendingDeleteChanged();
     if (m_historySync) m_historySync->cancel();
     if (m_stickerStore) m_stickerStore->reset();
     if (m_voicePlayer) m_voicePlayer->stop();
@@ -1196,13 +1218,23 @@ void ZaloClient::loadAccountData() {
     session->fetchPinnedConversations([this, finishJob, gen](bool ok, const QJsonValue& data, const QString&, int) {
         if (gen != m_accountLoadGen) return;
         if (ok) {
+            QSet<QString> serverPinned;
+            m_conversationModel->beginBatch();
             for (const QJsonValue& v : data.toObject().value("conversations").toArray()) {
                 QString raw = v.toString();
                 const bool isGroup = raw.startsWith('g');
                 if (raw.startsWith('g') || raw.startsWith('u')) raw.remove(0, 1);
+                if (raw.isEmpty()) continue;
+                serverPinned.insert(raw);
                 ensureConversation(raw, isGroup);
                 m_conversationModel->setPinned(raw, true);
             }
+            QStringList unpinned;
+            for (const auto& c : m_conversationModel->conversations()) {
+                if (c.isPinned && !serverPinned.contains(c.id)) unpinned << c.id;
+            }
+            for (const QString& id : std::as_const(unpinned)) m_conversationModel->setPinned(id, false);
+            m_conversationModel->endBatch();
         }
         finishJob();
     });
@@ -1210,7 +1242,8 @@ void ZaloClient::loadAccountData() {
     session->apiGet("profile", "/api/social/profile/getmute", {{"imei", session->imei()}},
                     [this, gen](bool ok, const QJsonValue& data, const QString&, int) {
         if (gen != m_accountLoadGen || !ok) return;
-        const MuteSnapshot snap = parseMuteSnapshot(data.toObject(), QDateTime::currentSecsSinceEpoch());
+        const MuteSnapshot snap = parseMuteSnapshot(data, QDateTime::currentSecsSinceEpoch());
+        if (!snap.valid) return;
         m_conversationModel->beginBatch();
         for (const QString& id : snap.muted) m_conversationModel->setMuted(id, true);
         for (const QString& oldId : std::as_const(m_mutedIds)) {
@@ -1225,9 +1258,11 @@ void ZaloClient::loadAccountData() {
 }
 
 void ZaloClient::loadGroupInfo(const QStringList& groupIds) {
+    const quint64 gen = m_logoutGen;
     for (int i = 0; i < groupIds.size(); i += kGroupInfoBatch) {
         const QStringList batch = groupIds.mid(i, kGroupInfoBatch);
-        m_apiClient->session()->fetchGroupInfo(batch, [this, batch](bool ok, const QJsonValue& data, const QString&, int) {
+        m_apiClient->session()->fetchGroupInfo(batch, [this, batch, gen](bool ok, const QJsonValue& data, const QString&, int) {
+            if (gen != m_logoutGen) return;
             if (ok) {
                 applyGroupInfo(data.toObject().value("gridInfoMap").toObject());
             } else {
@@ -1502,6 +1537,10 @@ void ZaloClient::disperseGroup(const QString& groupId) {
 
 void ZaloClient::openLink(const QString& url, const QString& title, const QString& thumb) {
     if (url.isEmpty()) return;
+    if (UrlPolicy::isLocalReference(url)) {
+        emit notice(L("Liên kết không hợp lệ.", "This link is not valid."));
+        return;
+    }
     if (GroupAdmin::isGroupLink(url)) {
         m_groupAdmin->openJoin(url);
         return;
@@ -1523,8 +1562,19 @@ QUrl ZaloClient::externalUrl(const QString& url) {
     const QUrl u = QUrl::fromUserInput(trimmed);
     if (!u.isValid() || u.scheme().isEmpty()) return QUrl();
     if (u.isLocalFile()) return u;
-    if (u.host().isEmpty() && u.scheme() != QLatin1String("mailto") && u.scheme() != QLatin1String("tel")) return QUrl();
-    return u;
+    const QString scheme = u.scheme().toLower();
+    if (scheme == QLatin1String("mailto") || scheme == QLatin1String("tel")) return u;
+    return UrlPolicy::isWebUrl(u) ? u : QUrl();
+}
+
+QString ZaloClient::forwardableLocalPath(const QString& mediaUrl) {
+    const QString t = mediaUrl.trimmed();
+    if (t.isEmpty()) return {};
+    const QUrl u(t);
+    const QString path = u.isLocalFile() ? u.toLocalFile() : (u.scheme().isEmpty() ? t : QString());
+    if (path.isEmpty() || !QFileInfo(path).isAbsolute()) return {};
+    const QFileInfo fi(path);
+    return fi.isFile() && fi.isReadable() ? fi.absoluteFilePath() : QString();
 }
 
 bool ZaloClient::openExternalUrl(const QString& url) {
@@ -1885,6 +1935,28 @@ qint64 ZaloClient::voiceDuration() const {
     return m_voicePlayer ? m_voicePlayer->duration() : 0;
 }
 
+QVariantMap ZaloClient::nextVoiceAfter(const QString& msgId) const {
+    const QString conv = threadOfMessage(msgId);
+    if (conv.isEmpty()) return {};
+    bool after = false;
+    for (const auto& m : m_messageModel->threadOf(conv)) {
+        if (after && m.messageType == QLatin1String("voice") && !m.isRecalled && !m.href.isEmpty())
+            return {{QStringLiteral("id"), m.id}, {QStringLiteral("url"), m.href}};
+        if (m.id == msgId) after = true;
+    }
+    return {};
+}
+
+void ZaloClient::setScrollAnchor(const QString& convId, const QString& msgId) {
+    if (convId.isEmpty()) return;
+    if (msgId.isEmpty()) m_scrollAnchors.remove(convId);
+    else m_scrollAnchors.insert(convId, msgId);
+}
+
+QString ZaloClient::scrollAnchor(const QString& convId) const {
+    return m_scrollAnchors.value(convId);
+}
+
 void ZaloClient::seekVoice(qint64 positionMs) {
     if (m_voicePlayer && !m_playingVoiceId.isEmpty()) {
         m_voicePlayer->setPosition(qMax<qint64>(0, positionMs));
@@ -1903,6 +1975,7 @@ void ZaloClient::setVoicePlaybackRate(qreal rate) {
 void ZaloClient::toggleVoice(const QString& msgId, const QString& url) {
     if (msgId.isEmpty() || url.isEmpty()) return;
     if (m_voicePlayer && m_playingVoiceId == msgId) {
+        m_voiceStartedId.clear();
         m_voicePlayer->stop();
         return;
     }
@@ -1926,7 +1999,20 @@ void ZaloClient::toggleVoice(const QString& msgId, const QString& url) {
                 emit voicePlaybackChanged();
             }
         });
+        connect(m_voicePlayer, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
+            if (status != QMediaPlayer::EndOfMedia || m_voiceStartedId.isEmpty()) return;
+            const QString finished = m_voiceStartedId;
+            m_voiceStartedId.clear();
+            const QVariantMap next = nextVoiceAfter(finished);
+            if (next.isEmpty()) return;
+            const QString id = next.value(QStringLiteral("id")).toString();
+            const QString url = next.value(QStringLiteral("url")).toString();
+            QTimer::singleShot(250, this, [this, id, url]() {
+                if (m_playingVoiceId.isEmpty()) toggleVoice(id, url);
+            });
+        });
         connect(m_voicePlayer, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString& err) {
+            m_voiceStartedId.clear();
             const QString url = m_voicePlayer->source().toString();
             const QString id = m_playingVoiceId;
             if (!id.isEmpty()) {
@@ -1944,6 +2030,7 @@ void ZaloClient::toggleVoice(const QString& msgId, const QString& url) {
     }
     m_voicePlayer->stop();
     m_playingVoiceId = msgId;
+    m_voiceStartedId = msgId;
     emit voicePlaybackChanged();
     m_voicePlayer->setSource(QUrl(url));
     m_voicePlayer->setPlaybackRate(m_voicePlaybackRate);

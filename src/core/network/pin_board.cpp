@@ -1,5 +1,6 @@
 #include "pin_board.h"
 
+#include "url_policy.h"
 #include "zalo_session.h"
 
 #include <QJsonDocument>
@@ -54,8 +55,8 @@ QVariantMap PinBoard::normalizeTopic(const QJsonValue& raw) {
             {"msgId", idString(p.value("global_msg_id"))},
             {"cliMsgId", idString(p.value("client_msg_id"))},
             {"msgType", p.value("msg_type").toVariant().toInt()},
-            {"thumb", p.value("thumb").toString()},
-            {"href", p.value("href").toString()}};
+            {"thumb", UrlPolicy::sanitizeRemoteReference(p.value("thumb").toString())},
+            {"href", UrlPolicy::sanitizeRemoteReference(p.value("href").toString())}};
 }
 
 QVariantMap PinBoard::detail(const QString& topicId) const {
@@ -79,6 +80,7 @@ QVariantMap PinBoard::detail(const QString& topicId) const {
         }
     }
     const QStringList images = mediaCandidates(out, raw, true);
+    href = UrlPolicy::sanitizeRemoteReference(href);
     out.insert("text", text);
     out.insert("image", images.value(0));
     out.insert("images", images);
@@ -103,7 +105,7 @@ QStringList PinBoard::mediaCandidates(const QVariantMap& topic, const QJsonObjec
     QStringList out;
     const auto add = [&out](const QString& url) {
         const QString u = url.trimmed();
-        if ((u.startsWith(QLatin1String("http")) || u.startsWith(QLatin1String("file:"))) && !out.contains(u)) out.append(u);
+        if (UrlPolicy::isWebUrl(u) && !out.contains(u)) out.append(u);
     };
     const int type = topic.value("msgType").toInt();
     const bool picture = type == 32 || type == 37 || type == 49;
@@ -183,6 +185,7 @@ void PinBoard::setCurrent(const QString& convId) {
 }
 
 void PinBoard::reset() {
+    ++m_generation;
     m_boards.clear();
     m_current.clear();
     emit pinsChanged();
@@ -197,8 +200,9 @@ void PinBoard::load(const QString& convId) {
     if (!s || convId.isEmpty()) return;
     const bool group = isGroup(convId);
     QPointer<PinBoard> self(this);
-    auto done = [self, convId, group](bool ok, const QJsonValue& data, const QString&, int) {
-        if (self && ok) self->applyList(convId, data.toObject(), group);
+    const quint64 gen = m_generation;
+    auto done = [self, convId, group, gen](bool ok, const QJsonValue& data, const QString&, int) {
+        if (self && ok && gen == self->m_generation) self->applyList(convId, data.toObject(), group);
     };
     if (group) s->fetchGroupPins(convId, 0, done);
     else s->fetchFriendPins(convId, 0, done);

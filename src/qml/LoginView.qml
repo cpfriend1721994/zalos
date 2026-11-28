@@ -7,6 +7,7 @@ import Zalos
 
 Rectangle {
     id: root
+    readonly property bool windowShowing: UiWindow.showing
     objectName: "loginViewRoot"
     color: ThemeManager.chatBackgroundColor
 
@@ -144,7 +145,7 @@ Rectangle {
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
         font.family: Theme.fontFamily
-        font.pixelSize: 12
+        font.pixelSize: Theme.fontSmall
         font.weight: Font.DemiBold
         font.underline: linkMouse.containsMouse
         color: Theme.zaloBlue
@@ -183,12 +184,27 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 12
 
-                    Text {
-                        text: "Zalos"
-                        color: Theme.zaloBlue
-                        font.family: Theme.fontFamily
-                        font.weight: Font.DemiBold
-                        font.pixelSize: 28
+                    RowLayout {
+                        spacing: 10
+
+                        Image {
+                            objectName: "loginLogo"
+                            source: "qrc:/Zalos/assets/icons/zalos.svg"
+                            sourceSize.width: Math.ceil(36 * Screen.devicePixelRatio)
+                            sourceSize.height: Math.ceil(36 * Screen.devicePixelRatio)
+                            Layout.preferredWidth: 36
+                            Layout.preferredHeight: 36
+                            mipmap: true
+                            Accessible.ignored: true
+                        }
+
+                        Text {
+                            text: "Zalos"
+                            color: Theme.zaloBlue
+                            font.family: Theme.fontFamily
+                            font.weight: Font.DemiBold
+                            font.pixelSize: Theme.fontDisplay
+                        }
                     }
 
                     Item { Layout.fillWidth: true }
@@ -199,7 +215,7 @@ Rectangle {
                         Text {
                             text: "Tiếng Việt"
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             font.weight: (I18n.currentLanguage === "vi") ? Font.DemiBold : Font.Normal
                             color: I18n.currentLanguage === "vi" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
 
@@ -213,7 +229,7 @@ Rectangle {
                         Text {
                             text: "English"
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             font.weight: (I18n.currentLanguage === "en") ? Font.DemiBold : Font.Normal
                             color: I18n.currentLanguage === "en" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
 
@@ -257,7 +273,7 @@ Rectangle {
                                     anchors.centerIn: parent
                                     text: I18n.t("Mã QR", "QR Code")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     font.weight: Font.DemiBold
                                     color: root.activeTab === 0 ? "#FFFFFF" : ThemeManager.textColor
                                 }
@@ -279,7 +295,7 @@ Rectangle {
                                     anchors.centerIn: parent
                                     text: I18n.t("Số điện thoại", "Phone number")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     font.weight: Font.DemiBold
                                     color: root.activeTab === 1 ? "#FFFFFF" : ThemeManager.textColor
                                 }
@@ -312,7 +328,7 @@ Rectangle {
                                     text: I18n.t("Đăng nhập qua mã QR", "Sign in with QR code")
                                     font.family: Theme.fontFamily
                                     font.weight: Font.DemiBold
-                                    font.pixelSize: 15
+                                    font.pixelSize: Theme.fontSubtitle
                                     color: ThemeManager.textColor
                                 }
 
@@ -369,16 +385,49 @@ Rectangle {
                                                     onPaint: root.paintQrMatrix(getContext("2d"), width, height)
                                                 }
 
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    width: parent.width - 24
+                                                Rectangle {
+                                                    id: qrShimmer
+                                                    objectName: "qrLoadingShimmer"
+                                                    anchors.fill: parent
+                                                    anchors.margins: 8
+                                                    radius: 10
+                                                    color: "#EEF1F5"
+                                                    clip: true
                                                     visible: !qrServerImage.visible && ZaloClient.qrSize <= 0 && ZaloClient.qrSecondsRemaining > 0
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                    wrapMode: Text.WordWrap
-                                                    text: I18n.t("Đang tải mã QR...", "Loading QR code...")
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 12
-                                                    color: "#64748B"
+
+                                                    Rectangle {
+                                                        id: qrShimmerBand
+                                                        width: parent.width * 0.55
+                                                        height: parent.height
+                                                        x: -width
+                                                        gradient: Gradient {
+                                                            orientation: Gradient.Horizontal
+                                                            GradientStop { position: 0.0; color: "#00FFFFFF" }
+                                                            GradientStop { position: 0.5; color: "#CCFFFFFF" }
+                                                            GradientStop { position: 1.0; color: "#00FFFFFF" }
+                                                        }
+
+                                                        NumberAnimation on x {
+                                                            from: -qrShimmerBand.width
+                                                            to: qrShimmer.width
+                                                            duration: 1400
+                                                            loops: Animation.Infinite
+                                                            running: qrShimmer.visible && root.visible && root.windowShowing
+                                                        }
+                                                    }
+
+                                                    Text {
+                                                        anchors.horizontalCenter: parent.horizontalCenter
+                                                        anchors.bottom: parent.bottom
+                                                        anchors.bottomMargin: 12
+                                                        width: parent.width - 24
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        wrapMode: Text.WordWrap
+                                                        text: I18n.t("Đang tải mã QR...", "Loading QR code...")
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: Theme.fontSmall
+                                                        color: "#64748B"
+                                                    }
                                                 }
 
                                                 MouseArea {
@@ -408,7 +457,7 @@ Rectangle {
                                                         Text {
                                                             Layout.alignment: Qt.AlignHCenter
                                                             text: "⌛"
-                                                            font.pixelSize: 28
+                                                            font.pixelSize: Theme.fontDisplay
                                                         }
 
                                                         Text {
@@ -417,7 +466,7 @@ Rectangle {
                                                             wrapMode: Text.WordWrap
                                                             text: I18n.t("Mã QR đã hết hạn", "QR code expired")
                                                             font.family: Theme.fontFamily
-                                                            font.pixelSize: 12
+                                                            font.pixelSize: Theme.fontSmall
                                                             font.weight: Font.DemiBold
                                                             color: Theme.badgeRed
                                                         }
@@ -435,7 +484,7 @@ Rectangle {
                                                                 text: I18n.t("Lấy mã mới", "Get new code")
                                                                 color: "#FFFFFF"
                                                                 font.family: Theme.fontFamily
-                                                                font.pixelSize: 11
+                                                                font.pixelSize: Theme.fontCaption
                                                                 font.weight: Font.DemiBold
                                                             }
 
@@ -457,7 +506,7 @@ Rectangle {
                                                 wrapMode: Text.WordWrap
                                                 text: I18n.t("Bấm để phóng to mã QR", "Click to zoom QR code")
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 12
+                                                font.pixelSize: Theme.fontSmall
                                                 font.weight: Font.DemiBold
                                                 color: "#0068FF"
 
@@ -478,7 +527,7 @@ Rectangle {
                                               ? I18n.t("Mã có hiệu lực trong ", "Code valid for ") + ZaloClient.qrSecondsRemaining + I18n.t(" giây", " s")
                                               : I18n.t("Mã đã hết hạn, vui lòng bấm \"Lấy mã mới\"", "The code has expired. Please click \"Get new code\"")
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 11
+                                        font.pixelSize: Theme.fontCaption
                                         font.weight: (ZaloClient.qrSecondsRemaining <= 0) ? Font.DemiBold : Font.Normal
                                         color: ZaloClient.qrSecondsRemaining > 0 ? ThemeManager.secondaryTextColor : Theme.badgeRed
                                     }
@@ -520,7 +569,7 @@ Rectangle {
                                                 elide: Text.ElideRight
                                                 text: ZaloClient.scannedUserName
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 14
+                                                font.pixelSize: Theme.fontBodyLarge
                                                 font.weight: Font.DemiBold
                                                 color: ThemeManager.textColor
                                             }
@@ -531,7 +580,7 @@ Rectangle {
                                                 wrapMode: Text.WordWrap
                                                 text: I18n.t("Xác nhận đăng nhập trên điện thoại của bạn", "Confirm the login on your phone")
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 12
+                                                font.pixelSize: Theme.fontSmall
                                                 color: ThemeManager.secondaryTextColor
                                             }
                                         }
@@ -563,7 +612,7 @@ Rectangle {
                                     text: I18n.t("Phương thức khác", "Other sign-in methods")
                                     font.family: Theme.fontFamily
                                     font.weight: Font.DemiBold
-                                    font.pixelSize: 15
+                                    font.pixelSize: Theme.fontSubtitle
                                     color: ThemeManager.textColor
                                 }
 
@@ -591,7 +640,7 @@ Rectangle {
                                     Text {
                                         text: I18n.t("hoặc số điện thoại", "or phone number")
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 11
+                                        font.pixelSize: Theme.fontCaption
                                         color: ThemeManager.secondaryTextColor
                                     }
 
@@ -623,7 +672,7 @@ Rectangle {
                                             Text {
                                                 text: "+84"
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 13
+                                                font.pixelSize: Theme.fontBody
                                                 color: ThemeManager.textColor
                                                 font.weight: Font.DemiBold
                                             }
@@ -640,7 +689,7 @@ Rectangle {
                                                 text: ""
                                                 color: ThemeManager.textColor
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 13
+                                                font.pixelSize: Theme.fontBody
                                                 inputMethodHints: Qt.ImhDialableCharactersOnly
                                                 clip: true
                                                 Keys.onReturnPressed: passInput.forceActiveFocus()
@@ -649,7 +698,7 @@ Rectangle {
                                                     text: I18n.t("Số điện thoại", "Phone number")
                                                     color: ThemeManager.secondaryTextColor
                                                     font.family: Theme.fontFamily
-                                                    font.pixelSize: 13
+                                                    font.pixelSize: Theme.fontBody
                                                     visible: !phoneInput.text && !phoneInput.activeFocus
                                                 }
                                             }
@@ -677,14 +726,14 @@ Rectangle {
                                                 echoMode: root.showPassword ? TextInput.Normal : TextInput.Password
                                                 color: ThemeManager.textColor
                                                 font.family: Theme.fontFamily
-                                                font.pixelSize: 13
+                                                font.pixelSize: Theme.fontBody
                                                 clip: true
 
                                                 Text {
                                                     text: I18n.t("Mật khẩu", "Password")
                                                     color: ThemeManager.secondaryTextColor
                                                     font.family: Theme.fontFamily
-                                                    font.pixelSize: 13
+                                                    font.pixelSize: Theme.fontBody
                                                     visible: !passInput.text && !passInput.activeFocus
                                                 }
 
@@ -743,6 +792,16 @@ Rectangle {
                         }
                     }
                 }
+
+                Text {
+                    objectName: "loginVersion"
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.topMargin: 4
+                    text: "Zalos v" + ZaloClient.appVersion
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontCaption
+                    color: ThemeManager.secondaryTextColor
+                }
             }
         }
     }
@@ -772,7 +831,7 @@ Rectangle {
             Text {
                 Layout.alignment: Qt.AlignTop
                 text: ZaloClient.hasLoginError ? "⚠️" : "🔄"
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
             }
 
             Text {
@@ -782,7 +841,7 @@ Rectangle {
                       ? ZaloClient.loginStatusMessage
                       : I18n.t("Đang xác thực tài khoản...", "Verifying your account...")
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
                 color: ZaloClient.hasLoginError ? Theme.badgeRed : Theme.zaloBlueTonalText
             }
@@ -814,7 +873,7 @@ Rectangle {
                         Layout.fillWidth: true
                         text: I18n.t("Quét mã QR để đăng nhập", "Scan QR code to sign in")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 15
+                        font.pixelSize: Theme.fontSubtitle
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
@@ -828,7 +887,7 @@ Rectangle {
                         Text {
                             anchors.centerIn: parent
                             text: "✕"
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.fontBodyLarge
                             color: ThemeManager.secondaryTextColor
                         }
 
@@ -890,7 +949,7 @@ Rectangle {
                           ? I18n.t("Mã có hiệu lực trong ", "Code valid for ") + ZaloClient.qrSecondsRemaining + I18n.t(" giây", " s")
                           : I18n.t("Mã đã hết hạn", "Code expired")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontSmall
                     color: ZaloClient.qrSecondsRemaining > 0 ? ThemeManager.secondaryTextColor : Theme.badgeRed
                 }
             }

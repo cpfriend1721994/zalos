@@ -92,6 +92,7 @@ private:
     QJsonArray m_data;
     qint64 m_version{0};
     bool m_loaded{false};
+    quint64 m_generation{0};
     bool m_busy{false};
     bool m_manageOpen{false};
     QJsonArray m_lastSubmitted;

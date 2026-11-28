@@ -34,9 +34,13 @@ class ZaloSession : public QObject {
 public:
     static constexpr int kApiType = 30;
     static constexpr int kApiVersion = 695;
+    static QList<QPair<QString, QString>> serverInfoQuery(const QString& imei, bool signAll, int supportMaintenance, int bucketId);
+    void setNextUrgency(int urgency) { m_nextUrgency = urgency; }
+    void setPhotoSendExtras(const QString& clientId, const QJsonObject& extras) { m_photoSendExtras.insert(clientId, extras); }
     static const QString kDefaultUserAgent;
 
     using Callback = std::function<void(bool ok, const QJsonValue& data, const QString& error, int errorCode)>;
+    void fetchGifs(const QString& keyword, int offset, Callback cb);
 
     explicit ZaloSession(QNetworkAccessManager* nam, SessionCookieJar* jar, QObject* parent = nullptr);
 
@@ -136,6 +140,7 @@ public:
     void fetchUnreadMarks(Callback cb);
     void fetchNoisedIds(const QStringList& userIds, const QStringList& groupIds, Callback cb);
     QNetworkReply* getWithCookies(const QUrl& url);
+    static bool sendsSessionCookies(const QUrl& url);
 
     void createPoll(const QString& groupId, const QString& question, const QStringList& options,
                     const QVariantMap& settings, Callback cb);
@@ -308,7 +313,7 @@ private:
     void applyHeaders(QNetworkRequest& req, bool isPost = false) const;
     void handleApiReply(QNetworkReply* reply, Callback cb);
     void postMultipartFile(const QString& url, const QJsonObject& params, const QByteArray& content, Callback cb);
-    void requestServerInfo(int retryCount = 0);
+    void requestServerInfo(int retryCount = 0, bool signAll = false);
     void sendWs(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey = QStringLiteral("req_id"));
     void enqueuePendingWsFrame(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey);
     void scheduleWsReconnect();
@@ -346,6 +351,11 @@ private:
     QString m_uid;
     QJsonObject m_loginInfo;
     QJsonObject m_serverSettings;
+    int m_drSupportMaintenance{-1};
+    int m_nextUrgency{0};
+    QHash<QString, QJsonObject> m_photoSendExtras;
+    void applyUrgency(QJsonObject& params);
+    int m_drBucketId{-1};
     QJsonObject m_extraVer;
 
     QWebSocket* m_ws{nullptr};

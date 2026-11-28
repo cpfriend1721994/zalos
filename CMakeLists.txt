@@ -95,15 +95,21 @@ set(ZALOS_SOURCES
     src/core/platform/shortcut_map.cpp
     src/core/platform/wheel_boost.h
     src/core/platform/wheel_boost.cpp
+    src/core/platform/swipe_back.h
+    src/core/platform/swipe_back.cpp
     src/core/platform/middle_autoscroll.h
     src/core/platform/middle_autoscroll.cpp
     src/core/platform/app_lock.h
     src/core/platform/app_lock.cpp
+    src/core/platform/background_portal.h
+    src/core/platform/background_portal.cpp
     src/core/platform/storage_manager.h
     src/core/platform/storage_manager.cpp
     src/core/network/group_admin.h
     src/core/network/error_catalog.h
     src/core/network/error_catalog.cpp
+    src/core/network/url_policy.h
+    src/core/network/url_policy.cpp
     src/core/network/group_admin.cpp
     src/core/network/label_manager.h
     src/core/network/label_manager.cpp
@@ -135,6 +141,7 @@ set(ZALOS_SOURCES
     src/core/network/zalo_client_social.cpp
     src/core/network/qrcodegen.hpp
     src/core/network/qrcodegen.cpp
+    src/core/models/list_diff.h
     src/core/models/conversation_model.h
     src/core/models/conversation_model.cpp
     src/core/models/message_model.h
@@ -167,7 +174,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(zalos PRIVATE $<$<CONFIG:Release>:-Os>)
 endif()
 
-set_source_files_properties(src/qml/Theme.qml src/qml/I18n.qml src/qml/ImageViewerState.qml
+set_source_files_properties(src/qml/Theme.qml src/qml/I18n.qml src/qml/ImageViewerState.qml src/qml/UiWindow.qml
     PROPERTIES
         QT_QML_SINGLETON_TYPE TRUE
 )
@@ -184,6 +191,7 @@ qt_add_qml_module(zalos
         src/qml/ChatArea.qml
         src/qml/ChatMessageRow.qml
         src/qml/Theme.qml
+        src/qml/UiWindow.qml
         src/qml/LoginView.qml
         src/qml/SettingsModal.qml
         src/qml/UserProfileModal.qml
@@ -207,6 +215,8 @@ qt_add_qml_module(zalos
         src/qml/ZIconButton.qml
         src/qml/SearchHitRow.qml
         src/qml/ZModalScrim.qml
+        src/qml/ZEmptyState.qml
+        src/qml/ShortcutsDialog.qml
         src/qml/ZTextField.qml
         src/qml/ZComboBox.qml
         src/qml/SyncPromptDialog.qml
@@ -237,7 +247,7 @@ qt_add_qml_module(zalos
         src/qml/BusinessToolsModal.qml
     RESOURCES
         assets/icons/zalos.svg
-        assets/icons/pacman.png
+        assets/icons/pacman.svg
 )
 
 target_include_directories(zalos PRIVATE
@@ -402,11 +412,15 @@ if(BUILD_TESTING)
         src/core/platform/bound_loader.cpp
         src/core/platform/shortcut_map.cpp
         src/core/platform/wheel_boost.cpp
+        src/core/platform/swipe_back.cpp
         src/core/platform/middle_autoscroll.cpp
         src/core/platform/app_lock.cpp
+        src/core/platform/background_portal.cpp
         src/core/platform/storage_manager.cpp
         src/core/network/error_catalog.h
         src/core/network/error_catalog.cpp
+        src/core/network/url_policy.h
+        src/core/network/url_policy.cpp
         src/core/network/group_admin.cpp
         src/core/network/label_manager.cpp
         src/core/network/sticker_store.cpp

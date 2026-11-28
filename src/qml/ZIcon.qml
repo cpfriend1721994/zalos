@@ -235,6 +235,8 @@ Item {
                 return "M21.6 12Q23.88 15.18 20.31 16.8Q20.7 20.7 16.8 20.31Q15.18 23.88 12 21.6Q8.82 23.88 7.2 20.31Q3.3 20.7 3.69 16.8Q0.12 15.18 2.4 12Q0.12 8.82 3.69 7.2Q3.3 3.3 7.2 3.69Q8.82 0.12 12 2.4Q15.18 0.12 16.8 3.69Q20.7 3.3 20.31 7.2Q23.88 8.82 21.6 12Z";
             case "verified_check":
                 return "M10.2 16.4l-3.7-3.7 1.6-1.6 2.1 2.1 5.7-5.7 1.6 1.6-7.3 7.3z";
+            case "dot":
+                return "M12 0.5a11.5 11.5 0 1 0 0 23a11.5 11.5 0 1 0 0-23z";
             default:
                 return "";
         }
@@ -242,14 +244,18 @@ Item {
 
     Image {
         anchors.fill: parent
-        visible: root.pathData.length > 0
-        source: root.pathData.length > 0
-                ? "image://icon/" + (root.filled ? "f" : "s") + "/" + encodeURIComponent(root.color.toString())
-                  + "/" + encodeURIComponent(root.pathData)
-                : ""
+        visible: root.name === "dot" || root.pathData.length > 0
+        source: !root.visible ? ""
+                : root.name === "dot"
+                ? "image://icon/dot/transparent/" + encodeURIComponent(root.color.toString()) + "/1000"
+                : (root.pathData.length > 0
+                   ? "image://icon/" + (root.filled ? "f" : "s") + "/" + encodeURIComponent(root.color.toString())
+                     + "/" + encodeURIComponent(root.pathData)
+                   : "")
         sourceSize.width: Math.max(1, Math.ceil(root.size))
         sourceSize.height: Math.max(1, Math.ceil(root.size))
         smooth: true
+        mipmap: true
         cache: true
     }
 }

@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QSettings>
 #include <QImageReader>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -31,7 +32,9 @@
 #include "core/platform/icon_image_provider.h"
 #include "core/platform/render_profile.h"
 #include "core/platform/wheel_boost.h"
+#include "core/platform/swipe_back.h"
 #include "core/platform/middle_autoscroll.h"
+#include "core/platform/app_lock.h"
 #include "core/platform/dependency_report.h"
 #include "core/platform/single_instance.h"
 
@@ -319,6 +322,20 @@ void configureBundledQtEnv() {
     }
 }
 
+namespace {
+
+void migrateLegacySettings() {
+    QSettings current;
+    if (current.value(QStringLiteral("migration/fromZalosApp")).toBool()) return;
+    QSettings legacy(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    for (const QString& key : legacy.allKeys()) {
+        if (!current.contains(key)) current.setValue(key, legacy.value(key));
+    }
+    current.setValue(QStringLiteral("migration/fromZalosApp"), true);
+}
+
+}
+
 int main(int argc, char* argv[]) {
 #ifdef __GLIBC__
     mallopt(M_ARENA_MAX, 2);
@@ -333,9 +350,10 @@ int main(int argc, char* argv[]) {
     configureBundledQtEnv();
     QCoreApplication::setOrganizationName("Zalos");
     QCoreApplication::setApplicationName("Zalos");
+    migrateLegacySettings();
     const bool ownScale = qEnvironmentVariableIsSet("ZALOS_OWN_SCALE_FACTOR");
     if (qEnvironmentVariableIsEmpty("QT_SCALE_FACTOR") || ownScale) {
-        const int uiScale = QSettings("Zalos", "ZalosApp").value("appearance/interfaceScale", 100).toInt();
+        const int uiScale = QSettings().value("appearance/interfaceScale", 100).toInt();
         if (uiScale == 80 || uiScale == 90 || uiScale == 125 || uiScale == 150) {
             qputenv("QT_SCALE_FACTOR", QByteArray::number(uiScale / 100.0, 'f', 2));
             qputenv("ZALOS_OWN_SCALE_FACTOR", "1");
@@ -406,6 +424,7 @@ int main(int argc, char* argv[]) {
     Zalos::Core::Platform::WheelBoost::applyWheelScrollLines(app.styleHints());
     Zalos::Core::Platform::WheelBoost wheelBoost;
     Zalos::Core::Platform::MiddleAutoScroll middleAutoScroll;
+    Zalos::Core::Platform::SwipeBack swipeBack;
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Zalos - Native Qt6 (C++/QML) messaging client for Zalo on Linux");
@@ -478,6 +497,23 @@ int main(int argc, char* argv[]) {
                      trayController, &Zalos::Core::Platform::SystemTrayController::setUnreadCount);
     trayController->setUnreadCount(zaloClient->conversationModel()->totalUnreadCount(),
                                    zaloClient->conversationModel()->hasAnyUnreadMention());
+    QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::markAllReadRequested,
+                     zaloClient, [zaloClient]() {
+        if (!zaloClient->isLoggedIn()) return;
+        if (zaloClient->appLock() && zaloClient->appLock()->locked()) return;
+        zaloClient->markAllConversationsRead();
+    });
+    if (zaloClient->appLock()) {
+        QObject::connect(zaloClient->appLock(), &Zalos::Core::Platform::AppLock::lockedChanged, trayController,
+                         [zaloClient, trayController]() { trayController->setLocked(zaloClient->appLock()->locked()); });
+        trayController->setLocked(zaloClient->appLock()->locked());
+    }
+    auto syncTrayOffline = [zaloClient, trayController]() {
+        trayController->setOffline(zaloClient->isLoggedIn() && !zaloClient->isConnected());
+    };
+    QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::connectionStateChanged, trayController, syncTrayOffline);
+    QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::loginStateChanged, trayController, syncTrayOffline);
+    syncTrayOffline();
 
     if (parser.isSet(tabOption)) {
         const QString tab = parser.value(tabOption);
@@ -516,10 +552,6 @@ int main(int argc, char* argv[]) {
                              obj, [obj, zaloClient]() {
                 QMetaObject::invokeMethod(obj, "showAndActivate");
                 zaloClient->openSettings(QStringLiteral("general"));
-            });
-            QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::toggleDarkModeRequested,
-                             obj, [obj]() {
-                QMetaObject::invokeMethod(obj, "toggleTheme");
             });
             QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::quitRequested,
                              obj, [obj, zaloClient, trayController]() {
@@ -577,12 +609,16 @@ int main(int argc, char* argv[]) {
         QCoreApplication::exit(0);
     };
     QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::restartRequested, &app, performRestart);
+    zaloClient->startUpdateSchedule();
+    QObject::connect(&swipeBack, &Zalos::Core::Platform::SwipeBack::swipeBack, zaloClient,
+                     &Zalos::Core::Network::ZaloClient::swipeBackRequested);
 
     for (QObject* obj : engine.rootObjects()) {
         auto* window = qobject_cast<QQuickWindow*>(obj);
         if (!window) continue;
         window->installEventFilter(&wheelBoost);
         window->installEventFilter(&middleAutoScroll);
+        window->installEventFilter(&swipeBack);
         auto attemptMarked = std::make_shared<bool>(false);
         auto firstFrameSwapped = std::make_shared<bool>(false);
         if (window->isVisible() && renderProfile.guarded()) {

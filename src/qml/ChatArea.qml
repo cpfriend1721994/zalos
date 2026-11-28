@@ -8,7 +8,9 @@ import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
-    readonly property bool windowShowing: Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true
+    readonly property bool compactWindow: (Window.window ? Window.window.width : 1000) < 720
+    readonly property bool shortWindow: (Window.window ? Window.window.height : 800) < 600
+    readonly property bool windowShowing: UiWindow.showing
     objectName: "chatArea"
     color: ThemeManager.chatBackgroundColor
 
@@ -28,16 +30,54 @@ Rectangle {
     function followEnd(): void {
         if (messageList && typeof messageList.scrollToEnd === "function") messageList.scrollToEnd();
     }
+    function dayLabel(ts: real): string {
+        if (!ts || ts < 946684800000) return "";
+        const d = new Date(ts);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const day = new Date(d);
+        day.setHours(0, 0, 0, 0);
+        const diff = Math.round((today - day) / 86400000);
+        if (diff === 0) return I18n.t("Hôm nay", "Today");
+        if (diff === 1) return I18n.t("Hôm qua", "Yesterday");
+        return Qt.formatDate(d, "dd/MM/yyyy");
+    }
+
+    property real floatingDateTs: -1
+    function updateFloatingDate(distance: real): void {
+        if (distance <= 48 || messageList.count === 0) {
+            floatingDatePill.shown = false;
+            return;
+        }
+        const viewTop = messageList.contentY + floatingDatePill.anchors.topMargin;
+        const row = messageList.itemAt(messageList.width / 2, viewTop + floatingDatePill.height + 4);
+        if (!row) return;
+        const ts = row.ts || 0;
+        if (ts !== root.floatingDateTs) {
+            const label = root.dayLabel(ts);
+            if (label.length === 0) return;
+            root.floatingDateTs = ts;
+            floatingDatePill.label = label;
+        }
+        const separatorAtTop = row.dateSeparator && row.y >= viewTop - 8;
+        floatingDatePill.shown = !separatorAtTop;
+        floatingDateTimer.restart();
+    }
+
     function followEndIfSticky(): void {
         if (messageList && messageList.stickToBottom) root.followEnd();
     }
-    readonly property int infoPanelWidth: Math.min(280, width)
-    readonly property bool infoOverlay: ZaloClient.showConversationInfo && width < 620
+    readonly property int infoPanelWidth: root.compactWindow ? width : Math.min(280, width)
+    readonly property bool infoOverlay: ZaloClient.showConversationInfo && (root.compactWindow || width < 620)
+    readonly property bool headerOverflow: root.compactWindow
+    readonly property bool headerSearchOverflow: width < 420
+    readonly property bool composerOverflow: width < 480
     readonly property int composerLineHeight: Math.ceil(composerMetrics.height)
-    readonly property real composerMinTextHeight: composerLineHeight * 3 + 16
-    readonly property real composerMaxTextHeight: composerLineHeight * 8 + 16
-    FontMetrics { id: composerMetrics; font.family: Theme.fontFamily; font.pixelSize: 15 }
+    readonly property real composerMinTextHeight: composerLineHeight * (root.shortWindow ? 1 : 3) + 16
+    readonly property real composerMaxTextHeight: composerLineHeight * (root.shortWindow ? 4 : 8) + 16
+    FontMetrics { id: composerMetrics; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSubtitle }
     property list<string> searchHits: []
+    property var searchHitDetails: []
     property int searchCursor: -1
     readonly property string searchFocusId: root.searchCursor >= 0 && root.searchCursor < root.searchHits.length
                                             ? root.searchHits[root.searchCursor] : ""
@@ -47,8 +87,13 @@ Rectangle {
         if (id.length === 0 || !ZaloClient.revealMessage(id)) return;
         messageList.stickToBottom = false;
         root.revealMessageAtRow(ZaloClient.messageModel.rowOfMessage(id));
+        root.flashMessage(id);
     }
-    property var menuMessage: ({})
+    property string menuMessageId: ""
+    property string menuMessageText: ""
+    property bool menuMessageIsMine: false
+    property string menuMessageType: ""
+    property string menuMessageUrl: ""
 
     function runSearch(): void {
         const pre = inChatSearchInput.preeditText;
@@ -56,8 +101,28 @@ Rectangle {
         const q = (pre && pre.length > 0)
                   ? inChatSearchInput.text.substring(0, pos) + pre + inChatSearchInput.text.substring(pos)
                   : inChatSearchInput.text;
-        root.searchHits = ZaloClient.searchConversationMessages(q);
+        const details = ZaloClient.searchConversationHits(q);
+        const ids = [];
+        for (let i = 0; i < details.length; ++i) ids.push(details[i].msgId);
+        root.searchHitDetails = details;
+        root.searchHits = ids;
         root.searchCursor = root.searchHits.length > 0 ? root.searchHits.length - 1 : -1;
+        if (root.searchHits.length === 0) searchResultsPopup.close();
+        root.showSearchHit();
+    }
+
+    function searchHitDate(ts: real): string {
+        if (ts < 946684800000) return "";
+        const when = new Date(ts);
+        return when.toDateString() === new Date().toDateString() ? Qt.formatTime(when, "HH:mm")
+                                                                 : Qt.formatDate(when, "dd/MM/yy");
+    }
+
+    function openSearchHitAt(listIndex: int): void {
+        const cursor = root.searchHits.length - 1 - listIndex;
+        if (cursor < 0 || cursor >= root.searchHits.length) return;
+        root.searchCursor = cursor;
+        searchResultsPopup.close();
         root.showSearchHit();
     }
 
@@ -68,23 +133,40 @@ Rectangle {
     }
 
     function openSearch(): void {
+        root.foundMsgId = "";
         root.showInChatSearch = true;
         inChatSearchInput.forceActiveFocus();
         inChatSearchInput.selectAll();
     }
 
     function closeSearch(): void {
+        searchResultsPopup.close();
         inChatSearchInput.text = "";
+        root.searchHitDetails = [];
         root.searchHits = [];
         root.searchCursor = -1;
         root.showInChatSearch = false;
     }
 
     function handleEscape(): bool {
+        if (root.selectionMode) { root.exitSelection(); return true; }
+        if (searchResultsPopup.visible) { searchResultsPopup.close(); return true; }
         if (root.showInChatSearch) { root.closeSearch(); return true; }
         if (ZaloClient.replyTarget.id !== undefined) { ZaloClient.clearReplyTarget(); return true; }
         return false;
     }
+
+    function compactBack(): bool {
+        if (!mainWindow.isChatFocused || mainWindow.anyModalOpen || ZaloClient.appLock.locked || ImageViewerState.open) return false;
+        if (ZaloClient.showConversationInfo) {
+            ZaloClient.showConversationInfo = false;
+            return true;
+        }
+        ZaloClient.openWelcomeScreen();
+        return true;
+    }
+
+    Keys.onEscapePressed: (event) => { event.accepted = root.compactBack(); }
 
     property string reactionMsgId: ""
     property var reactionInfo: ({ total: 0, known: false, groups: [], people: [] })
@@ -117,13 +199,63 @@ Rectangle {
     }
 
     function openMessageMenu(item: Item, msg: var, mx: real, my: real): void {
-        root.menuMessage = msg;
+        const info = ZaloClient.messageModel.getMessageById(msg.id || "");
+        if (info.hasMenu !== true) return;
+        messageMenu.canReact = info.canReact === true;
+        messageMenu.canReply = info.canReply === true;
+        messageMenu.canForward = info.canForward === true;
+        messageMenu.canCopy = info.canCopy === true;
+        root.menuMessageId = msg.id || "";
+        root.menuMessageText = msg.text || "";
+        root.menuMessageIsMine = msg.isMine === true;
+        root.menuMessageType = msg.messageType || "";
+        root.menuMessageUrl = msg.url || "";
+        messageMenu.canModerate = ZaloClient.canModerateCurrent();
         const p = root.mapFromItem(item, mx, my);
         root.placePopup(messageMenu, p.x, p.y);
         messageMenu.open();
     }
 
     property string draftConvId: ""
+    property double convSwitchAt: 0
+    property bool selectionMode: false
+    property list<string> selectedIds: []
+
+    function enterSelection(msgId: string): void {
+        root.selectedIds = msgId.length > 0 ? [msgId] : [];
+        root.selectionMode = true;
+    }
+    function exitSelection(): void {
+        root.selectionMode = false;
+        root.selectedIds = [];
+    }
+    function toggleSelected(msgId: string): void {
+        const next = root.selectedIds.slice();
+        const at = next.indexOf(msgId);
+        if (at >= 0) next.splice(at, 1);
+        else if (next.length < 100) next.push(msgId);
+        root.selectedIds = next;
+    }
+
+    Timer {
+        id: scrollAnchorTimer
+        interval: 400
+        onTriggered: {
+            const convId = ZaloClient.currentConversationId;
+            if (convId.length === 0 || Date.now() - root.convSwitchAt < 1000) return;
+            if (messageList.stickToBottom || messageList.distanceToEnd < 48) {
+                ZaloClient.setScrollAnchor(convId, "");
+                return;
+            }
+            const idx = messageList.indexAt(20, messageList.contentY + messageList.topMargin + 4);
+            const item = idx >= 0 ? messageList.itemAtIndex(idx) : null;
+            if (item && item.msgId) ZaloClient.setScrollAnchor(convId, item.msgId);
+        }
+    }
+    Connections {
+        target: messageList
+        function onContentYChanged(): void { scrollAnchorTimer.restart(); }
+    }
     property bool loadingDraft: false
     property int newBelow: 0
 
@@ -157,11 +289,19 @@ Rectangle {
         }
         messageList.stickToBottom = false;
         root.revealMessageAtRow(row);
-        root.flashMsgId = ZaloClient.messageModel.data(ZaloClient.messageModel.index(row, 0), 257) || msgId;
-        flashTimer.restart();
+        root.flashMessage(ZaloClient.messageModel.messageIdAt(row) || msgId);
         return true;
     }
-    Timer { id: flashTimer; interval: 1600; onTriggered: root.flashMsgId = "" }
+    function flashMessage(msgId: string): void {
+        root.flashMsgId = "";
+        root.flashMsgId = msgId;
+        flashTimer.restart();
+    }
+    Timer { id: flashTimer; interval: 900; onTriggered: root.flashMsgId = "" }
+    property string foundMsgId: ""
+    function revealSearchResult(msgId: string): void {
+        if (root.jumpToMessage(msgId, "")) root.foundMsgId = ZaloClient.messageModel.messageIdAt(ZaloClient.messageModel.rowOfMessage(msgId)) || msgId;
+    }
 
     function revealMessageAtRow(row: int): void {
         root.revealMessageAttempt(row, 0);
@@ -192,14 +332,19 @@ Rectangle {
         if (row < 0) return false;
         messageList.stickToBottom = false;
         root.revealMessageAtRow(row);
-        root.flashMsgId = msgId;
-        flashTimer.restart();
+        root.flashMessage(msgId);
         return true;
     }
     function goToNextUnreadReaction(): void {
         for (let attempt = 0; attempt < 20; ++attempt) {
             const id = ZaloClient.nextUnreadReactionMsgId();
             if (id.length === 0 || root.revealReactionTarget(id)) return;
+        }
+    }
+    Connections {
+        target: ZaloClient.messageSearch
+        function onCountChanged(): void {
+            if (ZaloClient.messageSearch.count === 0) root.foundMsgId = "";
         }
     }
     Connections {
@@ -292,9 +437,9 @@ Rectangle {
                     const mentions = ZaloClient.currentConversationIsGroup ? root.collectMentions(text) : [];
                     ZaloClient.sendComposedMessage(text, mentions, ZaloClient.composer.styles());
                 }
-                for (let i = 0; i < attCount; ++i) {
-                    ZaloClient.sendFile(draftAttachmentsModel.get(i).url, "");
-                }
+                const urls = [];
+                for (let i = 0; i < attCount; ++i) urls.push(draftAttachmentsModel.get(i).url);
+                ZaloClient.sendPhotoAlbum(urls);
             }
             draftAttachmentsModel.clear();
         } else {
@@ -321,6 +466,7 @@ Rectangle {
     }
 
     function closeSuggestions(): void {
+        if (root.suggestMode === "" && root.suggestItems.length === 0 && root.suggestStart < 0) return;
         root.suggestMode = "";
         root.suggestItems = [];
         root.suggestStart = -1;
@@ -434,15 +580,18 @@ Rectangle {
     }
     Shortcut {
         sequence: "Esc"
-        enabled: root.visible && (root.showInChatSearch || ZaloClient.replyTarget.id !== undefined)
+        enabled: root.visible && !mainWindow.anyModalOpen && (root.selectionMode || root.showInChatSearch || ZaloClient.replyTarget.id !== undefined)
         onActivated: root.handleEscape()
     }
     Connections {
         target: ZaloClient
-        function onRevealRequested(msgId: string): void { Qt.callLater(() => root.jumpToMessage(msgId, "")); }
+        function onRevealRequested(msgId: string): void { Qt.callLater(root.revealSearchResult, msgId); }
+        function onSwipeBackRequested(): void { root.compactBack(); }
         function onCurrentConversationChanged(): void {
+            root.foundMsgId = "";
             if (ZaloClient.currentConversationId.length > 0 && ZaloClient.currentConversationId === root.draftConvId) return;
             root.closeSearch();
+            root.exitSelection();
             root.mentionPicks = [];
             root.closeSuggestions();
             draftAttachmentsModel.clear();
@@ -450,9 +599,13 @@ Rectangle {
             root.newBelow = 0;
             pinBar.expanded = false;
             const markerRow = ZaloClient.messageModel.unreadMarkerRow();
-            messageList.stickToBottom = markerRow < 0;
+            root.convSwitchAt = Date.now();
+            const anchorId = markerRow < 0 ? ZaloClient.scrollAnchor(ZaloClient.currentConversationId) : "";
+            const anchorRow = anchorId.length > 0 ? ZaloClient.messageModel.rowOfMessage(anchorId) : -1;
+            messageList.stickToBottom = markerRow < 0 && anchorRow < 0;
             messageList.endReached = false;
             if (markerRow >= 0) Qt.callLater(() => messageList.positionViewAtIndex(markerRow, ListView.Beginning));
+            else if (anchorRow >= 0) Qt.callLater(() => messageList.positionViewAtIndex(anchorRow, ListView.Beginning));
         }
         function onNavigationTabChanged(): void {
             if (ZaloClient.currentNavigationTab !== "messages" || root.draftConvId.length === 0) return;
@@ -527,7 +680,7 @@ Rectangle {
 
                     ZIconButton {
                         id: btnBack
-                        visible: mainWindow.isCompactMode
+                        visible: root.compactWindow
                         iconName: "arrow_left"
                         iconSize: 16
                         tooltip: I18n.t("Quay lại danh sách hội thoại", "Back to conversations")
@@ -570,7 +723,7 @@ Rectangle {
                             textFormat: Text.PlainText
                             font.family: Theme.fontFamily
                             font.weight: Font.DemiBold
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontSubtitle
                             color: ThemeManager.textColor
                             font.underline: headerNameMouse.containsMouse
                             elide: Text.ElideRight
@@ -592,11 +745,10 @@ Rectangle {
                             visible: !ZaloClient.currentConversationIsCloud && (ZaloClient.currentConversationIsGroup || ZaloClient.currentConversationIsOnline
                                      || ZaloClient.currentConversationStatus.length > 0 || ZaloClient.currentConversationHasPresence)
 
-                            Rectangle {
+                            ZIcon {
                                 visible: !ZaloClient.currentConversationIsGroup && ZaloClient.currentConversationIsOnline
-                                width: 7
-                                height: 7
-                                radius: 3.5
+                                name: "dot"
+                                size: 7
                                 color: Theme.onlineGreen
                             }
 
@@ -618,7 +770,7 @@ Rectangle {
                                     return ZaloClient.currentConversationHasPresence ? I18n.t("Truy cập gần đây", "Recently active") : "";
                                 }
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.fontCaption
                                 color: (!ZaloClient.currentConversationIsGroup && ZaloClient.currentConversationIsOnline)
                                        ? Theme.onlineGreen
                                        : ThemeManager.secondaryTextColor
@@ -640,7 +792,7 @@ Rectangle {
 
                         ZIconButton {
                             id: btnAddMember
-                            visible: ZaloClient.currentConversationCanCreateGroup
+                            visible: ZaloClient.currentConversationCanCreateGroup && !root.headerOverflow
                             iconName: "user_add"
                             iconSize: 20
                             tooltip: ZaloClient.currentConversationIsGroup
@@ -651,6 +803,7 @@ Rectangle {
 
                         ZIconButton {
                             id: btnSearch
+                            visible: !root.headerSearchOverflow
                             iconName: "search"
                             iconColor: root.showInChatSearch ? Theme.zaloBlue : ThemeManager.textColor
                             highlighted: root.showInChatSearch
@@ -687,6 +840,7 @@ Rectangle {
 
                         ZIconButton {
                             id: btnInfo
+                            visible: !root.headerOverflow
                             iconName: "sidebar_panel"
                             iconColor: ZaloClient.showConversationInfo ? Theme.zaloBlue : ThemeManager.textColor
                             highlighted: ZaloClient.showConversationInfo
@@ -694,11 +848,26 @@ Rectangle {
                             tooltip: I18n.t("Thông tin hội thoại", "Conversation info")
                             onClicked: ZaloClient.toggleConversationInfo()
                         }
+
+                        ZIconButton {
+                            id: btnHeaderMore
+                            objectName: "headerMoreButton"
+                            visible: root.headerOverflow
+                            iconName: "more_horiz"
+                            tooltip: I18n.t("Thêm", "More")
+                            onClicked: {
+                                const p = root.mapFromItem(btnHeaderMore, btnHeaderMore.width, btnHeaderMore.height);
+                                root.placePopup(headerMoreMenu, p.x - Math.max(headerMoreMenu.width, headerMoreMenu.implicitWidth), p.y + 4);
+                                headerMoreMenu.open();
+                            }
+                        }
                     }
                 }
             }
 
             Rectangle {
+                id: inChatSearchBar
+                objectName: "inChatSearchBar"
                 visible: root.showInChatSearch
                 Layout.fillWidth: true
                 height: 42
@@ -716,10 +885,11 @@ Rectangle {
 
                     TextInput {
                         id: inChatSearchInput
+                        objectName: "inChatSearchInput"
                         Layout.fillWidth: true
                         color: ThemeManager.textColor
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         clip: true
 
                         onTextChanged: searchDebounce.restart()
@@ -734,7 +904,10 @@ Rectangle {
                             Qt.inputMethod.commit();
                             root.stepSearch((event.modifiers & Qt.ShiftModifier) ? 1 : -1);
                         }
-                        Keys.onEscapePressed: root.closeSearch()
+                        Keys.onEscapePressed: {
+                            if (searchResultsPopup.visible) searchResultsPopup.close();
+                            else root.closeSearch();
+                        }
                         Timer { id: searchDebounce; interval: 200; onTriggered: root.runSearch() }
 
                         Text {
@@ -742,7 +915,7 @@ Rectangle {
                                          "Search messages in this conversation...")
                             color: ThemeManager.secondaryTextColor
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             visible: !inChatSearchInput.text && !inChatSearchInput.preeditText && !inChatSearchInput.activeFocus
                             anchors.verticalCenter: parent.verticalCenter
                         }
@@ -754,7 +927,7 @@ Rectangle {
                               ? I18n.t("Không có kết quả trong tin đã tải", "No results in loaded messages")
                               : (root.searchHits.length - root.searchCursor) + "/" + root.searchHits.length
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: root.searchHits.length === 0 ? ThemeManager.secondaryTextColor : Theme.zaloBlue
                     }
 
@@ -783,6 +956,24 @@ Rectangle {
                         }
                     }
 
+                    ZIconButton {
+                        objectName: "searchResultsButton"
+                        visible: root.searchHits.length > 0
+                        width: 24
+                        height: 24
+                        radius: 12
+                        iconName: "eye"
+                        iconSize: 16
+                        highlighted: searchResultsPopup.visible
+                        iconColor: searchResultsPopup.visible ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                        tooltip: searchResultsPopup.visible ? I18n.t("Ẩn danh sách kết quả", "Hide result list")
+                                                            : I18n.t("Xem danh sách kết quả", "Show result list")
+                        onClicked: {
+                            if (searchResultsPopup.visible) searchResultsPopup.close();
+                            else searchResultsPopup.open();
+                        }
+                    }
+
                     Rectangle {
                         width: 24
                         height: 24
@@ -802,6 +993,72 @@ Rectangle {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: root.closeSearch()
+                        }
+                    }
+                }
+
+                Popup {
+                    id: searchResultsPopup
+                    objectName: "searchResultsPopup"
+                    y: inChatSearchBar.height
+                    width: inChatSearchBar.width
+                    height: Math.min(resultsHeader.implicitHeight + searchResultsList.contentHeight + 12,
+                                     Math.max(160, root.height * 0.55))
+                    padding: 0
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+                    background: Rectangle {
+                        color: ThemeManager.surfaceColor
+                        border.color: ThemeManager.borderColor
+                        border.width: 1
+                    }
+                    onOpened: searchResultsList.positionViewAtIndex(Math.max(0, root.searchHits.length - 1 - root.searchCursor),
+                                                                     ListView.Contain)
+
+                    contentItem: ColumnLayout {
+                        spacing: 0
+
+                        Text {
+                            id: resultsHeader
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 16
+                            Layout.rightMargin: 16
+                            Layout.topMargin: 8
+                            Layout.bottomMargin: 4
+                            text: I18n.t("%1 kết quả trong cuộc trò chuyện", "%1 results in this conversation").arg(root.searchHits.length)
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSmall
+                            font.weight: Font.DemiBold
+                            color: ThemeManager.secondaryTextColor
+                        }
+
+                        ListView {
+                            id: searchResultsList
+                            objectName: "searchResultsList"
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: searchResultsPopup.visible ? root.searchHitDetails.length : 0
+                            delegate: Rectangle {
+                                id: resultRow
+                                required property int index
+                                readonly property var hit: root.searchHitDetails[root.searchHitDetails.length - 1 - resultRow.index] || ({})
+                                readonly property bool current: root.searchHits.length - 1 - root.searchCursor === resultRow.index
+                                width: ListView.view.width
+                                height: 60
+                                color: resultRow.current ? ThemeManager.selectedColor
+                                       : (resultHover.hovered ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
+                                HoverHandler { id: resultHover; cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: root.openSearchHitAt(resultRow.index) }
+                                SearchHitRow {
+                                    anchors.fill: parent
+                                    avatarUrl: resultRow.hit.avatar || ""
+                                    title: resultRow.hit.senderName || ""
+                                    subtitle: resultRow.hit.text || ""
+                                    dateText: root.searchHitDate(resultRow.hit.ts || 0)
+                                }
+                            }
                         }
                     }
                 }
@@ -825,13 +1082,13 @@ Rectangle {
                                  "Anti-peeking is on · hover a message to read it (%1 to turn off)").arg(shortcutKey)
                     elide: Text.ElideRight
                     font.family: Theme.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontSmall
                     color: Theme.zaloBlueTonalText
                 }
                 Text {
                     text: I18n.t("Tắt", "Turn off")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontSmall
                     font.weight: Font.DemiBold
                     font.underline: offMouse.containsMouse
                     color: Theme.zaloBlueTonalText
@@ -880,7 +1137,7 @@ Rectangle {
                         text: ZaloClient.currentConversationName
                         font.family: Theme.fontFamily
                         font.weight: Font.DemiBold
-                        font.pixelSize: 17
+                        font.pixelSize: Theme.fontTitle
                         color: ThemeManager.textColor
                     }
 
@@ -888,7 +1145,7 @@ Rectangle {
                         Layout.alignment: Qt.AlignHCenter
                         text: I18n.t("Chưa có tin nhắn nào trong cuộc trò chuyện này.", "No messages in this conversation yet.")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -902,11 +1159,11 @@ Rectangle {
                         RowLayout {
                             anchors.centerIn: parent
                             spacing: 6
-                            Text { text: "👋"; font.pixelSize: 14 }
+                            Text { text: "👋"; font.pixelSize: Theme.fontBodyLarge }
                             Text {
                                 text: I18n.t("Gửi lời chào", "Say hello")
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.fontSmall
                                 font.weight: Font.DemiBold
                                 color: "#FFFFFF"
                             }
@@ -940,9 +1197,14 @@ Rectangle {
                 id: dropArea
                 anchors.fill: parent
                 z: 50
-                keys: ["text/uri-list"]
+                keys: ["text/uri-list", "text/plain"]
                 onDropped: function(drop) {
-                    for (let i = 0; i < drop.urls.length; ++i) ZaloClient.sendFile(drop.urls[i].toString());
+                    if (drop.hasUrls && drop.urls.length > 0) {
+                        for (let i = 0; i < drop.urls.length; ++i) root.addDraftFile(drop.urls[i].toString());
+                    } else if (drop.hasText && drop.text.length > 0) {
+                        msgInput.insert(msgInput.cursorPosition, drop.text);
+                    }
+                    msgInput.forceActiveFocus();
                     drop.acceptProposedAction();
                 }
                 Rectangle {
@@ -956,9 +1218,9 @@ Rectangle {
                     border.color: Theme.zaloBlue
                     Text {
                         anchors.centerIn: parent
-                        text: I18n.t("Thả tệp hoặc ảnh vào đây để gửi nhanh", "Drop files or photos here to send")
+                        text: I18n.t("Thả tệp, ảnh hoặc chữ vào đây để thêm vào tin nhắn", "Drop files, photos or text here to add them to your message")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 18
+                        font.pixelSize: Theme.fontTitleLarge
                         font.weight: Font.DemiBold
                         color: Theme.zaloBlue
                     }
@@ -995,6 +1257,27 @@ Rectangle {
             }
 
             ChatReactionJumpButton {
+                id: mentionJumpButton
+                objectName: "mentionJumpButton"
+                parent: messageList.parent
+                z: 10
+                anchors.right: messageList.right
+                anchors.bottom: messageList.bottom
+                anchors.rightMargin: 16
+                anchors.bottomMargin: (jumpDownButton.shown ? 14 + jumpDownButton.height + 18 : 14)
+                                      + (reactionJumpButton.shown ? reactionJumpButton.height + 12 : 0)
+                count: ZaloClient.currentMentionIds.length
+                emoji: "@"
+                shown: messageList.count > 0 && ZaloClient.currentMentionIds.length > 0
+                onClicked: {
+                    const id = ZaloClient.currentMentionIds[0];
+                    root.jumpToMessage(id, "");
+                    ZaloClient.consumeMention(id);
+                }
+            }
+
+            ChatReactionJumpButton {
+                id: reactionJumpButton
                 parent: messageList.parent
                 z: 10
                 anchors.right: messageList.right
@@ -1059,7 +1342,7 @@ Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
                             text: I18n.t("+%1 ghim", "+%1 pins").arg(ZaloClient.pins.pins.length - 1)
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             font.weight: Font.Normal
                             color: ThemeManager.textColor
                         }
@@ -1122,7 +1405,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: I18n.t("Danh sách ghim (%1)", "Pinboard (%1)").arg(ZaloClient.pins.pins.length)
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 14
+                                font.pixelSize: Theme.fontBodyLarge
                                 font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                             }
@@ -1138,7 +1421,7 @@ Rectangle {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: I18n.t("Thu gọn", "Collapse")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.Normal
                                     color: ThemeManager.textColor
                                 }
@@ -1162,6 +1445,7 @@ Rectangle {
                         }
                         ListView {
                             id: pinPanelList
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
@@ -1181,6 +1465,39 @@ Rectangle {
                             }
                         }
                     }
+                }
+            }
+
+            Rectangle {
+                id: floatingDatePill
+                objectName: "floatingDatePill"
+                property string label: ""
+                property bool shown: false
+                z: 5
+                anchors.top: messageList.top
+                anchors.topMargin: pinBar.visible ? 56 + 8 : 8
+                anchors.horizontalCenter: messageList.horizontalCenter
+                width: floatingDateText.implicitWidth + 20
+                height: 22
+                radius: 10
+                color: Theme.timestampPill
+                opacity: shown ? 1 : 0
+                visible: opacity > 0 && label.length > 0
+                Behavior on opacity { NumberAnimation { duration: 180 } }
+
+                Text {
+                    id: floatingDateText
+                    anchors.centerIn: parent
+                    text: floatingDatePill.label
+                    color: "#FFFFFF"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSmall
+                }
+
+                Timer {
+                    id: floatingDateTimer
+                    interval: 1200
+                    onTriggered: floatingDatePill.shown = false
                 }
             }
 
@@ -1231,6 +1548,7 @@ Rectangle {
                     if (distance <= 2) endReached = true;
                     if (contentY < previous - 0.5 && distance > 2 && endReached) stickToBottom = false;
                     else if (distance <= 2 || (contentY > previous + 0.5 && distance < 48)) stickToBottom = true;
+                    root.updateFloatingDate(distance);
                 }
                 onAtYEndChanged: if (atYEnd) root.newBelow = 0
                 onCountChanged: {
@@ -1287,7 +1605,10 @@ Rectangle {
 
                 delegate: ChatMessageRow {
                     listWidth: messageList.width
-                    searchFocusId: root.searchFocusId
+                    selectionMode: root.selectionMode
+                    selected: root.selectionMode && root.selectedIds.indexOf(msgId) >= 0
+                    onSelectionToggled: (id) => root.toggleSelected(id)
+                    searchFocusId: root.searchFocusId.length > 0 ? root.searchFocusId : root.foundMsgId
                     flashMsgId: root.flashMsgId
                     onFocusComposerRequested: msgInput.forceActiveFocus()
                     onOpenMessageMenuRequested: (item, msg, mx, my) => root.openMessageMenu(item, msg, mx, my)
@@ -1356,7 +1677,7 @@ Rectangle {
                     Text {
                         text: ZaloClient.currentConversationStatus.length > 0 ? ZaloClient.currentConversationStatus : I18n.t("Đang soạn tin...", "Typing...")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         font.italic: true
                         color: Theme.zaloBlue
                     }
@@ -1390,7 +1711,7 @@ Rectangle {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             font.weight: Font.Normal
                             color: ThemeManager.textColor
                             text: (scheduledRow.modelData.state === "failed" ? I18n.t("Gửi lỗi · ", "Failed · ")
@@ -1401,7 +1722,7 @@ Rectangle {
                             visible: scheduledRow.modelData.state !== "sending"
                             text: I18n.t("Hủy", "Cancel")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: Theme.zaloBlue
                             MouseArea {
                                 anchors.fill: parent
@@ -1440,7 +1761,7 @@ Rectangle {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                             text: I18n.t("Trả lời ", "Replying to ") + (ZaloClient.replyTarget.senderName || "")
@@ -1449,7 +1770,7 @@ Rectangle {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSmall
                             color: ThemeManager.secondaryTextColor
                             text: ZaloClient.replyTarget.text || ""
                         }
@@ -1498,7 +1819,7 @@ Rectangle {
                 Text {
                     text: I18n.t("Đính kèm:", "Attachments:") + " (" + draftAttachmentsModel.count + ")"
                     font.family: Theme.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontSmall
                     font.weight: Font.DemiBold
                     color: ThemeManager.secondaryTextColor
                 }
@@ -1553,7 +1874,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: draftChip.name
                                 font.family: Theme.fontFamily
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.fontCaption
                                 color: ThemeManager.textColor
                                 elide: Text.ElideMiddle
                             }
@@ -1608,7 +1929,7 @@ Rectangle {
                                  "You blocked this person. They can't reply to your messages")
                     wrapMode: Text.Wrap
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                     color: ThemeManager.textColor
                 }
                 ZButton {
@@ -1646,14 +1967,72 @@ Rectangle {
                     text: ZaloClient.composerLockReason
                     wrapMode: Text.Wrap
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                     color: ThemeManager.secondaryTextColor
                 }
                 ZButton {
                     visible: ZaloClient.composerLockDeletable
                     variant: "secondary"
                     text: I18n.t("Xóa trò chuyện", "Delete conversation")
-                    onClicked: ZaloClient.deleteConversation(ZaloClient.currentConversationId)
+                    onClicked: ZaloClient.deleteConversationWithUndo(ZaloClient.currentConversationId)
+                }
+            }
+        }
+
+        Rectangle {
+            id: selectionBar
+            objectName: "selectionBar"
+            visible: root.selectionMode
+            Layout.fillWidth: true
+            Layout.preferredHeight: 56
+            color: ThemeManager.surfaceColor
+            Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; height: 1; color: ThemeManager.dividerColor }
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 8
+                ZIconButton {
+                    iconName: "close"
+                    iconSize: 16
+                    tooltip: I18n.t("Thoát chế độ chọn", "Exit selection")
+                    onClicked: root.exitSelection()
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: I18n.t("Đã chọn %1", "%1 selected").arg(root.selectedIds.length)
+                    elide: Text.ElideRight
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontBodyLarge
+                    font.weight: Font.DemiBold
+                    color: ThemeManager.textColor
+                }
+                ZIconButton {
+                    objectName: "selectionCopyButton"
+                    enabled: root.selectedIds.length > 0
+                    iconName: "copy"
+                    tooltip: I18n.t("Sao chép", "Copy")
+                    onClicked: {
+                        if (ZaloClient.copyMessages(root.selectedIds).length > 0) ZaloClient.showNotice(I18n.t("Đã sao chép", "Copied"));
+                        root.exitSelection();
+                    }
+                }
+                ZIconButton {
+                    objectName: "selectionForwardButton"
+                    enabled: root.selectedIds.length > 0
+                    iconName: "forward"
+                    tooltip: I18n.t("Chuyển tiếp", "Forward")
+                    onClicked: {
+                        ZaloClient.openForwardModalMulti(root.selectedIds);
+                        root.exitSelection();
+                    }
+                }
+                ZIconButton {
+                    objectName: "selectionDeleteButton"
+                    enabled: root.selectedIds.length > 0
+                    iconName: "trash"
+                    tooltip: I18n.t("Xóa ở phía tôi", "Delete for me")
+                    onClicked: deleteSelectedDialog.open()
                 }
             }
         }
@@ -1661,12 +2040,12 @@ Rectangle {
         Rectangle {
             id: composerBox
             objectName: "composerBox"
-            visible: ZaloClient.composerLockReason.length === 0
+            visible: ZaloClient.composerLockReason.length === 0 && !root.selectionMode
             Layout.fillWidth: true
             readonly property real textAreaHeight: root.isEditorExpanded
                 ? Math.min(230, Math.max(110, Math.floor(root.height * 0.38)))
                 : Math.max(root.composerMinTextHeight, Math.min(root.composerMaxTextHeight, msgInput.implicitHeight + 16))
-            readonly property real calculatedHeight: 32 + 1 + (root.isFormattingActive ? 34 : 0) + textAreaHeight + 32
+            readonly property real calculatedHeight: 32 + 1 + (root.isFormattingActive ? 34 : 0) + (ZaloClient.composerUrgency > 0 ? 26 : 0) + textAreaHeight + 32
             height: calculatedHeight
             implicitHeight: calculatedHeight
             Layout.preferredHeight: calculatedHeight
@@ -1715,7 +2094,7 @@ Rectangle {
                               + I18n.t(" · tối đa 5 phút", " · up to 5 minutes")
                         color: ThemeManager.textColor
                         font.family: Theme.fontFamily
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.fontBodyLarge
                     }
                     ZButton {
                         variant: "secondary"
@@ -1791,6 +2170,7 @@ Rectangle {
 
                         ZIconButton {
                             id: tbSnip
+                            visible: !root.composerOverflow
                             width: 28
                             height: 28
                             radius: 4
@@ -1810,7 +2190,7 @@ Rectangle {
                             radius: 4
                             color: "transparent"
                             pressedScale: 0.94
-                            visible: ZaloClient.currentConversationIsGroup
+                            visible: ZaloClient.currentConversationIsGroup && !root.composerOverflow
                             iconName: "mention"
                             iconColor: tbMention.pressed ? Theme.zaloBlueHover : (tbMention.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
                             tooltip: I18n.t("Nhắc tên thành viên (@)", "Mention a member (@)")
@@ -1827,7 +2207,7 @@ Rectangle {
                             radius: 4
                             color: "transparent"
                             pressedScale: 0.94
-                            visible: ZaloClient.currentConversationId.length > 0
+                            visible: ZaloClient.currentConversationId.length > 0 && !root.composerOverflow
                             iconName: "contacts"
                             iconColor: tbCard.pressed ? Theme.zaloBlueHover : (tbCard.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
                             tooltip: I18n.t("Gửi danh thiếp", "Send a contact card")
@@ -1841,7 +2221,7 @@ Rectangle {
                             radius: 4
                             color: "transparent"
                             pressedScale: 0.94
-                            visible: ZaloClient.currentConversationIsGroup
+                            visible: ZaloClient.currentConversationIsGroup && !root.composerOverflow
                             iconName: "poll"
                             iconColor: tbPoll.pressed ? Theme.zaloBlueHover : (tbPoll.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
                             tooltip: I18n.t("Tạo cuộc bình chọn", "Create poll")
@@ -1850,6 +2230,7 @@ Rectangle {
 
                         ZIconButton {
                             id: tbReminder
+                            visible: !root.composerOverflow
                             width: 28
                             height: 28
                             radius: 4
@@ -1863,6 +2244,7 @@ Rectangle {
 
                         ZIconButton {
                             id: tbQuickMsg
+                            visible: !root.composerOverflow
                             width: 28
                             height: 28
                             radius: 4
@@ -1897,6 +2279,7 @@ Rectangle {
 
                         ZIconButton {
                             id: tbFormat
+                            visible: !root.composerOverflow
                             width: 28
                             height: 28
                             radius: 4
@@ -1908,10 +2291,47 @@ Rectangle {
                             onClicked: root.isFormattingActive = !root.isFormattingActive
                         }
 
+                        ZIconButton {
+                            id: tbUrgency
+                            objectName: "urgencyButton"
+                            visible: !root.composerOverflow
+                            width: 28
+                            height: 28
+                            radius: 4
+                            color: "transparent"
+                            pressedScale: 0.94
+                            iconName: "bell"
+                            iconColor: ZaloClient.composerUrgency === 2 ? Theme.badgeRed
+                                     : ZaloClient.composerUrgency === 1 ? "#F59E0B"
+                                     : (tbUrgency.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor)
+                            tooltip: I18n.t("Đánh dấu tin Quan trọng / Khẩn cấp", "Mark as Important / Urgent")
+                            onClicked: ZaloClient.setComposerUrgency((ZaloClient.composerUrgency + 1) % 3)
+                        }
+
+                        ZIconButton {
+                            id: tbMore
+                            objectName: "composerMoreButton"
+                            visible: root.composerOverflow
+                            width: 28
+                            height: 28
+                            radius: 4
+                            color: "transparent"
+                            pressedScale: 0.94
+                            iconName: "more_horiz"
+                            iconColor: composerMoreMenu.opened ? Theme.zaloBlue : (tbMore.pressed ? Theme.zaloBlueHover : (tbMore.hovered ? Theme.zaloBlue : ThemeManager.secondaryTextColor))
+                            tooltip: I18n.t("Thêm công cụ", "More tools")
+                            onClicked: {
+                                const p = root.mapFromItem(tbMore, 0, 0);
+                                root.placePopup(composerMoreMenu, p.x, p.y - Math.max(composerMoreMenu.height, composerMoreMenu.implicitHeight) - 4);
+                                composerMoreMenu.open();
+                            }
+                        }
+
                         Item { Layout.fillWidth: true }
 
                         ZIconButton {
                             id: tbExpand
+                            visible: !root.composerOverflow
                             width: 28
                             height: 28
                             radius: 4
@@ -1922,6 +2342,43 @@ Rectangle {
                             tooltip: root.isEditorExpanded ? I18n.t("Thu gọn ô soạn thảo", "Collapse editor") : I18n.t("Mở rộng ô soạn thảo", "Expand editor")
                             onClicked: root.isEditorExpanded = !root.isEditorExpanded
                         }
+                    }
+                }
+
+                Rectangle {
+                    objectName: "urgencyChip"
+                    visible: ZaloClient.composerUrgency > 0
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: visible ? 26 : 0
+                    color: "transparent"
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 12
+                        spacing: 6
+                        Rectangle {
+                            implicitWidth: urgencyChipText.implicitWidth + 12
+                            implicitHeight: 20
+                            radius: 10
+                            color: ZaloClient.composerUrgency === 2 ? Theme.badgeRed : "#F59E0B"
+                            Text {
+                                id: urgencyChipText
+                                anchors.centerIn: parent
+                                text: ZaloClient.composerUrgency === 2 ? I18n.t("Tin nhắn Khẩn cấp", "Urgent message")
+                                                                       : I18n.t("Tin nhắn Quan trọng", "Important message")
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontCaption
+                                font.weight: Font.DemiBold
+                                color: "#FFFFFF"
+                            }
+                        }
+                        ZIconButton {
+                            iconName: "close"
+                            iconSize: 12
+                            tooltip: I18n.t("Bỏ đánh dấu", "Remove mark")
+                            onClicked: ZaloClient.setComposerUrgency(0)
+                        }
+                        Item { Layout.fillWidth: true }
                     }
                 }
 
@@ -2035,7 +2492,7 @@ Rectangle {
                             wrapMode: TextEdit.Wrap
                             color: ThemeManager.textColor
                             font.family: Theme.fontFamily
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontSubtitle
                             persistentSelection: true
                             Component.onCompleted: ZaloClient.composer.attach(msgInput.textDocument, msgInput)
                             onCursorRectangleChanged: {
@@ -2150,6 +2607,7 @@ Rectangle {
                         }
                         ListView {
                             id: suggestList
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                             anchors.fill: parent
                             clip: true
                             model: root.suggestItems
@@ -2184,7 +2642,7 @@ Rectangle {
                                             text: root.suggestMode === "mention" ? "@" + sugRow.modelData.name : "/" + sugRow.modelData.keyword
                                             textFormat: Text.PlainText
                                             font.family: Theme.fontFamily
-                                            font.pixelSize: 13
+                                            font.pixelSize: Theme.fontBody
                                             font.weight: (root.suggestMode === "quick") ? Font.DemiBold : Font.Normal
                                             color: root.suggestMode === "quick" ? Theme.zaloBlue : ThemeManager.textColor
                                             elide: Text.ElideRight
@@ -2195,7 +2653,7 @@ Rectangle {
                                             text: root.suggestMode === "mention" ? ((sugRow.modelData && sugRow.modelData.hint) || "") : ((sugRow.modelData && sugRow.modelData.text) || "")
                                             textFormat: Text.PlainText
                                             font.family: Theme.fontFamily
-                                            font.pixelSize: 11
+                                            font.pixelSize: Theme.fontCaption
                                             color: ThemeManager.secondaryTextColor
                                             elide: Text.ElideRight
                                         }
@@ -2235,7 +2693,7 @@ Rectangle {
                             text: I18n.t("Nhấn Enter để gửi, Shift + Enter để xuống dòng", "Press Enter to send, Shift + Enter for new line")
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontCaption
                             color: ThemeManager.secondaryTextColor
                             visible: root.width >= 420 && (msgInput.activeFocus || msgInput.text.length > 0 || msgInput.preeditText.length > 0)
                         }
@@ -2263,7 +2721,8 @@ Rectangle {
                                 visible: ZaloClient.defaultReaction !== "like"
                                 anchors.centerIn: parent
                                 text: ZaloClient.defaultReactionEmoji
-                                font.pixelSize: 18
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontTitleLarge
                                 renderType: Text.NativeRendering
                             }
 
@@ -2380,6 +2839,11 @@ Rectangle {
             root.emojiPickerOpen = false;
             msgInput.forceActiveFocus();
         }
+        function onGifSelected(url: string): void {
+            ZaloClient.sendGifFromUrl(url);
+            root.emojiPickerOpen = false;
+            msgInput.forceActiveFocus();
+        }
     }
 
     PinDetailHost {
@@ -2431,7 +2895,7 @@ Rectangle {
                                   : (pinDetailPopup.detail.type === 1 ? I18n.t("Ghi chú đã ghim", "Pinned note")
                                                                       : I18n.t("Tin nhắn đã ghim", "Pinned message"))
                             font.family: Theme.fontFamily
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontSubtitle
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -2466,7 +2930,7 @@ Rectangle {
                         text: I18n.t("Người gửi: ", "From: ") + (pinDetailPopup.detail.senderName || "")
                         elide: Text.ElideRight
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                     }
                     Item {
@@ -2494,7 +2958,7 @@ Rectangle {
                                     text: pinDetailImage.status === Image.Loading ? I18n.t("Đang tải ảnh…", "Loading picture…")
                                           : I18n.t("Ảnh không còn khả dụng · Bấm để thử lại", "Picture no longer available · Click to retry")
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     color: ThemeManager.secondaryTextColor
                                 }
                             }
@@ -2519,7 +2983,7 @@ Rectangle {
                             cursorShape: pinDetailImage.status === Image.Loading ? Qt.BusyCursor : Qt.PointingHandCursor
                             onClicked: {
                                 if (pinDetailPopup.imageShown)
-                                    ZaloClient.openExternalUrl(pinDetailPopup.href.length > 0 ? pinDetailPopup.href : pinDetailPopup.image);
+                                    ZaloClient.openLink(pinDetailPopup.href.length > 0 ? pinDetailPopup.href : pinDetailPopup.image);
                                 else if (pinDetailImage.status !== Image.Loading)
                                     for (let i = 0; i < pinDetailPopup.images.length; ++i) ZaloClient.retryMedia(pinDetailPopup.images[i]);
                             }
@@ -2548,7 +3012,7 @@ Rectangle {
                             persistentSelection: true
                             wrapMode: TextEdit.Wrap
                             font.family: Theme.fontFamily
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.fontBodyLarge
                             color: ThemeManager.textColor
                             selectionColor: Theme.zaloBlue
                             selectedTextColor: Theme.textOnColor
@@ -2560,7 +3024,7 @@ Rectangle {
                         text: pinDetailPopup.href
                         elide: Text.ElideMiddle
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         font.underline: pinDetailLinkMouse.containsMouse
                         color: Theme.linkColor
                         MouseArea {
@@ -2568,7 +3032,7 @@ Rectangle {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: ZaloClient.openExternalUrl(pinDetailPopup.href)
+                            onClicked: ZaloClient.openLink(pinDetailPopup.href)
                         }
                     }
                     Text {
@@ -2578,7 +3042,7 @@ Rectangle {
                                      "The original message is not in the loaded history; the content comes from the pinboard.")
                         wrapMode: Text.Wrap
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         font.italic: true
                         color: ThemeManager.secondaryTextColor
                     }
@@ -2625,6 +3089,141 @@ Rectangle {
     function copyPinText(text: string): void {
         ZaloClient.copyText(text);
         ZaloClient.showNotice(I18n.t("Đã sao chép", "Copied"));
+    }
+
+    Popup {
+        id: headerMoreMenu
+        objectName: "headerMoreMenu"
+        margins: 8
+        width: 220
+        padding: 6
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: ThemeManager.surfaceColor; radius: 8; border.color: ThemeManager.borderColor }
+        contentItem: ColumnLayout {
+            spacing: 2
+            ZMenuRow {
+                visible: root.headerSearchOverflow
+                icon: "search"
+                label: I18n.t("Tìm kiếm trong tin nhắn", "Search messages")
+                onTriggered: {
+                    headerMoreMenu.close();
+                    root.openSearch();
+                }
+            }
+            ZMenuRow {
+                visible: ZaloClient.currentConversationCanCreateGroup
+                icon: "user_add"
+                label: ZaloClient.currentConversationIsGroup
+                    ? I18n.t("Thêm thành viên vào nhóm", "Add member to group")
+                    : I18n.t("Tạo nhóm với người này", "Create group with this person")
+                onTriggered: {
+                    headerMoreMenu.close();
+                    if (ZaloClient.currentConversationIsGroup) ZaloClient.openAddMemberModal();
+                    else ZaloClient.openCreateGroup();
+                }
+            }
+            ZMenuRow {
+                icon: "sidebar_panel"
+                label: I18n.t("Thông tin hội thoại", "Conversation info")
+                onTriggered: {
+                    headerMoreMenu.close();
+                    ZaloClient.toggleConversationInfo();
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: composerMoreMenu
+        objectName: "composerMoreMenu"
+        margins: 8
+        width: 240
+        padding: 6
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: ThemeManager.surfaceColor; radius: 8; border.color: ThemeManager.borderColor }
+        contentItem: ColumnLayout {
+            spacing: 2
+            ZMenuRow {
+                icon: "snip"
+                label: I18n.t("Chụp ảnh màn hình", "Capture screenshot")
+                onTriggered: {
+                    composerMoreMenu.close();
+                    ZaloClient.requestScreenshot();
+                }
+            }
+            ZMenuRow {
+                visible: ZaloClient.currentConversationIsGroup
+                icon: "mention"
+                label: I18n.t("Nhắc tên thành viên (@)", "Mention a member (@)")
+                onTriggered: {
+                    composerMoreMenu.close();
+                    msgInput.forceActiveFocus();
+                    msgInput.insert(msgInput.cursorPosition, "@");
+                }
+            }
+            ZMenuRow {
+                visible: ZaloClient.currentConversationId.length > 0
+                icon: "contacts"
+                label: I18n.t("Gửi danh thiếp", "Send a contact card")
+                onTriggered: {
+                    composerMoreMenu.close();
+                    ZaloClient.openSendCardPicker();
+                }
+            }
+            ZMenuRow {
+                visible: ZaloClient.currentConversationIsGroup
+                icon: "poll"
+                label: I18n.t("Tạo cuộc bình chọn", "Create poll")
+                onTriggered: {
+                    composerMoreMenu.close();
+                    ZaloClient.openCreatePollModal();
+                }
+            }
+            ZMenuRow {
+                icon: "bell"
+                label: ZaloClient.composerUrgency === 0 ? I18n.t("Đánh dấu tin Quan trọng", "Mark as Important")
+                     : ZaloClient.composerUrgency === 1 ? I18n.t("Đánh dấu tin Khẩn cấp", "Mark as Urgent")
+                     : I18n.t("Bỏ đánh dấu Khẩn cấp", "Remove Urgent mark")
+                onTriggered: {
+                    composerMoreMenu.close();
+                    ZaloClient.setComposerUrgency((ZaloClient.composerUrgency + 1) % 3);
+                }
+            }
+            ZMenuRow {
+                icon: "reminder"
+                label: I18n.t("Hẹn giờ gửi tin nhắn", "Schedule message")
+                onTriggered: {
+                    composerMoreMenu.close();
+                    reminderPopup.open();
+                }
+            }
+            ZMenuRow {
+                icon: "quick_message"
+                label: I18n.t("Tin nhắn nhanh", "Quick message")
+                onTriggered: {
+                    composerMoreMenu.close();
+                    quickMsgPopup.open();
+                }
+            }
+            ZMenuRow {
+                icon: "format_text"
+                label: root.isFormattingActive ? I18n.t("Tắt định dạng tin nhắn", "Hide message formatting")
+                                               : I18n.t("Định dạng tin nhắn", "Format message")
+                onTriggered: {
+                    composerMoreMenu.close();
+                    root.isFormattingActive = !root.isFormattingActive;
+                }
+            }
+            ZMenuRow {
+                icon: root.isEditorExpanded ? "collapse" : "expand"
+                label: root.isEditorExpanded ? I18n.t("Thu gọn ô soạn thảo", "Collapse editor")
+                                             : I18n.t("Mở rộng ô soạn thảo", "Expand editor")
+                onTriggered: {
+                    composerMoreMenu.close();
+                    root.isEditorExpanded = !root.isEditorExpanded;
+                }
+            }
+        }
     }
 
     PinMenuHost {
@@ -2707,7 +3306,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: I18n.t("Cảm xúc", "Reactions")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontSubtitle
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -2738,7 +3337,7 @@ Rectangle {
                                     anchors.centerIn: parent
                                     text: (parent.modelData.emoji.length > 0 ? parent.modelData.emoji : I18n.t("Tất cả", "All")) + " " + parent.modelData.count
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSmall
                                     font.weight: parent.active ? Font.DemiBold : Font.Normal
                                     color: ThemeManager.textColor
                                 }
@@ -2753,16 +3352,25 @@ Rectangle {
                         text: I18n.t("Chưa có danh sách người thả cảm xúc cho tin nhắn này (chỉ có với cảm xúc nhận được khi Zalos đang chạy).",
                                      "Who reacted is not known for this message (only reactions received while Zalos is running).")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                     }
                     ListView {
                         id: reactionList
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
                         spacing: 2
-                        model: root.reactionInfo.people.filter(p => root.reactionTab.length === 0 || (p.perEmoji[root.reactionTab] || 0) > 0)
+                        model: {
+                            const all = root.reactionInfo.people;
+                            if (root.reactionTab.length === 0) return all;
+                            const matches = [];
+                            for (let i = 0; i < all.length; ++i) {
+                                if ((all[i].perEmoji[root.reactionTab] || 0) > 0) matches.push(all[i]);
+                            }
+                            return matches;
+                        }
                         delegate: Rectangle {
                             id: personRow
                             required property var modelData
@@ -2782,7 +3390,7 @@ Rectangle {
                                     text: personRow.modelData.name + (personRow.modelData.isMe ? I18n.t(" (Bạn)", " (You)") : "")
                                     elide: Text.ElideRight
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.Normal
                                     color: ThemeManager.textColor
                                     MouseArea {
@@ -2802,7 +3410,7 @@ Rectangle {
                                     text: root.reactionTab.length > 0
                                           ? root.reactionTab + " " + (personRow.modelData.perEmoji[root.reactionTab] || 0)
                                           : personRow.modelData.emojis + (personRow.modelData.count > 1 ? " " + personRow.modelData.count : "")
-                                    font.pixelSize: 15
+                                    font.pixelSize: Theme.fontSubtitle
                                     color: ThemeManager.secondaryTextColor
                                 }
                             }
@@ -2829,7 +3437,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: I18n.t("Người đã xem (%1)", "Seen by (%1)").arg(root.seenDetailsUids.length)
                             font.family: Theme.fontFamily
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontSubtitle
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -2844,6 +3452,7 @@ Rectangle {
                     }
                     ListView {
                         id: seenList
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
@@ -2875,7 +3484,7 @@ Rectangle {
                                     text: seenPersonRow.name
                                     elide: Text.ElideRight
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.Normal
                                     color: ThemeManager.textColor
                                 }
@@ -2984,7 +3593,7 @@ Rectangle {
                     text: topicRow.typeTitle()
                     elide: Text.ElideRight
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
@@ -2998,7 +3607,7 @@ Rectangle {
                         textFormat: Text.PlainText
                         elide: Text.ElideRight
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                     }
                     Rectangle {
@@ -3040,7 +3649,7 @@ Rectangle {
                         maximumLineCount: 1
                         elide: Text.ElideRight
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                     }
                 }
@@ -3176,7 +3785,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: I18n.t("Tin nhắn nhanh", "Quick messages")
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
@@ -3258,7 +3867,7 @@ Rectangle {
                         text: I18n.t("Chưa có tin nhắn nhanh. Nhấn + để tạo, rồi gõ \"/\" + từ khóa trong ô soạn tin.",
                                      "No quick messages yet. Tap + to create one, then type \"/\" + keyword in the composer.")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -3298,7 +3907,7 @@ Rectangle {
                                         text: "/" + qmRow.modelData.keyword
                                         textFormat: Text.PlainText
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         font.weight: Font.DemiBold
                                         color: Theme.zaloBlue
                                         elide: Text.ElideRight
@@ -3308,7 +3917,7 @@ Rectangle {
                                         text: qmRow.modelData.text + (qmRow.modelData.hasMedia ? I18n.t("  (kèm ảnh: chưa hỗ trợ gửi)", "  (with photo: not sent yet)") : "")
                                         textFormat: Text.PlainText
                                         font.family: Theme.fontFamily
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontSmall
                                         color: ThemeManager.textColor
                                         elide: Text.ElideRight
                                     }
@@ -3395,17 +4004,17 @@ Rectangle {
                     Text {
                         text: I18n.t("Hẹn giờ gửi tin nhắn", "Schedule message")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
 
-                    TextField {
+                    ZTextField {
                         id: scheduleContentInput
                         Layout.fillWidth: true
                         placeholderText: I18n.t("Nội dung tin nhắn...", "Message...")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSmall
                         color: ThemeManager.textColor
                         placeholderTextColor: ThemeManager.secondaryTextColor
                         background: Rectangle {
@@ -3419,7 +4028,7 @@ Rectangle {
                     Text {
                         text: I18n.t("Gửi lúc:", "Send at:")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: ThemeManager.secondaryTextColor
                     }
 
@@ -3452,7 +4061,7 @@ Rectangle {
                                     anchors.centerIn: parent
                                     text: I18n.t(schedPresetRow.modelData.vi, schedPresetRow.modelData.en)
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontCaption
                                     color: ThemeManager.textColor
                                 }
 
@@ -3474,7 +4083,7 @@ Rectangle {
                         text: I18n.t("Tin nhắn được gửi từ máy này, nên Zalos cần đang mở và đăng nhập vào thời điểm đó.",
                                      "The message is sent from this computer, so Zalos must be running and signed in at that time.")
                         font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontCaption
                         color: ThemeManager.secondaryTextColor
                     }
                     }
@@ -3483,6 +4092,11 @@ Rectangle {
 
             Popup {
                 id: messageMenu
+                property bool canModerate: false
+                property bool canReact: false
+                property bool canReply: false
+                property bool canForward: false
+                property bool canCopy: false
                 margins: 8
                 width: Math.max(230, implicitContentWidth + leftPadding + rightPadding)
                 padding: 6
@@ -3493,14 +4107,15 @@ Rectangle {
                     border.color: ThemeManager.borderColor
                 }
 
-                readonly property string msgId: root.menuMessage.id || ""
+                readonly property string msgId: root.menuMessageId || ""
                 readonly property bool isServerMessage: msgId.length > 0 && !msgId.startsWith("local-")
 
                 contentItem: ColumnLayout {
                     spacing: 2
 
                     RowLayout {
-                        visible: messageMenu.isServerMessage
+                        objectName: "menuReactionStrip"
+                        visible: messageMenu.canReact
                         Layout.fillWidth: true
                         Layout.bottomMargin: 4
                         spacing: 0
@@ -3547,7 +4162,7 @@ Rectangle {
                                 height: 32
                                 radius: 16
                                 color: reactMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                                Text { anchors.centerIn: parent; text: reactItem.modelData.emoji; font.pixelSize: 17 }
+                                Text { anchors.centerIn: parent; text: reactItem.modelData.emoji; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTitle }
                                 MouseArea {
                                     id: reactMouse
                                     anchors.fill: parent
@@ -3579,54 +4194,71 @@ Rectangle {
                     }
 
                     ZMenuRow {
-                        visible: root.menuMessage.messageType === "image" && (root.menuMessage.url || "").length > 0
+                        visible: root.menuMessageType === "image" && (root.menuMessageUrl || "").length > 0
                         icon: "zoom_in"
                         label: I18n.t("Xem ảnh", "View picture")
                         onTriggered: { root.openViewer(messageMenu.msgId); messageMenu.close(); }
                     }
                     ZMenuRow {
-                        visible: (root.menuMessage.messageType === "video"
-                                  || (root.menuMessage.messageType === "file"
-                                      && ZaloClient.isVideoFileName(root.menuMessage.text || root.menuMessage.url || "")))
-                                 && (root.menuMessage.url || "").length > 0
+                        visible: (root.menuMessageType === "video"
+                                  || (root.menuMessageType === "file"
+                                      && ZaloClient.isVideoFileName(root.menuMessageText || root.menuMessageUrl || "")))
+                                 && (root.menuMessageUrl || "").length > 0
                         icon: "play"
                         label: I18n.t("Xem video", "Watch video")
                         onTriggered: { root.openViewer(messageMenu.msgId); messageMenu.close(); }
                     }
                     ZMenuRow {
-                        visible: root.menuMessage.messageType === "image" && (root.menuMessage.url || "").length > 0
+                        visible: root.menuMessageType === "image" && (root.menuMessageUrl || "").length > 0
                         icon: "copy"
                         label: I18n.t("Sao chép ảnh", "Copy picture")
-                        onTriggered: { ZaloClient.copyImage(root.menuMessage.url); messageMenu.close(); }
+                        onTriggered: { ZaloClient.copyImage(root.menuMessageUrl); messageMenu.close(); }
                     }
                     ZMenuRow {
-                        visible: root.menuMessage.messageType === "image" && (root.menuMessage.url || "").length > 0
+                        visible: root.menuMessageType === "image" && (root.menuMessageUrl || "").length > 0
                         icon: "download"
                         label: I18n.t("Lưu ảnh về máy", "Save picture")
                         onTriggered: { saveImageDialog.open(); messageMenu.close(); }
                     }
                     ZMenuRow {
+                        objectName: "selectMessagesRow"
                         visible: messageMenu.isServerMessage
+                        icon: "check"
+                        label: I18n.t("Chọn nhiều tin nhắn", "Select messages")
+                        onTriggered: { root.enterSelection(messageMenu.msgId); messageMenu.close(); }
+                    }
+                    ZMenuRow {
+                        objectName: "saveFileAsRow"
+                        visible: (root.menuMessageType === "file" || root.menuMessageType === "video")
+                                 && (root.menuMessageUrl || "").length > 0
+                        icon: "download"
+                        label: I18n.t("Lưu thành…", "Save as…")
+                        onTriggered: { saveFileDialog.open(); messageMenu.close(); }
+                    }
+                    ZMenuRow {
+                        objectName: "menuReplyRow"
+                        visible: messageMenu.canReply
                         icon: "reply"
                         label: I18n.t("Trả lời", "Reply")
                         onTriggered: { ZaloClient.setReplyTarget(messageMenu.msgId); messageMenu.close(); msgInput.forceActiveFocus(); }
                     }
                     ZMenuRow {
-                        visible: (root.menuMessage.text || "").length > 0
+                        visible: messageMenu.canCopy && (root.menuMessageText || "").length > 0
                         icon: "copy"
                         label: I18n.t("Sao chép", "Copy")
-                        onTriggered: { ZaloClient.copyText(root.menuMessage.text); messageMenu.close(); }
+                        onTriggered: { ZaloClient.copyText(root.menuMessageText); messageMenu.close(); }
                     }
                     ZMenuRow {
-                        visible: messageMenu.isServerMessage
+                        objectName: "menuForwardRow"
+                        visible: messageMenu.canForward
                         icon: "forward"
                         label: I18n.t("Chuyển tiếp", "Forward")
-                        onTriggered: { ZaloClient.openForwardModal(messageMenu.msgId, root.menuMessage.text || ""); messageMenu.close(); }
+                        onTriggered: { ZaloClient.openForwardModal(messageMenu.msgId, root.menuMessageText || ""); messageMenu.close(); }
                     }
                     ZMenuRow {
                         id: pinMenuRow
                         readonly property bool pinned: ZaloClient.pins.pins.length >= 0 && ZaloClient.pins.isPinned(messageMenu.msgId)
-                        visible: messageMenu.isServerMessage
+                        visible: messageMenu.canReply || pinMenuRow.pinned
                         icon: "pin"
                         label: pinMenuRow.pinned ? I18n.t("Bỏ ghim tin nhắn", "Unpin message") : I18n.t("Ghim tin nhắn", "Pin message")
                         onTriggered: {
@@ -3644,7 +4276,7 @@ Rectangle {
                         visible: messageMenu.isServerMessage
                     }
                     ZMenuRow {
-                        visible: messageMenu.isServerMessage && root.menuMessage.isMine === true
+                        visible: messageMenu.isServerMessage && root.menuMessageIsMine === true
                                  && ZaloClient.canRecall(messageMenu.msgId)
                         icon: "undo"
                         danger: true
@@ -3652,14 +4284,22 @@ Rectangle {
                         onTriggered: { ZaloClient.recallMessage(messageMenu.msgId); messageMenu.close(); }
                     }
                     ZMenuRow {
-                        visible: messageMenu.isServerMessage && root.menuMessage.isMine !== true
+                        visible: messageMenu.isServerMessage && root.menuMessageIsMine !== true
                         icon: "shield"
                         danger: true
                         label: I18n.t("Báo cáo vi phạm", "Report abuse")
                         onTriggered: {
-                            ZaloClient.reportAbuse(ZaloClient.currentConversationId, ZaloClient.currentConversationIsGroup, 0, root.menuMessage.text || "");
+                            ZaloClient.reportAbuse(ZaloClient.currentConversationId, ZaloClient.currentConversationIsGroup, 0, root.menuMessageText || "");
                             messageMenu.close();
                         }
+                    }
+                    ZMenuRow {
+                        objectName: "deleteForEveryoneRow"
+                        visible: messageMenu.isServerMessage && messageMenu.canModerate && root.menuMessageIsMine !== true
+                        icon: "trash"
+                        danger: true
+                        label: I18n.t("Xóa với mọi người", "Delete for everyone")
+                        onTriggered: { deleteEveryoneDialog.msgId = messageMenu.msgId; messageMenu.close(); deleteEveryoneDialog.open(); }
                     }
                     ZMenuRow {
                         visible: messageMenu.isServerMessage
@@ -3675,8 +4315,56 @@ Rectangle {
         id: saveImageDialog
         title: I18n.t("Lưu ảnh", "Save picture")
         fileMode: ZFilePicker.SaveFile
-        currentFile: ZaloClient.suggestedMediaSaveUrl(root.menuMessage.url || "")
-        onAccepted: ZaloClient.saveMediaTo(root.menuMessage.url, selectedFile.toString())
+        currentFile: ZaloClient.suggestedMediaSaveUrl(root.menuMessageUrl || "")
+        onAccepted: ZaloClient.saveMediaTo(root.menuMessageUrl, selectedFile.toString())
+    }
+
+    ZConfirmDialog {
+        id: deleteEveryoneDialog
+        objectName: "deleteEveryoneDialog"
+        property string msgId: ""
+        danger: true
+        title: I18n.t("Xóa tin nhắn với mọi người?", "Delete for everyone?")
+        okText: I18n.t("Xóa", "Delete")
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            text: I18n.t("Tin nhắn sẽ bị xóa khỏi nhóm với tất cả thành viên.", "The message is removed from the group for every member.")
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontBody
+            color: ThemeManager.textColor
+        }
+        onAccepted: ZaloClient.deleteMessageForEveryone(deleteEveryoneDialog.msgId)
+    }
+
+    ZConfirmDialog {
+        id: deleteSelectedDialog
+        objectName: "deleteSelectedDialog"
+        danger: true
+        title: I18n.t("Xóa %1 tin nhắn ở phía bạn?", "Delete %1 messages for you?").arg(root.selectedIds.length)
+        okText: I18n.t("Xóa", "Delete")
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            text: I18n.t("Người khác vẫn thấy các tin nhắn này.", "Other people still see these messages.")
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontBody
+            color: ThemeManager.textColor
+        }
+        onAccepted: {
+            ZaloClient.deleteMessagesForMe(root.selectedIds);
+            root.exitSelection();
+        }
+    }
+
+    ZFilePicker {
+        id: saveFileDialog
+        title: I18n.t("Lưu tệp", "Save file")
+        fileMode: ZFilePicker.SaveFile
+        currentFile: root.menuMessageType === "file" && (root.menuMessageText || "").length > 0
+                     ? "file://" + ZaloClient.downloadDirectory + "/" + root.menuMessageText
+                     : ZaloClient.suggestedMediaSaveUrl(root.menuMessageUrl || "")
+        onAccepted: ZaloClient.saveMediaTo(root.menuMessageUrl, selectedFile.toString())
     }
 
     ZFilePicker {
@@ -3701,5 +4389,13 @@ Rectangle {
                 root.addDraftFile(selectedFiles[j].toString());
             }
         }
+    }
+
+    MouseArea {
+        objectName: "compactBackArea"
+        anchors.fill: parent
+        z: 100
+        acceptedButtons: Qt.BackButton
+        onClicked: root.compactBack()
     }
 }

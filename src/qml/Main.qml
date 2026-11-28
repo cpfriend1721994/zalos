@@ -10,15 +10,19 @@ ApplicationWindow {
     visible: !ZaloClient.launchHidden
     width: 1040
     height: 680
-    minimumWidth: 480
-    minimumHeight: 440
+    minimumWidth: 360
+    minimumHeight: 420
     title: "Zalos"
     color: ThemeManager.backgroundColor
     font.family: Theme.fontFamily
 
     readonly property bool isCompactMode: width < 720
-    readonly property bool anyModalOpen: ZaloClient.showUserProfileModal
-    readonly property real callBarInset: callOverlayLoader.item && !callOverlayLoader.item.minimized ? callOverlayLoader.item.controlBarHeight : 0
+    readonly property bool isShortMode: height < 600
+    readonly property bool isChatFocused: isCompactMode && ZaloClient.currentNavigationTab === "messages"
+                                          && ZaloClient.currentConversationId !== ""
+    property bool shortcutsHelpOpen: false
+    readonly property bool anyModalOpen: mainWindow.shortcutsHelpOpen
+                                      || ZaloClient.showUserProfileModal
                                       || ZaloClient.pollDialogId > 0
                                       || ZaloClient.showSettingsModal
                                       || ZaloClient.showAddFriendModal
@@ -29,8 +33,10 @@ ApplicationWindow {
                                       || ZaloClient.groupAdmin.joinOpen
                                       || ZaloClient.labels.manageOpen
                                       || ZaloClient.showBusinessToolsModal
+    readonly property real callBarInset: callOverlayLoader.item && !callOverlayLoader.item.minimized ? callOverlayLoader.item.controlBarHeight : 0
     function closeTopModal(): void {
-        if (ZaloClient.showUserProfileModal) ZaloClient.closeUserProfile();
+        if (mainWindow.shortcutsHelpOpen) mainWindow.shortcutsHelpOpen = false;
+        else if (ZaloClient.showUserProfileModal) ZaloClient.closeUserProfile();
         else if (ZaloClient.pollDialogId > 0) ZaloClient.closePollDialog();
         else if (ZaloClient.showSettingsModal) ZaloClient.closeSettings();
         else if (ZaloClient.showAddFriendModal) ZaloClient.closeAddFriend();
@@ -51,6 +57,7 @@ ApplicationWindow {
     flags: Qt.Window
 
     Component.onCompleted: {
+        UiWindow.window = mainWindow
         I18n.setLanguage(ZaloClient.appLanguage)
         var geom = ZaloClient.windowGeometry()
         if (geom.width && geom.width >= minimumWidth) mainWindow.width = geom.width
@@ -213,10 +220,6 @@ ApplicationWindow {
         mainWindow.requestActivate();
     }
 
-    function toggleTheme(): void {
-        ThemeManager.toggleTheme();
-    }
-
     Rectangle {
         id: startupSplash
         anchors.fill: parent
@@ -248,9 +251,9 @@ ApplicationWindow {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: "Zalo"
+                text: "Zalos"
                 font.family: Theme.fontFamily
-                font.pixelSize: 26
+                font.pixelSize: Theme.fontDisplay
                 font.weight: Font.DemiBold
                 color: Theme.zaloBlue
             }
@@ -286,7 +289,7 @@ ApplicationWindow {
                     text: ZaloClient.loginStatusMessage.length > 0 ? ZaloClient.loginStatusMessage
                                                                  : I18n.t("Đang kết nối tới máy chủ...", "Connecting to server...")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                     color: ThemeManager.secondaryTextColor
                 }
             }
@@ -296,7 +299,7 @@ ApplicationWindow {
                 visible: ZaloClient.hasLoginError
                 text: I18n.t("Đăng nhập bằng tài khoản khác", "Sign in with another account")
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 font.underline: switchAccountMouse.containsMouse
                 color: Theme.zaloBlue
                 MouseArea {
@@ -325,6 +328,9 @@ ApplicationWindow {
 
         NavigationRail {
             id: navigationRail
+            objectName: "navigationRail"
+            onShortcutsRequested: mainWindow.shortcutsHelpOpen = true
+            visible: !mainWindow.isChatFocused
             Layout.preferredWidth: mainWindow.isCompactMode ? 52 : Theme.railWidth
             z: 10
             Layout.minimumWidth: mainWindow.isCompactMode ? 52 : Theme.railWidth
@@ -457,6 +463,11 @@ ApplicationWindow {
         onActivated: ZaloClient.requestScreenshot(false)
     }
     Shortcut {
+        sequences: ZaloClient.shortcuts.keySequences("app.shortcuts")
+        enabled: !ZaloClient.appLock.locked && (mainWindow.shortcutsLive || mainWindow.shortcutsHelpOpen)
+        onActivated: mainWindow.shortcutsHelpOpen = !mainWindow.shortcutsHelpOpen
+    }
+    Shortcut {
         sequences: ZaloClient.shortcuts.keySequences("app.quit")
         onActivated: {
             mainWindow.forceQuit = true;
@@ -470,6 +481,42 @@ ApplicationWindow {
             noticeText.text = message;
             noticeBox.visible = true;
             noticeTimer.restart();
+        }
+    }
+
+    Rectangle {
+        id: undoDeleteBar
+        objectName: "undoDeleteBar"
+        visible: ZaloClient.pendingDeleteConversation.length > 0
+        z: 2501
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 24 + mainWindow.callBarInset + (noticeBox.visible ? noticeBox.height + 8 : 0)
+        width: Math.min(parent.width - 32, undoRow.implicitWidth + 24)
+        height: 44
+        radius: 8
+        color: ThemeManager.isDarkMode ? "#38404A" : "#E6081B3A"
+
+        RowLayout {
+            id: undoRow
+            anchors.fill: parent
+            anchors.leftMargin: 16
+            anchors.rightMargin: 8
+            spacing: 12
+            Text {
+                Layout.fillWidth: true
+                text: I18n.t("Đã xóa hội thoại", "Conversation deleted")
+                elide: Text.ElideRight
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontBody
+                color: "#FFFFFF"
+            }
+            ZButton {
+                objectName: "undoDeleteButton"
+                variant: "tonal"
+                text: I18n.t("Hoàn tác", "Undo")
+                onClicked: ZaloClient.undoDeleteConversation()
+            }
         }
     }
 
@@ -492,7 +539,7 @@ ApplicationWindow {
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
             font.family: Theme.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
             color: Theme.textOnColor
         }
         Timer {
@@ -517,6 +564,21 @@ ApplicationWindow {
     LazyOverlay { active: ZaloClient.groupAdmin.joinOpen; source: active ? Qt.resolvedUrl("GroupJoinModal.qml") : "" }
     LazyOverlay { active: ZaloClient.labels.manageOpen; source: active ? Qt.resolvedUrl("LabelManageModal.qml") : "" }
     LazyOverlay { active: ZaloClient.showBusinessToolsModal; source: active ? Qt.resolvedUrl("BusinessToolsModal.qml") : "" }
+    LazyOverlay {
+        id: shortcutsHelpLoader
+        z: 930
+        active: mainWindow.shortcutsHelpOpen
+        source: active ? Qt.resolvedUrl("ShortcutsDialog.qml") : ""
+    }
+    Connections {
+        target: UiWindow
+        function onShortcutsRequested(): void { mainWindow.shortcutsHelpOpen = true; }
+    }
+    Connections {
+        target: shortcutsHelpLoader.item
+        ignoreUnknownSignals: true
+        function onCloseRequested(): void { mainWindow.shortcutsHelpOpen = false; }
+    }
 
     Loader {
         id: appLinkPopupLoader

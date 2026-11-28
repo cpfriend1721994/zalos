@@ -15,7 +15,7 @@ namespace {
 
 const QStringList kOrder = {
     "chat.next", "chat.previous", "chat.pinned1", "chat.pinned2", "chat.pinned3", "chat.pinned4", "chat.pinned5",
-    "chat.search", "chat.find", "composer.voice", "privacy.antiPeeking", "app.lock", "app.screenshot", "app.hide", "app.quit",
+    "chat.search", "chat.find", "composer.voice", "privacy.antiPeeking", "app.lock", "app.screenshot", "app.hide", "app.quit", "app.shortcuts",
 };
 
 }
@@ -37,6 +37,7 @@ QHash<QString, QStringList> ShortcutMap::defaults() {
         {"app.screenshot", {"Ctrl+Alt+S"}},
         {"app.hide", {"Ctrl+W"}},
         {"app.quit", {"Ctrl+Q"}},
+        {"app.shortcuts", {"Ctrl+/"}},
     };
 }
 

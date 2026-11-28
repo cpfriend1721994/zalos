@@ -45,7 +45,7 @@ void MessageScheduler::setAccount(const QString& uid) {
     m_uid = uid;
     m_entries.clear();
     if (!m_uid.isEmpty()) {
-        QSettings settings("Zalos", "ZalosApp");
+        QSettings settings;
         const QJsonArray arr = QJsonDocument::fromJson(settings.value(settingsKey(m_uid)).toString().toUtf8()).array();
         for (const QJsonValue& v : arr) {
             const QJsonObject o = v.toObject();
@@ -162,7 +162,7 @@ void MessageScheduler::save() const {
         arr.append(QJsonObject{{"id", e.id}, {"convId", e.convId}, {"isGroup", e.isGroup}, {"text", e.text},
                                {"sendAt", e.sendAt}, {"state", e.state == "sending" ? "pending" : e.state}});
     }
-    QSettings settings("Zalos", "ZalosApp");
+    QSettings settings;
     settings.setValue(settingsKey(m_uid), QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
 }
 

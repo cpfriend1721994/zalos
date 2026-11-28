@@ -13,6 +13,8 @@ class QJSEngine;
 #include <QImage>
 #include <QList>
 #include <QObject>
+#include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -188,8 +190,13 @@ public:
 
     void setUnreadCount(int count, bool hasMentions = false);
     void setHasMentions(bool hasMentions);
+    void setOffline(bool offline);
+    bool offline() const { return m_offline; }
+    static QStringList launcherDesktopFiles();
+    static QImage dimmedImage(const QImage& source);
     void setAntiPeeking(bool on);
     void setNotificationsEnabled(bool on);
+    void setLocked(bool locked);
     void setLanguage(const QString& lang);
     void setWindowVisible(bool visible);
     void setCallState(const QString& phase, const QString& peerName, bool isVideo,
@@ -223,7 +230,7 @@ signals:
     void availabilityChanged();
     void toggleWindowRequested();
     void quitRequested();
-    void toggleDarkModeRequested();
+    void markAllReadRequested();
     void antiPeekingToggled(bool on);
     void notificationsToggled(bool on);
     void openSettingsRequested();
@@ -250,9 +257,11 @@ private:
     QImage createBadgeImage(int count, bool hasMentions);
     QVariantMap actionProperties(const QAction* action, const QStringList& filter) const;
     void notifyMenuChanged();
+    bool syncMarkAllReadAction();
     void refreshIconAndTooltip();
     void retranslate();
     QString L(const QString& vi, const QString& en) const { return m_language == QLatin1String("en") ? en : vi; }
+    QString callPeerLabel() const;
 
     Detail::StatusNotifierAdaptor* m_sniAdaptor{nullptr};
     Detail::DbusMenuAdaptor* m_menuAdaptor{nullptr};
@@ -270,7 +279,11 @@ private:
     int m_unreadCount{0};
     bool m_hasMentions{false};
     bool m_antiPeeking{false};
+    bool m_offline{false};
+    bool m_lastBadgeOffline{false};
+    QTimer m_offlineDelay;
     bool m_notificationsEnabled{true};
+    bool m_locked{false};
     QString m_callPhase;
     QString m_callPeerName;
     bool m_callIsVideo{false};
@@ -290,9 +303,9 @@ private:
     QAction* m_callSeparator{nullptr};
     QAction* m_antiPeekAction{nullptr};
     QAction* m_openAction{nullptr};
+    QAction* m_markAllReadAction{nullptr};
     QAction* m_settingsAction{nullptr};
     QAction* m_notificationsAction{nullptr};
-    QAction* m_themeAction{nullptr};
     QAction* m_separator2{nullptr};
     QAction* m_quitAction{nullptr};
     bool m_windowVisible{true};

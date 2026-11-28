@@ -77,6 +77,7 @@ void TestQmlGates::qmlStyle() {
     const QRegularExpression zaloBlueColor(QStringLiteral(R"re((?<!border\.)color:\s*Theme\.zaloBlue\s*(\}|$))re"));
     const QRegularExpression shortcut(QStringLiteral(R"re(\bsequence:\s*"([^"]+)")re"));
     const QRegularExpression hoverEnd(QStringLiteral(R"re(hoverColor|containsMouse|hovered)re"));
+    const QRegularExpression fontLiteral(QStringLiteral(R"re(pixelSize:\s*[0-9])re"));
 
     QStringList errors;
     for (const QString& name : qmlFiles(qmlDir)) {
@@ -132,6 +133,9 @@ void TestQmlGates::qmlStyle() {
 
             if (QRegularExpression(QStringLiteral(R"re(\.atYEnd\b)re")).match(line).hasMatch())
                 errors << QStringLiteral("%1: R7 ListView.atYEnd (use distanceToEnd)").arg(where);
+
+            if (name != QLatin1String("Theme.qml") && fontLiteral.match(line).hasMatch())
+                errors << QStringLiteral("%1: R11 literal font.pixelSize (use a Theme.font* token)").arg(where);
         }
     }
 

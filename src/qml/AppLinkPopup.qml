@@ -55,7 +55,7 @@ Popup {
             text: I18n.t("Nội dung chỉ mở được trong ứng dụng Zalo", "This content opens only in the Zalo app")
             wrapMode: Text.Wrap
             font.family: Theme.fontFamily
-            font.pixelSize: 15
+            font.pixelSize: Theme.fontSubtitle
             font.weight: Font.DemiBold
             color: ThemeManager.textColor
         }
@@ -72,6 +72,8 @@ Popup {
                 source: root.thumb
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
+                smooth: true
+                mipmap: true
                 sourceSize.width: 128
                 sourceSize.height: 128
             }
@@ -83,7 +85,7 @@ Popup {
                 maximumLineCount: 3
                 elide: Text.ElideRight
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 color: ThemeManager.textColor
             }
         }
@@ -122,7 +124,7 @@ Popup {
             text: I18n.t("Quét bằng Zalo trên điện thoại để xem", "Scan with Zalo on your phone to view")
             wrapMode: Text.Wrap
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
             color: ThemeManager.secondaryTextColor
         }
 
@@ -133,7 +135,7 @@ Popup {
             text: root.url
             wrapMode: TextEdit.WrapAnywhere
             font.family: Theme.fontFamily
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontCaption
             color: ThemeManager.secondaryTextColor
             selectionColor: Theme.zaloBlueLight
         }

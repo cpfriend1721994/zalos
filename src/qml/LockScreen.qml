@@ -36,7 +36,7 @@ Rectangle {
             text: I18n.t("Zalos đã khóa", "Zalos is locked")
             color: ThemeManager.textColor
             font.family: Theme.fontFamily
-            font.pixelSize: 20
+            font.pixelSize: Theme.fontHeadline
             font.weight: Font.DemiBold
         }
         Text {
@@ -46,7 +46,7 @@ Rectangle {
             text: I18n.t("Nhập mã khóa để tiếp tục", "Enter your passcode to continue")
             color: ThemeManager.secondaryTextColor
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontBody
         }
         ZTextField {
             id: passField
@@ -55,7 +55,7 @@ Rectangle {
             enabled: ZaloClient.appLock.retryAfterSeconds === 0
             placeholderText: I18n.t("Mã khóa", "Passcode")
             font.family: Theme.fontFamily
-            font.pixelSize: 15
+            font.pixelSize: Theme.fontSubtitle
             onAccepted: root.submit()
         }
         Text {
@@ -69,7 +69,7 @@ Rectangle {
                   : (root.failed ? I18n.t("Mã khóa không đúng", "Wrong passcode") : "")
             color: Theme.badgeRed
             font.family: Theme.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontSmall
         }
         ZButton {
             Layout.fillWidth: true
@@ -77,5 +77,31 @@ Rectangle {
             enabled: passField.enabled && passField.text.length > 0
             onClicked: root.submit()
         }
+        ZButton {
+            objectName: "forgotPasscodeButton"
+            Layout.alignment: Qt.AlignHCenter
+            variant: "tonal"
+            text: I18n.t("Quên mã khóa?", "Forgot passcode?")
+            onClicked: forgotDialog.open()
+        }
+    }
+
+    ZConfirmDialog {
+        id: forgotDialog
+        objectName: "forgotPasscodeDialog"
+        maxWidth: 360
+        danger: true
+        title: I18n.t("Đăng xuất để đặt lại mã khóa?", "Sign out to reset the passcode?")
+        okText: I18n.t("Đăng xuất", "Sign out")
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            text: I18n.t("Zalos sẽ xóa mã khóa, đăng xuất và xóa tin nhắn đã lưu trên máy này. Đăng nhập lại để tải lại tin nhắn.",
+                         "Zalos removes the passcode, signs you out and deletes the messages saved on this computer. Sign in again to reload your messages.")
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontBody
+            color: ThemeManager.textColor
+        }
+        onAccepted: ZaloClient.forgetPasscodeAndLogout()
     }
 }

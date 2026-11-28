@@ -109,6 +109,8 @@ private:
     QVariantList m_birthday;
     bool m_birthdayLoading{false};
     bool m_birthdayAttempted{false};
+    mutable QString m_recentUid;
+    mutable QVariantList m_recentCache;
 };
 
 }

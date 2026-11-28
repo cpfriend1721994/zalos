@@ -33,9 +33,17 @@ AppLock::AppLock(QObject* parent) : QObject(parent) {
     if (settings.value("lock/iterations").toInt() != kIterations) m_hash.clear();
     m_autoLockMinutes = qBound(0, settings.value("lock/autoMinutes", 0).toInt(), 24 * 60);
     m_locked = hasPasscode();
+    if (hasPasscode()) {
+        m_failures = qMax(0, settings.value("lock/failures", 0).toInt());
+        m_blockedUntil = settings.value("lock/blockedUntil", 0).toLongLong();
+    }
 
     m_idle.setSingleShot(true);
     connect(&m_idle, &QTimer::timeout, this, [this]() {
+        if (m_callActive) {
+            restartIdle();
+            return;
+        }
         if (hasPasscode()) lock();
     });
     m_retryTick.setInterval(1000);
@@ -43,6 +51,7 @@ AppLock::AppLock(QObject* parent) : QObject(parent) {
         if (retryAfterSeconds() == 0) m_retryTick.stop();
         emit retryChanged();
     });
+    if (retryAfterSeconds() > 0) m_retryTick.start();
     restartIdle();
 }
 
@@ -90,6 +99,15 @@ bool AppLock::setPasscode(const QString& current, const QString& passcode) {
 
 bool AppLock::removePasscode(const QString& current) {
     if (!hasPasscode() || !verify(current)) return false;
+    forgetPasscode();
+    return true;
+}
+
+void AppLock::forgetPasscode() {
+    m_failures = 0;
+    m_blockedUntil = 0;
+    m_retryTick.stop();
+    saveAttempts();
     m_salt.clear();
     m_hash.clear();
     QSettings settings;
@@ -102,8 +120,29 @@ bool AppLock::removePasscode(const QString& current) {
     }
     m_idle.stop();
     syncEventFilter();
+    emit retryChanged();
     emit passcodeChanged();
-    return true;
+}
+
+void AppLock::lockForSleep() {
+    if (hasPasscode() && m_autoLockMinutes > 0) lock();
+}
+
+void AppLock::setCallActive(bool active) {
+    if (m_callActive == active) return;
+    m_callActive = active;
+    if (!active) restartIdle();
+}
+
+void AppLock::saveAttempts() {
+    QSettings settings;
+    if (m_failures > 0 || m_blockedUntil > 0) {
+        settings.setValue("lock/failures", m_failures);
+        settings.setValue("lock/blockedUntil", m_blockedUntil);
+    } else {
+        settings.remove("lock/failures");
+        settings.remove("lock/blockedUntil");
+    }
 }
 
 void AppLock::lock() {
@@ -122,11 +161,13 @@ bool AppLock::unlock(const QString& passcode) {
             m_blockedUntil = QDateTime::currentMSecsSinceEpoch() + kPenaltySeconds * 1000;
             m_retryTick.start();
         }
+        saveAttempts();
         emit retryChanged();
         return false;
     }
     m_failures = 0;
     m_blockedUntil = 0;
+    saveAttempts();
     m_locked = false;
     restartIdle();
     emit retryChanged();
