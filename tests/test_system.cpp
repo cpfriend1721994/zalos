@@ -10862,6 +10862,108 @@ private slots:
         QCOMPARE(session.serviceUrls(QStringLiteral("settings")),
                  QStringList{QStringLiteral("https://wpa.chat.zalo.me")});
     }
+
+    void testSidebarTagRibbonAndTimestampLayout() {
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
+        engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath("qrc:/");
+        engine.addImportPath("qrc:/qt/qml");
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(1280, 800);
+        QTest::qWait(300);
+
+        ConversationItem tagged;
+        tagged.id = QStringLiteral("u-shipper");
+        tagged.name = QStringLiteral("Shipper Ngo Quyen Rat Dai De Kiem Tra Elide Khong De Len Ribbon");
+        tagged.lastMessage = QStringLiteral("E gui nhe");
+        tagged.timestampStr = QStringLiteral("7 gio");
+        tagged.tag = QStringLiteral("Shipper");
+        tagged.tagColor = QStringLiteral("#FF1493");
+        tagged.isMuted = true;
+
+        ConversationItem untagged;
+        untagged.id = QStringLiteral("u-plain");
+        untagged.name = QStringLiteral("Plain User");
+        untagged.lastMessage = QStringLiteral("Hello");
+        untagged.timestampStr = QStringLiteral("5 phut");
+
+        client.conversationModel()->setConversations({tagged, untagged});
+        QTest::qWait(200);
+
+        QList<QQuickItem*> ribbons;
+        std::function<void(QQuickItem*, const QString&, QList<QQuickItem*>&)> findVisual =
+            [&](QQuickItem* node, const QString& name, QList<QQuickItem*>& out) {
+                if (!node) return;
+                if (node->objectName() == name) out.append(node);
+                for (QQuickItem* child : node->childItems()) findVisual(child, name, out);
+            };
+        findVisual(window->contentItem(), QStringLiteral("convTagRibbon"), ribbons);
+        QVERIFY(ribbons.size() >= 2);
+        QQuickItem* activeRibbon = nullptr;
+        int visibleRibbons = 0;
+        for (QQuickItem* r : ribbons) {
+            if (r->isVisible()) {
+                ++visibleRibbons;
+                activeRibbon = r;
+            }
+        }
+        QCOMPARE(visibleRibbons, 1);
+        QVERIFY(activeRibbon != nullptr);
+
+        QList<QQuickItem*> tagTexts;
+        findVisual(activeRibbon, QStringLiteral("convTagText"), tagTexts);
+        QVERIFY(!tagTexts.isEmpty());
+        QQuickItem* tagText = tagTexts.first();
+        QVERIFY2(activeRibbon->width() >= tagText->implicitWidth() + 10.0,
+                 qPrintable(QStringLiteral("Ribbon width %1 too narrow for text implicitWidth %2")
+                                .arg(activeRibbon->width()).arg(tagText->implicitWidth())));
+
+        QQuickItem* delegateItem = activeRibbon->parentItem();
+        QVERIFY(delegateItem != nullptr);
+        QList<QQuickItem*> nameItems, timeItems, muteItems;
+        findVisual(delegateItem, QStringLiteral("convNameText"), nameItems);
+        findVisual(delegateItem, QStringLiteral("convTimestamp"), timeItems);
+        findVisual(delegateItem, QStringLiteral("convMuteIcon"), muteItems);
+        QVERIFY(!nameItems.isEmpty());
+        QVERIFY(!timeItems.isEmpty());
+        QVERIFY(!muteItems.isEmpty());
+        QQuickItem* nameItem = nameItems.first();
+        QQuickItem* timeItem = timeItems.first();
+        QQuickItem* muteItem = muteItems.first();
+        QVERIFY(timeItem->isVisible());
+        QVERIFY(muteItem->isVisible());
+
+        const QRectF ribbonRect(activeRibbon->mapToScene(QPointF(0, 0)), activeRibbon->size());
+        const QRectF nameRect(nameItem->mapToScene(QPointF(0, 0)), nameItem->size());
+        const QRectF timeRect(timeItem->mapToScene(QPointF(0, 0)), timeItem->size());
+        const QRectF muteRect(muteItem->mapToScene(QPointF(0, 0)), muteItem->size());
+
+        // Ribbon sits at top-right and does not overlap the conversation name
+        QVERIFY2(nameRect.right() <= ribbonRect.left() + 1.0,
+                 qPrintable(QStringLiteral("Name right %1 overlaps ribbon left %2")
+                                .arg(nameRect.right()).arg(ribbonRect.left())));
+        QVERIFY2(ribbonRect.top() < timeRect.top(),
+                 qPrintable(QStringLiteral("Ribbon top %1 should be above timestamp top %2")
+                                .arg(ribbonRect.top()).arg(timeRect.top())));
+
+        // Timestamp is on the bottom row aligned with the mute icon, below the name
+        QVERIFY2(qAbs(timeRect.center().y() - muteRect.center().y()) < 6.0,
+                 qPrintable(QStringLiteral("Timestamp y %1 not aligned with mute icon y %2")
+                                .arg(timeRect.center().y()).arg(muteRect.center().y())));
+        QVERIFY2(timeRect.top() >= nameRect.bottom() - 2.0,
+                 qPrintable(QStringLiteral("Timestamp top %1 should be below name bottom %2")
+                                .arg(timeRect.top()).arg(nameRect.bottom())));
+    }
 };
 
 QTEST_MAIN(TestSystem)
