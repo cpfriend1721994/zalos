@@ -760,6 +760,9 @@ void MobileHistorySync::sendV2ConversationRequest() {
 }
 
 void MobileHistorySync::releaseV2Sessions(int reason) {
+    if (!m_v2OpenSyncIds.isEmpty()) {
+        log(QStringLiteral("v2 release sessions=%1 reason=%2").arg(m_v2OpenSyncIds.size()).arg(reason));
+    }
     if (m_session) {
         for (const QString& id : std::as_const(m_v2OpenSyncIds)) m_session->sendSyncV2Release(id, reason);
     }

@@ -2578,6 +2578,10 @@ void ZaloSession::sendWs(int cmd, int subCmd, QJsonObject data, const QString& r
     if (state != QAbstractSocket::ConnectedState) return;
     if (!reqIdKey.isEmpty()) data[reqIdKey] = QStringLiteral("req_%1").arg(m_wsRequestId++);
     if (cmd == 590 && !reqIdKey.isEmpty()) m_syncV2ReqId = data.value(reqIdKey).toString();
+    if (cmd == 591 || cmd == 592) {
+        ErrorCatalog::trace("phone-sync", QStringLiteral("ws send cmd=%1 %2").arg(cmd).arg(
+                                              QString::fromUtf8(QJsonDocument(data).toJson(QJsonDocument::Compact))));
+    }
     const QByteArray payload = QJsonDocument(data).toJson(QJsonDocument::Compact);
     QByteArray frame(4, '\0');
     frame[0] = 1;
