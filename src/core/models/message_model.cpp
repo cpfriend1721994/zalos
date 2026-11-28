@@ -673,6 +673,35 @@ void MessageModel::setStatus(const QString& convId, const QString& msgId, const 
                [&](MessageItem& m) { m.status = status; }, this, {StatusRole});
 }
 
+void MessageModel::setSender(const QString& convId, const QString& msgId, const QString& senderId) {
+    auto apply = [&](MessageItem& m) {
+        m.senderId = senderId;
+        m.senderName.clear();
+        m.senderAvatar.clear();
+    };
+    if (convId != m_currentConvId) {
+        auto it = m_store.find(convId);
+        if (it == m_store.end()) return;
+        for (auto& m : *it) {
+            if (m.id == msgId) {
+                apply(m);
+                break;
+            }
+        }
+        return;
+    }
+    const int row = activeRowOf(msgId);
+    if (row < 0 || row >= m_items.size()) return;
+    const int oldStart = runStartOf(row);
+    apply(m_items[row]);
+    resetRunStarts(qMax(0, oldStart));
+    const int last = int(m_items.size()) - 1;
+    emit dataChanged(index(qMax(0, qMin(oldStart, row - 1))), index(qMin(last, row + 1)),
+                     {SenderIdRole, SenderNameRole, SenderAvatarRole, FirstInGroupRole, LastInGroupRole, MediaRunRole,
+                      InMediaRunRole});
+    refreshRunsAround(row);
+}
+
 void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
     markOwnUpTo(convId, msgId, QStringLiteral("seen"));
 }
@@ -877,8 +906,12 @@ int MessageModel::actionsFor(const MessageItem& item) {
     } else if (type == QLatin1String("sticker") || type == QLatin1String("voice") || type == QLatin1String("card")) {
         actions = ActionReply | ActionMenu;
     }
-    if (item.id.isEmpty() || item.id.startsWith(QLatin1String("local-"))) actions &= ActionCopy | ActionMenu;
+    if (!isServerId(item.id)) actions &= ActionCopy | ActionMenu;
     return actions;
+}
+
+bool MessageModel::isServerId(const QString& msgId) {
+    return !msgId.isEmpty() && !msgId.startsWith(QLatin1String("local-")) && !msgId.contains(QLatin1Char('_'));
 }
 
 QVariantMap MessageModel::getMessageById(const QString& msgId) const {

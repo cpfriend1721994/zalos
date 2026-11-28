@@ -135,10 +135,13 @@ public:
     void cleanMobileSync(const QString& publicKey, Callback cb);
     bool sendSyncV2Request(const QString& syncId, const QJsonObject& syncData);
     void sendSyncV2Release(const QString& syncId, int reason);
+    QString lastSyncV2ReleaseReqId() const { return m_syncV2ReleaseReqId; }
     void sendSyncV2WakeUp(const QString& syncId);
     void fetchAliasList(int page, int count, Callback cb);
     void fetchUnreadMarks(Callback cb);
     void fetchNoisedIds(const QStringList& userIds, const QStringList& groupIds, Callback cb);
+    void decryptGlobalIds(const QStringList& globalIds, Callback cb);
+    void encryptToGlobalIds(const QStringList& ids, Callback cb);
     QNetworkReply* getWithCookies(const QUrl& url);
     static bool sendsSessionCookies(const QUrl& url);
 
@@ -265,6 +268,9 @@ public:
     QList<QPair<int, int>> serverQueues() const { return m_serverQueues; }
 
     static QList<QPair<int, int>> queuesFromAuth(const QJsonObject& auth);
+    static QJsonObject globalIdDecryptParams(const QStringList& globalIds);
+    static QHash<QString, QString> globalIdMapOf(const QJsonValue& data);
+    static bool syncV2AckOf(const QJsonObject& frame, QString* reqId, int* err);
     static QJsonObject nextPullPage(const QJsonObject& data, int cmd, int subCmd);
     static QJsonArray readPointsOf(const QJsonObject& data);
     static bool isFailoverError(int networkError, int httpStatus);
@@ -287,6 +293,9 @@ signals:
     void friendEventReceived(const QString& action, const QJsonValue& data);
     void voipControlReceived(const QJsonObject& content);
     void mobileSyncControlReceived(const QJsonObject& content);
+    void syncV2RequestAcked(int err);
+    void syncV2ReleaseAcked(const QString& reqId);
+    void syncV2RequestSent();
     void controlReceived(const QString& actType, const QString& act, const QJsonValue& data);
 
 public:
@@ -314,6 +323,7 @@ private:
     void handleApiReply(QNetworkReply* reply, Callback cb);
     void postMultipartFile(const QString& url, const QJsonObject& params, const QByteArray& content, Callback cb);
     void requestServerInfo(int retryCount = 0, bool signAll = false);
+    QString m_syncV2ReleaseReqId;
     void sendWs(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey = QStringLiteral("req_id"));
     void enqueuePendingWsFrame(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey);
     void scheduleWsReconnect();
@@ -369,6 +379,7 @@ private:
     int m_wsUrlIndex{0};
     int m_wsReconnectAttempts{0};
     int m_wsRequestId{0};
+    QString m_syncV2ReqId;
     QList<QPair<int, int>> m_serverQueues;
     QList<PendingWsFrame> m_pendingWsFrames;
     QHash<int, int> m_pullPages;

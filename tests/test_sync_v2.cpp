@@ -50,7 +50,7 @@ QByteArray singleMessageChunk() {
                          + fieldVarint(2, 1001)
                          + fieldVarint(4, 3)
                          + fieldVarint(5, 1700000000000ULL)
-                         + fieldBytes(6, QByteArray("g999"))
+                         + fieldVarint(6, 9007199254740993ULL)
                          + fieldBytes(7, QByteArray("xin chao"))
                          + fieldBytes(8, meta);
     const QByteArray part = fieldBytes(1, QByteArray("oneone/peer1")) + fieldBytes(2, msg);
@@ -328,7 +328,7 @@ void TestSyncV2::protoSyncV2ChunkParsesPartitionAndMessage() {
     QCOMPARE(m.clientId, quint64(1001));
     QCOMPARE(m.msgType, 3);
     QCOMPARE(m.timestamp, quint64(1700000000000ULL));
-    QCOMPARE(m.globalId, QStringLiteral("g999"));
+    QCOMPARE(m.globalId, QStringLiteral("9007199254740993"));
     QCOMPARE(m.content, QStringLiteral("xin chao"));
     QCOMPARE(m.attaches.size(), 1);
     QCOMPARE(m.attaches.at(0).title, QStringLiteral("photo.jpg"));
@@ -401,7 +401,7 @@ void TestSyncV2::protoSyncV2ChunkPinsDecodedFieldDefaults() {
     QCOMPARE(m.msgStatus, 0);
     QCOMPARE(m.msgType, 3);
     QCOMPARE(m.timestamp, quint64(1700000000000ULL));
-    QCOMPARE(m.globalId, QStringLiteral("g999"));
+    QCOMPARE(m.globalId, QStringLiteral("9007199254740993"));
     QCOMPARE(m.content, QStringLiteral("xin chao"));
     QVERIFY(m.mentions.isEmpty());
     QVERIFY(!m.quote.has_value());

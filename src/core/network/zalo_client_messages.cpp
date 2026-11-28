@@ -801,7 +801,7 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
         }
         const bool alreadySeen = m_messageThread.contains(item.id) || m_recentIds.contains(item.id);
         rememberMessageId(item.id);
-        if (!isThreadResident(threadId) && cacheUsable()) {
+        if (storeOnlyIngest(isThreadResident(threadId), cacheUsable(), m_phoneImporting)) {
             coldThreads[threadId].append(qMakePair(item, msg));
         } else {
             byThread[threadId].append(item);
@@ -883,6 +883,7 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
     }
 
     for (auto it = coldThreads.cbegin(); it != coldThreads.cend(); ++it) {
+        if (m_phoneImporting && isThreadResident(it.key())) m_phoneImportedResident.insert(it.key());
         for (const auto& [item, raw] : it.value()) m_offlineStore->saveMessage(it.key(), item, raw, isGroup);
         m_offlineStore->saveConversation(m_conversationModel->conversation(it.key()));
     }
@@ -1819,6 +1820,66 @@ void ZaloClient::scheduleExpiry() {
     m_expiryTimer->start(int(qBound<qint64>(1000, next - now + 500, 6LL * 60 * 60 * 1000)));
 }
 
+QJsonArray ZaloClient::withoutServerCopies(const QJsonArray& messages, bool isGroup, int* dropped) {
+    if (!m_offlineStore) return messages;
+    QHash<QString, QString> serverIds;
+    QJsonArray out;
+    for (const QJsonValue& v : messages) {
+        QJsonObject msg = v.toObject();
+        const QString id = msg.value("msgId").toString();
+        if (Sync::MobileHistorySync::isPhoneLocalId(id)) {
+            const QString from = idOf(msg.value("uidFrom"));
+            const bool mine = from == QLatin1String("0") || from == m_myUid;
+            const QString thread = (isGroup || mine) ? idOf(msg.value("idTo")) : from;
+            const QString serverId =
+                m_offlineStore->serverCopyOf(thread, msg.value("cliMsgId").toVariant().toString(), from, mine);
+            if (!serverId.isEmpty()) {
+                serverIds.insert(id, serverId);
+                if (dropped) ++*dropped;
+                continue;
+            }
+        }
+        if (msg.value("msgType").toString() == QLatin1String("chat.undo")) {
+            QJsonObject content = msg.value("content").toObject();
+            const QString serverId = serverIds.value(content.value("globalMsgId").toString());
+            if (!serverId.isEmpty()) {
+                content["globalMsgId"] = serverId;
+                msg["content"] = content;
+                msg["msgId"] = QStringLiteral("undo:%1").arg(serverId);
+                out.append(msg);
+                continue;
+            }
+        }
+        out.append(v);
+    }
+    return out;
+}
+
+int ZaloClient::applyCorrectedSenders(const QHash<QString, QString>& senders) {
+    if (senders.isEmpty() || !m_offlineStore) return 0;
+    const int changed = m_offlineStore->correctMessageSenders(senders);
+    for (auto it = senders.cbegin(); it != senders.cend(); ++it) {
+        const QString thread = m_messageThread.value(it.key());
+        if (thread.isEmpty()) continue;
+        const Models::MessageItem shown = m_messageModel->message(thread, it.key());
+        if (shown.id.isEmpty() || shown.isMine || shown.senderId == it.value()) continue;
+        m_messageModel->setSender(thread, it.key(), it.value());
+        auto raw = m_rawMessages.find(it.key());
+        if (raw != m_rawMessages.end()) raw->insert(QStringLiteral("uidFrom"), it.value());
+    }
+    return changed;
+}
+
+void ZaloClient::refreshPhoneImportedThreads() {
+    const QSet<QString> threads = std::exchange(m_phoneImportedResident, {});
+    for (const QString& thread : threads) {
+        m_cacheMerged.remove(thread);
+        if (thread != m_currentConvId) continue;
+        mergeCachedThread(thread);
+        m_messageModel->loadConversation(thread);
+    }
+}
+
 void ZaloClient::mergeCachedThread(const QString& convId) {
     if (!m_offlineStore || convId.isEmpty() || m_cacheMerged.contains(convId)) return;
     if (m_offlineStore->ownerUid().isEmpty() || m_offlineStore->ownerUid() != (m_myUid.isEmpty() ? m_cachedUid : m_myUid)) {
@@ -1827,17 +1888,30 @@ void ZaloClient::mergeCachedThread(const QString& convId) {
     m_cacheMerged.insert(convId);
     QHash<QString, QJsonObject> raws;
     const auto cached = m_offlineStore->loadMessages(convId, &raws, kCachePageRows);
+    if (cached.isEmpty()) {
+        m_cacheFloor.remove(convId);
+    } else {
+        m_cacheFloor.insert(convId, cached.first().ts);
+    }
     mergeCacheRows(convId, cached, raws);
 }
 
 bool ZaloClient::loadOlderFromCache(const QString& convId) {
     if (!cacheUsable() || !m_cacheMerged.contains(convId)) return false;
-    const qint64 oldest = m_messageModel->oldestTimestamp(convId);
-    if (oldest <= 0) return false;
-    QHash<QString, QJsonObject> raws;
-    const auto rows = m_offlineStore->loadMessages(convId, &raws, kCachePageRows + 1, oldest);
+    qint64 floor = qMax(m_cacheFloor.value(convId), m_messageModel->oldestTimestamp(convId));
+    if (floor <= 0) return false;
     const int before = m_messageModel->threadSize(convId);
-    mergeCacheRows(convId, rows, raws);
+    while (true) {
+        QHash<QString, QJsonObject> raws;
+        const auto rows = m_offlineStore->loadMessages(convId, &raws, kCachePageRows + 1, floor);
+        if (rows.isEmpty()) break;
+        const qint64 next = rows.first().ts;
+        mergeCacheRows(convId, rows, raws);
+        const bool stuck = next >= floor || rows.size() <= kCachePageRows;
+        floor = qMin(floor, next);
+        if (stuck || m_messageModel->threadSize(convId) > before) break;
+    }
+    m_cacheFloor.insert(convId, floor);
     return m_messageModel->threadSize(convId) > before;
 }
 
@@ -1894,6 +1968,10 @@ void ZaloClient::mergeCacheRows(const QString& convId, QVector<Models::MessageIt
             if (!dataUrl.isEmpty()) resolveZInstantBankCard(convId, item.id, dataUrl);
         }
     }
+}
+
+bool ZaloClient::storeOnlyIngest(bool resident, bool cacheUsable, bool phoneImport) {
+    return cacheUsable && (!resident || phoneImport);
 }
 
 bool ZaloClient::cacheUsable() const {

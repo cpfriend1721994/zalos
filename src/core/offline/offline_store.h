@@ -135,6 +135,12 @@ public:
     bool clearReactions(const QString& msgId, const QString& uid);
     QVector<ReactionEvent> reactionEventsOf(const QString& msgId) const;
     QSet<QString> reactedMessageIds() const;
+    QHash<QString, QString> savedMessageSenders(const QStringList& ids) const;
+    int correctMessageSenders(const QHash<QString, QString>& senders);
+    QHash<QString, qint64> syncCheckpoints();
+    QSet<QString> existingMessageIds(const QStringList& ids);
+    QString serverCopyOf(const QString& convId, const QString& cliMsgId, const QString& senderId, bool mine);
+    bool saveSyncCheckpoints(const QHash<QString, qint64>& checkpoints);
     struct UnreadReaction {
         QString msgId;
         QString eventId;

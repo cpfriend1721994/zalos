@@ -4108,7 +4108,7 @@ Rectangle {
                 }
 
                 readonly property string msgId: root.menuMessageId || ""
-                readonly property bool isServerMessage: msgId.length > 0 && !msgId.startsWith("local-")
+                readonly property bool isServerMessage: ZaloClient.isServerMessageId(msgId)
 
                 contentItem: ColumnLayout {
                     spacing: 2

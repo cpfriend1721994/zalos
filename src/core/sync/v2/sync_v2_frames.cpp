@@ -233,9 +233,9 @@ std::optional<ParsedSyncV2Message> parseMessage(QByteArrayView data) {
             else if (f.number == 3) msg.msgStatus = static_cast<int>(f.varint);
             else if (f.number == 4) msg.msgType = static_cast<int>(f.varint);
             else if (f.number == 5) msg.timestamp = f.varint;
+            else if (f.number == 6) msg.globalId = QString::number(f.varint);
         } else if (f.wireType == 2) {
             if (f.number == 1) msg.senderId = utf8(f.bytes);
-            else if (f.number == 6) msg.globalId = utf8(f.bytes);
             else if (f.number == 7) msg.content = utf8(f.bytes);
             else if (f.number == 8) {
                 const auto metaFields = parseProto(f.bytes);
