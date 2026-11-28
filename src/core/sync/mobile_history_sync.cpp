@@ -17,6 +17,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QPointer>
 #include <QJsonDocument>
 #include <QNetworkReply>
 #include <QRandomGenerator>
@@ -48,6 +49,7 @@ constexpr int kConfirmTimeoutMs = 3 * 60 * 1000;
 constexpr int kBackupTimeoutMs = 30 * 60 * 1000;
 constexpr int kNoiseBatch = 100;
 constexpr int kDownloadStallMs = 2 * 60 * 1000;
+constexpr int kReleaseAckMs = 2000;
 constexpr int kBatchIdleMs = 20 * 1000;
 constexpr int kFirstBatchMs = 60 * 1000;
 constexpr int kMaxSessionRetries = 1;
@@ -763,11 +765,24 @@ void MobileHistorySync::releaseV2Sessions(int reason) {
     if (!m_v2OpenSyncIds.isEmpty()) {
         log(QStringLiteral("v2 release sessions=%1 reason=%2").arg(m_v2OpenSyncIds.size()).arg(reason));
     }
-    if (m_session) {
-        for (const QString& id : std::as_const(m_v2OpenSyncIds)) m_session->sendSyncV2Release(id, reason);
-    }
-    m_v2OpenSyncIds.clear();
+    const QStringList ids = std::exchange(m_v2OpenSyncIds, {});
     m_v2ConversationSyncId.clear();
+    if (!m_session || ids.isEmpty()) return;
+    const QPointer<Network::ZaloSession> session = m_session;
+    runInSequence(int(ids.size()), [session, ids, reason](int k, std::function<void()> next) {
+        if (!session) return;
+        auto conn = std::make_shared<QMetaObject::Connection>();
+        auto done = std::make_shared<bool>(false);
+        auto proceed = [conn, done, next]() {
+            if (*done) return;
+            *done = true;
+            QObject::disconnect(*conn);
+            next();
+        };
+        *conn = QObject::connect(session, &Network::ZaloSession::syncV2ReleaseAcked, session, proceed);
+        QTimer::singleShot(kReleaseAckMs, session, proceed);
+        session->sendSyncV2Release(ids.at(k), reason);
+    });
 }
 
 void MobileHistorySync::releaseV2ConversationSession() {

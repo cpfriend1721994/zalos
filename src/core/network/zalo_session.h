@@ -288,6 +288,7 @@ signals:
     void voipControlReceived(const QJsonObject& content);
     void mobileSyncControlReceived(const QJsonObject& content);
     void syncV2RequestAcked(int err);
+    void syncV2ReleaseAcked();
     void syncV2RequestSent();
     void controlReceived(const QString& actType, const QString& act, const QJsonValue& data);
 

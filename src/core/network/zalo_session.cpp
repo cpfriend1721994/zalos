@@ -2650,6 +2650,7 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
             }
         }
         ErrorCatalog::trace("phone-sync", QStringLiteral("ws cmd=%1 sub=%2 %3").arg(cmd).arg(subCmd).arg(detail.left(400)));
+        if (cmd == 591) emit syncV2ReleaseAcked();
         return;
     }
 
