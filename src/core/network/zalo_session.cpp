@@ -315,6 +315,9 @@ QStringList ZaloSession::serviceUrls(const QString& service) const {
     if (urls.isEmpty() && service == QLatin1String("group_cloud_message")) {
         urls = QJsonArray{QStringLiteral("https://tt-group-cm.api.zaloapp.com")};
     }
+    if (urls.isEmpty() && service == QLatin1String("settings")) {
+        urls = QJsonArray{QStringLiteral("https://wpa.chat.zalo.me")};
+    }
     QStringList out;
     for (const QJsonValue& v : urls) {
         const QString url = v.toString();
@@ -1808,11 +1811,11 @@ void ZaloSession::deleteAutoReply(const QString& lang, qint64 id, Callback cb) {
 }
 
 void ZaloSession::getSettings(Callback cb) {
-    apiGet("chat", "/api/setting/me", {}, cb, true);
+    apiGet("settings", "/api/setting/me", {}, cb, true);
 }
 
 void ZaloSession::updateSetting(const QString& type, int value, Callback cb) {
-    apiGet("chat", "/api/setting/update", {{type, value}}, cb);
+    apiGet("settings", "/api/setting/update", {{type, value}}, cb);
 }
 
 void ZaloSession::fetchHiddenConversations(Callback cb) {

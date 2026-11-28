@@ -9310,6 +9310,71 @@ private slots:
         client.setProperty("showSettingsModal", false);
         QTest::qWait(50);
     }
+
+    void testServerSettingsParsing() {
+        ZaloClient client;
+        QSignalSpy spy(&client, &ZaloClient::serverSettingsChanged);
+
+        // Nested response matching Zalo's /api/setting/me payload ("setting" + "setting2")
+        const QJsonObject nested{
+            {"setting", QJsonObject{
+                {"show_online_status", 0},
+                {"display_seen_status", false},
+                {"receive_message", 2},
+                {"accept_stranger_call", 2},
+                {"display_on_recommend_friend", "0"},
+                {"add_friend_via_phone", "false"},
+                {"add_friend_via_qr", 0},
+                {"add_friend_via_group", 1},
+                {"view_birthday", 2},
+            }},
+            {"setting2", QJsonObject{
+                {"add_friend_via_qr", 1},
+            }},
+        };
+        client.applyServerSettingsForTesting(nested);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(client.showOnlineStatus(), false);
+        QCOMPARE(client.displaySeenStatus(), false);
+        QCOMPARE(client.receiveStrangerMessage(), false);
+        QCOMPARE(client.acceptStrangerCall(), false);
+        QCOMPARE(client.displayOnRecommendFriend(), false);
+        QCOMPARE(client.addFriendViaPhone(), false);
+        // "setting" takes precedence over "setting2" when both contain the same key
+        QCOMPARE(client.addFriendViaQr(), false);
+        QCOMPARE(client.addFriendViaGroup(), true);
+        QCOMPARE(client.viewBirthday(), 2);
+
+        // accept_stranger_call = 4 (Everyone) and 3 (Friends & contacted strangers) are both ON
+        client.applyServerSettingsForTesting(QJsonObject{{"setting", QJsonObject{{"accept_stranger_call", 4}}}});
+        QCOMPARE(client.acceptStrangerCall(), true);
+        client.applyServerSettingsForTesting(QJsonObject{{"setting", QJsonObject{{"accept_stranger_call", 3}}}});
+        QCOMPARE(client.acceptStrangerCall(), true);
+        client.applyServerSettingsForTesting(QJsonObject{{"setting", QJsonObject{{"accept_stranger_call", 0}}}});
+        QCOMPARE(client.acceptStrangerCall(), false);
+
+        // JSON-encoded string inside "setting" and flat response fallback
+        client.applyServerSettingsForTesting(QJsonObject{
+            {"setting", QStringLiteral("{\"show_online_status\":1,\"receive_message\":\"1\"}")}
+        });
+        QCOMPARE(client.showOnlineStatus(), true);
+        QCOMPARE(client.receiveStrangerMessage(), true);
+
+        client.applyServerSettingsForTesting(QJsonObject{{"display_seen_status", true}});
+        QCOMPARE(client.displaySeenStatus(), true);
+
+        // Verify "settings" service resolves to https://wpa.chat.zalo.me when omitted from zpw_service_map_v3
+        QNetworkAccessManager nam;
+        SessionCookieJar jar;
+        ZaloSession session(&nam, &jar);
+        session.setLoginInfoForTesting(QJsonObject{
+            {"zpw_service_map_v3", QJsonObject{
+                {"chat", QJsonArray{QStringLiteral("https://tt-chat3-wpa.chat.zalo.me")}},
+            }}
+        });
+        QCOMPARE(session.serviceUrls(QStringLiteral("settings")),
+                 QStringList{QStringLiteral("https://wpa.chat.zalo.me")});
+    }
 };
 
 QTEST_MAIN(TestSystem)
