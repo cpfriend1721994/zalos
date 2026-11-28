@@ -639,6 +639,17 @@ void MessageModel::setStatus(const QString& convId, const QString& msgId, const 
                [&](MessageItem& m) { m.status = status; }, this, {StatusRole});
 }
 
+void MessageModel::setSender(const QString& convId, const QString& msgId, const QString& senderId) {
+    updateItem(m_store, m_items, m_activeRowById, m_currentConvId, convId, msgId,
+               [&](MessageItem& m) { m.senderId = senderId; }, this,
+               {SenderIdRole, SenderNameRole, SenderAvatarRole, FirstInGroupRole, LastInGroupRole});
+    const int row = convId == m_currentConvId ? activeRowOf(msgId) : -1;
+    if (row < 0) return;
+    const int last = int(m_items.size()) - 1;
+    emit dataChanged(index(qMax(0, row - 1)), index(qMin(last, row + 1)), {FirstInGroupRole, LastInGroupRole});
+    refreshRunsAround(row);
+}
+
 void MessageModel::markSeenUpTo(const QString& convId, const QString& msgId) {
     markOwnUpTo(convId, msgId, QStringLiteral("seen"));
 }

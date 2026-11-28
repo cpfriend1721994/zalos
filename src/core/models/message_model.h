@@ -110,6 +110,7 @@ public:
     void setSticker(const QString& convId, const QString& msgId, const QVariantMap& info);
     void setMessageExtra(const QString& convId, const QString& msgId, const QString& text, const QVariantMap& extra);
     void setStatus(const QString& convId, const QString& msgId, const QString& status);
+    void setSender(const QString& convId, const QString& msgId, const QString& senderId);
     void markSeenUpTo(const QString& convId, const QString& msgId);
     void recordGroupSeen(const QString& convId, const QString& msgId, const QString& userId);
     void markDeliveredUpTo(const QString& convId, const QString& msgId);

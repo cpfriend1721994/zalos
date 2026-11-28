@@ -3781,6 +3781,23 @@ private slots:
         QCOMPARE(client.messageModel()->threadSize("u-tr-a"), 300);
     }
 
+    void testCorrectedSenderShowsOnLoadedMessage() {
+        {
+            ZaloOfflineStore owner;
+            owner.clearCache();
+            owner.bindOwner("u-cs-owner");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-cs-owner");
+        const QJsonObject msg{{"msgId", "8601"}, {"cliMsgId", "8601"}, {"uidFrom", "u-cs-wrong"}, {"idTo", "g-cs"},
+                              {"msgType", "webchat"}, {"content", "fixture"}, {"ts", "1700000000000"}};
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{msg}, true, false);
+        client.selectConversation("g-cs", "Group", "");
+        QCOMPARE(client.messageModel()->message("g-cs", "8601").senderId, QStringLiteral("u-cs-wrong"));
+        QCOMPARE(client.applyCorrectedSenders({{"8601", "u-cs-right"}}), 1);
+        QCOMPARE(client.messageModel()->message("g-cs", "8601").senderId, QStringLiteral("u-cs-right"));
+    }
+
     void testPhoneImportRefreshesAfterCancel() {
         {
             ZaloOfflineStore owner;

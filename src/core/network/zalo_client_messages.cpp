@@ -1575,6 +1575,21 @@ void ZaloClient::scheduleExpiry() {
     m_expiryTimer->start(int(qBound<qint64>(1000, next - now + 500, 6LL * 60 * 60 * 1000)));
 }
 
+int ZaloClient::applyCorrectedSenders(const QHash<QString, QString>& senders) {
+    if (senders.isEmpty() || !m_offlineStore) return 0;
+    const int changed = m_offlineStore->correctMessageSenders(senders);
+    for (auto it = senders.cbegin(); it != senders.cend(); ++it) {
+        const QString thread = m_messageThread.value(it.key());
+        if (thread.isEmpty()) continue;
+        const Models::MessageItem shown = m_messageModel->message(thread, it.key());
+        if (shown.id.isEmpty() || shown.isMine || shown.senderId == it.value()) continue;
+        m_messageModel->setSender(thread, it.key(), it.value());
+        auto raw = m_rawMessages.find(it.key());
+        if (raw != m_rawMessages.end()) raw->insert(QStringLiteral("uidFrom"), it.value());
+    }
+    return changed;
+}
+
 void ZaloClient::refreshPhoneImportedThreads() {
     const QSet<QString> threads = std::exchange(m_phoneImportedResident, {});
     for (const QString& thread : threads) {

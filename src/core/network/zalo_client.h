@@ -665,6 +665,7 @@ public:
     Q_INVOKABLE void clearLoginError();
     Q_INVOKABLE void logout();
 
+    int applyCorrectedSenders(const QHash<QString, QString>& senders);
 #ifdef ZALOS_TESTING
     void applyAliasesForTesting(const QHash<QString, QString>& aliases) { applyAliases(aliases); }
     void applyGroupInfoForTesting(const QJsonObject& gridInfoMap) { applyGroupInfo(gridInfoMap); }

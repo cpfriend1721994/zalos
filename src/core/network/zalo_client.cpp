@@ -179,7 +179,7 @@ ZaloClient::ZaloClient(QObject* parent)
                                          m_offlineStore->savedMessageSenders(Sync::MobileHistorySync::messageIdsOf(imported)),
                                          m_historySync->importingFromV2(), &alreadySaved, &senderFixes)
                                    : imported;
-                const int sendersFixed = senderFixes.isEmpty() ? 0 : m_offlineStore->correctMessageSenders(senderFixes);
+                const int sendersFixed = applyCorrectedSenders(senderFixes);
                 const auto before = m_offlineStore ? m_offlineStore->saveStats() : Offline::ZaloOfflineStore::SaveStats{};
                 const QHash<QString, int> dropsBefore = m_ingestDrops;
                 if (!messages.isEmpty()) {
