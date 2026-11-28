@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.3] - 2026-11-28
+
+### Added
+- **Phone-Style Layout for Narrow Windows:** Zalos fits screen tiles such as a quarter (480×1040) or an eighth (480×520) of a 1080p screen, and the minimum window size drops from 480×440 to 360×420. With one-column layout, an open chat fills the whole window (the navigation rail hides and the back arrow returns to the list), conversation info opens full window with a back arrow, and Settings opens full window in narrow or short windows.
+- **Back to the Chat List in Narrow Windows:** in the one-column layout, Esc (when no dialog or menu is open), the mouse Back button and a two-finger swipe on the touchpad close the full-window conversation info, then return to the chat list.
+- **Forgot Passcode:** the lock screen has a "Quên mã khóa?" button that, after confirmation, removes the passcode, signs out and deletes the messages saved on this computer.
+- **Automatic Update Checks:** Settings › About replaces the "Kiểm tra cập nhật" button with "Tự động kiểm tra cập nhật" (Off, Every launch, Daily by default, Weekly) and shows when it last checked. A new version is announced once; AppImage, .deb and .rpm installs can also turn on "Tự động tải và cài bản mới". A failed check is retried later.
+- **Select Several Messages:** "Chọn nhiều tin nhắn" in the message menu enters a selection mode to copy, forward or delete (for you) up to 100 messages at once.
+- **Photo Albums:** sending two or more photos together posts them as one Zalo album, and incoming albums are grouped by their album id instead of by time.
+- **GIF Tab:** the emoji and sticker panel has a GIF tab with trending GIFs and search, served by Zalo.
+- **Important and Urgent Messages:** the bell button in the composer marks a message as Quan trọng or Khẩn cấp; marked messages, sent or received, show a coloured label.
+- **Delete for Everyone in Groups:** group owners and admins can delete a member's message for everyone, after confirmation.
+- **Mark as Read:** the chat list menu has "Đánh dấu đã đọc", and the filter menu has "Đánh dấu tất cả đã đọc" (with confirmation); "Đánh dấu đã đọc" in the system tray menu marks every chat as read when there are unread messages.
+- **Mentions:** conversations with an unread mention show an `@` badge, and an `@` button in the chat jumps to each unread mention.
+- **Undo Deleting a Conversation:** deleting a conversation hides it at once and shows "Hoàn tác" for 5 seconds before it is deleted on the server.
+- **More Menus in the Chat Header and Composer:** in narrow windows, add member / create group and conversation info move into a `⋯` menu in the chat header (search too below 420 px). Below 480 px, the composer keeps sticker, image, file and voice buttons and moves screenshot, mention, contact card, poll, schedule, quick message, formatting and expand into a `⋯` menu.
+- **Keyboard Shortcuts Sheet:** `Ctrl+/` or "Phím tắt" in the account menu lists every keyboard shortcut, including the ones you changed in `shortcuts-custom.json`.
+- **Result List for Search in a Chat:** when searching inside a conversation, an eye button next to the up/down arrows opens the list of all matches (newest first, with sender, avatar, text and time, the current one highlighted), like the message results of the main search; clicking a match jumps to it.
+- **Floating Date While Scrolling:** scrolling up through a chat shows the day of the messages at the top ("Hôm nay", "Hôm qua" or the date), which fades out shortly after you stop.
+
+### Changed & Improved
+- **Faster Chat Lists and Messages:** message merging reuses the open conversation's index, and the chat list and contact list update through one shared routine that moves rows instead of searching for them.
+- **Faster Database Startup and Deletes:** the database checks each table's columns once instead of up to 15 times at startup, and deleting a conversation, message or expired messages runs in a single transaction.
+- **Lighter Call Media Path:** video and audio packet protection avoids extra copies and reallocations, incoming video frames are reassembled into one pre-sized buffer, each message from the call engine is parsed once, outgoing camera frames are written without an extra copy, and oversized video frames from the call engine are skipped correctly.
+- **Smoother Message List:** recycled message rows no longer replay their fade-in while you scroll fast, a row builds its context-menu data and full-time tooltip only when you right-click or hover, the "seen by" avatars are prepared only in group chats, and the big-emoji size of each message is worked out once and reused.
+- **Less Work in the Background:** the call timer, GIF and sticker animations, loading spinners and the QR placeholder pause while the window is hidden or minimised, the screen-share picker previews load off the main thread, the image viewer's thumbnail strip reuses its items, recent stickers are no longer re-read from settings on every look, and shared photos and files of conversations unloaded from memory are released with them.
+- **Short Windows:** below 600 px of height, conversation rows are 60 px with 40 px avatars, and the composer input grows from 1 to 4 lines instead of 3 to 8.
+- **Wider Bubbles in Narrow Chats:** message bubbles keep a fixed gap on the opposite side instead of a flat 70 % width, so narrow chats wrap less.
+- **Video Call Split View:** "Chia đôi" stacks the two videos top and bottom when the window is taller than wide, and the self preview scales with the window.
+- **Sharp Rendering at Interface Scale:** icons, avatars, badges and rounded image masks use mipmapped vector/DPR-scaled rendering; online/offline status dots draw their ring and fill as a single concentric antialiased vector image so they stay round and centered at fractional scales (90%, 125%); and `:v` is redrawn as a 3D glossy vector matching the original `:v`, rendered 1:1 at the exact physical pixel size for every inline and large size across 80%–150% scale and HiDPI displays without jagged edges or downscaling blur.
+- **Proportional Emoji & `:v` Scaling:** inline Unicode emoji (`16 / 19 / 23 px`) and vector `:v` (`14 / 17 / 20 px`) are visually balanced to equal diameter across small, normal, and large message text, standalone messages of 1–3 emojis enlarge without a bubble (`44 / 36 / 32 px` emoji, `40 / 33 / 29 px` `:v`), and color emoji fallback applies consistently across the emoji picker, reactions, and Settings.
+- **Settings Layout:** the download folder, avatar cache limit and avatar clean-up settings use the same card rows as the other settings, and the storage tab's downloaded files entry follows the chosen download folder.
+- **Dialogs in Narrow Windows:** confirmation dialogs shrink to fit the window instead of overflowing.
+- **Voice Messages:** voice messages have a seek bar, a 1× / 1.5× / 2× speed chip and show the playing position; the next voice message in the chat plays automatically.
+- **Pick Up Where You Left Off:** reopening a chat during the same session returns to the message you were reading when there are no new unread messages.
+- **Drag and Drop Into the Composer:** dropped files and photos go to the attachment tray for review instead of being sent at once, and dropped text is inserted into the message.
+- **File Downloads:** file cards show download progress and a Downloaded state with a button to show the file in its folder; "Lưu thành…" in the message menu saves files and videos anywhere, and Settings › General can change the download folder.
+- **Stable Media Sizes:** photos and videos reserve their final size from the size the sender declared, so the message list no longer jumps while thumbnails load.
+- **Tray Shows Offline State:** the tray icon turns grey with an "Offline" tooltip when the connection has been lost for a few seconds, and the light/dark mode toggle was removed from the tray menu (theme mode remains in Settings › Appearance).
+- **Clear Reply Quotes:** quotes of photos, videos, files, stickers, voice messages, contact cards, locations and calls show labels such as `[Hình ảnh]`, `[Video]` or `[Tập tin] name` instead of raw links, JSON or internal text; an empty quote is filled from the original message when it is loaded.
+- **Server Info Fallback:** when the server info request fails, Zalos retries it once in the newer Zalo Web format (all parameters signed, maintenance and bucket fields included) before the usual retries.
+- **Login Screen:** the Zalos logo sits next to the name, the QR card shows an animated placeholder while the code loads, and the app version appears under the card.
+- **Welcome Screen:** the slides describe what Zalos actually does (group calls marked as beta, what syncs with your phone, drag-and-drop files, `/` for quick messages), two new slides cover privacy (anti-peeking, passcode, hidden chats) and keyboard shortcuts, and buttons open the shortcuts list, phone sync and appearance settings.
+- **Account Menu:** the menu opens with your avatar, name and phone number; clicking them opens your profile.
+- **Conversation Info Buttons:** the quick action buttons share the panel width and keep two-line labels aligned, so none of them runs off the edge.
+- **Empty Lists:** the chat list, Contacts, Create group and Forward show an icon, a title and a hint (and a Reload button where useful) instead of a plain line of text.
+- **Consistent Text Sizes:** all text follows one size scale; a few titles that used 17 px (chat header name, Settings, phone sync prompt) now use 16 px like the other dialogs.
+- **Screen Readers:** icon buttons, menu items, checkboxes and conversation info buttons announce their names to screen readers such as Orca.
+- **Consistent Text Fields:** search and text boxes in Contacts, Profile, the info panel, Kiki and the schedule dialog use the same Zalos field style in light and dark mode.
+- **README and Website:** install instructions no longer list Flatpak (Zalos is not on Flathub yet), the download commands always fetch the latest release for your machine's architecture, package sizes are updated (about 21 MB for .deb/.rpm, 26 MB for the AppImage), the Snap notes say OpenH264 is bundled, and the feature lists no longer claim end-to-end encryption.
+- **Message Actions Match Each Message Type:** reactions, reply, forward, copy, pin and selection only appear where Zalo supports them. Calls, polls, greeting cards, bank transfer cards, Zalo notices and system lines no longer show a reaction button, hover actions or a right-click menu; stickers, voice messages and contact cards can be replied to but not reacted to or forwarded (forwarding sent only a plain-text copy); locations can be replied to and forwarded. Unsent messages no longer offer forward. When forwarding a selection, messages that can't be forwarded are skipped with a notice.
+- **Scroll Bars Everywhere:** every scrolling list or panel has a scroll bar on its right edge that you can drag, like the message list: the chat list, search results, Contacts, Cloud, the Settings tab list, labels, reactions and "seen by" lists, the sticker and GIF panels, Business tools, the call device picker and others.
+- **Search Results in Tabs:** the main search shows three tabs above the results, Trò chuyện, Liên hệ & nhóm and Tin nhắn, each with its count. Clicking a tab shows only that list; the tab opens on the first list that has results.
+- **Same Highlight When Opening a Found Message:** opening a message from the main search now shows it like search inside a chat (centred with a blue outline, kept while the search results are open), and every jump to a message (search results, the arrows, quotes, pins, reactions) blinks the message once instead of keeping it highlighted for almost two seconds.
+
+### Fixed
+- **Cancelled Screenshot Sent Anyway:** cancelling the system screenshot dialog no longer captures and sends the whole screen.
+- **Settings Split Across Two Files:** all settings now live in one file; existing values from the old file are moved over once on first start (so the sound language and other preferences are read correctly).
+- **Sign-Out Leftovers:** signing out clears the state added in this release (scroll anchors, download progress, GIF results, pending attachments, urgency and mention markers) and the phone sync state is fully reset on failure.
+- **Screenshot Temporary Files:** leftover screenshot files are removed with the other temporary files.
+- **Sticker Search:** each sticker search now finishes once and releases its resources.
+- **Avatar Loading Race:** cancelling an avatar load can no longer let a late decode report the image twice.
+- **Phone Sync Cleanup:** an unreachable message-batch branch in phone history sync was removed.
+- **Late Replies After Sign-Out:** group details, shared media, pinned messages and labels that arrive after you sign out or switch accounts are ignored instead of being written into the next session.
+- **Recalled Messages in Notifications:** the desktop notification of a message that is recalled is closed.
+- **Dock Badge and Notification Grouping in Flatpak and AppImage:** the unread badge and notifications use the app's actual desktop file name.
+- **Start With the System in Flatpak:** the option uses the system background permission and reports when it isn't granted instead of showing "on" without effect.
+- **Anti-Peeking in the Chat List:** with anti-peeking on, message previews in the chat list are hidden until you hover a conversation.
+- **Muted Chats Still Notifying:** mute settings sent with prefixed ids (`group_…`, `g…`, `u…`), other id fields, numbers as text or millisecond start times are read correctly, and an error or unreadable mute reply no longer unmutes every chat.
+- **App Lock Skipped After Sleep:** with auto-lock on, Zalos locks when the computer goes to sleep, since the idle timer does not count suspended time.
+- **App Lock During Calls:** the idle auto-lock waits until an active call ends.
+- **Passcode Attempts Reset on Restart:** failed attempts and the waiting time are kept across restarts.
+- **Esc and Shortcuts With Dialogs Open:** Esc closes Settings, group, label, poll, forward and business dialogs again, and app shortcuts no longer act behind an open dialog (a regression in 1.3.2).
+- **Distorted Default Emoji:** the default quick emoji buttons in Settings › Chat render without the distortion of native text rendering, and each emoji sits centred in its circle.
+- **32-bit ARM Build:** bundled libopus intrinsics are disabled on 32-bit ARM so the call audio engine builds there.
+- **Phone History Import:** contact lookups during phone sync go one batch at a time like Zalo PC, so group messages no longer get the wrong sender, and the expiring-message check uses its index instead of scanning every message (#19, #20, thanks @nguyenphivn).
+- **Zalos Name Everywhere:** the startup screen says "Zalos" instead of "Zalo", the welcome screen greets you to Zalos instead of "Zalo PC", Settings › About describes Zalos as an unofficial Zalo client, and the tray shows "Người dùng Zalo" for a caller without a name.
+
+### Security
+- **Message Links Never Reach Local Files:** links, photos and files received from other people can no longer point at files on your computer. Before this fix, a crafted message could make Zalos upload a local file (including the saved sign-in session) when you forwarded it, or copy and open a local program when you clicked it. Your own messages keep working as before.
+- **Safer Link Opening:** message links, link cards, locations and pins open only web, mail and phone links. Other link types (network shares, app handlers) are refused.
+- **Sign-In Cookies Over HTTPS Only:** Zalo session cookies are sent only over encrypted connections; plain `http://` Zalo addresses are upgraded to HTTPS first, and redirects to unencrypted addresses are stopped.
+- **Call Video Hardening:** oversized video frames from the other side of a call are dropped instead of being able to corrupt memory in Zalos, camera size requests are capped at 1920 px, and group calls track at most 64 video streams.
+- **Private Call Connection Keys:** the keys that connect Zalos to its call engine no longer appear in the process list visible to other users of the same computer, and each connection slot accepts only one client.
+- **Update Verification Required:** in-app updates refuse to install when the release has no checksum file, and packages are downloaded into a private folder instead of Downloads before installation.
+
 ## [1.3.2] - 2026-11-26
 
 ### Added

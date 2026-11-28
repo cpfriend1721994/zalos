@@ -5,7 +5,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.3.2
+Version:        1.3.3
 Release:        1%{?dist}
 Summary:        Native Qt6 (C++/QML) messaging client for Zalo on Linux
 License:        MIT AND BSD-3-Clause AND OFL-1.1
@@ -90,6 +90,20 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %license %{_datadir}/%{name}/fonts/NotoSans-OFL.txt
 
 %changelog
+* Sat Nov 28 2026 Zalos Team <dev@zalos.local> - 1.3.3-1
+- Add a phone-style layout for narrow and short windows (screen tiles down to 360x420): the chat fills the window, header and composer tools move into a More menu, conversation info and Settings open full window, and video call split view stacks vertically.
+- Render icons, avatars, badges and rounded image masks sharply across all scales; draw concentric antialiased online/offline status dots centered at fractional scales (90%, 125%); redraw :v as a 3D glossy vector matching the original and rendered 1:1 at every pixel size; balance inline (16/19/23 vs 14/17/20 px) and jumbo 1-3 (44/36/32 vs 40/33/29 px) emojis and :v with consistent color emoji fallback; and keep confirmation dialogs inside narrow windows.
+- Read prefixed and text-typed mute ids and ignore error mute replies; show clear labels for quoted media; retry server info in the newer signed format when it fails.
+- Lock on sleep, skip idle lock during calls, keep failed passcode attempts across restarts, add Forgot passcode (sign out) and Esc/mouse Back/touchpad swipe back to return to the chat list in narrow windows, and keep Esc and shortcuts scoped when dialogs are open.
+- Add multi-select (copy/forward/delete), photo albums, a GIF tab, Important/Urgent messages, admin delete for everyone, mark as read (including "Mark as read" in the tray menu when unread messages exist), @ mention badge and jump, undo for deleting a conversation, keyboard shortcuts sheet (Ctrl+/), and floating date while scrolling.
+- Improve voice messages (seek, speed, autoplay next), resume reading position, drag and drop into the attachment tray, file download progress with Save as and download folder setting, stable media sizes, refreshed login/account menu/empty states, consistent text sizes, screen reader labels, and an offline tray icon (removing the light/dark mode toggle from the tray menu).
+- Fix phone history import contact lookups (sequential batches, #20) and indexed expiry lookup (#19), close notifications of recalled messages, fix the dock badge and autostart under Flatpak, and hide chat list previews with anti-peeking.
+- Harden security: block peer links/files from reaching local files, restrict link opening to web/mail/phone, enforce HTTPS-only sign-in cookies, bound call video frame sizes, keep call engine keys private, and require checksum verification in a private folder for updates.
+- Check for updates automatically (off / every launch / daily / weekly) with optional automatic install, replacing the manual check button; settings rows use one card style.
+- Fix cancelled screenshots being sent, merge settings into one file (migrated once), reset more state on sign-out, and speed up message merging, list updates, database startup and call media packets.
+- Show search results in Chats / Contacts & groups / Messages tabs, add a result list to search inside a chat, open found messages with the same outline and a single blink, match message actions (reactions, reply, forward, copy, menu) to each message type, and add scroll bars to every scrolling list.
+- Disable bundled libopus intrinsics on 32-bit ARM builds.
+
 * Thu Nov 26 2026 Zalos Team <dev@zalos.local> - 1.3.2-1
 - Add Settings > Chat Settings (chat background & default quick emoji), tray menu notifications toggle and Settings entry, and 80%-150% interface scale.
 - Use the SQLite partial indexes for client message id lookups so large phone history imports stay fast.

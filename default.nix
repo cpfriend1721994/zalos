@@ -2,7 +2,7 @@
 
 pkgs.stdenv.mkDerivation rec {
   pname = "zalos";
-  version = "1.3.2";
+  version = "1.3.3";
 
   src = pkgs.lib.cleanSourceWith {
     src = ./.;

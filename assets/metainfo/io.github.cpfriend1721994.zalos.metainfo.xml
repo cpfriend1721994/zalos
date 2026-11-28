@@ -39,6 +39,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.3.3" date="2026-11-28">
+      <description>
+        <p>Zalos now fits narrow and short windows (down to 360x420) with a phone-style one-column layout, and Esc, Back or a touchpad swipe returns to the chat list. New: select several messages to copy, forward or delete; photo albums; a GIF tab; Important and Urgent messages; mark as read; @ mention badges; undo when deleting a conversation; voice message seek and speed; drag and drop into the attachment tray; file download progress and a choosable download folder; automatic update checks; search results in tabs and a result list for search inside a chat; message actions that match each message type; scroll bars on every list. Fixed muted chats still notifying, app lock after sleep and during calls, and recalled messages in notifications.</p>
+      </description>
+    </release>
     <release version="1.3.2" date="2026-11-26">
       <description>
         <p>Added a dedicated Chat Settings section with chat background options and a configurable default quick emoji (composer quick-send and message hover quick-react), tray menu toggles for notifications and Settings, 80%-150% interface scaling in Settings &gt; Appearance, and multi-monitor X11 / Wayland portal screen sharing. Also fixes faster phone history import, iOS Sync v2 streaming zstd batches, --force-sync-v2 startup handling, poll vote locking, unfriended users reappearing after restart, voice note re-recording, call microphone recovery after unplugging, screenshot window state preservation, and video calls and playback without hardware acceleration.</p>
