@@ -64,6 +64,7 @@ public:
         "SELECT ts, conv_id FROM messages WHERE cli_msg_id = :cli AND cli_msg_id <> '' LIMIT 1;";
     static constexpr const char* kSqlIdByCliId =
         "SELECT id FROM messages WHERE cli_msg_id = :cli AND cli_msg_id <> '' LIMIT 1;";
+    static constexpr const char* kSqlNextExpiry = "SELECT MIN(expire_on) FROM messages WHERE expire_on > 0 AND expire_on > :now;";
     static constexpr const char* kSqlIdByConvAndCliId =
         "SELECT id FROM messages WHERE conv_id = :c AND cli_msg_id = :cli AND cli_msg_id <> '' LIMIT 1;";
     QString ownerUid() const;

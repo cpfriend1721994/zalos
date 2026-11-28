@@ -211,11 +211,12 @@ private slots:
             {ZaloOfflineStore::kSqlIdByConvAndCliId, "idx_messages_conv_cli"},
             {ZaloOfflineStore::kSqlIdByCliId, "idx_messages_cli"},
             {ZaloOfflineStore::kSqlTsByCliId, "idx_messages_cli"},
+            {ZaloOfflineStore::kSqlNextExpiry, "idx_messages_expire"},
         };
         for (const auto& c : cases) {
             QSqlQuery q(db);
             QVERIFY2(q.prepare(QStringLiteral("EXPLAIN QUERY PLAN ") + QLatin1String(c.sql)), c.sql);
-            for (const char* name : {":conv", ":c", ":cli", ":id"}) {
+            for (const char* name : {":conv", ":c", ":cli", ":id", ":now"}) {
                 if (QByteArray(c.sql).contains(QByteArray(name) + ' ') || QByteArray(c.sql).contains(QByteArray(name) + ';')) {
                     q.bindValue(QLatin1String(name), QStringLiteral("x"));
                 }
