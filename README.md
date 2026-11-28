@@ -13,7 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-features)
 [![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64%20%7C%20armhf%20%7C%20riscv64-teal.svg)](#-installation)
-[![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20Snap%20%7C%20Flatpak%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-installation)
+[![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20Snap%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-installation)
 [![zalos](https://snapcraft.io/zalos/badge.svg)](https://snapcraft.io/zalos)
 
 [English](README.md) | [Tiếng Việt](README.vi.md) | [Website](https://zalos.pages.dev/)
@@ -27,7 +27,7 @@
 **Zalos** is an open-source native Linux client for Zalo, built with C++17 and Qt 6 QML
 with a lean, purpose-built architecture:
 
-- **Self-contained & lightweight:** Compact packages (`~25 MB` `.deb`, `~27 MB` `.rpm`, `~27 MB` `AppImage`) bundling their own Qt 6.8.3 LTS runtime with QML AOT compilation, so no system Qt is needed on any distribution, plus minimal memory footprint (~40–65 MB RAM, saving over 90% compared to 450–1,800+ MB on Electron wrappers).
+- **Self-contained & lightweight:** Compact packages (`~21 MB` `.deb`, `~21 MB` `.rpm`, `~26 MB` `AppImage`) bundling their own Qt 6.8.3 LTS runtime with QML AOT compilation, so no system Qt is needed on any distribution, plus minimal memory footprint (~40–65 MB RAM, saving over 90% compared to 450–1,800+ MB on Electron wrappers).
 - **High performance:** Instant startup (<0.5s), C++ AOT-compiled Qt Quick UI (`-DZALOS_QML_AOT=ON`), full color emojis (bundled CBDT fallback) & `MultiEffect` rounded masks/blur, software renderer by default with optional GPU acceleration, multi-threaded C++ cryptographic decoding, and built-in slim FFmpeg 7.1.5 LGPL playback (H.264/AAC/MP3).
 - **Linux native:** Wayland & X11 support with system theme synchronization (light/dark), native desktop notifications, and Fcitx5 / IBus Vietnamese input.
 
@@ -36,7 +36,7 @@ with a lean, purpose-built architecture:
 | Metric | Zalos (C++17 / Qt 6 QML) | Zalo PC / Electron Wrapper |
 |---|---|---|
 | **Runtime Memory (RAM)** | **~40 – 65 MB** (self-managed, >90% lighter) | 450 – 1,800+ MB (multiple Chromium processes) |
-| **Package / Binary Size** | **~25 MB (`.deb`) · ~27 MB (`.rpm`) · ~27 MB (AppImage, incl. Qt 6.8.3)** | > 150 – 250 MB (bundled browser runtime) |
+| **Package / Binary Size** | **~21 MB (`.deb`) · ~21 MB (`.rpm`) · ~26 MB (AppImage, incl. Qt 6.8.3)** | > 150 – 250 MB (bundled browser runtime) |
 | **Cold Startup Time** | **< 0.5s** (instantaneous launch) | 3 – 8s (V8 engine & browser init) |
 | **UI Rendering** | **Native Qt Quick (software by default, optional GPU)** | Web DOM / Chromium compositor |
 | **Architecture** | **Pure Native C++17 & QML** | Electron / Node.js + Web wrapper |
@@ -58,7 +58,7 @@ with a lean, purpose-built architecture:
 - **My Documents** — the personal storage thread with instant filters for photos, videos, files and links.
 - **Desktop utilities** — screenshot capture (`Ctrl+Alt+S`), configurable Kiki assistant and live zBusiness tools (read-only profile lookup, server-synced product catalogs, auto-reply rules, and quick messages).
 - **Contacts & groups** — 1-click voice call, video call, and chat on every contact row, pending group invite box, friend recommendations, mutual groups in profiles, and Community upgrade for group owners.
-- **Safety & devices** — Zalo safe link scanning (`scanURL`) warns before opening flagged external links (a slow check never blocks opening for more than 2.5 s), message/profile abuse reporting, and E2EE linked devices viewer in Settings.
+- **Safety & devices** — Zalo safe link scanning (`scanURL`) warns before opening flagged external links (a slow check never blocks opening for more than 2.5 s), message/profile abuse reporting, and a linked devices viewer in Settings.
 - **Reactions** — a desktop notification when someone reacts to your message (can be turned off in Settings), and a reaction button above the chat that jumps through messages with unseen reactions, oldest first.
 - **Native file dialogs** — photos, files, avatars, backgrounds and save locations open your desktop's own file chooser through the XDG portal (`zenity`/`kdialog` as fallback).
 - **System tray** — unread-count badge, live call badge/tooltip, and in-call tray controls (mute, speaker, camera, screen share, hang up) with automatic minimize fallback on tray-less desktops.
@@ -85,8 +85,7 @@ minimal installs without optional packages; CI builds and publishes the packages
 | [**DNF Repository**](#fedora--dnf-repository-recommended) *(recommended)* | Fedora 43+ | `x86_64` / `aarch64` | ✅ `dnf upgrade` | ✅ Ready | ✅ recommended (`openh264`) |
 | [`.deb` (single file)](#ubuntu-2404-deb-single-file) | Ubuntu 24.04+, Debian/derivatives | `amd64` / `arm64` | 🔄 In-app prompt | ✅ Ready | ✅ recommended (`libopenh264-7`) |
 | [`.rpm` (single file)](#fedora-43-rpm-single-file) | Fedora 43+ | `x86_64` / `aarch64` | 🔄 In-app prompt | ✅ Ready | ✅ recommended (`openh264`) |
-| [**Snap**](#snap) | Ubuntu & distros with `snapd` | `amd64` / `arm64` / `armhf` / `riscv64` | ✅ Snap Store | ✅ Ready | ⚠️ Grant camera permission |
-| [**Flatpak (Testing)**](#flatpak-testing) | Any distro with Flatpak | `x86_64` / `aarch64` | ✅ Flatpak | ✅ Ready | ✅ Bundled (`OpenH264`) |
+| [**Snap**](#snap) | Ubuntu & distros with `snapd` | `amd64` / `arm64` / `armhf` / `riscv64` | ✅ Snap Store | ✅ Ready | ✅ Bundled (`libopenh264-7`); allow camera |
 | [**Nix Flake**](#nixos--nix) | NixOS / Nix | `x86_64` / `aarch64` | 🔄 `nix profile upgrade` | ✅ Ready | ✅ Bundled |
 | [**AppImage**](#appimage-portable-glibc--235) | Any modern distro (`glibc ≥ 2.35`: Ubuntu 22.04+, Debian 12+, Fedora, Arch, openSUSE) | `x86_64` / `aarch64` | ✅ `zsync` / in-app | ✅ Ready *(desktop)* | ➕ `libopenh264-7` / `openh264` |
 
@@ -106,13 +105,15 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (`.deb` single file)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.3.2-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.3.2-1~ubuntu24.04_${ARCH}.deb"
+URL=$(curl -fsSL https://api.github.com/repos/cpfriend1721994/zalos/releases/latest | grep -o "https://[^\"]*${ARCH}\.deb" | head -1)
+wget -O zalos.deb "$URL"
+sudo apt install ./zalos.deb
 ```
 
 ### Fedora 43+ (`.rpm` single file)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.3.2-1.fc43.$(uname -m).rpm"
+URL=$(curl -fsSL https://api.github.com/repos/cpfriend1721994/zalos/releases/latest | grep -o "https://[^\"]*fc43\.$(uname -m)\.rpm" | head -1)
+sudo dnf install "$URL"
 ```
 
 ### Snap
@@ -124,13 +125,6 @@ sudo snap connect zalos:camera
 sudo snap connect zalos:audio-record
 ```
 
-### Flatpak (Testing)
-Built for both `x86_64` and `aarch64` ([preview app listing](https://builds.flathub.org/appstream/afeb93f6-0f7e-42bb-a97f-191a935cacd4)):
-```bash
-flatpak install --user https://dl.flathub.org/build-repo/342380/io.github.cpfriend1721994.zalos.flatpakref
-flatpak run io.github.cpfriend1721994.zalos
-```
-
 ### NixOS / Nix
 ```bash
 nix run github:cpfriend1721994/zalos     # run without installing
@@ -140,14 +134,15 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.3.2-${ARCH}.AppImage"
-chmod +x "Zalos-1.3.2-${ARCH}.AppImage"
-"./Zalos-1.3.2-${ARCH}.AppImage"
+URL=$(curl -fsSL https://api.github.com/repos/cpfriend1721994/zalos/releases/latest | grep -o "https://[^\"]*-${ARCH}\.AppImage" | head -1)
+wget -O Zalos.AppImage "$URL"
+chmod +x Zalos.AppImage
+./Zalos.AppImage
 ```
-The AppImage (~27 MB) bundles its own Qt 6.8.3 LTS runtime with QML AOT compilation, color emoji fallback, and slim FFmpeg 7.1.5 LGPL playback — zero system Qt packages required (works cleanly across Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, and Arch; requires `glibc ≥ 2.35`).
+The AppImage (~26 MB) bundles its own Qt 6.8.3 LTS runtime with QML AOT compilation, color emoji fallback, and slim FFmpeg 7.1.5 LGPL playback — zero system Qt packages required (works cleanly across Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, and Arch; requires `glibc ≥ 2.35`).
 
 ### Arch Linux & other distributions
-No prebuilt native package is published for Arch Linux. Use **Flatpak**, **Snap**, the portable **AppImage** above, or build from source — clone this repository and
+No prebuilt native package is published for Arch Linux. Use **Snap**, the portable **AppImage** above, or build from source — clone this repository and
 follow [Building from source](#️-building-from-source).
 
 
@@ -163,7 +158,7 @@ follow [Building from source](#️-building-from-source).
 * XZ Utils / liblzma ([public domain](https://tukaani.org/xz/))
 * Zstandard ([BSD 3-Clause](https://github.com/facebook/zstd/blob/dev/LICENSE)): decompresses phone history sync batches
 * Opus 1.6.1 ([BSD 3-Clause](https://opus-codec.org/license/)): call audio, bundled in `zalos-call-audio` (`engines/zcall-cpp/third_party/opus`)
-* OpenH264 ([BSD 2-Clause](https://github.com/cisco/openh264/blob/master/LICENSE)): video calls, never bundled; the system copy is used when installed
+* OpenH264 ([BSD 2-Clause](https://github.com/cisco/openh264/blob/master/LICENSE)): video calls; not bundled in the `.deb`, `.rpm` or AppImage (the system copy is used), while the Snap ships `libopenh264-7`
 * libpulse ([LGPL 2.1 or later](https://gitlab.freedesktop.org/pulseaudio/pulseaudio/-/blob/master/LICENSE)): audio I/O, loaded at runtime
 * Noto Sans ([SIL Open Font License 1.1](https://openfontlicense.org/)): interface font, `assets/fonts/`
 * QR Code generator by Project Nayuki ([MIT](https://github.com/nayuki/QR-Code-generator)): `src/core/network/qrcodegen.*`
@@ -188,7 +183,7 @@ docker compose run --rm package-rpm      # dist/*.deb + dist/*.x86_64.rpm (.rpm 
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.3.2 && git push origin v1.3.2`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.3.3 && git push origin v1.3.3`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.
