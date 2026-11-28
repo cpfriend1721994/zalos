@@ -1349,6 +1349,21 @@ private slots:
         }
     }
 
+    void testPhoneSyncDrainedQueueKeepsNextSessionTimer() {
+        using MHS = Zalos::Core::Sync::MobileHistorySync;
+        constexpr int kBackup = 30 * 60 * 1000;
+        constexpr int kIdle = 20 * 1000;
+        QCOMPARE(MHS::drainedQueueTimeoutMs(true, false, false, false), kBackup);
+        QCOMPARE(MHS::drainedQueueTimeoutMs(true, false, false, true), kIdle);
+        QCOMPARE(MHS::drainedQueueTimeoutMs(true, false, true, true), 0);
+        QCOMPARE(MHS::drainedQueueTimeoutMs(true, true, false, true), 0);
+        QCOMPARE(MHS::drainedQueueTimeoutMs(false, false, false, true), 0);
+        QVERIFY(MHS::v2SessionFulfilled(true, 3, 3));
+        QVERIFY(MHS::v2SessionFulfilled(true, -1, 0));
+        QVERIFY(!MHS::v2SessionFulfilled(true, 3, 2));
+        QVERIFY(!MHS::v2SessionFulfilled(false, -1, 5));
+    }
+
     void testPhoneSyncTransferErrorOrder() {
         using MHS = Zalos::Core::Sync::MobileHistorySync;
         using K = MHS::TransferErrorKind;
@@ -1676,6 +1691,35 @@ private slots:
         QVector<Zalos::Core::Models::MessageItem> msgs = store.loadMessages("test-conv-sqlite");
         QVERIFY(!msgs.isEmpty());
         QCOMPARE(msgs.first().text, QString("Tin nhắn offline SQLite"));
+        const QHash<QString, QString> saved = store.savedMessageSenders({"msg-sqlite-1", "msg-sqlite-missing"});
+        QCOMPARE(saved.size(), 1);
+        QVERIFY(saved.contains("msg-sqlite-1"));
+        QVERIFY(store.savedMessageSenders({}).isEmpty());
+        Zalos::Core::Models::MessageItem other;
+        other.id = "msg-sqlite-2";
+        other.senderId = "u-wrong";
+        other.text = "x";
+        other.messageType = "text";
+        QVERIFY(store.saveMessage("test-conv-sqlite", other));
+        QCOMPARE(store.correctMessageSenders({{"msg-sqlite-2", "u-right"}, {"msg-sqlite-1", "u-right"}}), 1);
+        QCOMPARE(store.savedMessageSenders({"msg-sqlite-2"}).value("msg-sqlite-2"), QStringLiteral("u-right"));
+        QCOMPARE(store.correctMessageSenders({{"msg-sqlite-2", "u-right"}}), 0);
+        Zalos::Core::Models::MessageItem legacy = other;
+        legacy.id = "msg-sqlite-3";
+        QVERIFY(store.saveMessage("test-conv-sqlite", legacy));
+        for (const QString& name : QSqlDatabase::connectionNames()) {
+            if (!name.startsWith(QLatin1String("offline_store_"))) continue;
+            QSqlQuery nulling(QSqlDatabase::database(name));
+            QVERIFY(nulling.exec("UPDATE messages SET sender_id = NULL WHERE id = 'msg-sqlite-3';"));
+        }
+        QCOMPARE(store.correctMessageSenders({{"msg-sqlite-3", "u-right"}}), 1);
+        QCOMPARE(store.savedMessageSenders({"msg-sqlite-3"}).value("msg-sqlite-3"), QStringLiteral("u-right"));
+        Zalos::Core::Models::MessageItem quoted = other;
+        quoted.id = "msg-sqlite-4";
+        QVERIFY(store.saveMessage("test-conv-sqlite", quoted,
+                                  QJsonObject{{"msgId", "msg-sqlite-4"}, {"uidFrom", "u-wrong"}, {"quote", QJsonObject{}}}));
+        QCOMPARE(store.correctMessageSenders({{"msg-sqlite-4", "u-right"}}), 1);
+        QCOMPARE(store.rawMessage("msg-sqlite-4").value("uidFrom").toString(), QStringLiteral("u-right"));
 
         store.setOfflineActive(true);
         QCOMPARE(store.isOfflineActive(), true);
@@ -1845,8 +1889,17 @@ private slots:
                                                                       work.filePath("out").toStdString(),
                                                                       keyText.toStdString(), &err));
         QString readErr;
-        const auto convs = MobileHistorySync::readBackupDirectory(work.filePath("out"), &readErr);
+        {
+            QFile odd(QDir(work.filePath("out")).filePath("u-odd.db"));
+            QVERIFY(odd.open(QIODevice::WriteOnly));
+        }
+        MobileHistorySync::BackupDirStats stats;
+        const auto convs = MobileHistorySync::readBackupDirectory(work.filePath("out"), &readErr, &stats);
         QCOMPARE(convs.size(), 2);
+        QCOMPARE(stats.files, 3);
+        QCOMPARE(stats.badName, 1);
+        QCOMPARE(stats.noRows, 0);
+        QCOMPARE(stats.badNameShapes, (QMap<QString, int>{{"u5", 1}}));
 
         const QHash<QString, QString> ids{{"1001", "9001"}, {"2002", "9002"}, {"1003", "9003"}};
         int skipped = 0;
@@ -1933,6 +1986,282 @@ private slots:
         QCOMPARE(v2Obj.value("mentions").toArray().size(), 2);
         QCOMPARE(v2Obj.value("mentions").toArray().at(0).toObject().value("uid").toString(), QStringLiteral("-1"));
         QCOMPARE(v2Obj.value("mentions").toArray().at(1).toObject().value("uid").toString(), QStringLiteral("u-v2-ment"));
+    }
+
+    void testPhoneSyncV2BatchSpool() {
+        using MHS = Zalos::Core::Sync::MobileHistorySync;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath("batch-1.bin");
+        const QByteArray bytes("\x00\x01payload", 9);
+        QVERIFY(MHS::spoolV2Batch(path, bytes));
+        QVERIFY(QFile::exists(path));
+        QCOMPARE(MHS::takeV2Batch(path), bytes);
+        QVERIFY(!QFile::exists(path));
+        QVERIFY(MHS::takeV2Batch(path).isEmpty());
+
+        QVERIFY(MHS::v2SessionDrained(true, false, 0, false, false));
+        QVERIFY(!MHS::v2SessionDrained(false, false, 0, false, false));
+        QVERIFY(!MHS::v2SessionDrained(true, true, 0, false, false));
+        QVERIFY(!MHS::v2SessionDrained(true, false, 1, false, false));
+        QVERIFY(!MHS::v2SessionDrained(true, false, 0, true, false));
+        QVERIFY(!MHS::v2SessionDrained(true, false, 0, false, true));
+    }
+
+    void testPhoneSyncV2IncrementalRanges() {
+        using MHS = Zalos::Core::Sync::MobileHistorySync;
+        using Conv = Zalos::Core::Sync::V2::ParsedSyncV2Conversation;
+        Conv group;
+        group.convId = "g-a";
+        group.convType = 2;
+        group.lastTs = 5000;
+        Conv direct;
+        direct.convId = "u-b";
+        direct.convType = 1;
+        direct.lastTs = 9000;
+        Conv unknown;
+        unknown.convId = "u-c";
+        unknown.convType = 1;
+        unknown.lastTs = 0;
+        QCOMPARE(MHS::v2PartitionOf(group), QStringLiteral("group/g-a"));
+        QCOMPARE(MHS::v2PartitionOf(direct), QStringLiteral("oneone/u-b"));
+
+        qint64 from = -1;
+        qint64 to = -1;
+        QVERIFY(MHS::v2QueryRange(5000, 0, &from, &to));
+        QCOMPARE(from, qint64(0));
+        QCOMPARE(to, qint64(5000));
+        QVERIFY(MHS::v2QueryRange(5000, 4000, &from, &to));
+        QCOMPARE(from, qint64(4000));
+        QCOMPARE(to, qint64(5000));
+        QVERIFY(!MHS::v2QueryRange(5000, 5000, &from, &to));
+        QVERIFY(!MHS::v2QueryRange(5000, 6000, &from, &to));
+        QVERIFY(MHS::v2QueryRange(0, 4000, &from, &to));
+        QCOMPARE(from, qint64(0));
+        QCOMPARE(to, qint64(9007199254740991LL));
+
+        int upToDate = -1;
+        const auto fetch = MHS::v2ConversationsToFetch({group, direct, unknown},
+                                                       {{"group/g-a", 5000}, {"oneone/u-b", 100}}, {}, &upToDate);
+        QCOMPARE(upToDate, 1);
+        QCOMPARE(fetch.size(), 2);
+        QCOMPARE(fetch.at(0).convId, QStringLiteral("u-b"));
+        QCOMPARE(fetch.at(1).convId, QStringLiteral("u-c"));
+        Conv older;
+        older.convId = "u-d";
+        older.convType = 1;
+        older.lastTs = 100;
+        const auto ordered = MHS::v2ConversationsToFetch({unknown, older, direct}, {}, {}, &upToDate);
+        QCOMPARE(upToDate, 0);
+        QCOMPARE(ordered.size(), 3);
+        QCOMPARE(ordered.at(0).convId, QStringLiteral("u-b"));
+        QCOMPARE(ordered.at(1).convId, QStringLiteral("u-d"));
+        QCOMPARE(ordered.at(2).convId, QStringLiteral("u-c"));
+        direct.lastGlobalId = 777;
+        older.lastGlobalId = 0;
+        const auto stored = MHS::v2ConversationsToFetch({direct, older}, {}, {"777", "0"}, &upToDate);
+        QCOMPARE(upToDate, 1);
+        QCOMPARE(stored.size(), 1);
+        QCOMPARE(stored.at(0).convId, QStringLiteral("u-d"));
+
+        const auto marks = MHS::v2SessionCheckpoints({group, direct, unknown}, 0, 3, false, {});
+        QCOMPARE(marks.size(), 2);
+        QCOMPARE(marks.value("group/g-a"), qint64(5000));
+        QCOMPARE(marks.value("oneone/u-b"), qint64(9000));
+        QCOMPARE(MHS::v2SessionCheckpoints({group, direct}, 1, 2, false, {}).keys(), QStringList{"oneone/u-b"});
+        QVERIFY(MHS::v2SessionCheckpoints({group, direct}, 0, 2, true, {}).isEmpty());
+        QCOMPARE(MHS::v2SessionCheckpoints({group, direct}, 0, 2, false, {"g-a"}).keys(), QStringList{"oneone/u-b"});
+        QVERIFY(MHS::v2SessionCheckpoints({group, direct}, 0, 2, false, {}, 1).isEmpty());
+    }
+
+    void testPhoneSyncV2PrefersIncremental() {
+        using MHS = Zalos::Core::Sync::MobileHistorySync;
+        QVERIFY(!MHS::v2PreferIncremental(QString(), QString()));
+        QVERIFY(MHS::v2PreferIncremental("1", QString()));
+        QVERIFY(!MHS::v2PreferIncremental("1", "1"));
+        QVERIFY(!MHS::v2PreferIncremental(QString(), "1"));
+        QVERIFY(MHS::v2IncrementalUnsupported(false));
+        QVERIFY(!MHS::v2IncrementalUnsupported(true));
+    }
+
+    void testOfflineStoreSyncCheckpoints() {
+        ZaloOfflineStore store;
+        store.clearCache();
+        QVERIFY(store.syncCheckpoints().isEmpty());
+        QVERIFY(store.saveSyncCheckpoints({{"group/g-a", 5000}, {"oneone/u-b", 100}}));
+        QVERIFY(store.saveSyncCheckpoints({{"group/g-a", 4000}, {"oneone/u-b", 300}}));
+        const auto saved = store.syncCheckpoints();
+        QCOMPARE(saved.size(), 2);
+        QCOMPARE(saved.value("group/g-a"), qint64(5000));
+        QCOMPARE(saved.value("oneone/u-b"), qint64(300));
+        store.clearCache();
+        QVERIFY(store.syncCheckpoints().isEmpty());
+        MessageItem m;
+        m.id = "9001";
+        m.text = "x";
+        m.messageType = "text";
+        m.ts = 1000;
+        QVERIFY(store.saveMessage("u-ids", m));
+        QCOMPARE(store.existingMessageIds({"9001", "9002"}), QSet<QString>{"9001"});
+        QVERIFY(store.existingMessageIds({}).isEmpty());
+        store.clearCache();
+    }
+
+    void testPhoneSyncV2StatusTimers() {
+        using MHS = Zalos::Core::Sync::MobileHistorySync;
+        constexpr int kPause = 30 * 60 * 1000;
+        constexpr int kFirstBatch = 60 * 1000;
+        constexpr int kIdle = 20 * 1000;
+        QCOMPARE(MHS::v2StatusTimeoutMs(2, false), kPause);
+        QCOMPARE(MHS::v2StatusTimeoutMs(2, true), kPause);
+        QCOMPARE(MHS::v2StatusTimeoutMs(1, false), kFirstBatch);
+        QCOMPARE(MHS::v2StatusTimeoutMs(5, false), kFirstBatch);
+        QCOMPARE(MHS::v2StatusTimeoutMs(4, false), kFirstBatch);
+        QCOMPARE(MHS::v2StatusTimeoutMs(1, true), kIdle);
+        QCOMPARE(MHS::v2StatusTimeoutMs(4, true), kIdle);
+        QVERIFY(MHS::v2CanRetrySession(0));
+        QVERIFY(!MHS::v2CanRetrySession(1));
+        QCOMPARE(MHS::v2AckTimeoutMs(), 10 * 1000);
+        QVERIFY(!MHS::v2BatchSeen(0, 0));
+        QVERIFY(MHS::v2BatchSeen(2, 2));
+        QVERIFY(MHS::v2BatchSeen(0, 1));
+    }
+
+    void testPhoneSyncV2StallEndsPartially() {
+        using MHS = Zalos::Core::Sync::MobileHistorySync;
+        QVERIFY(!MHS::v2StallEndsPartially(0));
+        QVERIFY(MHS::v2StallEndsPartially(30));
+        QCOMPARE(MHS::v2PartialStatus(true, 270, 2707),
+                 QStringLiteral("The phone stopped answering after 270 of 2707 conversations. Sync again to continue."));
+        QCOMPARE(MHS::v2PartialStatus(false, 270, 2707),
+                 QStringLiteral("Điện thoại ngừng phản hồi sau 270/2707 hội thoại. Bấm Đồng bộ lại để lấy tiếp."));
+    }
+
+    void testPhoneSyncV2ProgressKeepsMoving() {
+        using MHS = Zalos::Core::Sync::MobileHistorySync;
+        QCOMPARE(MHS::v2MessageSessionProgress(0, 2706), 30);
+        QCOMPARE(MHS::v2MessageSessionProgress(2706, 2706), 98);
+        QVERIFY(MHS::v2MessageSessionProgress(720, 2706) > MHS::v2MessageSessionProgress(690, 2706));
+        QCOMPARE(MHS::v2MessageSessionProgress(0, 0), 30);
+        QCOMPARE(MHS::v2DownloadProgress(true, 2, 31), 31);
+        QCOMPARE(MHS::v2DownloadProgress(true, 1, 34), 34);
+        QCOMPARE(MHS::v2DownloadProgress(false, 2, 0), 30);
+        QCOMPARE(MHS::v2DownloadProgress(false, 1, 0), 50);
+    }
+
+    void testPhoneSyncImportTickSizeFollowsTime() {
+        using MHS = Zalos::Core::Sync::MobileHistorySync;
+        QCOMPARE(MHS::nextRowsPerTick(300, 400), 150);
+        QCOMPARE(MHS::nextRowsPerTick(20, 400), 10);
+        QCOMPARE(MHS::nextRowsPerTick(10, 400), 10);
+        QCOMPARE(MHS::nextRowsPerTick(40, 10), 80);
+        QCOMPARE(MHS::nextRowsPerTick(300, 10), 300);
+        QCOMPARE(MHS::nextRowsPerTick(40, 40), 40);
+    }
+
+    void testPhoneSyncImportSkipsSavedMessages() {
+        using Zalos::Core::Sync::MobileHistorySync;
+        const QJsonArray in{QJsonObject{{"msgId", "1"}, {"uidFrom", "a"}}, QJsonObject{{"msgId", "2"}, {"uidFrom", "b"}},
+                            QJsonObject{{"msgId", "3"}, {"uidFrom", "c"}}, QJsonObject{{"msgId", "4"}, {"uidFrom", "0"}},
+                            QJsonObject{{"msgId", "5"}, {"uidFrom", ""}}};
+        int dropped = 0;
+        QHash<QString, QString> fixes;
+        const QJsonArray out = MobileHistorySync::withoutSavedMessages(
+            in, {{"2", "b"}, {"3", "wrong"}, {"4", "x"}, {"5", "y"}, {"9", "z"}}, true, &dropped, &fixes);
+        QCOMPARE(out.size(), 1);
+        QCOMPARE(out.at(0).toObject().value("msgId").toString(), QStringLiteral("1"));
+        QCOMPARE(dropped, 4);
+        QCOMPARE(fixes, (QHash<QString, QString>{{"3", "c"}}));
+        QCOMPARE(MobileHistorySync::messageIdsOf(in), QStringList({"1", "2", "3", "4", "5"}));
+        int droppedV1 = 0;
+        QHash<QString, QString> fixesV1;
+        const QJsonArray outV1 = MobileHistorySync::withoutSavedMessages(in, {{"3", "wrong"}}, false, &droppedV1, &fixesV1);
+        QCOMPARE(outV1.size(), 4);
+        QCOMPARE(droppedV1, 1);
+        QVERIFY(fixesV1.isEmpty());
+    }
+
+    void testPhoneSyncV2IdsToResolve() {
+        using Zalos::Core::Sync::MobileHistorySync;
+        using Zalos::Core::Sync::V2::ParsedSyncV2Mention;
+        using Zalos::Core::Sync::V2::ParsedSyncV2Quote;
+        MobileHistorySync::BackupConversation a;
+        a.plainId = "enc-a";
+        MobileHistorySync::BackupRow r1;
+        r1.senderId = "enc-s1";
+        ParsedSyncV2Quote q;
+        q.ownerId = "enc-q";
+        r1.v2Quote = q;
+        r1.v2Mentions = {ParsedSyncV2Mention{QStringLiteral("-1"), 0, 1, 1}, ParsedSyncV2Mention{QStringLiteral("enc-m"), 1, 1, 0},
+                         ParsedSyncV2Mention{QStringLiteral("enc-me"), 2, 1, 0}};
+        MobileHistorySync::BackupRow r2;
+        r2.senderId = "0";
+        MobileHistorySync::BackupRow r3;
+        r3.senderId = "enc-known";
+        a.rows = {r1, r2, r3};
+        MobileHistorySync::BackupConversation b;
+        b.plainId = "enc-bad";
+        b.rows = {r2};
+        const QHash<QString, QString> known{{"enc-known", "u-known"}};
+        const QSet<QString> unresolved{"enc-bad"};
+        QStringList ids = MobileHistorySync::v2IdsToResolve({a, b}, known, unresolved, "enc-me");
+        ids.sort();
+        QCOMPARE(ids, QStringList({"enc-a", "enc-m", "enc-q", "enc-s1"}));
+    }
+
+    void testPhoneSyncV2RowsUseDecryptedIds() {
+        using Zalos::Core::Sync::MobileHistorySync;
+        using Zalos::Core::Sync::V2::ParsedSyncV2Mention;
+        using Zalos::Core::Sync::V2::ParsedSyncV2Quote;
+        MobileHistorySync::BackupConversation conv;
+        conv.plainId = "enc-group";
+        conv.isGroup = true;
+        auto row = [](const QString& gid, const QString& cli, const QString& sender) {
+            MobileHistorySync::BackupRow r;
+            r.globalMsgId = gid;
+            r.cliMsgId = cli;
+            r.msgType = 1;
+            r.ts = 1700000400000LL;
+            r.senderId = sender;
+            r.text = "hi";
+            return r;
+        };
+        MobileHistorySync::BackupRow peer = row("7001", "6001", "enc-peer");
+        ParsedSyncV2Quote q;
+        q.ownerId = "enc-unknown";
+        q.globalMsgId = 7000;
+        q.msg = "prev";
+        peer.v2Quote = q;
+        peer.v2Mentions = {ParsedSyncV2Mention{QStringLiteral("-1"), 0, 1, 1},
+                           ParsedSyncV2Mention{QStringLiteral("enc-peer"), 1, 1, 0},
+                           ParsedSyncV2Mention{QStringLiteral("enc-unknown"), 2, 1, 0}};
+        conv.rows = {peer, row("7002", "6002", "0"), row("0", "6003", "enc-peer"), row("", "6004", "enc-peer"),
+                     row("7005", "6005", "enc-unknown")};
+        const QHash<QString, QString> ids{{"enc-group", "g-plain"}, {"enc-peer", "u-peer"}};
+        int skipped = 0;
+        QHash<QString, int> reasons;
+        const QJsonArray out = MobileHistorySync::toMessages(conv, ids, "enc-me", "u-me", &skipped, 0, -1, &reasons, true);
+        QCOMPARE(out.size(), 2);
+        const QJsonObject a = out.at(0).toObject();
+        QCOMPARE(a.value("msgId").toString(), QStringLiteral("7001"));
+        QCOMPARE(a.value("uidFrom").toString(), QStringLiteral("u-peer"));
+        QCOMPARE(a.value("idTo").toString(), QStringLiteral("g-plain"));
+        QCOMPARE(a.value("quote").toObject().value("ownerId").toString(), QString());
+        const QJsonArray mentions = a.value("mentions").toArray();
+        QCOMPARE(mentions.size(), 2);
+        QCOMPARE(mentions.at(0).toObject().value("uid").toString(), QStringLiteral("-1"));
+        QCOMPARE(mentions.at(1).toObject().value("uid").toString(), QStringLiteral("u-peer"));
+        const QJsonObject mine = out.at(1).toObject();
+        QCOMPARE(mine.value("msgId").toString(), QStringLiteral("7002"));
+        QCOMPARE(mine.value("uidFrom").toString(), QStringLiteral("0"));
+        QCOMPARE(skipped, 3);
+        QCOMPARE(reasons.value("no_global_id"), 2);
+        QCOMPARE(reasons.value("no_sender"), 1);
+
+        conv.plainId = "enc-missing";
+        reasons.clear();
+        QVERIFY(MobileHistorySync::toMessages(conv, ids, "enc-me", "u-me", nullptr, 0, -1, &reasons, true).isEmpty());
+        QCOMPARE(reasons.value("no_thread"), conv.rows.size());
     }
 
 
@@ -3340,6 +3669,147 @@ private slots:
         QVERIFY(called);
     }
 
+    void testPhoneImportRefreshesOpenConversation() {
+        {
+            ZaloOfflineStore owner;
+            owner.clearCache();
+            owner.bindOwner("u-pi-owner");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-pi-owner");
+        const qint64 base = 1700000000000LL;
+        auto msg = [base](const char* id, int offset) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-pi-a"}, {"idTo", "u-pi-owner"},
+                               {"msgType", "webchat"}, {"content", QStringLiteral("fixture %1").arg(id)},
+                               {"ts", QString::number(base + offset)}};
+        };
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{msg("8801", 10)}, false, false);
+        client.selectConversation("u-pi-a", "Fixture", "");
+        QVERIFY(!client.messageModel()->message("u-pi-a", "8801").id.isEmpty());
+
+        emit client.historySyncForTesting()->messagesImported(QJsonArray{msg("8800", 0)}, false);
+        QVERIFY(client.offlineStore()->existingMessageIds({"8800"}).contains("8800"));
+        emit client.historySyncForTesting()->stateChanged(Zalos::Core::Sync::MobileHistorySync::Done, "ok", 100);
+        QVERIFY(!client.messageModel()->message("u-pi-a", "8800").id.isEmpty());
+        QVERIFY(!client.messageModel()->message("u-pi-a", "8801").id.isEmpty());
+    }
+
+    void testPhoneImportFillsAGapInTheOpenConversation() {
+        {
+            ZaloOfflineStore owner;
+            owner.clearCache();
+            owner.bindOwner("u-gap-owner");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-gap-owner");
+        const qint64 base = 1700000000000LL;
+        auto msg = [base](int id, int offset) {
+            const QString mid = QString::number(id);
+            return QJsonObject{{"msgId", mid}, {"cliMsgId", mid}, {"uidFrom", "u-gap-a"}, {"idTo", "u-gap-owner"},
+                               {"msgType", "webchat"}, {"content", QStringLiteral("fixture %1").arg(mid)},
+                               {"ts", QString::number(base + offset)}};
+        };
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{msg(9000, 1000), msg(9001, 2000)}, false,
+                                                             false);
+        client.selectConversation("u-gap-a", "Fixture", "");
+        QCOMPARE(client.messageModel()->threadSize("u-gap-a"), 2);
+
+        QJsonArray imported;
+        for (int i = 0; i < 300; ++i) imported.append(msg(9100 + i, 1100 + i));
+        emit client.historySyncForTesting()->messagesImported(imported, false);
+        emit client.historySyncForTesting()->stateChanged(Zalos::Core::Sync::MobileHistorySync::Done, "ok", 100);
+        for (int i = 0; i < 5; ++i) client.loadOlderMessages();
+        QCOMPARE(client.messageModel()->threadSize("u-gap-a"), 302);
+    }
+
+    void testPhoneImportKeepsUnsavedResidentMessages() {
+        {
+            ZaloOfflineStore owner;
+            owner.clearCache();
+            owner.bindOwner("u-ku-owner");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-ku-owner");
+        const qint64 base = 1700000000000LL;
+        auto msg = [base](const char* id, int offset) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-ku-a"}, {"idTo", "u-ku-owner"},
+                               {"msgType", "webchat"}, {"content", QStringLiteral("fixture %1").arg(id)},
+                               {"ts", QString::number(base + offset)}};
+        };
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{msg("8701", 10)}, false, false);
+        client.selectConversation("u-ku-a", "Fixture", "");
+        Zalos::Core::Models::MessageItem unsaved;
+        unsaved.id = "8702";
+        unsaved.text = "sent, not echoed yet";
+        unsaved.isMine = true;
+        unsaved.messageType = "text";
+        unsaved.ts = base + 20;
+        client.messageModel()->mergeMessages("u-ku-a", {unsaved});
+        emit client.historySyncForTesting()->messagesImported(QJsonArray{msg("8700", 0)}, false);
+        emit client.historySyncForTesting()->stateChanged(Zalos::Core::Sync::MobileHistorySync::Done, "ok", 100);
+        QVERIFY(!client.messageModel()->message("u-ku-a", "8702").id.isEmpty());
+        QVERIFY(!client.messageModel()->message("u-ku-a", "8700").id.isEmpty());
+    }
+
+    void testCachePagingAfterInactiveTrim() {
+        {
+            ZaloOfflineStore owner;
+            owner.clearCache();
+            owner.bindOwner("u-tr-owner");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-tr-owner");
+        const qint64 base = 1700000000000LL;
+        auto msg = [base](const QString& from, int id, int offset) {
+            const QString mid = QString::number(id);
+            return QJsonObject{{"msgId", mid}, {"cliMsgId", mid}, {"uidFrom", from}, {"idTo", "u-tr-owner"},
+                               {"msgType", "webchat"}, {"content", QStringLiteral("fixture %1").arg(mid)},
+                               {"ts", QString::number(base + offset)}};
+        };
+        QJsonArray history;
+        for (int i = 0; i < 300; ++i) history.append(msg("u-tr-a", 7000 + i, i));
+        emit client.historySyncForTesting()->messagesImported(history, false);
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{msg("u-tr-b", 7500, 500)}, false, false);
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{msg("u-tr-c", 7600, 600)}, false, false);
+        client.selectConversation("u-tr-a", "A", "");
+        for (int i = 0; i < 5; ++i) client.loadOlderMessages();
+        QCOMPARE(client.messageModel()->threadSize("u-tr-a"), 300);
+        client.selectConversation("u-tr-b", "B", "");
+        client.selectConversation("u-tr-c", "C", "");
+        client.selectConversation("u-tr-a", "A", "");
+        for (int i = 0; i < 5; ++i) client.loadOlderMessages();
+        QCOMPARE(client.messageModel()->threadSize("u-tr-a"), 300);
+    }
+
+    void testPhoneImportRefreshesAfterCancel() {
+        {
+            ZaloOfflineStore owner;
+            owner.clearCache();
+            owner.bindOwner("u-pc-owner");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-pc-owner");
+        const qint64 base = 1700000000000LL;
+        auto msg = [base](const char* id, int offset) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-pc-a"}, {"idTo", "u-pc-owner"},
+                               {"msgType", "webchat"}, {"content", QStringLiteral("fixture %1").arg(id)},
+                               {"ts", QString::number(base + offset)}};
+        };
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{msg("8901", 10)}, false, false);
+        client.selectConversation("u-pc-a", "Fixture", "");
+        emit client.historySyncForTesting()->messagesImported(QJsonArray{msg("8900", 0)}, false);
+        emit client.historySyncForTesting()->stateChanged(Zalos::Core::Sync::MobileHistorySync::Idle, "", 0);
+        QVERIFY(!client.messageModel()->message("u-pc-a", "8900").id.isEmpty());
+    }
+
+    void testPhoneImportSkipsTheMessageList() {
+        QVERIFY(ZaloClient::storeOnlyIngest(false, true, false));
+        QVERIFY(!ZaloClient::storeOnlyIngest(true, true, false));
+        QVERIFY(ZaloClient::storeOnlyIngest(true, true, true));
+        QVERIFY(!ZaloClient::storeOnlyIngest(true, false, true));
+        QVERIFY(!ZaloClient::storeOnlyIngest(false, false, false));
+    }
+
     void testZaloClientWrappersIntegration() {
         ZaloClient client;
         QVERIFY(client.callEngine() != nullptr);
@@ -3431,6 +3901,22 @@ private slots:
         const QHash<QString, QString> flat = ZaloSession::globalIdMapOf(QJsonObject{{"g-d", "222"}});
         QCOMPARE(flat.value("g-d"), QStringLiteral("222"));
         QVERIFY(ZaloSession::globalIdMapOf(QJsonValue(QStringLiteral("x"))).isEmpty());
+    }
+
+    void testSyncV2AckOf() {
+        QString reqId;
+        int err = -1;
+        QVERIFY(ZaloSession::syncV2AckOf(QJsonObject{{"reqId", "req_9"}, {"err", 0}, {"ts", 1}}, &reqId, &err));
+        QCOMPARE(reqId, QStringLiteral("req_9"));
+        QCOMPARE(err, 0);
+        QVERIFY(ZaloSession::syncV2AckOf(QJsonObject{{"reqId", "req_3"}, {"err", 221}}, &reqId, &err));
+        QCOMPARE(err, 221);
+        QVERIFY(!ZaloSession::syncV2AckOf(QJsonObject{{"err", 0}}, &reqId, &err));
+        QVERIFY(!ZaloSession::syncV2AckOf(QJsonObject{}, &reqId, &err));
+        const QJsonObject envelope{{"error_code", 0}, {"error_message", ""},
+                                   {"data", QJsonObject{{"reqId", "req_12"}, {"err", 0}, {"ts", 1}}}};
+        QVERIFY(ZaloSession::syncV2AckOf(envelope, &reqId, &err));
+        QCOMPARE(reqId, QStringLiteral("req_12"));
     }
 
     void testSocketQueuesAndFailoverRules() {

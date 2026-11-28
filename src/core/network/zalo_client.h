@@ -416,6 +416,7 @@ public:
     static QString hiddenPinDigest(const QString& pin);
     static bool isReparsedOnLoad(const QString& msgType);
     static bool isGoneError(const QString& error);
+    static bool storeOnlyIngest(bool resident, bool cacheUsable, bool phoneImport);
     QString myUid() const { return m_myUid; }
     Models::RichComposer* composer() const { return m_composer; }
     bool showSyncPrompt() const { return m_showSyncPrompt; }
@@ -701,6 +702,7 @@ public:
     Platform::DesktopNotifications* notificationsForTesting() const { return m_notifications; }
     void reloadDraftsForTesting() { loadDrafts(); }
     void resolveUnknownUsersForTesting() { resolveUnknownUsers(); }
+    Sync::MobileHistorySync* historySyncForTesting() const { return m_historySync; }
     bool openOfflineCacheForTesting(const QString& uid) {
         m_cachedUid = uid;
         return loadOfflineCache();
@@ -1156,6 +1158,7 @@ private:
     void evictColdThreads(int maxResident = 12);
     void rememberMessageId(const QString& msgId);
     void releaseFreedMemory();
+    void refreshPhoneImportedThreads();
     void startIdleMemoryTrim();
     void fetchBytes(const QString& url, std::function<void(const QByteArray& data, const QString& error)> done);
     void applyStrangerRank(const QString& id, const QJsonObject& data);
@@ -1231,6 +1234,7 @@ private:
     QSet<QString> m_reactedIds;
     QHash<QString, qint64> m_reactionClearedTs;
     QHash<QString, int> m_ingestDrops;
+    bool m_phoneImporting{false};
     bool m_reactedIdsLoaded{false};
     QVector<Offline::ZaloOfflineStore::ReactionEvent>& eventsOf(const QString& msgId);
     bool hasReactions(const QString& msgId);
@@ -1304,6 +1308,8 @@ private:
     qint64 m_lastClientId{0};
     QString m_cachedUid;
     QSet<QString> m_cacheMerged;
+    QSet<QString> m_phoneImportedResident;
+    QHash<QString, qint64> m_cacheFloor;
     QStringList m_residentThreads;
     QSet<QString> m_recentIds;
     QStringList m_recentIdOrder;

@@ -1503,6 +1503,15 @@ void ZaloSession::cleanMobileSync(const QString& publicKey, Callback cb) {
            {{"public_key", publicKey}, {"imei", m_imei}}, cb);
 }
 
+bool ZaloSession::syncV2AckOf(const QJsonObject& frame, QString* reqId, int* err) {
+    const QJsonObject data = frame.contains("reqId") ? frame : frame.value("data").toObject();
+    const QString id = data.value("reqId").toString();
+    if (id.isEmpty()) return false;
+    if (reqId) *reqId = id;
+    if (err) *err = data.value("err").toInt(0);
+    return true;
+}
+
 bool ZaloSession::sendSyncV2Request(const QString& syncId, const QJsonObject& syncData) {
     Q_UNUSED(syncId)
     const bool wsReady = m_ws && m_ws->state() == QAbstractSocket::ConnectedState;
@@ -2568,12 +2577,14 @@ void ZaloSession::sendWs(int cmd, int subCmd, QJsonObject data, const QString& r
     }
     if (state != QAbstractSocket::ConnectedState) return;
     if (!reqIdKey.isEmpty()) data[reqIdKey] = QStringLiteral("req_%1").arg(m_wsRequestId++);
+    if (cmd == 590 && !reqIdKey.isEmpty()) m_syncV2ReqId = data.value(reqIdKey).toString();
     const QByteArray payload = QJsonDocument(data).toJson(QJsonDocument::Compact);
     QByteArray frame(4, '\0');
     frame[0] = 1;
     qToLittleEndian<quint16>(static_cast<quint16>(cmd), frame.data() + 1);
     frame[3] = static_cast<char>(subCmd);
     m_ws->sendBinaryMessage(frame + payload);
+    if (cmd == 590) emit syncV2RequestSent();
 }
 
 void ZaloSession::onWsBinary(const QByteArray& frame) {
@@ -2622,6 +2633,17 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
             const QByteArray dec = ZaloCrypto::decodeEventData(parsed.value("data").toString(),
                                                                parsed.value("encrypt").toInt(-1), m_cipherKey, &decOk);
             if (decOk) detail = QString::fromUtf8(dec);
+        }
+        if (cmd == 590) {
+            const QJsonObject ack = parsed.value("data").isObject()
+                                        ? parsed.value("data").toObject()
+                                        : QJsonDocument::fromJson(detail.toUtf8()).object();
+            QString reqId;
+            int err = 0;
+            if (syncV2AckOf(ack, &reqId, &err) && !m_syncV2ReqId.isEmpty() && reqId == m_syncV2ReqId) {
+                m_syncV2ReqId.clear();
+                emit syncV2RequestAcked(err);
+            }
         }
         ErrorCatalog::trace("phone-sync", QStringLiteral("ws cmd=%1 sub=%2 %3").arg(cmd).arg(subCmd).arg(detail.left(400)));
         return;

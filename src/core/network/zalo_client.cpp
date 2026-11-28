@@ -143,23 +143,53 @@ ZaloClient::ZaloClient(QObject* parent)
     });
     connect(session, &ZaloSession::mobileSyncControlReceived, this, &ZaloClient::handleMobileSyncControl);
     m_historySync = new Sync::MobileHistorySync(session, this);
+    connect(session, &ZaloSession::syncV2RequestAcked, m_historySync, &Sync::MobileHistorySync::onV2RequestAcked);
+    connect(session, &ZaloSession::syncV2RequestSent, m_historySync, &Sync::MobileHistorySync::onV2RequestSent);
+    m_historySync->setStoreHooks(
+        [this](const QStringList& ids) { return cacheUsable() ? m_offlineStore->existingMessageIds(ids) : QSet<QString>{}; },
+        [this](const QString& key) { return cacheUsable() ? m_offlineStore->metaValue(key) : QString(); },
+        [this](const QString& key, const QString& value) {
+            if (cacheUsable()) m_offlineStore->setMetaValue(key, value);
+        });
+    m_historySync->setCheckpointStore(
+        [this]() { return cacheUsable() ? m_offlineStore->syncCheckpoints() : QHash<QString, qint64>{}; },
+        [this](const QHash<QString, qint64>& marks) {
+            if (cacheUsable()) m_offlineStore->saveSyncCheckpoints(marks);
+        });
     connect(m_historySync, &Sync::MobileHistorySync::stateChanged, this,
             [this](int state, const QString& status, int progress) {
                 setMobileSyncState(state, status, progress);
                 if (state == Sync::MobileHistorySync::Done && !m_myUid.isEmpty()) {
                     QSettings().setValue(QStringLiteral("mobileSync/done/") + m_myUid, true);
                 }
+                if (state == Sync::MobileHistorySync::Idle) refreshPhoneImportedThreads();
                 if (state == Sync::MobileHistorySync::Done || state == Sync::MobileHistorySync::Failed) {
+                    refreshPhoneImportedThreads();
                     emit notice(status);
                     releaseFreedMemory();
                 }
             });
     connect(m_historySync, &Sync::MobileHistorySync::messagesImported, this,
-            [this](const QJsonArray& messages, bool isGroup) {
+            [this](const QJsonArray& imported, bool isGroup) {
+                int alreadySaved = 0;
+                QHash<QString, QString> senderFixes;
+                const QJsonArray messages =
+                    m_offlineStore ? Sync::MobileHistorySync::withoutSavedMessages(
+                                         imported,
+                                         m_offlineStore->savedMessageSenders(Sync::MobileHistorySync::messageIdsOf(imported)),
+                                         m_historySync->importingFromV2(), &alreadySaved, &senderFixes)
+                                   : imported;
+                const int sendersFixed = senderFixes.isEmpty() ? 0 : m_offlineStore->correctMessageSenders(senderFixes);
                 const auto before = m_offlineStore ? m_offlineStore->saveStats() : Offline::ZaloOfflineStore::SaveStats{};
                 const QHash<QString, int> dropsBefore = m_ingestDrops;
-                handleIncomingMessages(messages, isGroup, true);
+                if (!messages.isEmpty()) {
+                    m_phoneImporting = true;
+                    handleIncomingMessages(messages, isGroup, true);
+                    m_phoneImporting = false;
+                }
                 QHash<QString, int> dropsDelta;
+                if (alreadySaved > 0) dropsDelta.insert(QStringLiteral("already_saved"), alreadySaved);
+                if (sendersFixed > 0) dropsDelta.insert(QStringLiteral("sender_fixed"), sendersFixed);
                 for (auto it = m_ingestDrops.cbegin(); it != m_ingestDrops.cend(); ++it) {
                     const int d = it.value() - dropsBefore.value(it.key());
                     if (d > 0) dropsDelta.insert(it.key(), d);

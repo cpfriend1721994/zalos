@@ -259,6 +259,7 @@ bool ZaloOfflineStore::initializeDatabase(const QString& customPath) {
     q.exec("CREATE INDEX IF NOT EXISTS idx_messages_conv_cli ON messages(conv_id, cli_msg_id) WHERE cli_msg_id <> '';");
     q.exec("CREATE INDEX IF NOT EXISTS idx_messages_cli ON messages(cli_msg_id) WHERE cli_msg_id <> '';");
     q.exec("CREATE INDEX IF NOT EXISTS idx_messages_expire ON messages(expire_on) WHERE expire_on > 0;");
+    q.exec("CREATE TABLE IF NOT EXISTS sync_checkpoints (partition TEXT PRIMARY KEY, synced_to INTEGER NOT NULL DEFAULT 0);");
 
     q.exec("CREATE TABLE IF NOT EXISTS reactions (msg_id TEXT, uid TEXT, icon TEXT, ts INTEGER DEFAULT 0, "
            "PRIMARY KEY (msg_id, uid));");
@@ -684,6 +685,55 @@ QSet<QString> ZaloOfflineStore::reactedMessageIds() const {
     return out;
 }
 
+QHash<QString, QString> ZaloOfflineStore::savedMessageSenders(const QStringList& ids) const {
+    constexpr int kChunk = 500;
+    QHash<QString, QString> out;
+    if (!m_db.isOpen()) return out;
+    for (int i = 0; i < ids.size(); i += kChunk) {
+        const QStringList chunk = ids.mid(i, kChunk);
+        QStringList marks;
+        marks.reserve(chunk.size());
+        for (int j = 0; j < chunk.size(); ++j) marks << QStringLiteral("?");
+        QSqlQuery q(m_db);
+        q.prepare(QStringLiteral("SELECT id, sender_id FROM messages WHERE id IN (%1);").arg(marks.join(',')));
+        for (const QString& id : chunk) q.addBindValue(id);
+        if (q.exec()) {
+            while (q.next()) out.insert(q.value(0).toString(), q.value(1).toString());
+        }
+    }
+    return out;
+}
+
+int ZaloOfflineStore::correctMessageSenders(const QHash<QString, QString>& senders) {
+    if (!m_db.isOpen() || senders.isEmpty()) return 0;
+    int changed = 0;
+    beginBatch();
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE messages SET sender_id = :sender WHERE id = :id AND is_mine = 0 AND (sender_id IS NULL OR sender_id <> :sender);");
+    QSqlQuery read(m_db);
+    read.prepare("SELECT raw FROM messages WHERE id = :id;");
+    QSqlQuery write(m_db);
+    write.prepare("UPDATE messages SET raw = :raw WHERE id = :id;");
+    for (auto it = senders.cbegin(); it != senders.cend(); ++it) {
+        if (it.value().isEmpty()) continue;
+        q.bindValue(":sender", it.value());
+        q.bindValue(":id", it.key());
+        if (!q.exec() || q.numRowsAffected() <= 0) continue;
+        ++changed;
+        read.bindValue(":id", it.key());
+        if (!read.exec() || !read.next()) continue;
+        QJsonObject raw = decodeRaw(read.value(0));
+        read.finish();
+        if (!raw.contains(QLatin1String("uidFrom"))) continue;
+        raw.insert(QStringLiteral("uidFrom"), it.value());
+        write.bindValue(":raw", encodeRaw(raw));
+        write.bindValue(":id", it.key());
+        write.exec();
+    }
+    endBatch();
+    return changed;
+}
+
 bool ZaloOfflineStore::setMessageReaction(const QString& msgId, const QString& summary) {
     if (!m_db.isOpen() || msgId.isEmpty()) return false;
     QSqlQuery q(m_db);
@@ -723,6 +773,50 @@ bool ZaloOfflineStore::bindOwner(const QString& uid) {
     return !current.isEmpty();
 }
 
+QSet<QString> ZaloOfflineStore::existingMessageIds(const QStringList& ids) {
+    constexpr int kChunk = 500;
+    QSet<QString> found;
+    if (!m_db.isOpen()) return found;
+    for (int start = 0; start < ids.size(); start += kChunk) {
+        const QStringList chunk = ids.mid(start, kChunk);
+        QStringList marks;
+        marks.reserve(chunk.size());
+        for (int i = 0; i < chunk.size(); ++i) marks.append(QStringLiteral("?"));
+        QSqlQuery q(m_db);
+        q.prepare(QStringLiteral("SELECT id FROM messages WHERE id IN (%1);").arg(marks.join(QLatin1Char(','))));
+        for (const QString& id : chunk) q.addBindValue(id);
+        if (!q.exec()) continue;
+        while (q.next()) found.insert(q.value(0).toString());
+    }
+    return found;
+}
+
+QHash<QString, qint64> ZaloOfflineStore::syncCheckpoints() {
+    QHash<QString, qint64> out;
+    if (!m_db.isOpen()) return out;
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral("SELECT partition, synced_to FROM sync_checkpoints;"))) return out;
+    while (q.next()) out.insert(q.value(0).toString(), q.value(1).toLongLong());
+    return out;
+}
+
+bool ZaloOfflineStore::saveSyncCheckpoints(const QHash<QString, qint64>& checkpoints) {
+    if (!m_db.isOpen()) return false;
+    beginBatch();
+    QSqlQuery q(m_db);
+    q.prepare("INSERT INTO sync_checkpoints (partition, synced_to) VALUES (:partition, :ts) "
+              "ON CONFLICT(partition) DO UPDATE SET synced_to = MAX(synced_to, excluded.synced_to);");
+    bool ok = true;
+    for (auto it = checkpoints.cbegin(); it != checkpoints.cend(); ++it) {
+        if (it.key().isEmpty() || it.value() <= 0) continue;
+        q.bindValue(":partition", it.key());
+        q.bindValue(":ts", it.value());
+        ok = q.exec() && ok;
+    }
+    endBatch();
+    return ok;
+}
+
 void ZaloOfflineStore::clearCache() {
     if (!m_db.isOpen()) return;
     resetCachedQueries();
@@ -734,7 +828,7 @@ void ZaloOfflineStore::clearCache() {
     m_ownerUidLoaded = true;
     QSqlQuery q(m_db);
     for (const char* table : {"messages", "reactions", "reaction_events", "unread_reactions", "conversations", "profiles",
-                              "read_points"}) {
+                              "read_points", "sync_checkpoints"}) {
         q.exec(QStringLiteral("DELETE FROM %1;").arg(QLatin1String(table)));
     }
     q.exec("DELETE FROM meta WHERE key NOT IN "

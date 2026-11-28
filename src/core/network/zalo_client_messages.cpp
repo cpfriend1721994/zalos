@@ -624,7 +624,7 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
         }
         const bool alreadySeen = m_messageThread.contains(item.id) || m_recentIds.contains(item.id);
         rememberMessageId(item.id);
-        if (!isThreadResident(threadId) && cacheUsable()) {
+        if (storeOnlyIngest(isThreadResident(threadId), cacheUsable(), m_phoneImporting)) {
             coldThreads[threadId].append(qMakePair(item, msg));
         } else {
             byThread[threadId].append(item);
@@ -701,6 +701,7 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
     }
 
     for (auto it = coldThreads.cbegin(); it != coldThreads.cend(); ++it) {
+        if (m_phoneImporting && isThreadResident(it.key())) m_phoneImportedResident.insert(it.key());
         for (const auto& [item, raw] : it.value()) m_offlineStore->saveMessage(it.key(), item, raw, isGroup);
         m_offlineStore->saveConversation(m_conversationModel->conversation(it.key()));
     }
@@ -1574,6 +1575,16 @@ void ZaloClient::scheduleExpiry() {
     m_expiryTimer->start(int(qBound<qint64>(1000, next - now + 500, 6LL * 60 * 60 * 1000)));
 }
 
+void ZaloClient::refreshPhoneImportedThreads() {
+    const QSet<QString> threads = std::exchange(m_phoneImportedResident, {});
+    for (const QString& thread : threads) {
+        m_cacheMerged.remove(thread);
+        if (thread != m_currentConvId) continue;
+        mergeCachedThread(thread);
+        m_messageModel->loadConversation(thread);
+    }
+}
+
 void ZaloClient::mergeCachedThread(const QString& convId) {
     if (!m_offlineStore || convId.isEmpty() || m_cacheMerged.contains(convId)) return;
     if (m_offlineStore->ownerUid().isEmpty() || m_offlineStore->ownerUid() != (m_myUid.isEmpty() ? m_cachedUid : m_myUid)) {
@@ -1582,17 +1593,30 @@ void ZaloClient::mergeCachedThread(const QString& convId) {
     m_cacheMerged.insert(convId);
     QHash<QString, QJsonObject> raws;
     const auto cached = m_offlineStore->loadMessages(convId, &raws, kCachePageRows);
+    if (cached.isEmpty()) {
+        m_cacheFloor.remove(convId);
+    } else {
+        m_cacheFloor.insert(convId, cached.first().ts);
+    }
     mergeCacheRows(convId, cached, raws);
 }
 
 bool ZaloClient::loadOlderFromCache(const QString& convId) {
     if (!cacheUsable() || !m_cacheMerged.contains(convId)) return false;
-    const qint64 oldest = m_messageModel->oldestTimestamp(convId);
-    if (oldest <= 0) return false;
-    QHash<QString, QJsonObject> raws;
-    const auto rows = m_offlineStore->loadMessages(convId, &raws, kCachePageRows + 1, oldest);
+    qint64 floor = qMax(m_cacheFloor.value(convId), m_messageModel->oldestTimestamp(convId));
+    if (floor <= 0) return false;
     const int before = m_messageModel->threadSize(convId);
-    mergeCacheRows(convId, rows, raws);
+    while (true) {
+        QHash<QString, QJsonObject> raws;
+        const auto rows = m_offlineStore->loadMessages(convId, &raws, kCachePageRows + 1, floor);
+        if (rows.isEmpty()) break;
+        const qint64 next = rows.first().ts;
+        mergeCacheRows(convId, rows, raws);
+        const bool stuck = next >= floor || rows.size() <= kCachePageRows;
+        floor = qMin(floor, next);
+        if (stuck || m_messageModel->threadSize(convId) > before) break;
+    }
+    m_cacheFloor.insert(convId, floor);
     return m_messageModel->threadSize(convId) > before;
 }
 
@@ -1645,6 +1669,10 @@ void ZaloClient::mergeCacheRows(const QString& convId, QVector<Models::MessageIt
             if (!dataUrl.isEmpty()) resolveZInstantBankCard(convId, item.id, dataUrl);
         }
     }
+}
+
+bool ZaloClient::storeOnlyIngest(bool resident, bool cacheUsable, bool phoneImport) {
+    return cacheUsable && (!resident || phoneImport);
 }
 
 bool ZaloClient::cacheUsable() const {

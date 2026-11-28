@@ -264,6 +264,7 @@ public:
     static QList<QPair<int, int>> queuesFromAuth(const QJsonObject& auth);
     static QJsonObject globalIdDecryptParams(const QStringList& globalIds);
     static QHash<QString, QString> globalIdMapOf(const QJsonValue& data);
+    static bool syncV2AckOf(const QJsonObject& frame, QString* reqId, int* err);
     static QJsonObject nextPullPage(const QJsonObject& data, int cmd, int subCmd);
     static QJsonArray readPointsOf(const QJsonObject& data);
     static bool isFailoverError(int networkError, int httpStatus);
@@ -286,6 +287,8 @@ signals:
     void friendEventReceived(const QString& action, const QJsonValue& data);
     void voipControlReceived(const QJsonObject& content);
     void mobileSyncControlReceived(const QJsonObject& content);
+    void syncV2RequestAcked(int err);
+    void syncV2RequestSent();
     void controlReceived(const QString& actType, const QString& act, const QJsonValue& data);
 
 public:
@@ -363,6 +366,7 @@ private:
     int m_wsUrlIndex{0};
     int m_wsReconnectAttempts{0};
     int m_wsRequestId{0};
+    QString m_syncV2ReqId;
     QList<QPair<int, int>> m_serverQueues;
     QList<PendingWsFrame> m_pendingWsFrames;
     QHash<int, int> m_pullPages;
