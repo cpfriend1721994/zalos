@@ -1481,7 +1481,7 @@ Item {
                 Item {
                     id: reactionRow
                     readonly property bool canReact: !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.isPoll
-                                                     && !msgRow.msgId.startsWith("local-") && ZaloClient.isLoggedIn
+                                                     && ZaloClient.isServerMessageId(msgRow.msgId) && ZaloClient.isLoggedIn
                     readonly property real contentEdge: Math.max(
                         bubbleRect.visible ? bubbleRect.x + bubbleRect.width : 0,
                         mediaLoader.visible ? mediaLoader.x + mediaLoader.width : 0,
@@ -1678,7 +1678,7 @@ Item {
     }
 
     ZBoundLoader {
-        active: rowHover.hovered && !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.isPoll && !msgRow.msgId.startsWith("local-")
+        active: rowHover.hovered && !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.isPoll && ZaloClient.isServerMessageId(msgRow.msgId)
         visible: active
         y: bubbleRow.y + (senderNameText.visible ? (senderNameText.height + 4) : 0) + 2
         x: Math.max(8, Math.min(msgRow.width - width - 8,

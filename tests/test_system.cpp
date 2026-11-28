@@ -2179,6 +2179,35 @@ private slots:
         QCOMPARE(outV1.size(), 4);
         QCOMPARE(droppedV1, 1);
         QVERIFY(fixesV1.isEmpty());
+        int droppedLocal = 0;
+        QHash<QString, QString> fixesLocal;
+        const QJsonArray local{QJsonObject{{"msgId", "6003_g-a"}, {"uidFrom", "c"}}};
+        QVERIFY(MobileHistorySync::withoutSavedMessages(local, {{"6003_g-a", "wrong"}}, true, &droppedLocal, &fixesLocal)
+                    .isEmpty());
+        QCOMPARE(droppedLocal, 1);
+        QVERIFY(fixesLocal.isEmpty());
+    }
+
+    void testPhoneLocalIdsAreNotServerMessages() {
+        QVERIFY(ZaloClient::isServerMessageId("7001"));
+        QVERIFY(!ZaloClient::isServerMessageId(""));
+        QVERIFY(!ZaloClient::isServerMessageId("local-1"));
+        QVERIFY(!ZaloClient::isServerMessageId("6003_u-pl-a"));
+        {
+            ZaloOfflineStore owner;
+            owner.clearCache();
+            owner.bindOwner("u-pl-owner");
+        }
+        ZaloClient client;
+        client.openOfflineCacheForTesting("u-pl-owner");
+        auto own = [](const char* id, const char* cli) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", cli}, {"uidFrom", "0"}, {"idTo", "u-pl-a"},
+                               {"msgType", "webchat"}, {"content", "fixture"}, {"ts", "1700000000000"}};
+        };
+        client.selectConversation("u-pl-a", "Fixture", "");
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{own("6003_u-pl-a", "6003"), own("7003", "6004")}, false, false);
+        QVERIFY(client.canRecall("7003"));
+        QVERIFY(!client.canRecall("6003_u-pl-a"));
     }
 
     void testPhoneSyncV2IdsToResolve() {
@@ -2236,12 +2265,15 @@ private slots:
                            ParsedSyncV2Mention{QStringLiteral("enc-peer"), 1, 1, 0},
                            ParsedSyncV2Mention{QStringLiteral("enc-unknown"), 2, 1, 0}};
         conv.rows = {peer, row("7002", "6002", "0"), row("0", "6003", "enc-peer"), row("", "6004", "enc-peer"),
-                     row("7005", "6005", "enc-unknown")};
+                     row("7005", "6005", "enc-unknown"), row("", "", "enc-peer")};
         const QHash<QString, QString> ids{{"enc-group", "g-plain"}, {"enc-peer", "u-peer"}};
         int skipped = 0;
         QHash<QString, int> reasons;
         const QJsonArray out = MobileHistorySync::toMessages(conv, ids, "enc-me", "u-me", &skipped, 0, -1, &reasons, true);
-        QCOMPARE(out.size(), 2);
+        QCOMPARE(out.size(), 4);
+        QCOMPARE(out.at(2).toObject().value("msgId").toString(), QStringLiteral("6003_g-plain"));
+        QCOMPARE(out.at(2).toObject().value("cliMsgId").toString(), QStringLiteral("6003"));
+        QCOMPARE(out.at(3).toObject().value("msgId").toString(), QStringLiteral("6004_g-plain"));
         const QJsonObject a = out.at(0).toObject();
         QCOMPARE(a.value("msgId").toString(), QStringLiteral("7001"));
         QCOMPARE(a.value("uidFrom").toString(), QStringLiteral("u-peer"));
@@ -2254,8 +2286,8 @@ private slots:
         const QJsonObject mine = out.at(1).toObject();
         QCOMPARE(mine.value("msgId").toString(), QStringLiteral("7002"));
         QCOMPARE(mine.value("uidFrom").toString(), QStringLiteral("0"));
-        QCOMPARE(skipped, 3);
-        QCOMPARE(reasons.value("no_global_id"), 2);
+        QCOMPARE(skipped, 2);
+        QCOMPARE(reasons.value("no_global_id"), 1);
         QCOMPARE(reasons.value("no_sender"), 1);
 
         conv.plainId = "enc-missing";

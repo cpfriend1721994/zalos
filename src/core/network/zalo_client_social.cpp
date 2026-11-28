@@ -405,6 +405,7 @@ QVariantList ZaloClient::reactionList() const {
 }
 
 void ZaloClient::reactToMessage(const QString& msgId, const QString& reactionKey) {
+    if (!isServerMessageId(msgId)) return;
     const QJsonObject raw = rawMessage(msgId);
     if (raw.isEmpty() || !m_isLoggedIn) return;
     const ReactionDef* def = nullptr;
@@ -747,7 +748,13 @@ void ZaloClient::refreshReactionSummary(const QString& convId, const QString& ms
     if (m_offlineStore) m_offlineStore->setMessageReaction(msgId, summary);
 }
 
+bool ZaloClient::isServerMessageId(const QString& msgId) {
+    return !msgId.isEmpty() && !msgId.startsWith(QLatin1String("local-"))
+           && !Sync::MobileHistorySync::isPhoneLocalId(msgId);
+}
+
 bool ZaloClient::canRecall(const QString& msgId) const {
+    if (!isServerMessageId(msgId)) return false;
     const QJsonObject raw = rawMessage(msgId);
     if (raw.isEmpty()) return false;
     const QString from = idOf(raw.value("uidFrom"));
@@ -755,6 +762,7 @@ bool ZaloClient::canRecall(const QString& msgId) const {
 }
 
 void ZaloClient::recallMessage(const QString& msgId) {
+    if (!isServerMessageId(msgId)) return;
     const QJsonObject raw = rawMessage(msgId);
     if (raw.isEmpty() || !m_isLoggedIn) return;
     const QString convId = threadOfMessage(msgId);

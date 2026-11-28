@@ -854,6 +854,7 @@ public:
     Q_INVOKABLE void loadSystemSoundsAsync();
     QVariantList cachedSystemSounds() const { return m_cachedSystemSounds; }
     Q_INVOKABLE bool canRecall(const QString& msgId) const;
+    Q_INVOKABLE static bool isServerMessageId(const QString& msgId);
     Q_INVOKABLE void recallMessage(const QString& msgId);
     Q_INVOKABLE void deleteMessageForMe(const QString& msgId);
     Q_INVOKABLE void copyText(const QString& text);

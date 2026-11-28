@@ -388,6 +388,14 @@ QVector<MobileHistorySync::BackupConversation> MobileHistorySync::readBackupDire
     return out;
 }
 
+QString MobileHistorySync::phoneLocalId(const QString& cliMsgId, const QString& thread) {
+    return cliMsgId + QLatin1Char('_') + thread;
+}
+
+bool MobileHistorySync::isPhoneLocalId(const QString& msgId) {
+    return msgId.contains(QLatin1Char('_'));
+}
+
 QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const QHash<QString, QString>& ids,
                                          const QString& myPlainUid, const QString& myNoisedUid, int* skipped,
                                          int startRow, int maxRows, QHash<QString, int>* reasons, bool v2Rows) {
@@ -447,11 +455,14 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
         const Crypto::BinNetMessage& bin = row.hasParsedBin ? row.parsedBin : fallbackBin;
         const QString type = typeName(row.msgType);
         const bool noGlobalId = row.globalMsgId.isEmpty() || row.globalMsgId == "0";
-        if (v2Rows && noGlobalId) {
+        const bool noCliId = row.cliMsgId.isEmpty() || row.cliMsgId == QLatin1String("0");
+        if (v2Rows && noGlobalId && noCliId) {
             skipRow(QStringLiteral("no_global_id"));
             continue;
         }
-        const QString rowMsgId = noGlobalId ? row.cliMsgId : row.globalMsgId;
+        const QString rowMsgId = !noGlobalId ? row.globalMsgId
+                                 : v2Rows   ? phoneLocalId(row.cliMsgId, thread)
+                                            : row.cliMsgId;
         auto jsonObjectOf = [](const QString& raw) {
             const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
             return doc.isObject() ? doc.object() : QJsonObject();
@@ -1935,7 +1946,7 @@ QJsonArray MobileHistorySync::withoutSavedMessages(const QJsonArray& messages,
         }
         if (dropped) ++*dropped;
         const QString sender = msg.value("uidFrom").toVariant().toString();
-        if (sendersTrusted && senderFixes && !sender.isEmpty() && sender != QLatin1String("0") && sender != saved.value()) {
+        if (sendersTrusted && senderFixes && !isPhoneLocalId(id) && !sender.isEmpty() && sender != QLatin1String("0") && sender != saved.value()) {
             senderFixes->insert(id, sender);
         }
     }
