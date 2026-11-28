@@ -2082,31 +2082,124 @@ void ZaloClient::deleteQuickMessage(qint64 id) {
     });
 }
 
-void ZaloClient::loadServerSettings() {
-    if (!m_isLoggedIn) return;
-    m_apiClient->session()->getSettings([this](bool ok, const QJsonValue& data, const QString&, int) {
-        if (!ok) return;
-        const QJsonObject o = data.toObject();
-        if (o.isEmpty()) return;
-        for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
-            const QJsonValue v = it.value();
-            if (v.isBool()) m_serverSettings[it.key()] = v.toBool() ? 1 : 0;
-            else if (v.isDouble()) m_serverSettings[it.key()] = v.toInt();
+namespace {
+
+bool parseSettingScalar(const QJsonValue& v, int& out) {
+    if (v.isBool()) {
+        out = v.toBool() ? 1 : 0;
+        return true;
+    }
+    if (v.isDouble()) {
+        out = v.toInt();
+        return true;
+    }
+    if (v.isString()) {
+        const QString s = v.toString().trimmed();
+        if (s.compare(QLatin1String("true"), Qt::CaseInsensitive) == 0) {
+            out = 1;
+            return true;
         }
-        emit serverSettingsChanged();
+        if (s.compare(QLatin1String("false"), Qt::CaseInsensitive) == 0) {
+            out = 0;
+            return true;
+        }
+        bool intOk = false;
+        const int n = s.toInt(&intOk);
+        if (intOk) {
+            out = n;
+            return true;
+        }
+    }
+    return false;
+}
+
+QJsonObject toSettingsObject(const QJsonValue& value) {
+    if (value.isObject()) return value.toObject();
+    if (value.isString()) {
+        const QJsonDocument doc = QJsonDocument::fromJson(value.toString().toUtf8());
+        if (doc.isObject()) return doc.object();
+    }
+    return {};
+}
+
+void collectServerSettings(const QJsonObject& obj, QHash<QString, int>& out, int depth) {
+    if (obj.isEmpty() || depth > 2) return;
+    if (obj.contains(QLatin1String("data"))) {
+        const QJsonObject inner = toSettingsObject(obj.value(QLatin1String("data")));
+        if (!inner.isEmpty()) {
+            collectServerSettings(inner, out, depth + 1);
+        }
+    }
+    // Zalo's /api/setting/me wraps account privacy flags inside nested objects
+    // (primarily "setting" and "setting2"); collect nested containers first so
+    // explicit top-level or "setting" keys remain authoritative.
+    for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
+        const QString& key = it.key();
+        if (key == QLatin1String("data") || key == QLatin1String("setting")
+            || key == QLatin1String("settings") || key == QLatin1String("setting2")) {
+            continue;
+        }
+        if (it.value().isObject()) {
+            collectServerSettings(it.value().toObject(), out, depth + 1);
+        }
+    }
+    for (const char* nestedKey : {"setting2", "settings", "setting"}) {
+        const QLatin1String key(nestedKey);
+        if (!obj.contains(key)) continue;
+        const QJsonObject nested = toSettingsObject(obj.value(key));
+        if (!nested.isEmpty()) {
+            collectServerSettings(nested, out, depth + 1);
+        }
+    }
+    for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
+        int val = 0;
+        if (parseSettingScalar(it.value(), val)) {
+            out[it.key()] = val;
+        }
+    }
+}
+
+}
+
+void ZaloClient::applyServerSettings(const QJsonValue& data) {
+    const QJsonObject root = toSettingsObject(data);
+    if (root.isEmpty()) return;
+    QHash<QString, int> parsed;
+    collectServerSettings(root, parsed, 0);
+    if (parsed.isEmpty()) return;
+    for (auto it = parsed.constBegin(); it != parsed.constEnd(); ++it) {
+        m_serverSettings[it.key()] = it.value();
+    }
+    emit serverSettingsChanged();
+}
+
+void ZaloClient::loadServerSettings() {
+    if (!m_isLoggedIn || !m_apiClient || !m_apiClient->session()) return;
+    QPointer<ZaloClient> self(this);
+    m_apiClient->session()->getSettings([self](bool ok, const QJsonValue& data, const QString& error, int code) {
+        if (!self || !self->m_isLoggedIn) return;
+        if (!ok) {
+            qWarning() << "[ZaloClient] loadServerSettings failed:" << code << error;
+            return;
+        }
+        self->applyServerSettings(data);
     });
 }
 
 void ZaloClient::setServerSetting(const QString& type, int value) {
-    if (!m_isLoggedIn || type.isEmpty()) return;
-    const int previous = m_serverSettings.value(type, value);
+    if (!m_isLoggedIn || type.isEmpty() || !m_apiClient || !m_apiClient->session()) return;
+    const bool hadPrevious = m_serverSettings.contains(type);
+    const int previous = m_serverSettings.value(type);
     m_serverSettings[type] = value;
     emit serverSettingsChanged();
-    m_apiClient->session()->updateSetting(type, value, [this, type, previous](bool ok, const QJsonValue&, const QString& error, int) {
+    QPointer<ZaloClient> self(this);
+    m_apiClient->session()->updateSetting(type, value, [self, type, hadPrevious, previous](bool ok, const QJsonValue&, const QString& error, int) {
+        if (!self) return;
         if (ok) return;
-        m_serverSettings[type] = previous;
-        emit serverSettingsChanged();
-        emit notice(L("Không thể cập nhật cài đặt: ", "Couldn't update setting: ") + friendlyError(error));
+        if (hadPrevious) self->m_serverSettings[type] = previous;
+        else self->m_serverSettings.remove(type);
+        emit self->serverSettingsChanged();
+        emit self->notice(self->L("Không thể cập nhật cài đặt: ", "Couldn't update setting: ") + self->friendlyError(error));
     });
 }
 

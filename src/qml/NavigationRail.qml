@@ -229,7 +229,7 @@ Rectangle {
                 size: root.compact ? 36 : 44
                 avatarUrl: ZaloClient.currentUserAvatar
                 name: ZaloClient.currentUserName
-                isOnline: ZaloClient.isConnected
+                isOnline: ZaloClient.isConnected && ZaloClient.showOnlineStatus
                 showStatusDot: true
             }
 

@@ -738,6 +738,7 @@ public:
         m_contactModel->setOnlineIds(ids);
         emit conversationStatusChanged();
     }
+    void applyServerSettingsForTesting(const QJsonValue& data) { applyServerSettings(data); }
 #endif
 
     Q_INVOKABLE QVariantList groupMembers(const QString& groupId);
@@ -764,7 +765,10 @@ public:
     bool addFriendViaQr() const { return m_serverSettings.value("add_friend_via_qr", 1) != 0; }
     bool addFriendViaGroup() const { return m_serverSettings.value("add_friend_via_group", 1) != 0; }
     bool receiveStrangerMessage() const { return m_serverSettings.value("receive_message", 1) == 1; }
-    bool acceptStrangerCall() const { return m_serverSettings.value("accept_stranger_call", 3) == 3; }
+    bool acceptStrangerCall() const {
+        const int v = m_serverSettings.value("accept_stranger_call", 3);
+        return v != 0 && v != 2;
+    }
     int viewBirthday() const { return m_serverSettings.value("view_birthday", 1); }
     bool kikiAvailable() const;
     QString kikiUrl() const;
@@ -1399,6 +1403,7 @@ private:
     QString pollErrorText(const QString& prefix, const QString& err, int code) const;
     QVariantList m_quickMessages;
     QHash<QString, int> m_serverSettings;
+    void applyServerSettings(const QJsonValue& data);
     QVariantList m_reminders;
     QString m_remindersConvId;
     bool m_loadingReminders{false};
